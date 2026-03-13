@@ -1,0 +1,10 @@
+{"textDocument": {"uri": "file:///tests/interactive/commandNoLeak.lean"},
+ "text": "def temp : Nat := 7",
+ "position": {"line": 0, "character": 2}}
+{"traces": [], "success": true, "messages": []}
+{"textDocument": {"uri": "file:///tests/interactive/commandNoLeak.lean"},
+ "text": "#check temp",
+ "position": {"line": 0, "character": 2}}
+{"traces": [],
+ "success": false,
+ "messages": [{"text": "Unknown identifier `temp`", "severity": "error"}]}

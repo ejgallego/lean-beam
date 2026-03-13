@@ -1,0 +1,7 @@
+interface:
+  display_name: "Rocq RunAt"
+  short_description: "Direct Rocq proof-state access"
+  default_prompt: "Use $rocq-runat on an external Rocq project for isolated on-disk goal probes through coq-lsp via runat; save before probing and do not assume hidden cross-request proof state or unsaved-buffer access."
+
+policy:
+  allow_implicit_invocation: true

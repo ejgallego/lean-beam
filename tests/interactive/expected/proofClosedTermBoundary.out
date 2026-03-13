@@ -1,0 +1,15 @@
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofClosedTermBoundary.lean"},
+ "text": "exact trivial",
+ "position": {"line": 0, "character": 38}}
+{"traces": [],
+ "success": false,
+ "proofState": {"goals": []},
+ "messages": [{"text": "No goals to be solved", "severity": "error"}]}
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofClosedTermBoundary.lean"},
+ "text": "exact trivial",
+ "position": {"line": 3, "character": 39}}
+{"traces": [],
+ "success": false,
+ "messages": [{"text": "<runAt>:1:0: expected command", "severity": "error"}]}

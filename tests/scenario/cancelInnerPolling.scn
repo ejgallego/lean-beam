@@ -1,0 +1,15 @@
+# Inner runAt cancellation should propagate into isolated command/proof execution.
+open slow {"path":"docs/SlowPoll.lean"}
+sync slow
+
+send rcmd runAt slow {"line":25,"character":2,"text":"poll_sleep_cmd"}
+cancel rcmd
+await rcmd
+expect_error rcmd {"code":"requestCancelled"}
+
+send rproof runAt slow {"line":28,"character":2,"text":"poll_sleep_tac"}
+cancel rproof
+await rproof
+expect_error rproof {"code":"requestCancelled"}
+
+close slow

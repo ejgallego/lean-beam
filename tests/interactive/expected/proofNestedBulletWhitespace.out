@@ -1,0 +1,5 @@
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofNestedBulletWhitespace.lean"},
+ "text": "exact trivial",
+ "position": {"line": 3, "character": 7}}
+{"traces": [], "success": true, "proofState": {"goals": []}, "messages": []}

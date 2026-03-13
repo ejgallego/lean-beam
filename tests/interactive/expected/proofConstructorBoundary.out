@@ -1,0 +1,33 @@
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
+ "text": "constructor",
+ "position": {"line": 2, "character": 2}}
+{"traces": [],
+ "success": true,
+ "proofState":
+ {"goals":
+  [{"userName": "left", "target": "True", "hyps": [], "goalPrefix": "⊢ "},
+   {"userName": "right", "target": "True", "hyps": [], "goalPrefix": "⊢ "}]},
+ "messages": []}
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
+ "text": "exact trivial",
+ "position": {"line": 2, "character": 2}}
+{"traces": [],
+ "success": false,
+ "proofState":
+ {"goals": [{"target": "True ∧ True", "hyps": [], "goalPrefix": "⊢ "}]},
+ "messages":
+ [{"text":
+   "Type mismatch\n  trivial\nhas type\n  True\nbut is expected to have type\n  True ∧ True",
+   "severity": "error"}]}
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
+ "text": "exact trivial",
+ "position": {"line": 2, "character": 13}}
+{"traces": [],
+ "success": true,
+ "proofState":
+ {"goals":
+  [{"userName": "right", "target": "True", "hyps": [], "goalPrefix": "⊢ "}]},
+ "messages": []}

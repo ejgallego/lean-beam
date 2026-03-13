@@ -1,0 +1,4 @@
+{"textDocument": {"uri": "file:///tests/interactive/proofBulletComment.lean"},
+ "text": "exact trivial",
+ "position": {"line": 2, "character": 5}}
+{"traces": [], "success": true, "proofState": {"goals": []}, "messages": []}

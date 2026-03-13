@@ -1,0 +1,41 @@
+# Multiple in-flight requests across documents with mixed outcomes.
+open proofA {"path":"docs/SimpleProof.lean"}
+open proofB {"path":"docs/SimpleProofB.lean"}
+open slowA {"path":"docs/SlowClose.lean"}
+open slowB {"path":"docs/SlowCloseB.lean"}
+open cmdA {"path":"docs/CommandA.lean"}
+open cmdB {"path":"docs/CommandB.lean"}
+
+send rA1 runAt proofA {"line":1,"character":2,"text":"exact trivial"}
+send rA2 runAt proofA {"line":1,"character":2,"text":"exact trivial"}
+send rB1 runAt proofB {"line":1,"character":2,"text":"exact trivial"}
+send rS1 runAt slowA {"line":8,"character":2,"text":"exact trivial"}
+send rS2 runAt slowB {"line":8,"character":2,"text":"exact trivial"}
+send rC1 runAt cmdA {"line":0,"character":2,"text":"#check Nat"}
+send rC2 runAt cmdB {"line":0,"character":2,"text":"#check Nat"}
+
+change proofA {"line":0,"character":0,"delete":"","insert":" "}
+sync proofA
+cancel rS1
+close slowB
+
+await rC1
+expect_response rC1 {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+await rC2
+expect_response rC2 {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+await rA1
+expect_error rA1 {"code":"contentModified"}
+await rA2
+expect_error rA2 {"code":"contentModified"}
+await rB1
+expect_response rB1 {"success":true,"proofState":{"goals":[]}}
+await rS1
+expect_error rS1 {"code":"requestCancelled"}
+await rS2
+expect_error rS2 {"code":"contentModified"}
+
+close proofA
+close proofB
+close slowA
+close cmdA
+close cmdB

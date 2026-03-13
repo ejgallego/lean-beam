@@ -1,0 +1,6 @@
+{"textDocument": {"uri": "file:///tests/interactive/commandBasis.lean"},
+ "text": "#check Nat",
+ "position": {"line": 0, "character": 2}}
+{"traces": [],
+ "success": true,
+ "messages": [{"text": "Nat : Type", "severity": "information"}]}

@@ -1,0 +1,6 @@
+{"textDocument": {"uri": "file:///tests/interactive/commandOutput.lean"},
+ "text": "#eval 1 + 1",
+ "position": {"line": 0, "character": 2}}
+{"traces": [],
+ "success": true,
+ "messages": [{"text": "2", "severity": "information"}]}

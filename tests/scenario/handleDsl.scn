@@ -1,0 +1,24 @@
+# Handle flow via the text scenario DSL.
+open poll {"path":"docs/SlowPoll.lean"}
+sync poll
+
+watch_change {"path":"docs/CommandA.lean"}
+
+send direct runAt poll {"line":28,"character":2,"text":"custom_trivial"}
+await direct
+expect_response direct {"success":true,"proofState":{"goals":[]}}
+
+send mint runAt poll {"line":28,"character":2,"text":"change True","storeHandle":true}
+await_handle h0 mint
+
+send ok runWith poll h0 {"text":"custom_trivial"}
+await ok
+expect_response ok {"success":true,"proofState":{"goals":[]}}
+
+release_handle poll h0
+
+send bad runWith poll h0 {"text":"custom_trivial"}
+await bad
+expect_error bad {"code":"invalidParams"}
+
+close poll

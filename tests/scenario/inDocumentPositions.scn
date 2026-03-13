@@ -1,0 +1,16 @@
+# In-document boundary positions that should still recover a command basis.
+open blank {"path":"docs/CommandBlankLineDoc.lean"}
+open ws {"path":"docs/CommandWhitespaceLineDoc.lean"}
+open comment {"path":"docs/CommandCommentLineDoc.lean"}
+send rblank runAt blank {"line":1,"character":0,"text":"#check Nat"}
+send rws runAt ws {"line":1,"character":2,"text":"#check Nat"}
+send rcomment runAt comment {"line":1,"character":0,"text":"#check Nat"}
+await rblank
+expect_response rblank {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+await rws
+expect_response rws {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+await rcomment
+expect_response rcomment {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+close blank
+close ws
+close comment

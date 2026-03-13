@@ -1,0 +1,30 @@
+# Non-linear handle branching from a nested proof split.
+open branch {"path":"docs/NestedBranchProof.lean"}
+open cmd {"path":"docs/CommandA.lean"}
+
+send mint runAt branch {"line":0,"character":39,"text":"constructor","storeHandle":true}
+await_handle h0 mint
+
+send split runWith branch h0 {"text":"constructor","storeHandle":true}
+await_handle h1 split
+
+send left runWith branch h1 {"text":"exact trivial","storeHandle":true}
+send right runWith branch h1 {"text":"exact trivial"}
+
+await_handle h2 left
+await right
+expect_response right {"success":true}
+
+send final runWith branch h2 {"text":"exact trivial","storeHandle":true}
+await_handle h3 final
+
+send done runWith branch h3 {"text":"exact trivial"}
+await done
+expect_response done {"success":true,"proofState":{"goals":[]}}
+
+send wrong runWith cmd h1 {"text":"#check Nat"}
+await wrong
+expect_error wrong {"code":"invalidParams"}
+
+close branch
+close cmd

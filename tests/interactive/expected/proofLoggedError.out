@@ -1,0 +1,8 @@
+{"textDocument": {"uri": "file:///tests/interactive/proofLoggedError.lean"},
+ "text": "rename_i h",
+ "position": {"line": 2, "character": 2}}
+{"traces": [],
+ "success": false,
+ "proofState": {"goals": [{"target": "True", "hyps": [], "goalPrefix": "⊢ "}]},
+ "messages":
+ [{"text": "too many variable names provided", "severity": "error"}]}

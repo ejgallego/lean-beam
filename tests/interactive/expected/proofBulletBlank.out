@@ -1,0 +1,7 @@
+{"textDocument": {"uri": "file:///tests/interactive/proofBulletBlank.lean"},
+ "text": "exact trivial",
+ "position": {"line": 2, "character": 5}}
+{"error":
+ {"message":
+  "position (2, 5) is outside the document: character 5 is beyond max character 3 for line 2",
+  "code": "invalidParams"}}

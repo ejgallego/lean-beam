@@ -1,0 +1,1445 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+runat_script="$PWD/scripts/runat"
+search_helper="$PWD/scripts/runat-lean-search"
+client="$PWD/.lake/build/bin/runAt-cli-client"
+repo_root="$PWD"
+
+if [ ! -x "$runat_script" ]; then
+  echo "missing runat wrapper at $runat_script" >&2
+  exit 1
+fi
+
+if [ ! -x "$search_helper" ]; then
+  echo "missing runat lean search helper at $search_helper" >&2
+  exit 1
+fi
+
+if [ ! -x "$client" ]; then
+  echo "missing CLI client at $client" >&2
+  exit 1
+fi
+
+read_json_field() {
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+value = data
+for part in sys.argv[2].split("."):
+    if isinstance(value, list):
+        value = value[int(part)]
+    else:
+        value = value[part]
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is None:
+    print("")
+else:
+    print(value)
+PY
+}
+
+read_json_text_field() {
+  python3 - "$1" <<'PY'
+import json, os, sys
+payload = json.loads(os.environ["RUNAT_JSON_PAYLOAD"])
+path = sys.argv[1]
+if path == "ok" and "ok" not in payload:
+    print("false" if payload.get("error") is not None else "true")
+    raise SystemExit(0)
+value = payload
+try:
+    for part in path.split("."):
+        if isinstance(value, list):
+            value = value[int(part)]
+        else:
+            value = value[part]
+except (KeyError, IndexError, ValueError, TypeError):
+    print("")
+    raise SystemExit(0)
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif value is None:
+    print("")
+else:
+    print(value)
+PY
+}
+
+read_json_array_len() {
+  python3 - "$1" <<'PY'
+import json, os, sys
+payload = json.loads(os.environ["RUNAT_JSON_PAYLOAD"])
+value = payload
+for part in sys.argv[1].split("."):
+    if isinstance(value, list):
+        value = value[int(part)]
+    else:
+        value = value[part]
+print(len(value))
+PY
+}
+
+expect_file() {
+  if [ ! -f "$1" ]; then
+    echo "missing expected file: $1" >&2
+    exit 1
+  fi
+}
+
+wait_for_exit() {
+  local pid="$1"
+  local label="$2"
+  local tries="${3:-40}"
+  local delay="${4:-0.5}"
+  local i
+  for i in $(seq 1 "$tries"); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  echo "timed out waiting for $label (pid $pid) to exit" >&2
+  return 1
+}
+
+tmp1="$(mktemp -d /tmp/runat-wrapper-a-XXXXXX)"
+tmp2="$(mktemp -d /tmp/runat-wrapper-b-XXXXXX)"
+tmp3="$(mktemp -d /tmp/runat-wrapper-c-XXXXXX)"
+tmp4="$(mktemp -d /tmp/runat-wrapper-d-XXXXXX)"
+tmp5="$(mktemp -d /tmp/runat-wrapper-e-XXXXXX)"
+tmp6="$(mktemp -d /tmp/runat-wrapper-f-XXXXXX)"
+tmp7="$(mktemp -d /tmp/runat-wrapper-g-XXXXXX)"
+tmp8="$(mktemp -d /tmp/runat-wrapper-h-XXXXXX)"
+tmp9="$(mktemp -d /tmp/runat-wrapper-i-XXXXXX)"
+busy_pid=""
+
+cleanup() {
+  if [ -n "$busy_pid" ]; then
+    kill "$busy_pid" > /dev/null 2>&1 || true
+    wait "$busy_pid" 2>/dev/null || true
+  fi
+  "$runat_script" --root "$repo_root" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp1" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp4" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp5" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp6" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp7" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp8" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$tmp9" shutdown > /dev/null 2>&1 || true
+  rm -rf "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9"
+}
+trap cleanup EXIT
+
+for tmp in "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9"; do
+  rsync -a tests/save_olean_project/ "$tmp"/
+  rm -rf "$tmp/.runat"
+  mkdir -p "$tmp/.runat"
+done
+
+(
+  cd "$tmp1"
+  "$runat_script" ensure lean > /dev/null
+)
+
+reg1="$tmp1/.runat/cli-daemon.json"
+expect_file "$reg1"
+
+pid1="$(read_json_field "$reg1" pid)"
+port1="$(read_json_field "$reg1" port)"
+root1="$(read_json_field "$reg1" root)"
+client1="$(read_json_field "$reg1" clientBin 2>/dev/null || true)"
+if [ -z "$client1" ]; then
+  client1="$client"
+fi
+if [ "$root1" != "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$tmp1")" ]; then
+  echo "wrapper registry root mismatch: expected $tmp1, got $root1" >&2
+  exit 1
+fi
+if ! kill -0 "$pid1" 2>/dev/null; then
+  echo "expected CLI daemon pid $pid1 to be alive" >&2
+  exit 1
+fi
+
+(
+  cd "$tmp1"
+  "$runat_script" ensure lean > /dev/null
+  cmd_err="$(mktemp /tmp/runat-wrapper-progress-XXXXXX)"
+  cmd_out="$(RUNAT_PROGRESS=1 "$runat_script" lean-run-at CommandA.lean 0 2 "#check answerA" 2>"$cmd_err")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper lean-run-at to succeed" >&2
+    printf '%s\n' "$cmd_out" >&2
+    cat "$cmd_err" >&2
+    rm -f "$cmd_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field result.success)" != "true" ]; then
+    echo "expected wrapper lean-run-at payload success" >&2
+    printf '%s\n' "$cmd_out" >&2
+    cat "$cmd_err" >&2
+    rm -f "$cmd_err"
+    exit 1
+  fi
+  run_at_progress_done="$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field fileProgress.done)"
+  if [ "$run_at_progress_done" != "true" ] && [ "$run_at_progress_done" != "false" ]; then
+    echo "expected wrapper lean-run-at to expose top-level fileProgress" >&2
+    printf '%s\n' "$cmd_out" >&2
+    cat "$cmd_err" >&2
+    rm -f "$cmd_err"
+    exit 1
+  fi
+  if ! grep -q 'waiting for a ready Lean snapshot' "$cmd_err"; then
+    echo "expected wrapper lean-run-at progress stderr output" >&2
+    cat "$cmd_err" >&2
+    rm -f "$cmd_err"
+    exit 1
+  fi
+  if ! grep -q 'snapshot progress' "$cmd_err"; then
+    echo "expected wrapper lean-run-at forwarded CLI daemon progress stderr output" >&2
+    cat "$cmd_err" >&2
+    rm -f "$cmd_err"
+    exit 1
+  fi
+  if ! grep -q 'lean-run-at complete' "$cmd_err"; then
+    echo "expected wrapper lean-run-at completion stderr output" >&2
+    cat "$cmd_err" >&2
+    rm -f "$cmd_err"
+    exit 1
+  fi
+  rm -f "$cmd_err"
+  stats_out="$("$runat_script" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper stats to succeed" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  run_at_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.run_at.count)"
+  if [ "${run_at_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one run_at request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  hover_out="$("$runat_script" lean-hover CommandA.lean 0 4)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$hover_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper lean-hover probe to succeed" >&2
+    printf '%s\n' "$hover_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$hover_out" | grep -q 'answerA : Nat'; then
+    echo "expected wrapper lean-hover probe to expose answerA type information" >&2
+    printf '%s\n' "$hover_out" >&2
+    exit 1
+  fi
+  goals_prev_out="$("$runat_script" lean-goals-prev GoalSmoke.lean 1 2)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$goals_prev_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper lean-goals-prev probe to succeed" >&2
+    printf '%s\n' "$goals_prev_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$goals_prev_out" read_json_text_field result.goals.0.target)" != "True" ]; then
+    echo "expected wrapper lean-goals-prev probe to expose the open True goal" >&2
+    printf '%s\n' "$goals_prev_out" >&2
+    exit 1
+  fi
+  goals_after_out="$("$runat_script" lean-goals-after GoalSmoke.lean 1 2)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$goals_after_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper lean-goals-after probe to succeed" >&2
+    printf '%s\n' "$goals_after_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$goals_after_out" read_json_array_len result.goals)" != "0" ]; then
+    echo "expected wrapper lean-goals-after probe to expose no remaining goals" >&2
+    printf '%s\n' "$goals_after_out" >&2
+    exit 1
+  fi
+  stats_out="$("$runat_script" stats)"
+  request_at_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.request_at.count)"
+  if [ "${request_at_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one request_at-backed hover request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  goals_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.goals.count)"
+  if [ "${goals_count:-0}" -lt 2 ]; then
+    echo "expected wrapper stats to record at least two goals requests" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/references -)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$references_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper lean-request-at references probe from stdin json to succeed" >&2
+    printf '%s\n' "$references_out" >&2
+    exit 1
+  fi
+  unsupported_err="$(mktemp /tmp/runat-wrapper-request-at-unsupported-XXXXXX)"
+  if "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/completion '{}' >"$unsupported_err" 2>&1; then
+    echo "expected wrapper lean-request-at to reject unsupported methods" >&2
+    cat "$unsupported_err" >&2
+    rm -f "$unsupported_err"
+    exit 1
+  fi
+  if ! grep -q "does not support 'textDocument/completion'" "$unsupported_err"; then
+    echo "expected unsupported request_at method error message" >&2
+    cat "$unsupported_err" >&2
+    rm -f "$unsupported_err"
+    exit 1
+  fi
+  rm -f "$unsupported_err"
+  params_doc_err="$(mktemp /tmp/runat-wrapper-request-at-textDocument-XXXXXX)"
+  if "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"textDocument":{"uri":"file:///tmp/nope.lean"}}' >"$params_doc_err" 2>&1; then
+    echo "expected wrapper lean-request-at to reject user-supplied textDocument" >&2
+    cat "$params_doc_err" >&2
+    rm -f "$params_doc_err"
+    exit 1
+  fi
+  if ! grep -q "'params' must not include 'textDocument'" "$params_doc_err"; then
+    echo "expected request_at textDocument override rejection message" >&2
+    cat "$params_doc_err" >&2
+    rm -f "$params_doc_err"
+    exit 1
+  fi
+  rm -f "$params_doc_err"
+  params_pos_err="$(mktemp /tmp/runat-wrapper-request-at-position-XXXXXX)"
+  if "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"position":{"line":99,"character":0}}' >"$params_pos_err" 2>&1; then
+    echo "expected wrapper lean-request-at to reject user-supplied position" >&2
+    cat "$params_pos_err" >&2
+    rm -f "$params_pos_err"
+    exit 1
+  fi
+  if ! grep -q "'params' must not include 'position'" "$params_pos_err"; then
+    echo "expected request_at position override rejection message" >&2
+    cat "$params_pos_err" >&2
+    rm -f "$params_pos_err"
+    exit 1
+  fi
+  rm -f "$params_pos_err"
+)
+
+pid1_repeat="$(read_json_field "$reg1" pid)"
+port1_repeat="$(read_json_field "$reg1" port)"
+if [ "$pid1" != "$pid1_repeat" ] || [ "$port1" != "$port1_repeat" ]; then
+  echo "wrapper unexpectedly restarted the CLI daemon for the same project" >&2
+  exit 1
+fi
+
+(
+  cd "$repo_root"
+  "$runat_script" --root "$repo_root" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$repo_root" ensure lean > /dev/null
+  interrupt_out="$(mktemp /tmp/runat-wrapper-interrupt-out-XXXXXX)"
+  interrupt_err="$(mktemp /tmp/runat-wrapper-interrupt-err-XXXXXX)"
+  interrupt_status="$(python3 - "$runat_script" "$repo_root" "$interrupt_out" "$interrupt_err" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+runat_script, repo_root, out_path, err_path = sys.argv[1:]
+env = os.environ.copy()
+env["RUNAT_PROGRESS"] = "1"
+env["RUNAT_REQUEST_ID"] = "wrapper-sigint"
+
+with open(out_path, "wb") as out, open(err_path, "wb") as err:
+    proc = subprocess.Popen(
+        [
+            runat_script,
+            "--root",
+            repo_root,
+            "lean-run-at",
+            "tests/scenario/docs/SlowPoll.lean",
+            "25",
+            "2",
+            "poll_sleep_cmd",
+        ],
+        stdout=out,
+        stderr=err,
+        env=env,
+    )
+    time.sleep(1.0)
+    proc.send_signal(signal.SIGINT)
+    try:
+        rc = proc.wait(timeout=15.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        print("timeout")
+        raise SystemExit(2)
+
+print(rc)
+PY
+)"
+  if [ "$interrupt_status" = "timeout" ]; then
+    cat "$interrupt_out" >&2
+    cat "$interrupt_err" >&2
+    rm -f "$interrupt_out" "$interrupt_err"
+    exit 1
+  fi
+  if [ "$interrupt_status" = "0" ]; then
+    echo "expected wrapper lean-run-at SIGINT path to exit non-zero after broker cancellation" >&2
+    cat "$interrupt_out" >&2
+    cat "$interrupt_err" >&2
+    rm -f "$interrupt_out" "$interrupt_err"
+    exit 1
+  fi
+  interrupt_json="$(cat "$interrupt_out")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$interrupt_json" read_json_text_field error.code)" != "requestCancelled" ]; then
+    echo "expected wrapper SIGINT path to report requestCancelled" >&2
+    printf '%s\n' "$interrupt_json" >&2
+    cat "$interrupt_err" >&2
+    rm -f "$interrupt_out" "$interrupt_err"
+    exit 1
+  fi
+  if ! grep -q 'requesting broker cancellation' "$interrupt_err"; then
+    echo "expected wrapper SIGINT path to log broker cancellation on stderr" >&2
+    cat "$interrupt_err" >&2
+    rm -f "$interrupt_out" "$interrupt_err"
+    exit 1
+  fi
+  post_interrupt_hover="$("$runat_script" --root "$repo_root" lean-hover tests/scenario/docs/CommandA.lean 0 4)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$post_interrupt_hover" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper SIGINT cancellation to preserve the repo CLI daemon session" >&2
+    printf '%s\n' "$post_interrupt_hover" >&2
+    rm -f "$interrupt_out" "$interrupt_err"
+    exit 1
+  fi
+  rm -f "$interrupt_out" "$interrupt_err"
+  "$runat_script" --root "$repo_root" shutdown > /dev/null 2>&1 || true
+)
+
+(
+  cd "$repo_root"
+  "$runat_script" --root "$repo_root" shutdown > /dev/null 2>&1 || true
+  "$runat_script" --root "$repo_root" ensure lean > /dev/null
+  duplicate_slow_out="$(mktemp /tmp/runat-wrapper-duplicate-slow-out-XXXXXX)"
+  duplicate_slow_err="$(mktemp /tmp/runat-wrapper-duplicate-slow-err-XXXXXX)"
+  duplicate_out="$(mktemp /tmp/runat-wrapper-duplicate-out-XXXXXX)"
+  duplicate_err="$(mktemp /tmp/runat-wrapper-duplicate-err-XXXXXX)"
+  RUNAT_PROGRESS=1 RUNAT_REQUEST_ID=wrapper-duplicate-active \
+    "$runat_script" --root "$repo_root" lean-run-at tests/scenario/docs/SlowPoll.lean 25 2 "poll_sleep_cmd" \
+    >"$duplicate_slow_out" 2>"$duplicate_slow_err" &
+  duplicate_slow_pid=$!
+  sleep 1
+  if RUNAT_REQUEST_ID=wrapper-duplicate-active \
+      "$runat_script" --root "$repo_root" lean-hover tests/scenario/docs/CommandA.lean 0 4 \
+      >"$duplicate_out" 2>"$duplicate_err"; then
+    echo "expected duplicate active RUNAT_REQUEST_ID wrapper request to fail" >&2
+    cat "$duplicate_out" >&2
+    cat "$duplicate_err" >&2
+    kill "$duplicate_slow_pid" > /dev/null 2>&1 || true
+    wait "$duplicate_slow_pid" 2>/dev/null || true
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  duplicate_json="$(cat "$duplicate_out")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$duplicate_json" read_json_text_field error.code)" != "invalidParams" ]; then
+    echo "expected duplicate active RUNAT_REQUEST_ID wrapper request to report invalidParams" >&2
+    printf '%s\n' "$duplicate_json" >&2
+    cat "$duplicate_err" >&2
+    kill "$duplicate_slow_pid" > /dev/null 2>&1 || true
+    wait "$duplicate_slow_pid" 2>/dev/null || true
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$duplicate_json" read_json_text_field clientRequestId)" != "wrapper-duplicate-active" ]; then
+    echo "expected duplicate active RUNAT_REQUEST_ID wrapper response to echo clientRequestId" >&2
+    printf '%s\n' "$duplicate_json" >&2
+    cat "$duplicate_err" >&2
+    kill "$duplicate_slow_pid" > /dev/null 2>&1 || true
+    wait "$duplicate_slow_pid" 2>/dev/null || true
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  if ! grep -q "already active" "$duplicate_out"; then
+    echo "expected duplicate active RUNAT_REQUEST_ID wrapper request to explain the conflict" >&2
+    cat "$duplicate_out" >&2
+    cat "$duplicate_err" >&2
+    kill "$duplicate_slow_pid" > /dev/null 2>&1 || true
+    wait "$duplicate_slow_pid" 2>/dev/null || true
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  cancel_json="$("$runat_script" --root "$repo_root" cancel wrapper-duplicate-active)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$cancel_json" read_json_text_field result.cancelled)" != "true" ]; then
+    echo "expected duplicate active RUNAT_REQUEST_ID cancel to report cancelled=true" >&2
+    printf '%s\n' "$cancel_json" >&2
+    cat "$duplicate_slow_out" >&2
+    cat "$duplicate_slow_err" >&2
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  if ! wait_for_exit "$duplicate_slow_pid" "duplicate active slow wrapper request"; then
+    cat "$duplicate_slow_out" >&2
+    cat "$duplicate_slow_err" >&2
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  if wait "$duplicate_slow_pid"; then
+    echo "expected duplicate active slow wrapper request to exit non-zero after cancellation" >&2
+    cat "$duplicate_slow_out" >&2
+    cat "$duplicate_slow_err" >&2
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  duplicate_slow_json="$(cat "$duplicate_slow_out")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$duplicate_slow_json" read_json_text_field error.code)" != "requestCancelled" ]; then
+    echo "expected cancelled duplicate active slow wrapper request to report requestCancelled" >&2
+    printf '%s\n' "$duplicate_slow_json" >&2
+    cat "$duplicate_slow_err" >&2
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  stats_out="$("$runat_script" --root "$repo_root" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.invalidParamsCount)" -lt 1 ]; then
+    echo "expected duplicate active RUNAT_REQUEST_ID wrapper conflict to increment invalidParamsCount" >&2
+    printf '%s\n' "$stats_out" >&2
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
+  rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+  "$runat_script" --root "$repo_root" shutdown > /dev/null 2>&1 || true
+)
+
+cat >"$tmp3/BrokenHeader.lean" <<'EOF'
+import SaveSmoke.
+EOF
+
+(
+  cd "$tmp3"
+  deps_out="$("$runat_script" lean-deps SaveSmoke/A.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$deps_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper lean-deps to succeed despite unrelated broken files" >&2
+    printf '%s\n' "$deps_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$deps_out" | grep -q '"name": "SaveSmoke.B"'; then
+    echo "expected lean-deps imports to include SaveSmoke.B" >&2
+    printf '%s\n' "$deps_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$deps_out" | grep -q '"name": "SaveSmoke"'; then
+    echo "expected lean-deps importedBy to include SaveSmoke" >&2
+    printf '%s\n' "$deps_out" >&2
+    exit 1
+  fi
+  stats_out="$("$runat_script" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.active)" != "false" ]; then
+    echo "expected lean-deps not to start a live Lean session" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  session_starts="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.sessionStarts)"
+  if [ "${session_starts:-0}" -ne 0 ]; then
+    echo "expected lean-deps not to start any Lean sessions" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  deps_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.deps.count)"
+  if [ "${deps_count:-0}" -lt 1 ]; then
+    echo "expected lean-deps stats to record at least one deps request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+)
+
+(
+  cd "$tmp4"
+  "$runat_script" ensure lean > /dev/null
+  stats_out="$("$runat_script" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
+    echo "expected ensure lean to start with zero open CLI daemon documents" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+
+  probe_before="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$probe_before" read_json_text_field ok)" != "true" ]; then
+    echo "expected initial wrapper probe to succeed" >&2
+    printf '%s\n' "$probe_before" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$probe_before" | grep -q '"text": "1"'; then
+    echo "expected initial wrapper probe to observe bVal = 1" >&2
+    printf '%s\n' "$probe_before" >&2
+    exit 1
+  fi
+
+  stats_out="$("$runat_script" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "1" ]; then
+    echo "expected initial wrapper probe to open exactly one CLI daemon document" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  open_files_initial="$("$runat_script" open-files)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field ok)" != "true" ]; then
+    echo "expected open-files after initial probe to succeed" >&2
+    printf '%s\n' "$open_files_initial" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
+    echo "expected open-files after initial probe to report SaveSmoke/B.lean as saved" >&2
+    printf '%s\n' "$open_files_initial" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
+    echo "expected open-files after initial probe to report savedOlean = false" >&2
+    printf '%s\n' "$open_files_initial" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "true" ]; then
+    echo "expected open-files after initial probe to report saveEligible = true for SaveSmoke/B.lean" >&2
+    printf '%s\n' "$open_files_initial" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveReason)" != "ok" ]; then
+    echo "expected open-files after initial probe to report saveReason = ok for SaveSmoke/B.lean" >&2
+    printf '%s\n' "$open_files_initial" >&2
+    exit 1
+  fi
+
+  sed -i 's/1/2/' SaveSmoke/B.lean
+  sync_out="$("$runat_script" lean-sync SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected lean-sync after first edit to succeed" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.version)" != "2" ]; then
+    echo "expected lean-sync after first edit to report version 2" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field fileProgress.done)" != "true" ]; then
+    echo "expected lean-sync after first edit to expose completed top-level fileProgress" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  if printf '%s\n' "$sync_out" | grep -q '"ok"'; then
+    echo "expected lean-sync output to omit the legacy ok field" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  open_files_synced="$("$runat_script" open-files)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
+    echo "expected open-files after lean-sync to retain completed fileProgress" >&2
+    printf '%s\n' "$open_files_synced" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
+    echo "expected open-files after lean-sync to keep savedOlean = false before lean-save" >&2
+    printf '%s\n' "$open_files_synced" >&2
+    exit 1
+  fi
+
+  probe_after="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$probe_after" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper probe after lean-sync to succeed" >&2
+    printf '%s\n' "$probe_after" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$probe_after" | grep -q '"text": "2"'; then
+    echo "expected wrapper probe after lean-sync to observe bVal = 2" >&2
+    printf '%s\n' "$probe_after" >&2
+    exit 1
+  fi
+
+  save_out="$("$runat_script" lean-save SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected lean-save to succeed after a synced good edit" >&2
+    printf '%s\n' "$save_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field fileProgress.done)" != "true" ]; then
+    echo "expected lean-save to expose completed top-level fileProgress" >&2
+    printf '%s\n' "$save_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.version)" != "2" ]; then
+    echo "expected lean-save to report saved version 2" >&2
+    printf '%s\n' "$save_out" >&2
+    exit 1
+  fi
+  if [ -z "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.sourceHash)" ]; then
+    echo "expected lean-save to report a non-empty sourceHash" >&2
+    printf '%s\n' "$save_out" >&2
+    exit 1
+  fi
+  open_files_saved="$("$runat_script" open-files)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_saved" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "true" ]; then
+    echo "expected open-files after lean-save to report savedOlean = true" >&2
+    printf '%s\n' "$open_files_saved" >&2
+    exit 1
+  fi
+
+  sed -i 's/2/3/' SaveSmoke/B.lean
+  open_files_dirty="$("$runat_script" open-files)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.status)" != "notSaved" ]; then
+    echo "expected open-files to detect an on-disk edit for an already known file incrementally" >&2
+    printf '%s\n' "$open_files_dirty" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
+    echo "expected open-files to clear savedOlean once the on-disk file diverges" >&2
+    printf '%s\n' "$open_files_dirty" >&2
+    exit 1
+  fi
+  sync_second="$("$runat_script" lean-sync SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field ok)" != "true" ]; then
+    echo "expected second lean-sync to succeed" >&2
+    printf '%s\n' "$sync_second" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field result.version)" != "3" ]; then
+    echo "expected second lean-sync to report version 3" >&2
+    printf '%s\n' "$sync_second" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field fileProgress.done)" != "true" ]; then
+    echo "expected second lean-sync to expose completed top-level fileProgress" >&2
+    printf '%s\n' "$sync_second" >&2
+    exit 1
+  fi
+  open_files_second="$("$runat_script" open-files)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
+    echo "expected open-files after second lean-sync to report the file as saved again" >&2
+    printf '%s\n' "$open_files_second" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
+    echo "expected open-files after second lean-sync to retain completed fileProgress" >&2
+    printf '%s\n' "$open_files_second" >&2
+    exit 1
+  fi
+  sync_third="$("$runat_script" lean-sync SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field ok)" != "true" ]; then
+    echo "expected unchanged third lean-sync to succeed" >&2
+    printf '%s\n' "$sync_third" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field result.version)" != "3" ]; then
+    echo "expected unchanged third lean-sync to preserve version 3" >&2
+    printf '%s\n' "$sync_third" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field fileProgress.done)" != "true" ]; then
+    echo "expected unchanged third lean-sync to expose completed top-level fileProgress" >&2
+    printf '%s\n' "$sync_third" >&2
+    exit 1
+  fi
+  sleep 1
+  doctor_out="$("$runat_script" doctor lean)"
+  if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: live'; then
+    echo "expected doctor lean to report a live CLI daemon after lean-sync and a short idle wait" >&2
+    printf '%s\n' "$doctor_out" >&2
+    exit 1
+  fi
+
+  probe_second="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$probe_second" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper probe after a second lean-sync to succeed" >&2
+    printf '%s\n' "$probe_second" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$probe_second" | grep -q '"text": "3"'; then
+    echo "expected wrapper probe after a second lean-sync to observe bVal = 3" >&2
+    printf '%s\n' "$probe_second" >&2
+    exit 1
+  fi
+
+  close_good_out="$("$runat_script" lean-close SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_good_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected plain lean-close to succeed after a synced good edit" >&2
+    printf '%s\n' "$close_good_out" >&2
+    exit 1
+  fi
+
+  stats_out="$("$runat_script" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
+    echo "expected lean-close to leave zero open CLI daemon documents" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+
+  probe_reopen="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$probe_reopen" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper probe after lean-close to reopen the document successfully" >&2
+    printf '%s\n' "$probe_reopen" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$probe_reopen" | grep -q '"text": "3"'; then
+    echo "expected wrapper probe after lean-close to observe bVal = 3" >&2
+    printf '%s\n' "$probe_reopen" >&2
+    exit 1
+  fi
+
+  cat > HandleSmoke.lean <<'EOF'
+example : True ∧ True := by
+EOF
+
+  mint_handle="$("$runat_script" lean-run-at-handle HandleSmoke.lean 0 27 "constructor")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper handle mint to succeed" >&2
+    printf '%s\n' "$mint_handle" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle" read_json_text_field result.handle.backend)" != "lean" ]; then
+    echo "expected wrapper handle mint to return a lean handle" >&2
+    printf '%s\n' "$mint_handle" >&2
+    exit 1
+  fi
+
+  branch_step="$(printf '%s\n' "$mint_handle" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper non-linear handle continuation to succeed" >&2
+    printf '%s\n' "$branch_step" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step" read_json_text_field result.handle.backend)" != "lean" ]; then
+    echo "expected wrapper non-linear handle continuation to return a successor handle" >&2
+    printf '%s\n' "$branch_step" >&2
+    exit 1
+  fi
+
+  branch_done="$(printf '%s\n' "$branch_step" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$branch_done" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper second non-linear handle continuation to succeed" >&2
+    printf '%s\n' "$branch_done" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$branch_done" | grep -q '"goals": \[\]'; then
+    echo "expected wrapper non-linear handle chain to solve the proof" >&2
+    printf '%s\n' "$branch_done" >&2
+    exit 1
+  fi
+
+  mint_linear="$("$runat_script" lean-run-at-handle HandleSmoke.lean 0 27 "constructor")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$mint_linear" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper linear handle mint to succeed" >&2
+    printf '%s\n' "$mint_linear" >&2
+    exit 1
+  fi
+
+  linear_step="$(printf '%s\n' "$mint_linear" | "$runat_script" lean-run-with-linear HandleSmoke.lean - "exact trivial")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$linear_step" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper linear handle continuation to succeed" >&2
+    printf '%s\n' "$linear_step" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$linear_step" read_json_text_field result.handle.backend)" != "lean" ]; then
+    echo "expected wrapper linear handle continuation to return a successor handle" >&2
+    printf '%s\n' "$linear_step" >&2
+    exit 1
+  fi
+
+  linear_reuse_err="$(mktemp /tmp/runat-wrapper-linear-reuse-XXXXXX)"
+  if printf '%s\n' "$mint_linear" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial" >"$linear_reuse_err" 2>&1; then
+    echo "expected consumed linear handle to fail when reused" >&2
+    cat "$linear_reuse_err" >&2
+    rm -f "$linear_reuse_err"
+    exit 1
+  fi
+  if ! grep -q 'invalidParams' "$linear_reuse_err"; then
+    echo "expected consumed linear handle reuse to report invalidParams" >&2
+    cat "$linear_reuse_err" >&2
+    rm -f "$linear_reuse_err"
+    exit 1
+  fi
+  rm -f "$linear_reuse_err"
+
+  release_out="$(printf '%s\n' "$linear_step" | "$runat_script" lean-release HandleSmoke.lean -)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$release_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper handle release to succeed" >&2
+    printf '%s\n' "$release_out" >&2
+    exit 1
+  fi
+
+  release_reuse_err="$(mktemp /tmp/runat-wrapper-release-reuse-XXXXXX)"
+  if printf '%s\n' "$linear_step" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial" >"$release_reuse_err" 2>&1; then
+    echo "expected released handle to fail when reused" >&2
+    cat "$release_reuse_err" >&2
+    rm -f "$release_reuse_err"
+    exit 1
+  fi
+  if ! grep -q 'invalidParams' "$release_reuse_err"; then
+    echo "expected released handle reuse to report invalidParams" >&2
+    cat "$release_reuse_err" >&2
+    rm -f "$release_reuse_err"
+    exit 1
+  fi
+  rm -f "$release_reuse_err"
+  close_handle_out="$("$runat_script" lean-close HandleSmoke.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_handle_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected handle smoke file close to succeed" >&2
+    printf '%s\n' "$close_handle_out" >&2
+    exit 1
+  fi
+
+  helper_root="$("$search_helper" mint HandleSmoke.lean 0 27 "constructor")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$helper_root" read_json_text_field ok)" != "true" ]; then
+    echo "expected helper mint to succeed" >&2
+    printf '%s\n' "$helper_root" >&2
+    exit 1
+  fi
+  helper_branch="$(printf '%s\n' "$helper_root" | "$search_helper" branch HandleSmoke.lean "exact trivial")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$helper_branch" read_json_text_field ok)" != "true" ]; then
+    echo "expected helper branch to succeed" >&2
+    printf '%s\n' "$helper_branch" >&2
+    exit 1
+  fi
+  helper_playout="$(printf '%s\n' "$helper_branch" | "$search_helper" playout HandleSmoke.lean "exact trivial")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$helper_playout" read_json_text_field ok)" != "true" ]; then
+    echo "expected helper playout to succeed" >&2
+    printf '%s\n' "$helper_playout" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$helper_playout" | grep -q '"goals": \[\]'; then
+    echo "expected helper playout to solve the proof" >&2
+    printf '%s\n' "$helper_playout" >&2
+    exit 1
+  fi
+  helper_release="$(printf '%s\n' "$helper_root" | "$search_helper" release HandleSmoke.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$helper_release" read_json_text_field ok)" != "true" ]; then
+    echo "expected helper release to succeed" >&2
+    printf '%s\n' "$helper_release" >&2
+    exit 1
+  fi
+  helper_release_reuse_err="$(mktemp /tmp/runat-helper-release-reuse-XXXXXX)"
+  if printf '%s\n' "$helper_root" | "$search_helper" branch HandleSmoke.lean "exact trivial" >"$helper_release_reuse_err" 2>&1; then
+    echo "expected released helper root to fail when reused" >&2
+    cat "$helper_release_reuse_err" >&2
+    rm -f "$helper_release_reuse_err"
+    exit 1
+  fi
+  if ! grep -q 'invalidParams' "$helper_release_reuse_err"; then
+    echo "expected released helper root reuse to report invalidParams" >&2
+    cat "$helper_release_reuse_err" >&2
+    rm -f "$helper_release_reuse_err"
+    exit 1
+  fi
+  rm -f "$helper_release_reuse_err"
+  close_helper_handle_out="$("$runat_script" lean-close HandleSmoke.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_helper_handle_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected helper handle smoke file close to succeed" >&2
+    printf '%s\n' "$close_helper_handle_out" >&2
+    exit 1
+  fi
+
+  printf 'def bVal : Nat := "broken"\n' > SaveSmoke/B.lean
+  broken_sync_json="$(mktemp /tmp/runat-wrapper-broken-sync-json-XXXXXX)"
+  broken_sync_err="$(mktemp /tmp/runat-wrapper-broken-sync-err-XXXXXX)"
+  "$runat_script" lean-sync SaveSmoke/B.lean >"$broken_sync_json" 2>"$broken_sync_err"
+  broken_sync="$(cat "$broken_sync_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field ok)" != "true" ]; then
+    echo "expected lean-sync to succeed even when Lean reports diagnostics" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field fileProgress.done)" != "true" ]; then
+    echo "expected broken lean-sync to report completed top-level fileProgress" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.errorCount)" -lt 1 ]; then
+    echo "expected broken lean-sync final json to report at least one error diagnostic" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.warningCount)" != "0" ]; then
+    echo "expected broken lean-sync final json to report zero warnings" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  if printf '%s\n' "$broken_sync" | grep -q '"diagnostics"'; then
+    echo "expected broken lean-sync final json to omit replayed diagnostics" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  if ! grep -Eq '^runat: diagnostic error SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$broken_sync_err"; then
+    echo "expected broken lean-sync to stream an error diagnostic on stderr" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  rm -f "$broken_sync_json" "$broken_sync_err"
+
+  close_save_err="$(mktemp /tmp/runat-wrapper-close-save-XXXXXX)"
+  if "$runat_script" lean-close-save SaveSmoke/B.lean >"$close_save_err" 2>&1; then
+    echo "expected lean-close-save to fail on a file with Lean errors" >&2
+    cat "$close_save_err" >&2
+    rm -f "$close_save_err"
+    exit 1
+  fi
+  rm -f "$close_save_err"
+
+  close_out="$("$runat_script" lean-close SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected plain lean-close to succeed after a broken speculative session" >&2
+    printf '%s\n' "$close_out" >&2
+    exit 1
+  fi
+
+  stats_out="$("$runat_script" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
+    echo "expected final lean-close to leave zero open CLI daemon documents" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+)
+
+(
+  cd "$tmp8"
+  "$runat_script" ensure lean > /dev/null
+  cat > SaveSmoke/B.lean <<'EOF'
+def bVal : Nat := 1
+
+set_option linter.unusedVariables true in
+theorem warnOnly (n : Nat) : True := by
+  trivial
+EOF
+
+  warn_sync_json="$(mktemp /tmp/runat-wrapper-warn-sync-json-XXXXXX)"
+  warn_sync_err="$(mktemp /tmp/runat-wrapper-warn-sync-err-XXXXXX)"
+  "$runat_script" lean-sync SaveSmoke/B.lean >"$warn_sync_json" 2>"$warn_sync_err"
+  warn_sync="$(cat "$warn_sync_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field ok)" != "true" ]; then
+    echo "expected warning-only lean-sync to succeed" >&2
+    printf '%s\n' "$warn_sync" >&2
+    cat "$warn_sync_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field result.errorCount)" != "0" ]; then
+    echo "expected warning-only lean-sync final json to report zero errors" >&2
+    printf '%s\n' "$warn_sync" >&2
+    cat "$warn_sync_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field result.warningCount)" -lt 1 ]; then
+    echo "expected warning-only lean-sync final json to report at least one warning" >&2
+    printf '%s\n' "$warn_sync" >&2
+    cat "$warn_sync_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err"
+    exit 1
+  fi
+  if printf '%s\n' "$warn_sync" | grep -q '"diagnostics"'; then
+    echo "expected warning-only lean-sync final json to omit replayed diagnostics" >&2
+    printf '%s\n' "$warn_sync" >&2
+    cat "$warn_sync_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err"
+    exit 1
+  fi
+  if grep -Eq '^runat: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_err"; then
+    echo "expected warning-only lean-sync without +full to suppress warning diagnostics" >&2
+    printf '%s\n' "$warn_sync" >&2
+    cat "$warn_sync_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err"
+    exit 1
+  fi
+  warn_save_json="$(mktemp /tmp/runat-wrapper-warn-save-json-XXXXXX)"
+  warn_save_err="$(mktemp /tmp/runat-wrapper-warn-save-err-XXXXXX)"
+  "$runat_script" lean-save SaveSmoke/B.lean >"$warn_save_json" 2>"$warn_save_err"
+  warn_save="$(cat "$warn_save_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field ok)" != "true" ]; then
+    echo "expected warning-only lean-save to succeed" >&2
+    printf '%s\n' "$warn_save" >&2
+    cat "$warn_save_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
+    exit 1
+  fi
+  if grep -Eq '^runat: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_save_err"; then
+    echo "expected warning-only lean-save without +full to suppress warning diagnostics" >&2
+    printf '%s\n' "$warn_save" >&2
+    cat "$warn_save_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
+    exit 1
+  fi
+  rm -f "$warn_save_json" "$warn_save_err"
+  rm -f "$warn_sync_json" "$warn_sync_err"
+
+)
+
+(
+  cd "$tmp9"
+  "$runat_script" ensure lean > /dev/null
+  cat > SaveSmoke/B.lean <<'EOF'
+def bVal : Nat := 1
+
+set_option linter.unusedVariables true in
+theorem warnOnly (n : Nat) : True := by
+  trivial
+EOF
+  warn_sync_full_json="$(mktemp /tmp/runat-wrapper-warn-sync-full-json-XXXXXX)"
+  warn_sync_full_err="$(mktemp /tmp/runat-wrapper-warn-sync-full-err-XXXXXX)"
+  "$runat_script" lean-sync SaveSmoke/B.lean +full >"$warn_sync_full_json" 2>"$warn_sync_full_err"
+  warn_sync_full="$(cat "$warn_sync_full_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field ok)" != "true" ]; then
+    echo "expected warning-only lean-sync +full to succeed" >&2
+    printf '%s\n' "$warn_sync_full" >&2
+    cat "$warn_sync_full_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field result.errorCount)" != "0" ]; then
+    echo "expected warning-only lean-sync +full final json to report zero errors" >&2
+    printf '%s\n' "$warn_sync_full" >&2
+    cat "$warn_sync_full_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field result.warningCount)" -lt 1 ]; then
+    echo "expected warning-only lean-sync +full final json to report at least one warning" >&2
+    printf '%s\n' "$warn_sync_full" >&2
+    cat "$warn_sync_full_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
+    exit 1
+  fi
+  if printf '%s\n' "$warn_sync_full" | grep -q '"diagnostics"'; then
+    echo "expected warning-only lean-sync +full final json to omit replayed diagnostics" >&2
+    printf '%s\n' "$warn_sync_full" >&2
+    cat "$warn_sync_full_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
+    exit 1
+  fi
+  warn_count="$(grep -Ec '^runat: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_full_err" || true)"
+  if [ "$warn_count" -eq 0 ]; then
+    echo "expected warning-only lean-sync +full to stream warning diagnostics" >&2
+    printf '%s\n' "$warn_sync_full" >&2
+    cat "$warn_sync_full_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
+    exit 1
+  fi
+  cat > SaveSmoke/B.lean <<'EOF'
+def bVal : Nat := 1
+
+set_option linter.unusedVariables true in
+theorem warnOnly (n : Nat) : True := by
+  trivial
+
+-- close-save fresh version
+EOF
+  reg9="$PWD/.runat/cli-daemon.json"
+  expect_file "$reg9"
+  port9="$(read_json_field "$reg9" port)"
+  client9="$(read_json_field "$reg9" clientBin 2>/dev/null || true)"
+  if [ -z "$client9" ]; then
+    client9="$client"
+  fi
+  stream_req="$(printf '{"op":"sync_file","root":"%s","path":"SaveSmoke/B.lean","fullDiagnostics":true}' "$PWD")"
+  stream_out="$(mktemp /tmp/runat-wrapper-stream-out-XXXXXX)"
+  stream_err="$(mktemp /tmp/runat-wrapper-stream-err-XXXXXX)"
+  "$client9" --port "$port9" request-stream "$stream_req" >"$stream_out" 2>"$stream_err"
+  if [ -s "$stream_err" ]; then
+    echo "expected request-stream to keep machine-readable output on stdout only" >&2
+    cat "$stream_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$stream_out" "$stream_err"
+    exit 1
+  fi
+  python3 - "$stream_out" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    rows = [json.loads(line) for line in f if line.strip()]
+if not rows:
+    raise SystemExit("expected request-stream output")
+kinds = [row.get("kind") for row in rows]
+if "diagnostic" not in kinds:
+    raise SystemExit(f"expected diagnostic stream message, got {kinds}")
+if kinds[-1] != "response":
+    raise SystemExit(f"expected final stream message to be response, got {kinds[-1]!r}")
+diag = next(row["diagnostic"] for row in rows if row.get("kind") == "diagnostic")
+if diag.get("path") != "SaveSmoke/B.lean":
+    raise SystemExit(f"expected diagnostic path SaveSmoke/B.lean, got {diag.get('path')!r}")
+response = rows[-1]["response"]
+result = response.get("result", {})
+if result.get("errorCount") != 0:
+    raise SystemExit(f"expected streamed sync response errorCount 0, got {result.get('errorCount')!r}")
+if not isinstance(result.get("warningCount"), int) or result["warningCount"] < 1:
+    raise SystemExit(f"expected streamed sync response warningCount >= 1, got {result.get('warningCount')!r}")
+if "diagnostics" in result:
+    raise SystemExit("expected streamed sync final response to omit replayed diagnostics")
+PY
+  rm -f "$stream_out" "$stream_err"
+  cat > SaveSmoke/B.lean <<'EOF'
+def bVal : Nat := 1
+
+set_option linter.unusedVariables true in
+theorem warnOnly (n : Nat) : True := by
+  trivial
+
+EOF
+  warn_close_save_json="$(mktemp /tmp/runat-wrapper-warn-close-save-json-XXXXXX)"
+  warn_close_save_err="$(mktemp /tmp/runat-wrapper-warn-close-save-err-XXXXXX)"
+  "$runat_script" lean-close-save SaveSmoke/B.lean +full >"$warn_close_save_json" 2>"$warn_close_save_err"
+  warn_close_save="$(cat "$warn_close_save_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field ok)" != "true" ]; then
+    echo "expected warning-only lean-close-save +full to succeed" >&2
+    printf '%s\n' "$warn_close_save" >&2
+    cat "$warn_close_save_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
+    exit 1
+  fi
+  warn_close_count="$(grep -Ec '^runat: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_close_save_err" || true)"
+  if [ "$warn_close_count" -eq 0 ]; then
+    echo "expected warning-only lean-close-save +full to stream warning diagnostics" >&2
+    printf '%s\n' "$warn_close_save" >&2
+    cat "$warn_close_save_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
+    exit 1
+  fi
+  rm -f "$warn_close_save_json" "$warn_close_save_err"
+  rm -f "$warn_sync_full_json" "$warn_sync_full_err"
+)
+
+(
+  cd "$tmp2"
+  "$runat_script" ensure lean > /dev/null
+)
+
+reg2="$tmp2/.runat/cli-daemon.json"
+expect_file "$reg2"
+
+pid2="$(read_json_field "$reg2" pid)"
+port2="$(read_json_field "$reg2" port)"
+if [ "$pid1" = "$pid2" ]; then
+  echo "expected distinct CLI daemon processes per project" >&2
+  exit 1
+fi
+if [ "$port1" = "$port2" ]; then
+  echo "expected distinct CLI daemon ports per project" >&2
+  exit 1
+fi
+
+cross_err="$(mktemp /tmp/runat-wrapper-cross-XXXXXX)"
+cross_req="$(mktemp /tmp/runat-wrapper-cross-req-XXXXXX)"
+printf '{"op":"ensure","root":"%s"}\n' "$tmp2" > "$cross_req"
+if "$client1" --port "$port1" request - <"$cross_req" >"$cross_err" 2>&1; then
+  echo "expected single-root CLI daemon to reject another project root" >&2
+  cat "$cross_err" >&2
+  rm -f "$cross_req"
+  rm -f "$cross_err"
+  exit 1
+fi
+if ! grep -q "invalidParams" "$cross_err"; then
+    echo "expected cross-root CLI daemon request to fail with invalidParams" >&2
+  cat "$cross_err" >&2
+  rm -f "$cross_req"
+  rm -f "$cross_err"
+  exit 1
+fi
+rm -f "$cross_req"
+rm -f "$cross_err"
+
+(
+  cd "$tmp5"
+  "$runat_script" ensure lean > /dev/null
+  warm_out="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$warm_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected tmp5 warmup probe to succeed before busy-port reuse check" >&2
+    printf '%s\n' "$warm_out" >&2
+    exit 1
+  fi
+)
+
+reg5="$tmp5/.runat/cli-daemon.json"
+expect_file "$reg5"
+
+pid5="$(read_json_field "$reg5" pid)"
+port5="$(read_json_field "$reg5" port)"
+busy_port=43123
+if [ "$busy_port" = "$port5" ]; then
+  busy_port=43124
+fi
+
+python3 -m http.server "$busy_port" >/dev/null 2>&1 &
+busy_pid=$!
+sleep 1
+
+(
+  cd "$tmp5"
+  doctor_out="$("$runat_script" doctor lean)"
+  if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: live'; then
+    echo "expected doctor lean to report a live CLI daemon before requested-port reuse check" >&2
+    printf '%s\n' "$doctor_out" >&2
+    exit 1
+  fi
+  sed -i 's/1/2/' SaveSmoke/B.lean
+  sync_out="$("$runat_script" --port "$busy_port" lean-sync SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected lean-sync with a busy requested port to reuse the live CLI daemon" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.version)" != "2" ]; then
+    echo "expected busy-port lean-sync reuse path to report version 2" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  stats_out="$("$runat_script" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected stats to keep working after busy-port lean-sync reuse" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+)
+
+kill "$busy_pid" > /dev/null 2>&1 || true
+wait "$busy_pid" 2>/dev/null || true
+busy_pid=""
+
+pid5_after="$(read_json_field "$reg5" pid)"
+port5_after="$(read_json_field "$reg5" port)"
+if [ "$pid5" != "$pid5_after" ] || [ "$port5" != "$port5_after" ]; then
+  echo "expected requested-port lean-sync reuse to preserve the original registry entry" >&2
+  exit 1
+fi
+if ! kill -0 "$pid5" 2>/dev/null; then
+  echo "expected original CLI daemon pid $pid5 to remain alive after busy-port lean-sync reuse" >&2
+  exit 1
+fi
+
+(
+  cd "$tmp6"
+  lake build SaveSmoke/A.lean > /dev/null
+  "$runat_script" ensure lean > /dev/null
+  printf 'def bVal : Nat := "broken"\n' > SaveSmoke/B.lean
+
+  stale_sync_err="$(mktemp /tmp/runat-wrapper-stale-sync-XXXXXX)"
+  if "$runat_script" lean-sync SaveSmoke/A.lean >"$stale_sync_err" 2>&1; then
+    echo "expected lean-sync to fail when an imported target is stale and rebuild cannot complete" >&2
+    cat "$stale_sync_err" >&2
+    rm -f "$stale_sync_err"
+    exit 1
+  fi
+  if ! grep -q 'Lean diagnostics barrier did not complete' "$stale_sync_err"; then
+    echo "expected stale-import lean-sync failure to explain the incomplete diagnostics barrier" >&2
+    cat "$stale_sync_err" >&2
+    rm -f "$stale_sync_err"
+    exit 1
+  fi
+  if ! grep -q '"code": "syncBarrierIncomplete"' "$stale_sync_err"; then
+    echo "expected stale-import lean-sync failure to expose syncBarrierIncomplete" >&2
+    cat "$stale_sync_err" >&2
+    rm -f "$stale_sync_err"
+    exit 1
+  fi
+  if ! grep -Eq '^runat: diagnostic error SaveSmoke/A\.lean:1:1: .*Failed to build module dependencies\.' "$stale_sync_err"; then
+    echo "expected stale-import lean-sync failure to stream the rebuild diagnostic as an error" >&2
+    cat "$stale_sync_err" >&2
+    rm -f "$stale_sync_err"
+    exit 1
+  fi
+  rm -f "$stale_sync_err"
+
+  stale_save_err="$(mktemp /tmp/runat-wrapper-stale-save-XXXXXX)"
+  if "$runat_script" lean-save SaveSmoke/A.lean >"$stale_save_err" 2>&1; then
+    echo "expected lean-save to reject an importer whose sync barrier cannot complete" >&2
+    cat "$stale_save_err" >&2
+    rm -f "$stale_save_err"
+    exit 1
+  fi
+  if ! grep -q 'Lean diagnostics barrier did not complete' "$stale_save_err"; then
+    echo "expected stale-import lean-save failure to explain the incomplete diagnostics barrier" >&2
+    cat "$stale_save_err" >&2
+    rm -f "$stale_save_err"
+    exit 1
+  fi
+  if ! grep -q '"code": "syncBarrierIncomplete"' "$stale_save_err"; then
+    echo "expected stale-import lean-save failure to expose syncBarrierIncomplete" >&2
+    cat "$stale_save_err" >&2
+    rm -f "$stale_save_err"
+    exit 1
+  fi
+  if ! grep -Eq '^runat: diagnostic error SaveSmoke/A\.lean:1:1: .*Failed to build module dependencies\.' "$stale_save_err"; then
+    echo "expected stale-import lean-save failure to stream the rebuild diagnostic as an error" >&2
+    cat "$stale_save_err" >&2
+    rm -f "$stale_save_err"
+    exit 1
+  fi
+  if grep -q 'CLI daemon connection closed' "$stale_save_err"; then
+    echo "expected stale-import lean-save failure to stay structured instead of reporting a dropped daemon connection" >&2
+    cat "$stale_save_err" >&2
+    rm -f "$stale_save_err"
+    exit 1
+  fi
+  rm -f "$stale_save_err"
+)
+
+(
+  cd "$tmp7"
+  "$runat_script" ensure lean > /dev/null
+  cat > StandaloneSaveSmoke.lean <<'EOF'
+import SaveSmoke.B
+
+#check bVal
+EOF
+
+  standalone_sync="$("$runat_script" lean-sync StandaloneSaveSmoke.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$standalone_sync" read_json_text_field ok)" != "true" ]; then
+    echo "expected lean-sync to succeed on a standalone file the daemon can open" >&2
+    printf '%s\n' "$standalone_sync" >&2
+    exit 1
+  fi
+  standalone_open="$("$runat_script" open-files)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "false" ]; then
+    echo "expected open-files to report saveEligible = false for a standalone save target" >&2
+    printf '%s\n' "$standalone_open" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveReason)" != "saveTargetNotModule" ]; then
+    echo "expected open-files to report saveReason = saveTargetNotModule for a standalone save target" >&2
+    printf '%s\n' "$standalone_open" >&2
+    exit 1
+  fi
+
+  standalone_save_err="$(mktemp /tmp/runat-wrapper-standalone-save-XXXXXX)"
+  if "$runat_script" lean-save StandaloneSaveSmoke.lean >"$standalone_save_err" 2>&1; then
+    echo "expected lean-save to reject a standalone file outside the Lake module graph" >&2
+    cat "$standalone_save_err" >&2
+    rm -f "$standalone_save_err"
+    exit 1
+  fi
+  if ! grep -q '"code": "saveTargetNotModule"' "$standalone_save_err"; then
+    echo "expected standalone lean-save failure to expose saveTargetNotModule" >&2
+    cat "$standalone_save_err" >&2
+    rm -f "$standalone_save_err"
+    exit 1
+  fi
+  if ! grep -q 'lean-save only works for synced files that belong to the current Lake workspace package graph' "$standalone_save_err"; then
+    echo "expected standalone lean-save failure to explain the Lake module requirement" >&2
+    cat "$standalone_save_err" >&2
+    rm -f "$standalone_save_err"
+    exit 1
+  fi
+  rm -f "$standalone_save_err"
+)
+
+(
+  cd "$tmp1"
+  "$runat_script" shutdown > /dev/null
+)
+if [ -f "$reg1" ]; then
+  echo "expected shutdown to remove the project CLI daemon registry" >&2
+  exit 1
+fi
+if kill -0 "$pid1" 2>/dev/null; then
+  echo "expected CLI daemon pid $pid1 to be gone after shutdown" >&2
+  exit 1
+fi

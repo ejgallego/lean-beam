@@ -1,0 +1,8 @@
+# Editing a document while a runAt request is pending should stale the request.
+open proof {"path":"docs/SimpleProof.lean"}
+send r runAt proof {"line":1,"character":2,"text":"exact trivial"}
+change proof {"line":0,"character":0,"delete":"","insert":" "}
+sync proof
+await r
+expect_error r {"code":"contentModified"}
+close proof

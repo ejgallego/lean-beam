@@ -1,0 +1,5 @@
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofNestedRightSibling.lean"},
+ "text": "exact trivial",
+ "position": {"line": 5, "character": 5}}
+{"traces": [], "success": true, "proofState": {"goals": []}, "messages": []}

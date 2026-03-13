@@ -1,0 +1,4 @@
+{"textDocument": {"uri": "file:///tests/interactive/asyncEditAwait.lean"},
+ "text": "exact trivial",
+ "position": {"line": 2, "character": 2}}
+{"error": {"message": "File changed.", "code": "contentModified"}}

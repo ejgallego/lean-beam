@@ -1,0 +1,13 @@
+# Editing one document should not disturb a pending request in another document.
+open slow {"path":"docs/SlowClose.lean"}
+open fast {"path":"docs/CommandB.lean"}
+send rslow runAt slow {"line":8,"character":2,"text":"exact trivial"}
+change fast {"line":0,"character":22,"delete":"","insert":" "}
+sync fast
+send rfast runAt fast {"line":0,"character":2,"text":"#check Nat"}
+await rfast
+expect_response rfast {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+await rslow
+expect_response rslow {"success":true,"proofState":{"goals":[]}}
+close slow
+close fast

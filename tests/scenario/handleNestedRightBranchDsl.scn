@@ -1,0 +1,29 @@
+# Stored-handle continuation when the active branch is the nested right sibling.
+open branch {"path":"docs/NestedRightBranchProof.lean"}
+
+send mint runAt branch {"line":0,"character":50,"text":"constructor","storeHandle":true}
+await_handle h0 mint
+
+send splitLeft runWith branch h0 {"text":"constructor","storeHandle":true}
+await_handle h1 splitLeft
+
+send solveLeftLeft runWith branch h1 {"text":"exact trivial","storeHandle":true}
+await_handle h2 solveLeftLeft
+
+send solveLeftRight runWith branch h2 {"text":"exact trivial","storeHandle":true}
+await_handle h3 solveLeftRight
+
+send rightA runWith branch h3 {"text":"rfl","storeHandle":true}
+send rightB runWith branch h3 {"text":"rfl"}
+
+await_handle h4 rightA
+await rightB
+expect_response rightB {"success":true,"proofState":{"goals":[]}}
+
+release_handle branch h4
+
+send released runWith branch h4 {"text":"rfl"}
+await released
+expect_error released {"code":"invalidParams"}
+
+close branch

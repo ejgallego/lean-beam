@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - name: Build
+        run: lake build
+
+      - name: Test
+        run: bash tests/test.sh
+
+  broker-fast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - name: Broker Fast Test
+        run: bash tests/test-broker-fast.sh
+
+  broker-slow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - name: Broker Slow Test
+        run: bash tests/test-broker-slow.sh

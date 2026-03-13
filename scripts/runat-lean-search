@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+script_dir="$(cd "$(dirname "$script_path")" && pwd)"
+repo_root="${RUNAT_HOME:-$(cd "$script_dir/.." && pwd)}"
+runat_script="$repo_root/scripts/runat"
+
+usage() {
+  cat <<'EOF' >&2
+usage:
+  runat-lean-search [runat opts...] mint <path> <line> <character> <text...>
+  runat-lean-search [runat opts...] branch <path> <text...>
+  runat-lean-search [runat opts...] linear <path> <text...>
+  runat-lean-search [runat opts...] playout <path> <step> [step...]
+  runat-lean-search [runat opts...] release <path>
+
+notes:
+  - branch, linear, playout, and release read a prior wrapper response or handle JSON from stdin
+  - runat opts such as --root and --port may appear before the subcommand
+EOF
+  exit 1
+}
+
+if [ ! -x "$runat_script" ]; then
+  echo "missing runat wrapper at $runat_script" >&2
+  exit 1
+fi
+
+runat_prefix=()
+subcmd=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    mint|branch|linear|playout|release)
+      subcmd="$1"
+      shift
+      break
+      ;;
+    *)
+      runat_prefix+=("$1")
+      shift
+      ;;
+  esac
+done
+
+[ -n "$subcmd" ] || usage
+
+case "$subcmd" in
+  mint)
+    [ "$#" -ge 4 ] || usage
+    path="$1"
+    line="$2"
+    character="$3"
+    shift 3
+    exec "$runat_script" "${runat_prefix[@]}" lean-run-at-handle "$path" "$line" "$character" "$@"
+    ;;
+  branch)
+    [ "$#" -ge 2 ] || usage
+    path="$1"
+    shift
+    exec "$runat_script" "${runat_prefix[@]}" lean-run-with "$path" - "$@"
+    ;;
+  linear)
+    [ "$#" -ge 2 ] || usage
+    path="$1"
+    shift
+    exec "$runat_script" "${runat_prefix[@]}" lean-run-with-linear "$path" - "$@"
+    ;;
+  release)
+    [ "$#" -eq 1 ] || usage
+    path="$1"
+    exec "$runat_script" "${runat_prefix[@]}" lean-release "$path" -
+    ;;
+  playout)
+    [ "$#" -ge 2 ] || usage
+    path="$1"
+    shift
+    current="$(cat)"
+    for step in "$@"; do
+      current="$(printf '%s\n' "$current" | "$runat_script" "${runat_prefix[@]}" lean-run-with-linear "$path" - "$step")"
+    done
+    printf '%s\n' "$current"
+    ;;
+esac

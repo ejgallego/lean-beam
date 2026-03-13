@@ -1,0 +1,31 @@
+# Cancellation semantics for branched proof-search handles.
+open branch {"path":"docs/BranchSlowPoll.lean"}
+
+send mint runAt branch {"line":14,"character":27,"text":"constructor","storeHandle":true}
+await_handle h0 mint
+
+send cancelRoot runWith branch h0 {"text":"poll_sleep_tac"}
+cancel cancelRoot
+await cancelRoot
+expect_error cancelRoot {"code":"requestCancelled"}
+
+send reuseRoot runWith branch h0 {"text":"exact trivial","storeHandle":true}
+await_handle h1 reuseRoot
+
+send cancelLinear runWith branch h1 {"text":"poll_sleep_tac","linear":true}
+cancel cancelLinear
+await cancelLinear
+expect_error cancelLinear {"code":"requestCancelled"}
+
+send consumed runWith branch h1 {"text":"exact trivial"}
+await consumed
+expect_error consumed {"code":"invalidParams"}
+
+send branchAgain runWith branch h0 {"text":"exact trivial","storeHandle":true}
+await_handle h2 branchAgain
+
+send done runWith branch h2 {"text":"exact trivial"}
+await done
+expect_response done {"success":true,"proofState":{"goals":[]}}
+
+close branch

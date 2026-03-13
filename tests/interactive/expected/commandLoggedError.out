@@ -1,0 +1,10 @@
+{"textDocument": {"uri": "file:///tests/interactive/commandLoggedError.lean"},
+ "text": "#guard_msgs in #check Nat",
+ "position": {"line": 0, "character": 2}}
+{"traces": [],
+ "success": false,
+ "messages":
+ [{"text": "Nat : Type", "severity": "information"},
+  {"text":
+   "❌️ Docstring on `#guard_msgs` does not match generated message:\n\n-\n+ info: Nat : Type\n",
+   "severity": "error"}]}

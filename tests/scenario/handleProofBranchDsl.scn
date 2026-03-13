@@ -1,0 +1,24 @@
+# Non-linear proof handle branching via the text scenario DSL.
+open branch {"path":"docs/BranchProof.lean"}
+open cmd {"path":"docs/CommandA.lean"}
+
+send mint runAt branch {"line":0,"character":27,"text":"constructor","storeHandle":true}
+await_handle h0 mint
+
+send left runWith branch h0 {"text":"exact trivial","storeHandle":true}
+send right runWith branch h0 {"text":"exact trivial"}
+
+await_handle h1 left
+await right
+expect_response right {"success":true}
+
+send final runWith branch h1 {"text":"exact trivial"}
+await final
+expect_response final {"success":true}
+
+send wrong runWith cmd h0 {"text":"#check Nat"}
+await wrong
+expect_error wrong {"code":"invalidParams"}
+
+close branch
+close cmd

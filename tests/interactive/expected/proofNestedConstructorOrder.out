@@ -1,0 +1,44 @@
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
+ "text": "constructor",
+ "position": {"line": 2, "character": 2}}
+{"traces": [],
+ "success": true,
+ "proofState":
+ {"goals":
+  [{"userName": "left",
+    "target": "True ∧ True",
+    "hyps": [],
+    "goalPrefix": "⊢ "},
+   {"userName": "right",
+    "target": "True ∧ True",
+    "hyps": [],
+    "goalPrefix": "⊢ "}]},
+ "messages": []}
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
+ "text": "constructor",
+ "position": {"line": 5, "character": 2}}
+{"traces": [],
+ "success": true,
+ "proofState":
+ {"goals":
+  [{"userName": "left.left", "target": "True", "hyps": [], "goalPrefix": "⊢ "},
+   {"userName": "left.right",
+    "target": "True",
+    "hyps": [],
+    "goalPrefix": "⊢ "}]},
+ "messages": []}
+{"textDocument":
+ {"uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
+ "text": "exact trivial",
+ "position": {"line": 5, "character": 15}}
+{"traces": [],
+ "success": true,
+ "proofState":
+ {"goals":
+  [{"userName": "left.right",
+    "target": "True",
+    "hyps": [],
+    "goalPrefix": "⊢ "}]},
+ "messages": []}

@@ -1,0 +1,7 @@
+{"textDocument": {"uri": "file:///tests/interactive/proofNestedHave.lean"},
+ "text": "exact trivial",
+ "position": {"line": 1, "character": 20}}
+{"error":
+ {"message":
+  "position (1, 20) is outside the document: character 20 is beyond max character 19 for line 1",
+  "code": "invalidParams"}}

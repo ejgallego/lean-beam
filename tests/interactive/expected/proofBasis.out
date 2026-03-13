@@ -1,0 +1,7 @@
+{"textDocument": {"uri": "file:///tests/interactive/proofBasis.lean"},
+ "text": "exact trivial",
+ "position": {"line": 1, "character": 4}}
+{"traces": [],
+ "success": false,
+ "proofState": {"goals": []},
+ "messages": [{"text": "No goals to be solved", "severity": "error"}]}

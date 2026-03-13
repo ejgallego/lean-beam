@@ -1,0 +1,1 @@
+example : True ∧ True := by

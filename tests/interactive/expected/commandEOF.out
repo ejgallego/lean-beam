@@ -1,0 +1,7 @@
+{"textDocument": {"uri": "file:///tests/interactive/commandEOF.lean"},
+ "text": "#check Nat",
+ "position": {"line": 2, "character": 2}}
+{"error":
+ {"message":
+  "position (2, 2) is outside the document: character 2 is beyond max character 0 for line 2",
+  "code": "invalidParams"}}

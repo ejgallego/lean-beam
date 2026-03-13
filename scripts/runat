@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+script_dir="$(cd "$(dirname "$script_path")" && pwd)"
+repo_root="${RUNAT_HOME:-$(cd "$script_dir/.." && pwd)}"
+runat_bin="$repo_root/.lake/build/bin/runAt-cli"
+
+if [ ! -x "$runat_bin" ]; then
+  echo "missing runAt CLI at $runat_bin" >&2
+  echo "run: (cd \"$repo_root\" && lake build runAt-cli)" >&2
+  exit 1
+fi
+
+export RUNAT_HOME="$repo_root"
+exec "$runat_bin" "$@"

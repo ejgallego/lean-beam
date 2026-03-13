@@ -1,0 +1,4 @@
+{"textDocument": {"uri": "file:///tests/interactive/proofBasisBefore.lean"},
+ "text": "exact trivial",
+ "position": {"line": 2, "character": 2}}
+{"traces": [], "success": true, "proofState": {"goals": []}, "messages": []}

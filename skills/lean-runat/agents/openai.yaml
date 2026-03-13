@@ -1,0 +1,7 @@
+interface:
+  display_name: "Lean RunAt"
+  short_description: "Lean probes, sync, and exact chaining"
+  default_prompt: "Use $lean-runat on an external Lean project for isolated on-disk Lean probes through runat; use lean-sync after real edits, do not assume separate lean-run-at calls chain, and use alpha handle workflows only when exact speculative continuation matters."
+
+policy:
+  allow_implicit_invocation: true

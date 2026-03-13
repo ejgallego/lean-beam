@@ -1,0 +1,21 @@
+# Follow-up handle cancellation via the text scenario DSL.
+open poll {"path":"docs/SlowPoll.lean"}
+sync poll
+
+send mintCmd runAt poll {"line":25,"character":2,"text":"def cancelTempDsl : Nat := 21","storeHandle":true}
+await_handle hcmd mintCmd
+
+send cancelCmd runWith poll hcmd {"text":"poll_sleep_cmd"}
+cancel cancelCmd
+await cancelCmd
+expect_error cancelCmd {"code":"requestCancelled"}
+
+send mintProof runAt poll {"line":28,"character":2,"text":"change True","storeHandle":true}
+await_handle hproof mintProof
+
+send cancelProof runWith poll hproof {"text":"poll_sleep_tac"}
+cancel cancelProof
+await cancelProof
+expect_error cancelProof {"code":"requestCancelled"}
+
+close poll

@@ -1,0 +1,39 @@
+# Handle invalidation cases via the text scenario DSL.
+open branch {"path":"docs/BranchProof.lean"}
+open stale {"path":"docs/CommandB.lean"}
+open cmd {"path":"docs/CommandA.lean"}
+
+send mintClose runAt branch {"line":0,"character":27,"text":"constructor","storeHandle":true}
+await_handle hclose mintClose
+
+close branch
+open branch2 {"path":"docs/BranchProof.lean"}
+
+send afterClose runWith branch2 hclose {"text":"exact trivial"}
+await afterClose
+expect_error afterClose {"code":"contentModified"}
+
+send mintStale runAt stale {"line":0,"character":2,"text":"def staleTempDsl : Nat := 11","storeHandle":true}
+await_handle hstale mintStale
+
+change stale {"line":0,"character":22,"delete":"","insert":" "}
+sync stale
+
+send afterChange runWith stale hstale {"text":"#check staleTempDsl"}
+await afterChange
+expect_error afterChange {"code":"contentModified"}
+
+send mintLinearFail runAt cmd {"line":0,"character":2,"text":"def tempFailDsl : Nat := 9","storeHandle":true}
+await_handle hfail mintLinearFail
+
+send fail runWith cmd hfail {"text":"#check MissingNameDsl","linear":true}
+await fail
+expect_response fail {"success":false}
+
+send old runWith cmd hfail {"text":"#check tempFailDsl"}
+await old
+expect_error old {"code":"invalidParams"}
+
+close branch2
+close stale
+close cmd

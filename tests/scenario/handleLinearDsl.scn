@@ -1,0 +1,18 @@
+# Linear successor handles via the text scenario DSL.
+open cmd {"path":"docs/CommandA.lean"}
+
+send mint runAt cmd {"line":0,"character":2,"text":"def tempDsl : Nat := 5","storeHandle":true}
+await_handle h0 mint
+
+send next runWith cmd h0 {"text":"def tempDsl2 : Nat := tempDsl","storeHandle":true,"linear":true}
+await_handle h1 next
+
+send old runWith cmd h0 {"text":"#check tempDsl"}
+await old
+expect_error old {"code":"invalidParams"}
+
+send new runWith cmd h1 {"text":"#check tempDsl2"}
+await new
+expect_response new {"success":true}
+
+close cmd

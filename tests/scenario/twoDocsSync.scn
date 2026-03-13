@@ -1,0 +1,12 @@
+# Two concurrent requests on different documents, with a sync barrier in between.
+open a {"path":"docs/CommandA.lean"}
+open b {"path":"docs/CommandB.lean"}
+send ra runAt a {"line":0,"character":2,"text":"#check Nat"}
+send rb runAt b {"line":0,"character":2,"text":"#check Nat"}
+sync a
+await rb
+expect_response rb {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+await ra
+expect_response ra {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+close a
+close b

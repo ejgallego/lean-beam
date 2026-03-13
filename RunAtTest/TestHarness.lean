@@ -1,0 +1,64 @@
+import Lean
+import Lean.Data.Lsp.Ipc
+
+open Lean
+open Lean.Lsp
+open Lean.JsonRpc
+open Lean.Lsp.Ipc
+
+namespace RunAtTest.TestHarness
+
+structure RequestOutcome where
+  result? : Option Json := none
+  errorCode? : Option String := none
+  errorMessage : String := ""
+  deriving Inhabited
+
+def pluginPath : IO System.FilePath := do
+  IO.FS.realPath <| System.FilePath.mk ".lake/build/lib/librunAt_RunAt.so"
+
+def errorCodeName : ErrorCode → String
+  | .parseError => "parseError"
+  | .invalidRequest => "invalidRequest"
+  | .methodNotFound => "methodNotFound"
+  | .invalidParams => "invalidParams"
+  | .internalError => "internalError"
+  | .serverNotInitialized => "serverNotInitialized"
+  | .unknownErrorCode => "unknownErrorCode"
+  | .contentModified => "contentModified"
+  | .requestCancelled => "requestCancelled"
+  | .rpcNeedsReconnect => "rpcNeedsReconnect"
+  | .workerExited => "workerExited"
+  | .workerCrashed => "workerCrashed"
+
+def decodePublishDiagnostics (params : Json) : IO PublishDiagnosticsParams := do
+  match fromJson? params with
+  | .ok diagnosticParam => pure <| Ipc.normalizePublishDiagnosticsParams diagnosticParam
+  | .error inner => throw <| IO.userError s!"Cannot decode publishDiagnostics parameters\n{inner}"
+
+def initializeServer : Ipc.IpcM Unit := do
+  let initializationOptions? : Option InitializationOptions := some {
+    hasWidgets? := some true
+    logCfg? := none
+  }
+  let capabilities : ClientCapabilities := {
+    textDocument? := some {
+      completion? := some {
+        completionItem? := some {
+          insertReplaceSupport? := true
+        }
+      }
+    }
+    lean? := some {
+      silentDiagnosticSupport? := some true
+    }
+  }
+  Ipc.writeRequest ⟨0, "initialize", { initializationOptions?, capabilities : InitializeParams }⟩
+  let _ ← Ipc.readResponseAs 0 InitializeResult
+  Ipc.writeNotification ⟨"initialized", InitializedParams.mk⟩
+
+def shutdownServer (requestNo : Nat) : Ipc.IpcM Unit := do
+  Ipc.shutdown requestNo
+  discard <| Ipc.waitForExit
+
+end RunAtTest.TestHarness

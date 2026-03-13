@@ -1,0 +1,6 @@
+# Requests with a line beyond the end of the document are invalid.
+open a {"path":"docs/CommandA.lean"}
+send r runAt a {"line":99,"character":0,"text":"#check Nat"}
+await r
+expect_error r {"code":"invalidParams"}
+close a

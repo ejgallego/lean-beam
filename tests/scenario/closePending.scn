@@ -1,0 +1,11 @@
+# A pending runAt request should become stale when its document is closed.
+open slow {"path":"docs/SlowClose.lean"}
+open fast {"path":"docs/CommandB.lean"}
+send rslow runAt slow {"line":8,"character":2,"text":"exact trivial"}
+send rfast runAt fast {"line":0,"character":2,"text":"#check Nat"}
+close slow
+await rfast
+expect_response rfast {"success":true,"messages":[{"text":"Nat : Type","severity":"information"}]}
+await rslow
+expect_error rslow {"code":"contentModified"}
+close fast
