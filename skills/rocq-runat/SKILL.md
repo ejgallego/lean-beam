@@ -60,6 +60,9 @@ Core workflow contract:
 - use `runat`, not raw JSON and not raw LSP
 - save the `.v` file before every new probe after a real edit
 - `runat` only sees the on-disk file, not unsaved editor buffers
+- treat `<line> <character>` as LSP-style coordinates for the saved file: line `0` is the first
+  line, character `0` is the first character position on that line, and on a truly empty line only
+  character `0` is valid
 - there is no Rocq `sync` command in the current wrapper
 - there is no Rocq handle or continuation surface in the current wrapper
 - do not assume hidden mutable proof-session state carries across requests
@@ -90,6 +93,7 @@ Default rules:
 - use `runat`, not raw JSON and not raw LSP
 - start with `rocq-goals-after`
 - save the file before every new probe after a real edit
+- keep coordinates 0-based; do not guess editor-specific 1-based lines or columns
 - use `rocq-goals-prev` plus text when you need an intermediate state inside a sentence
 - do not assume any hidden proof-session state carries across requests
 

@@ -9,6 +9,9 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
 - the wrapper passes those coordinates through directly; they are not editor-specific line numbers,
   byte offsets, or parser-token offsets
 - line `0` is the first line, and character `0` is the first UTF-16 code unit on that line
+- on a truly empty line, only character `0` is valid; character `1` is already out of range
+- on an indented blank line, either probe after the existing spaces using that exact character
+  offset, or probe at character `0` and include the indentation in the text yourself
 - `position ... is outside the document` means the requested coordinate is not a valid Lean/LSP
   position for the current on-disk file
 - `no command or tactic snapshot` means the coordinate is in the document, but Lean has no usable

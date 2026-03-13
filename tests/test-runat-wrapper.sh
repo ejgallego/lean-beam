@@ -243,6 +243,56 @@ fi
     exit 1
   fi
   rm -f "$cmd_err"
+  blank_ok_out="$("$runat_script" lean-run-at PositionEmptyLine.lean 1 0 "#check answer")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$blank_ok_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper blank-line probe at character 0 to succeed" >&2
+    printf '%s\n' "$blank_ok_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$blank_ok_out" | grep -q 'answer : Nat'; then
+    echo "expected wrapper blank-line probe at character 0 to expose answer type information" >&2
+    printf '%s\n' "$blank_ok_out" >&2
+    exit 1
+  fi
+  blank_err="$(mktemp /tmp/runat-wrapper-empty-line-XXXXXX)"
+  if "$runat_script" lean-run-at PositionEmptyLine.lean 1 1 "#check answer" >"$blank_err" 2>&1; then
+    echo "expected wrapper blank-line probe at character 1 to be rejected" >&2
+    cat "$blank_err" >&2
+    rm -f "$blank_err"
+    exit 1
+  fi
+  if ! grep -q 'character 1 is beyond max character 0 for line 1' "$blank_err"; then
+    echo "expected wrapper blank-line invalid position error message" >&2
+    cat "$blank_err" >&2
+    rm -f "$blank_err"
+    exit 1
+  fi
+  rm -f "$blank_err"
+  utf16_ok_out="$("$runat_script" lean-run-at PositionUtf16.lean 1 5 "#check Nat")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$utf16_ok_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper UTF-16 boundary probe to succeed" >&2
+    printf '%s\n' "$utf16_ok_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$utf16_ok_out" | grep -q 'Nat : Type'; then
+    echo "expected wrapper UTF-16 boundary probe to expose Nat type information" >&2
+    printf '%s\n' "$utf16_ok_out" >&2
+    exit 1
+  fi
+  utf16_err="$(mktemp /tmp/runat-wrapper-utf16-XXXXXX)"
+  if "$runat_script" lean-run-at PositionUtf16.lean 1 6 "#check Nat" >"$utf16_err" 2>&1; then
+    echo "expected wrapper UTF-16 out-of-range probe to be rejected" >&2
+    cat "$utf16_err" >&2
+    rm -f "$utf16_err"
+    exit 1
+  fi
+  if ! grep -q 'character 6 is beyond max character 5 for line 1' "$utf16_err"; then
+    echo "expected wrapper UTF-16 invalid position error message" >&2
+    cat "$utf16_err" >&2
+    rm -f "$utf16_err"
+    exit 1
+  fi
+  rm -f "$utf16_err"
   stats_out="$("$runat_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper stats to succeed" >&2

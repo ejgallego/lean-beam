@@ -189,6 +189,9 @@ Two failure modes matter:
 Practical consequence:
 
 - line `0` is the first line, and character `0` is the first UTF-16 code unit on that line
+- on a truly empty line, only character `0` is valid; character `1` is already outside the document
+- on an indented blank line, use the actual existing indentation width if you probe after the spaces,
+  or use character `0` and include the indentation in the speculative text yourself
 - valid probe positions are not arbitrary file coordinates; `lean-run-at` needs a command basis or
   proof/tactic snapshot there, or one Lean can recover from nearby syntax
 - positions inside proof bodies usually work for tactic execution

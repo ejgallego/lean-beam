@@ -62,7 +62,8 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO RunAtCli
     args := #["-lc", s!"cat {transcript}; sleep 1"]
     cwd := root.toString
   }
-  pure {
+  let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID RunAtCli.Broker.PendingRequest)
+  let session : RunAtCli.Broker.Session := {
     backend := .lean
     root
     epoch := 1
@@ -70,7 +71,10 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO RunAtCli
     proc
     stdin := IO.FS.Stream.ofHandle proc.stdin
     stdout := IO.FS.Stream.ofHandle proc.stdout
+    pending
   }
+  let _ ← IO.asTask <| RunAtCli.Broker.sessionReaderLoop session
+  pure session
 
 def check : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/runat-broker-dedup-{← IO.monoNanosNow}"

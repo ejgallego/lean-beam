@@ -73,7 +73,7 @@ runat lean-run-at "Foo.lean" 18 0 "exact h"
 Correct workflow:
 
 ```bash
-# either provide the indentation in the text from column 0
+# on a truly empty line, only column 0 is valid, so provide the indentation in the text yourself
 runat lean-run-at "Foo.lean" 18 0 "    exact h"
 
 # or probe after the existing indentation and pass only the code text
@@ -89,6 +89,8 @@ runat lean-sync "Foo.lean"
 
 `lean-run-at` uses the text you pass at the position you pass. If layout matters, choose the
 position and text together instead of expecting the wrapper to rewrite indentation for you.
+On a truly empty line, `18 1` would already be out of range; blank lines are still 0-based Lean/LSP
+positions.
 
 If the speculative text is the version you want to keep, open
 [commit-speculative.md](commit-speculative.md).

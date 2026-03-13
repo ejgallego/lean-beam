@@ -76,6 +76,9 @@ Prefer the smallest command that matches the actual task:
 - use `lean-goals-prev` or `lean-goals-after` when you want existing proof state at one tactic
   position
 - use `lean-run-at` when you want to try one speculative Lean snippet without editing the file
+- for `lean-run-at`, `lean-hover`, and `lean-goals-*`, treat `<line> <character>` as Lean/LSP
+  coordinates: line `0` is the first line, character `0` is the first UTF-16 code unit, and on a
+  truly empty line only character `0` is valid
 - use `lean-run-at-handle` and then `lean-run-with` or `lean-run-with-linear` only when exact
   speculative continuation matters
 - do not expect one `lean-run-at` call to become the basis of the next one automatically
@@ -108,6 +111,8 @@ What `lean-run-at` does not do:
 - it does not wait for or return the full diagnostics barrier for the rest of the file
 - it does not replay full-file diagnostics in its final JSON payload
 - it does not auto-indent or synthesize leading spaces when you probe at an indented empty line
+- it does not reinterpret blank-line coordinates; if the line is truly empty then character `1` is
+  already out of range
 
 Use the right tool for each goal:
 
