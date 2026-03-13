@@ -21,8 +21,12 @@ resolve_script_path() {
 
 script_path="$(resolve_script_path)"
 script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
-repo_root="${RUNAT_HOME:-$(cd -P "$script_dir/.." && pwd)}"
-runat_script="$repo_root/scripts/runat"
+runat_home="${RUNAT_HOME:-$(cd -P "$script_dir/.." && pwd)}"
+if [ -x "$runat_home/bin/runat" ]; then
+  runat_script="$runat_home/bin/runat"
+else
+  runat_script="$runat_home/scripts/runat"
+fi
 
 usage() {
   cat <<'EOF' >&2

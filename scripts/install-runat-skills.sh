@@ -15,39 +15,23 @@ install_codex_skills=0
 install_claude_skills=0
 installed_skill_targets=()
 
-runtime_root_files=(
-  "RunAt.lean"
-  "RunAtCli.lean"
-  "lakefile.lean"
-  "lakefile.toml"
-  "lake-manifest.json"
-  "lean-toolchain"
-)
-
-runtime_source_dirs=(
-  "RunAt"
-  "RunAtCli"
-  "ffi"
-)
-
-runtime_build_paths=(
-  "libexec/runAt-cli"
-  "libexec/runAt-cli-daemon"
-  "libexec/runAt-cli-client"
-  "libexec/librunAt_RunAt.so"
-  ".lake/packages"
-)
-
-runtime_binary_artifacts=(
-  ".lake/build/bin/runAt-cli:libexec/runAt-cli"
-  ".lake/build/bin/runAt-cli-daemon:libexec/runAt-cli-daemon"
-  ".lake/build/bin/runAt-cli-client:libexec/runAt-cli-client"
-  ".lake/build/lib/librunAt_RunAt.so:libexec/librunAt_RunAt.so"
-)
-
-runtime_wrapper_paths=(
-  "bin/runat"
-  "bin/runat-lean-search"
+runtime_payload_spec=(
+  "copy|rootFiles|RunAt.lean|RunAt.lean"
+  "copy|rootFiles|RunAtCli.lean|RunAtCli.lean"
+  "copy|rootFiles|lakefile.lean|lakefile.lean"
+  "copy|rootFiles|lakefile.toml|lakefile.toml"
+  "copy|rootFiles|lake-manifest.json|lake-manifest.json"
+  "copy|rootFiles|lean-toolchain|lean-toolchain"
+  "copy|sourceDirs|RunAt|RunAt"
+  "copy|sourceDirs|RunAtCli|RunAtCli"
+  "copy|sourceDirs|ffi|ffi"
+  "copy|runtimePaths|.lake/build/bin/runAt-cli|libexec/runAt-cli"
+  "copy|runtimePaths|.lake/build/bin/runAt-cli-daemon|libexec/runAt-cli-daemon"
+  "copy|runtimePaths|.lake/build/bin/runAt-cli-client|libexec/runAt-cli-client"
+  "copy|runtimePaths|.lake/build/lib/librunAt_RunAt.so|libexec/librunAt_RunAt.so"
+  "copy|runtimePaths|.lake/packages|.lake/packages"
+  "generated|wrapperPaths||bin/runat"
+  "copy|wrapperPaths|scripts/runat-lean-search|bin/runat-lean-search"
 )
 
 usage() {
@@ -297,23 +281,25 @@ require_repo_toolchain() {
 
 stage_runtime_tree() {
   local dest="$1"
-  local path=""
-  local mapping=""
+  local entry=""
+  local mode=""
+  local manifest_group=""
   local src_rel=""
   local dest_rel=""
   mkdir -p "$dest"
-  for path in "${runtime_root_files[@]}"; do
-    copy_repo_path_if_present "$repo_root/$path" "$dest/$path" "$dest"
+  for entry in "${runtime_payload_spec[@]}"; do
+    IFS='|' read -r mode manifest_group src_rel dest_rel <<< "$entry"
+    case "$mode" in
+      copy)
+        copy_repo_path_if_present "$repo_root/$src_rel" "$dest/$dest_rel" "$dest"
+        ;;
+      generated)
+        ;;
+      *)
+        die "unknown runtime payload mode: $mode"
+        ;;
+    esac
   done
-  for path in "${runtime_source_dirs[@]}"; do
-    copy_repo_path_if_present "$repo_root/$path" "$dest/$path" "$dest"
-  done
-  for mapping in "${runtime_binary_artifacts[@]}"; do
-    src_rel="${mapping%%:*}"
-    dest_rel="${mapping#*:}"
-    copy_repo_path_if_present "$repo_root/$src_rel" "$dest/$dest_rel" "$dest"
-  done
-  copy_repo_path_if_present "$repo_root/.lake/packages" "$dest/.lake/packages" "$dest"
 }
 
 write_runat_wrapper() {
@@ -342,105 +328,32 @@ EOF
   chmod +x "$dest"
 }
 
-write_search_helper() {
-  local dest="$1"
-  local default_home="$2"
-  cat >"$dest" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-
-default_runat_home="$default_home"
-runat_home="\${RUNAT_HOME:-\$default_runat_home}"
-runat_script="\$runat_home/bin/runat"
-
-usage() {
-  cat <<'USAGE' >&2
-usage:
-  runat-lean-search [runat opts...] mint <path> <line> <character> <text...>
-  runat-lean-search [runat opts...] branch <path> <text...>
-  runat-lean-search [runat opts...] linear <path> <text...>
-  runat-lean-search [runat opts...] playout <path> <step> [step...]
-  runat-lean-search [runat opts...] release <path>
-
-notes:
-  - branch, linear, playout, and release read a prior wrapper response or handle JSON from stdin
-  - runat opts such as --root and --port may appear before the subcommand
-USAGE
-  exit 1
-}
-
-if [ ! -x "\$runat_script" ]; then
-  echo "missing runat wrapper at \$runat_script" >&2
-  exit 1
-fi
-
-runat_prefix=()
-subcmd=""
-while [ "\$#" -gt 0 ]; do
-  case "\$1" in
-    mint|branch|linear|playout|release)
-      subcmd="\$1"
-      shift
-      break
-      ;;
-    *)
-      runat_prefix+=("\$1")
-      shift
-      ;;
-  esac
-done
-
-[ -n "\$subcmd" ] || usage
-
-case "\$subcmd" in
-  mint)
-    [ "\$#" -ge 4 ] || usage
-    path="\$1"
-    line="\$2"
-    character="\$3"
-    shift 3
-    exec "\$runat_script" "\${runat_prefix[@]}" lean-run-at-handle "\$path" "\$line" "\$character" "\$@"
-    ;;
-  branch)
-    [ "\$#" -ge 2 ] || usage
-    path="\$1"
-    shift
-    exec "\$runat_script" "\${runat_prefix[@]}" lean-run-with "\$path" - "\$@"
-    ;;
-  linear)
-    [ "\$#" -ge 2 ] || usage
-    path="\$1"
-    shift
-    exec "\$runat_script" "\${runat_prefix[@]}" lean-run-with-linear "\$path" - "\$@"
-    ;;
-  release)
-    [ "\$#" -eq 1 ] || usage
-    path="\$1"
-    exec "\$runat_script" "\${runat_prefix[@]}" lean-release "\$path" -
-    ;;
-  playout)
-    [ "\$#" -ge 2 ] || usage
-    path="\$1"
-    shift
-    current="\$(cat)"
-    for step in "\$@"; do
-      current="\$(printf '%s\n' "\$current" | "\$runat_script" "\${runat_prefix[@]}" lean-run-with-linear "\$path" - "\$step")"
-    done
-    printf '%s\n' "\$current"
-    ;;
-esac
-EOF
-  chmod +x "$dest"
-}
-
 stage_install_version() {
   local dest="$1"
   local default_home="$2"
   local default_install_bundles="$3"
+  local entry=""
+  local mode=""
+  local manifest_group=""
+  local src_rel=""
+  local dest_rel=""
   stage_runtime_tree "$dest"
-  mkdir -p "$dest/bin"
-  write_runat_wrapper "$dest/bin/runat" "$default_home" "$default_install_bundles"
-  write_search_helper "$dest/bin/runat-lean-search" "$default_home"
+  for entry in "${runtime_payload_spec[@]}"; do
+    IFS='|' read -r mode manifest_group src_rel dest_rel <<< "$entry"
+    case "$mode" in
+      generated)
+        mkdir -p "$(dirname "$dest/$dest_rel")"
+        case "$dest_rel" in
+          bin/runat)
+            write_runat_wrapper "$dest/$dest_rel" "$default_home" "$default_install_bundles"
+            ;;
+          *)
+            die "unknown generated runtime payload destination: $dest_rel"
+            ;;
+        esac
+        ;;
+    esac
+  done
 }
 
 write_manifest_array() {
@@ -464,6 +377,35 @@ write_install_manifest() {
   local payload_id="$2"
   local toolchain="$3"
   local source_commit="$4"
+  local entry=""
+  local mode=""
+  local manifest_group=""
+  local src_rel=""
+  local dest_rel=""
+  local root_files=()
+  local source_dirs=()
+  local runtime_paths=()
+  local wrapper_paths=()
+  for entry in "${runtime_payload_spec[@]}"; do
+    IFS='|' read -r mode manifest_group src_rel dest_rel <<< "$entry"
+    case "$manifest_group" in
+      rootFiles)
+        root_files+=("$dest_rel")
+        ;;
+      sourceDirs)
+        source_dirs+=("$dest_rel")
+        ;;
+      runtimePaths)
+        runtime_paths+=("$dest_rel")
+        ;;
+      wrapperPaths)
+        wrapper_paths+=("$dest_rel")
+        ;;
+      *)
+        die "unknown manifest payload group: $manifest_group"
+        ;;
+    esac
+  done
   cat >"$dest" <<EOF
 {
   "schemaVersion": 1,
@@ -472,19 +414,19 @@ write_install_manifest() {
   "sourceCommit": $(json_null_or_string "$source_commit"),
   "artifacts": {
 EOF
-  write_manifest_array "$dest" "rootFiles" "${runtime_root_files[@]}"
+  write_manifest_array "$dest" "rootFiles" "${root_files[@]}"
   cat >>"$dest" <<EOF
 ,
 EOF
-  write_manifest_array "$dest" "sourceDirs" "${runtime_source_dirs[@]}"
+  write_manifest_array "$dest" "sourceDirs" "${source_dirs[@]}"
   cat >>"$dest" <<EOF
 ,
 EOF
-  write_manifest_array "$dest" "runtimePaths" "${runtime_build_paths[@]}"
+  write_manifest_array "$dest" "runtimePaths" "${runtime_paths[@]}"
   cat >>"$dest" <<EOF
 ,
 EOF
-  write_manifest_array "$dest" "wrapperPaths" "${runtime_wrapper_paths[@]}"
+  write_manifest_array "$dest" "wrapperPaths" "${wrapper_paths[@]}"
   cat >>"$dest" <<'EOF'
   }
 }

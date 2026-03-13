@@ -287,36 +287,8 @@ If you want the wrapper on `PATH`, install it with:
 bash scripts/install-runat-skills.sh
 ```
 
-Installation procedure:
-
-1. Ensure `elan` is on `PATH`.
-2. Run `bash scripts/install-runat-skills.sh` for the base runtime.
-3. Optionally rerun with `--codex`, `--claude`, or `--all-skills` to install the bundled agent
-   skills.
-4. Ensure `~/.local/bin` is on `PATH`, then restart Codex or Claude Code if you installed skills.
-
-The installer requires `RUNAT_INSTALL_ROOT` to be an absolute path when you override it, and it
-refuses to replace a real directory at the public wrapper paths.
-
-The base install writes the self-contained runtime:
-
-- `runat` into `~/.local/bin`
-- `runat-lean-search` into `~/.local/bin`
-- the runtime payload under `RUNAT_INSTALL_ROOT`, defaulting to `~/.local/share/runat`
-- an installed bundle cache under `RUNAT_INSTALL_ROOT/state/install-bundles`
-
-Optional bundled skill installs use explicit flags:
-
-```bash
-bash scripts/install-runat-skills.sh --codex
-bash scripts/install-runat-skills.sh --claude
-bash scripts/install-runat-skills.sh --all-skills
-```
-
-Those flags install the bundled Lean and Rocq skills into `$CODEX_HOME/skills` or
-`~/.codex/skills`, and/or `$CLAUDE_HOME/skills` or `~/.claude/skills`.
-
-Restart Codex or Claude Code after installation.
+See [Installation And Resolution](#installation-and-resolution) for the full install procedure,
+installed layout, and bundle resolution rules.
 
 For outside users today, the practical client surface is the command layer. The installed skills are
 optional agent add-ons on top of that command path, rather than part of the required CLI install.
@@ -359,7 +331,17 @@ Future distribution work is:
 
 ## Installation And Resolution
 
+### Install
+
 Use `bash scripts/install-runat-skills.sh` as the supported install path today.
+
+Installation procedure:
+
+1. Ensure `elan` is on `PATH`.
+2. Run `bash scripts/install-runat-skills.sh` for the base runtime.
+3. Optionally rerun with `--codex`, `--claude`, or `--all-skills` to install the bundled agent
+   skills.
+4. Ensure `~/.local/bin` is on `PATH`, then restart Codex or Claude Code if you installed skills.
 
 That installer:
 
@@ -373,6 +355,19 @@ That installer:
 - refuses to replace a real directory at the public wrapper link paths
 - installs bundled skills only when you pass `--codex`, `--claude`, or `--all-skills`
 
+Optional skill install commands:
+
+```bash
+bash scripts/install-runat-skills.sh --codex
+bash scripts/install-runat-skills.sh --claude
+bash scripts/install-runat-skills.sh --all-skills
+```
+
+Those flags install the bundled Lean and Rocq skills into `$CODEX_HOME/skills` or
+`~/.codex/skills`, and/or `$CLAUDE_HOME/skills` or `~/.claude/skills`.
+
+### Installed Layout
+
 The important terminology is:
 
 - installed runtime: the staged wrapper and binary payload under `RUNAT_INSTALL_ROOT/current`
@@ -383,6 +378,8 @@ The important terminology is:
 There is not a separate "global plugin" mode. `runat` always resolves a full Lean bundle for one
 toolchain, containing the CLI daemon binary, the CLI client binary, and the Lean plugin shared
 library. The only question is which cache location provides that bundle first.
+
+### Resolution Order
 
 Resolution order for Lean is:
 
