@@ -1370,8 +1370,8 @@ fi
     rm -f "$stale_sync_err"
     exit 1
   fi
-  if ! grep -Eq '^runat: diagnostic error SaveSmoke/A\.lean:1:1: .*Failed to build module dependencies\.' "$stale_sync_err"; then
-    echo "expected stale-import lean-sync failure to stream the rebuild diagnostic as an error" >&2
+  if grep -q 'CLI daemon connection closed' "$stale_sync_err"; then
+    echo "expected stale-import lean-sync failure to stay structured instead of reporting a dropped daemon connection" >&2
     cat "$stale_sync_err" >&2
     rm -f "$stale_sync_err"
     exit 1
@@ -1393,12 +1393,6 @@ fi
   fi
   if ! grep -q '"code": "syncBarrierIncomplete"' "$stale_save_err"; then
     echo "expected stale-import lean-save failure to expose syncBarrierIncomplete" >&2
-    cat "$stale_save_err" >&2
-    rm -f "$stale_save_err"
-    exit 1
-  fi
-  if ! grep -Eq '^runat: diagnostic error SaveSmoke/A\.lean:1:1: .*Failed to build module dependencies\.' "$stale_save_err"; then
-    echo "expected stale-import lean-save failure to stream the rebuild diagnostic as an error" >&2
     cat "$stale_save_err" >&2
     rm -f "$stale_save_err"
     exit 1

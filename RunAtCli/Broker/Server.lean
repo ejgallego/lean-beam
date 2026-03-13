@@ -115,10 +115,27 @@ def resolvePath (root : System.FilePath) (path : System.FilePath) : IO System.Fi
 def sessionUri (path : System.FilePath) : String :=
   (System.Uri.pathToUri path : String)
 
+private partial def waitForTaskWithTimeout
+    (task : Task α)
+    (timeoutMs : Nat)
+    (pollMs : Nat := 50) : IO (Option α) := do
+  let rec loop (remainingMs : Nat) : IO (Option α) := do
+    if ← IO.hasFinished task then
+      return some (← IO.wait task)
+    if remainingMs == 0 then
+      return none
+    IO.sleep pollMs.toUInt32
+    loop (remainingMs - min pollMs remainingMs)
+  loop timeoutMs
+
+private def sessionShutdownReplyTimeoutMs : Nat :=
+  1000
+
 def shutdownSession (session : Session) : IO Unit := do
   try
     writeLspRequest session.stdin ({ id := 0, method := "shutdown", param := Json.null : Lean.JsonRpc.Request Json })
-    let _ ← session.stdout.readLspMessage
+    let task ← IO.asTask session.stdout.readLspMessage
+    let _ ← waitForTaskWithTimeout task sessionShutdownReplyTimeoutMs
     pure ()
   catch _ =>
     pure ()
