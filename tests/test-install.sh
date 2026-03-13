@@ -9,10 +9,12 @@ trap 'rm -rf "$tmp_root"' EXIT
 export HOME="$tmp_root/home"
 export CODEX_HOME="$tmp_root/codex"
 export CLAUDE_HOME="$tmp_root/claude"
+export RUNAT_INSTALL_ROOT="$tmp_root/install-root"
 
-mkdir -p "$HOME" "$CODEX_HOME" "$CLAUDE_HOME"
+mkdir -p "$HOME" "$CODEX_HOME" "$CLAUDE_HOME" "$RUNAT_INSTALL_ROOT"
 
 toolchain="$(awk 'NR==1 {print $1}' lean-toolchain)"
+source_checkout="$tmp_root/source-checkout"
 
 assert_file() {
   local path="$1"
@@ -30,9 +32,33 @@ assert_no_skill_socket_guidance() {
   fi
 }
 
+assert_symlink_target() {
+  local path="$1"
+  local expected="$2"
+  local actual resolved_expected
+  actual="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path")"
+  resolved_expected="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$expected")"
+  if [ "$actual" != "$resolved_expected" ]; then
+    echo "unexpected symlink target for $path: expected $resolved_expected, got $actual" >&2
+    exit 1
+  fi
+}
+
+assert_runtime_layout() {
+  local runtime_root="$1"
+  assert_file "$runtime_root/RunAtCli.lean"
+  assert_file "$runtime_root/RunAtCli/Broker/Server.lean"
+  assert_file "$runtime_root/RunAt/Internal/SaveArtifacts.lean"
+  assert_file "$runtime_root/.lake/build/bin/runAt-cli"
+  assert_file "$runtime_root/.lake/build/bin/runAt-cli-daemon"
+  assert_file "$runtime_root/.lake/build/bin/runAt-cli-client"
+  assert_file "$runtime_root/.lake/build/lib/librunAt_RunAt.so"
+  assert_file "$runtime_root/bin/runat"
+  assert_file "$runtime_root/bin/runat-lean-search"
+}
+
 assert_bundle_layout() {
-  local skills_home="$1"
-  local bundle_root="$skills_home/skills/lean-runat/.runat/install-bundles"
+  local bundle_root="$1"
   local metadata
   metadata="$(find "$bundle_root" -name metadata.json | head -n 1 || true)"
   if [ -z "$metadata" ]; then
@@ -54,27 +80,39 @@ assert_bundle_layout() {
   assert_file "$workspace/.lake/build/lib/librunAt_RunAt.so"
 }
 
-bash scripts/install-runat-skills.sh > /dev/null
+rsync -a --exclude='.git/' ./ "$source_checkout"/
+(
+  cd "$source_checkout"
+  bash scripts/install-runat-skills.sh > /dev/null
+)
 
 installed_runat="$HOME/.local/bin/runat"
+installed_helper="$HOME/.local/bin/runat-lean-search"
+installed_runtime_root="$RUNAT_INSTALL_ROOT/current"
 
 if [ ! -L "$installed_runat" ]; then
   echo "expected installed runat symlink at $installed_runat" >&2
   exit 1
 fi
 
-if [ ! -L "$HOME/.local/bin/runat-lean-search" ]; then
-  echo "expected installed runat-lean-search symlink at $HOME/.local/bin/runat-lean-search" >&2
+if [ ! -L "$installed_helper" ]; then
+  echo "expected installed runat-lean-search symlink at $installed_helper" >&2
   exit 1
 fi
+
+assert_symlink_target "$installed_runat" "$installed_runtime_root/bin/runat"
+assert_symlink_target "$installed_helper" "$installed_runtime_root/bin/runat-lean-search"
+assert_runtime_layout "$installed_runtime_root"
 
 for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-runat/SKILL.md"
   assert_file "$skills_home/skills/rocq-runat/SKILL.md"
   assert_no_skill_socket_guidance "$skills_home/skills/lean-runat/SKILL.md"
   assert_no_skill_socket_guidance "$skills_home/skills/rocq-runat/SKILL.md"
-  assert_bundle_layout "$skills_home"
 done
+assert_bundle_layout "$RUNAT_INSTALL_ROOT/state/install-bundles"
+
+rm -rf "$source_checkout"
 
 project_root="$tmp_root/external-project"
 rsync -a tests/save_olean_project/ "$project_root"/
