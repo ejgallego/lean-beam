@@ -106,12 +106,13 @@ wait_for_exit() {
   local label="$2"
   local tries="${3:-40}"
   local delay="${4:-0.5}"
-  local i
-  for i in $(seq 1 "$tries"); do
+  local remaining="$tries"
+  while [ "$remaining" -gt 0 ]; do
     if ! kill -0 "$pid" 2>/dev/null; then
       return 0
     fi
     sleep "$delay"
+    remaining=$((remaining - 1))
   done
   echo "timed out waiting for $label (pid $pid) to exit" >&2
   return 1
@@ -957,6 +958,72 @@ EOF
   if [ "$(RUNAT_JSON_PAYLOAD="$close_handle_out" read_json_text_field ok)" != "true" ]; then
     echo "expected handle smoke file close to succeed" >&2
     printf '%s\n' "$close_handle_out" >&2
+    exit 1
+  fi
+
+  portable_wrapper_bin="$tmp1/portable-wrapper-bin"
+  system_readlink="$(command -v readlink)"
+  mkdir -p "$portable_wrapper_bin"
+  ln -sf "$runat_script" "$portable_wrapper_bin/runat"
+  ln -sf "$search_helper" "$portable_wrapper_bin/runat-lean-search"
+  cat > "$portable_wrapper_bin/readlink" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "\${1:-}" = "-f" ]; then
+  echo "unexpected readlink -f in portability test" >&2
+  exit 64
+fi
+
+exec "$system_readlink" "\$@"
+EOF
+  chmod +x "$portable_wrapper_bin/readlink"
+
+  portable_stats_out="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/runat" stats)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$portable_stats_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected symlinked wrapper to work when readlink -f is unavailable" >&2
+    printf '%s\n' "$portable_stats_out" >&2
+    exit 1
+  fi
+
+  portable_helper_root="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/runat-lean-search" mint HandleSmoke.lean 0 27 "constructor")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$portable_helper_root" read_json_text_field ok)" != "true" ]; then
+    echo "expected symlinked helper to work when readlink -f is unavailable" >&2
+    printf '%s\n' "$portable_helper_root" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$portable_helper_root" read_json_text_field result.handle.backend)" != "lean" ]; then
+    echo "expected symlinked helper mint to return a lean handle" >&2
+    printf '%s\n' "$portable_helper_root" >&2
+    exit 1
+  fi
+
+  wrapper_shadow_root="$tmp1/wrapper-shadow-root"
+  mkdir -p "$wrapper_shadow_root/scripts" "$wrapper_shadow_root/.lake/build/bin" "$wrapper_shadow_root/libexec"
+  cp "$runat_script" "$wrapper_shadow_root/scripts/runat"
+  cat > "$wrapper_shadow_root/.lake/build/bin/runAt-cli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'checkout\n'
+EOF
+  cat > "$wrapper_shadow_root/libexec/runAt-cli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'installed\n'
+EOF
+  chmod +x "$wrapper_shadow_root/.lake/build/bin/runAt-cli" "$wrapper_shadow_root/libexec/runAt-cli"
+
+  wrapper_shadow_out="$("$wrapper_shadow_root/scripts/runat" stats)"
+  if [ "$wrapper_shadow_out" != "checkout" ]; then
+    echo "expected checkout wrapper to prefer .lake/build over sibling libexec when RUNAT_HOME is unset" >&2
+    printf '%s\n' "$wrapper_shadow_out" >&2
+    exit 1
+  fi
+
+  wrapper_override_out="$(RUNAT_HOME="$wrapper_shadow_root" "$wrapper_shadow_root/scripts/runat" stats)"
+  if [ "$wrapper_override_out" != "installed" ]; then
+    echo "expected explicit RUNAT_HOME to prefer libexec in the overridden runtime" >&2
+    printf '%s\n' "$wrapper_override_out" >&2
     exit 1
   fi
 

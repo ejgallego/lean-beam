@@ -157,12 +157,30 @@ private def runAtHome : IO System.FilePath := do
       let app ← IO.appPath
       IO.FS.realPath <| climbParents app 4
 
-private def defaultBundlePaths (home : System.FilePath) : BundlePaths :=
-  {
-    daemon := home / ".lake" / "build" / "bin" / "runAt-cli-daemon"
-    client := home / ".lake" / "build" / "bin" / "runAt-cli-client"
-    plugin := home / ".lake" / "build" / "lib" / "librunAt_RunAt.so"
-  }
+private def defaultBundlePaths (home : System.FilePath) : IO BundlePaths := do
+  let installedDaemon := home / "libexec" / "runAt-cli-daemon"
+  let installedClient := home / "libexec" / "runAt-cli-client"
+  let installedPlugin := home / "libexec" / "librunAt_RunAt.so"
+  let checkoutDaemon := home / ".lake" / "build" / "bin" / "runAt-cli-daemon"
+  let checkoutClient := home / ".lake" / "build" / "bin" / "runAt-cli-client"
+  let checkoutPlugin := home / ".lake" / "build" / "lib" / "librunAt_RunAt.so"
+  let installedReady :=
+    (← installedDaemon.pathExists) &&
+    (← installedClient.pathExists) &&
+    (← installedPlugin.pathExists)
+  pure <|
+    if installedReady then
+      {
+        daemon := installedDaemon
+        client := installedClient
+        plugin := installedPlugin
+      }
+    else
+      {
+        daemon := checkoutDaemon
+        client := checkoutClient
+        plugin := checkoutPlugin
+      }
 
 private def ensurePathExists (kind : String) (path : System.FilePath) : IO Unit := do
   unless ← path.pathExists do
@@ -458,7 +476,7 @@ private def ensureToolchainBundle (root home : System.FilePath) (toolchain : Str
       ensureToolchainBundleIn cacheRoot home toolchain
 
 private def ensureDefaultDaemonHelpers (home : System.FilePath) : IO BundlePaths := do
-  let paths := defaultBundlePaths home
+  let paths ← defaultBundlePaths home
   if (← paths.daemon.pathExists) && (← paths.client.pathExists) then
     pure paths
   else
@@ -803,7 +821,7 @@ private def startDaemonEntry (desired : DesiredConfig) (opts : CliOptions) : IO 
   pure (endpoint, entry)
 
 private def desiredConfig (home root : System.FilePath) (required : Backend) : IO DesiredConfig := do
-  let defaultPaths := defaultBundlePaths home
+  let defaultPaths ← defaultBundlePaths home
   let mut daemonBin := defaultPaths.daemon
   let mut clientBin := defaultPaths.client
   let mut plugin? : Option System.FilePath := none
@@ -1225,7 +1243,7 @@ private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
   IO.println s!"plugin: {paths.plugin}"
 
 private def printRocqDoctorInfo (home root : System.FilePath) : IO Unit := do
-  let paths := defaultBundlePaths home
+  let paths ← defaultBundlePaths home
   let helpersReady := (← paths.daemon.pathExists) && (← paths.client.pathExists)
   IO.println s!"coq-lsp: {(← maybeRocqCmd root).getD ""}"
   IO.println s!"daemon helpers ready: {if helpersReady then "true" else "false"}"

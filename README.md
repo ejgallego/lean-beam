@@ -241,11 +241,13 @@ Optional daemon smoke coverage:
 bash tests/test-broker-fast.sh
 bash tests/test-broker-slow.sh
 bash tests/test-broker.sh
+bash scripts/lint-shell.sh
 ```
 
 `tests/test-broker-fast.sh` is the quick broker/stream contract suite.
 `tests/test-broker-slow.sh` covers wrapper/install/bundle-heavy paths.
 `tests/test-broker.sh` runs both.
+`scripts/lint-shell.sh` runs the repository shell lint pass with `shellcheck`.
 
 The public test path documented here is Lean-focused. Internal experimental tooling may have extra
 coverage in-tree, but it is not part of this README.
@@ -290,18 +292,13 @@ If you want the wrapper on `PATH`, install it with:
 bash scripts/install-runat-skills.sh
 ```
 
-That currently installs:
+See [Installation And Resolution](#installation-and-resolution) for the full install procedure,
+installed layout, and bundle resolution rules. The design note in
+[docs/INSTALL_REDESIGN_PLAN.md](docs/INSTALL_REDESIGN_PLAN.md) is now implementation background,
+not the primary user-facing install guide.
 
-- `runat` into `~/.local/bin`
-- `runat-lean-search` into `~/.local/bin`
-- the bundled Codex skills into `$CODEX_HOME/skills` or `~/.codex/skills` by default
-- the bundled Claude Code skills into `$CLAUDE_HOME/skills` or `~/.claude/skills` by default
-
-Restart Codex or Claude Code after installation.
-
-For outside users today, the practical client surface is the command layer plus the installed
-skills. That is the supported path for external experimentation right now, rather than a polished
-standalone SDK or an MCP server.
+For outside users today, the practical client surface is the command layer. The installed skills are
+optional agent add-ons on top of that command path, rather than part of the required CLI install.
 
 The installed skill entrypoints are:
 
@@ -329,7 +326,8 @@ First workflow to remember:
 
 Current local packaging is:
 
-- one installer for the `runat` wrapper plus the bundled Codex and Claude skills
+- one installer for the `runat` wrapper and self-contained runtime, with optional bundled Codex and
+  Claude skill installation flags
 - the documented agent-facing workflow here is Lean-only
 - repo-local `AGENTS.md` guidance for Codex
 - repo-local `CLAUDE.md` importing the same guidance for Claude Code
@@ -340,36 +338,67 @@ Future distribution work is:
 
 ## Installation And Resolution
 
+### Install
+
 Use `bash scripts/install-runat-skills.sh` as the supported install path today.
+
+Installation procedure:
+
+1. Ensure `elan` is on `PATH`.
+2. Run `bash scripts/install-runat-skills.sh` for the base runtime.
+3. Optionally rerun with `--codex`, `--claude`, or `--all-skills` to install the bundled agent
+   skills.
+4. Ensure `~/.local/bin` is on `PATH`, then restart Codex or Claude Code if you installed skills.
 
 That installer:
 
 - puts `runat` in `~/.local/bin`
 - puts `runat-lean-search` in `~/.local/bin`
-- installs the bundled skills into `$CODEX_HOME/skills` and `$CLAUDE_HOME/skills`, defaulting to
-  `~/.codex/skills` and `~/.claude/skills`
-- prebuilds an installed Lean bundle for this repository's pinned `lean-toolchain` when `elan` is available
+- stages an immutable runtime under `RUNAT_INSTALL_ROOT`, defaulting to `~/.local/share/runat`
+- points `~/.local/bin/runat` and `runat-lean-search` at `RUNAT_INSTALL_ROOT/current`
+- requires `elan` on `PATH` and prebuilds an installed Lean bundle under
+  `RUNAT_INSTALL_ROOT/state/install-bundles`
+- requires `RUNAT_INSTALL_ROOT` to be absolute when overridden
+- refuses to replace a real directory at the public wrapper link paths
+- installs bundled skills only when you pass `--codex`, `--claude`, or `--all-skills`
+
+Optional skill install commands:
+
+```bash
+bash scripts/install-runat-skills.sh --codex
+bash scripts/install-runat-skills.sh --claude
+bash scripts/install-runat-skills.sh --all-skills
+```
+
+Those flags install the bundled Lean and Rocq skills into `$CODEX_HOME/skills` or
+`~/.codex/skills`, and/or `$CLAUDE_HOME/skills` or `~/.claude/skills`.
+
+### Installed Layout
 
 The important terminology is:
 
-- installed bundle: the prebuilt toolchain-keyed bundle stored under the installed `lean-runat` skill home
+- installed runtime: the staged wrapper and binary payload under `RUNAT_INSTALL_ROOT/current`
+- installed bundle: the prebuilt toolchain-keyed bundle stored under
+  `RUNAT_INSTALL_ROOT/state/install-bundles`
 - local runtime bundle: the same kind of toolchain-keyed bundle, but built on demand for one target project under that project's `.runat` state
 
 There is not a separate "global plugin" mode. `runat` always resolves a full Lean bundle for one
 toolchain, containing the CLI daemon binary, the CLI client binary, and the Lean plugin shared
 library. The only question is which cache location provides that bundle first.
 
+### Resolution Order
+
 Resolution order for Lean is:
 
-1. Wrapper resolution: `scripts/runat` looks for `runAt-cli` under `RUNAT_HOME` when set, otherwise
-   under the repo containing the wrapper script itself.
+1. Installed wrapper resolution: the installer writes `~/.local/bin/runat` as a symlink to
+   `RUNAT_INSTALL_ROOT/current/bin/runat`; that wrapper sets `RUNAT_HOME` to the installed runtime
+   and `RUNAT_INSTALL_BUNDLE_DIR` to `RUNAT_INSTALL_ROOT/state/install-bundles` unless you override
+   them explicitly.
 2. Project-root resolution: `runat --root PATH ...` uses that root directly; otherwise the CLI
    searches upward from the current directory for a Lean project root.
 3. Installed-bundle lookup: if `RUNAT_INSTALL_BUNDLE_DIR` is set, only that installed cache root is
-   checked. Otherwise `runat` checks `$CODEX_HOME/skills/lean-runat/.runat/install-bundles` first
-   and then `$CLAUDE_HOME/skills/lean-runat/.runat/install-bundles`, defaulting to
-   `~/.codex/skills/lean-runat/.runat/install-bundles` and
-   `~/.claude/skills/lean-runat/.runat/install-bundles`.
+   checked. The installed wrapper sets this to `RUNAT_INSTALL_ROOT/state/install-bundles` by
+   default.
 4. If a matching installed bundle already exists for the target Lean toolchain, `runat` uses it.
 5. If no installed bundle matches, `runat` falls back to the local runtime bundle cache under
    `RUNAT_BUNDLE_DIR` when set, otherwise under `<root>/.runat/bundles`, and builds that bundle on
