@@ -481,7 +481,9 @@ Important wrapper rules:
 - if daemon or save-state behavior looks wrong, inspect `runat open-files` and `runat doctor lean`
   before assuming the wrapper is confused
 - `lean-sync` transport success means the diagnostics barrier completed, not that the file is
-  error-free; inspect `result.errorCount` and `result.warningCount`
+  error-free; `result.errorCount` / `result.warningCount` summarize fresh streamed diagnostics for
+  this request, while `result.saveReady` plus `result.stateErrorCount` /
+  `result.stateCommandErrorCount` summarize current save-readiness
 - by default `lean-sync`, `lean-save`, and `lean-close-save` stream only error diagnostics; `+full`
   widens that set to warnings, info, and hints
 - wrapper `stderr` is human-facing; `runAt-cli-client request-stream` is the machine-readable

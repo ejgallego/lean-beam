@@ -249,21 +249,55 @@ private def saveArtifactsErrorMessage
   else
     s!"cannot save artifacts for a document with errors; {String.intercalate "; " detailParts}"
 
+private def saveReadinessDocumentErrorsReason : String :=
+  "documentErrors"
+
+private def saveReadinessNotElaboratedReason : String :=
+  "documentDidNotElaborateSuccessfully"
+
+private def collectSaveReadiness
+    (doc : Lean.Server.FileWorker.EditableDocument) :
+    RequestM
+      (RunAt.Internal.SaveReadinessResult ×
+        Option Elab.Command.State ×
+        Array Lean.Widget.InteractiveDiagnostic ×
+        Array String) := do
+  let diagnostics ← doc.diagnosticsRef.get
+  let diagnosticErrors := diagnostics.filter (fun diag => diag.severity? == some .error)
+  let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
+    | return ({
+      version := doc.meta.version
+      diagnosticErrorCount := diagnosticErrors.size
+      commandErrorCount := 0
+      saveReady := false
+      saveReadyReason := saveReadinessNotElaboratedReason
+      : RunAt.Internal.SaveReadinessResult
+    }, none, diagnosticErrors, #[])
+  let mut commandErrors : Array String := #[]
+  for msg in cmdState.messages.toList do
+    if msg.severity == MessageSeverity.error then
+      commandErrors := commandErrors.push (singleLineText (← msg.data.toString))
+  let commandErrorCount := commandErrors.size
+  let saveReady := diagnosticErrors.isEmpty && commandErrors.isEmpty
+  let readiness : RunAt.Internal.SaveReadinessResult := {
+    version := doc.meta.version
+    diagnosticErrorCount := diagnosticErrors.size
+    commandErrorCount := commandErrorCount
+    saveReady := saveReady
+    saveReadyReason := if saveReady then "ok" else saveReadinessDocumentErrorsReason
+  }
+  pure (readiness, some cmdState, diagnosticErrors, commandErrors)
+
 private def saveCurrentArtifacts
     (doc : Lean.Server.FileWorker.EditableDocument)
     (snaps : List Snapshots.Snapshot)
     (p : RunAt.Internal.SaveArtifactsParams) : RequestM RunAt.Internal.SaveArtifactsResult := do
   checkRequestCancelled
-  let diagnostics ← doc.diagnosticsRef.get
-  let diagnosticErrors := diagnostics.filter (fun diag => diag.severity? == some .error)
-  let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
-    | throw <| RequestError.invalidParams "document did not elaborate successfully"
-  let mut commandErrors : Array String := #[]
-  for msg in cmdState.messages.toList do
-    if msg.severity == MessageSeverity.error then
-      commandErrors := commandErrors.push (singleLineText (← msg.data.toString))
-  if !diagnosticErrors.isEmpty || !commandErrors.isEmpty then
+  let (readiness, cmdState?, diagnosticErrors, commandErrors) ← collectSaveReadiness doc
+  unless readiness.saveReady do
     throw <| RequestError.invalidParams (saveArtifactsErrorMessage diagnosticErrors commandErrors)
+  let some cmdState := cmdState?
+    | throw <| RequestError.invalidParams "document did not elaborate successfully"
   let env := cmdState.env
   let mainModule := env.mainModule
   let oleanFile := mkFilePath p.oleanFile
@@ -580,6 +614,14 @@ private def handleSaveArtifacts
   RequestM.mapTaskCostly t fun (snaps, _) => do
     saveCurrentArtifacts doc snaps p
 
+private def handleSaveReadiness
+    (_p : RunAt.Internal.SaveReadinessParams) : RequestM (RequestTask RunAt.Internal.SaveReadinessResult) := do
+  let doc ← RequestM.readDoc
+  let t := doc.cmdSnaps.waitAll
+  RequestM.mapTaskCostly t fun _ => do
+    let (readiness, _, _, _) ← collectSaveReadiness doc
+    pure readiness
+
 initialize
   registerLspRequestHandler method Params Result handleRunAt
   registerLspRequestHandler goalsAfterMethod GoalsParams ProofState (fun p => handleGoalsAt p true)
@@ -590,5 +632,9 @@ initialize
     RunAt.Internal.SaveArtifactsParams
     RunAt.Internal.SaveArtifactsResult
     handleSaveArtifacts
+  registerLspRequestHandler RunAt.Internal.saveReadinessMethod
+    RunAt.Internal.SaveReadinessParams
+    RunAt.Internal.SaveReadinessResult
+    handleSaveReadiness
 
 end RunAt

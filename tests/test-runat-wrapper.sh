@@ -731,6 +731,21 @@ EOF
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.saveReady)" != "true" ]; then
+    echo "expected lean-sync after first edit to report saveReady = true" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.stateErrorCount)" != "0" ]; then
+    echo "expected lean-sync after first edit to report stateErrorCount = 0" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.stateCommandErrorCount)" != "0" ]; then
+    echo "expected lean-sync after first edit to report stateCommandErrorCount = 0" >&2
+    printf '%s\n' "$sync_out" >&2
+    exit 1
+  fi
   if printf '%s\n' "$sync_out" | grep -q '"ok"'; then
     echo "expected lean-sync output to omit the legacy ok field" >&2
     printf '%s\n' "$sync_out" >&2
@@ -1140,6 +1155,27 @@ EOF
     rm -f "$broken_sync_json" "$broken_sync_err"
     exit 1
   fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.saveReady)" != "false" ]; then
+    echo "expected broken lean-sync final json to report saveReady = false" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.stateErrorCount)" -lt 1 ]; then
+    echo "expected broken lean-sync final json to report stateErrorCount >= 1" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.saveReadyReason)" != "documentErrors" ]; then
+    echo "expected broken lean-sync final json to report saveReadyReason = documentErrors" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
   if printf '%s\n' "$broken_sync" | grep -q '"diagnostics"'; then
     echo "expected broken lean-sync final json to omit replayed diagnostics" >&2
     printf '%s\n' "$broken_sync" >&2
@@ -1350,6 +1386,14 @@ if result.get("errorCount") != 0:
     raise SystemExit(f"expected streamed sync response errorCount 0, got {result.get('errorCount')!r}")
 if not isinstance(result.get("warningCount"), int) or result["warningCount"] < 1:
     raise SystemExit(f"expected streamed sync response warningCount >= 1, got {result.get('warningCount')!r}")
+if result.get("saveReady") is not True:
+    raise SystemExit(f"expected streamed sync response saveReady true, got {result.get('saveReady')!r}")
+if result.get("stateErrorCount") != 0:
+    raise SystemExit(f"expected streamed sync response stateErrorCount 0, got {result.get('stateErrorCount')!r}")
+if result.get("stateCommandErrorCount") != 0:
+    raise SystemExit(
+        f"expected streamed sync response stateCommandErrorCount 0, got {result.get('stateCommandErrorCount')!r}"
+    )
 if "diagnostics" in result:
     raise SystemExit("expected streamed sync final response to omit replayed diagnostics")
 PY

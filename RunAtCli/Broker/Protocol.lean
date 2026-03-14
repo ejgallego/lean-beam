@@ -204,6 +204,10 @@ structure SyncFileResult where
   version : Nat
   errorCount : Nat := 0
   warningCount : Nat := 0
+  stateErrorCount : Nat := 0
+  stateCommandErrorCount : Nat := 0
+  saveReady : Bool := true
+  saveReadyReason : String := "ok"
   deriving Inhabited, FromJson, ToJson
 
 structure StreamDiagnostic where

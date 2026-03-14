@@ -98,6 +98,11 @@ def saveArtifactsMethod (backend : Backend) : Except String String :=
   | .lean => .ok RunAt.Internal.saveArtifactsMethod
   | .rocq => .error "rocq backend does not support artifact save yet"
 
+def saveReadinessMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok RunAt.Internal.saveReadinessMethod
+  | .rocq => .error "rocq backend does not support save-readiness checks yet"
+
 def goalsMethod (backend : Backend) (mode? : Option GoalMode := none) : Except String String :=
   match backend with
   | .lean =>

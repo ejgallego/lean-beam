@@ -412,6 +412,22 @@ private def syncWarningCount (diagnostics : Array Diagnostic) : Nat :=
     else
       count
 
+private structure SyncSaveReadiness where
+  stateErrorCount : Nat := 0
+  stateCommandErrorCount : Nat := 0
+  saveReady : Bool := true
+  saveReadyReason : String := "ok"
+  deriving Inhabited
+
+private def syncSaveReadinessOfResult
+    (result : RunAt.Internal.SaveReadinessResult) : SyncSaveReadiness :=
+  {
+    stateErrorCount := result.diagnosticErrorCount
+    stateCommandErrorCount := result.commandErrorCount
+    saveReady := result.saveReady
+    saveReadyReason := result.saveReadyReason
+  }
+
 private def emitNewTrackedDiagnostics
     (root : System.FilePath)
     (seen : Std.TreeSet String compare)
@@ -810,6 +826,21 @@ def decodeResponseAs [FromJson α] (json : Json) : IO α := do
   match fromJson? json with
   | .ok value => pure value
   | .error err => throw <| IO.userError s!"invalid backend response payload: {err}\n{json.compress}"
+
+private def fetchSyncSaveReadiness
+    (session : Session)
+    (uri : DocumentUri) : IO (Session × SyncSaveReadiness) := do
+  if session.backend != .lean then
+    pure (session, {})
+  else
+    let method ← IO.ofExcept <| saveReadinessMethod session.backend
+    let params := toJson ({
+      textDocument := ({ uri := uri : TextDocumentIdentifier })
+      : RunAt.Internal.SaveReadinessParams
+    })
+    let (session, result) ← sendRequestJson session method params
+    let readiness : RunAt.Internal.SaveReadinessResult ← decodeResponseAs result
+    pure (session, syncSaveReadinessOfResult readiness)
 
 private def ensureSyncBarrierComplete
     (uri : DocumentUri)
@@ -1433,13 +1464,20 @@ def handleSyncFileOp (req : Request) (session : Session) : M (Response × Bool) 
     let emitProgress? ← currentFileProgressSink?
     let emitDiagnostic? ← currentDiagnosticSink?
     let fullDiagnostics := req.fullDiagnostics?.getD false
-    let (session, fileProgress?, _) ←
+    let (session, fileProgress?, diagnostics) ←
       waitForSyncBarrierWithDiagnostics session uri docState.version
         emitProgress? fullDiagnostics emitDiagnostic?
+    let (session, saveReadiness) ← fetchSyncSaveReadiness session uri
     let session := recordFileProgress session uri fileProgress?
     updateSession session
     let payload := toJson ({
       version := docState.version
+      errorCount := syncErrorCount diagnostics
+      warningCount := syncWarningCount diagnostics
+      stateErrorCount := saveReadiness.stateErrorCount
+      stateCommandErrorCount := saveReadiness.stateCommandErrorCount
+      saveReady := saveReadiness.saveReady
+      saveReadyReason := saveReadiness.saveReadyReason
       : SyncFileResult
     })
     pure (withFileProgress (sessionResult session payload) fileProgress?, false)
@@ -2015,6 +2053,25 @@ private structure SaveOleanCompleted where
   payload : Json
   fileProgress? : Option SyncFileProgress := none
 
+private def fetchSyncSaveReadinessIO
+    (server : ServerRuntime)
+    (session : Session)
+    (uri : DocumentUri) : IO SyncSaveReadiness := do
+  if session.backend != .lean then
+    pure {}
+  else
+    let method ← IO.ofExcept <| saveReadinessMethod session.backend
+    let params := toJson ({
+      textDocument := ({ uri := uri : TextDocumentIdentifier })
+      : RunAt.Internal.SaveReadinessParams
+    })
+    let readiness : RunAt.Internal.SaveReadinessResult ←
+      withCurrentMatchingSession server session fun current => do
+        let (current, result) ← sendRequestJson current method params
+        updateSession current
+        decodeResponseAs result
+    pure (syncSaveReadinessOfResult readiness)
+
 private def saveOleanIO
     (server : ServerRuntime)
     (req : Request)
@@ -2118,10 +2175,15 @@ private def handleSyncFileOpIO
     let fileProgress? := effectiveSyncBarrierProgress priorProgress? pending.progress? pending.diagnostics
     mergeFileProgressIfCurrent server session uri fileProgress?
     ensureSyncBarrierComplete uri version fileProgress? pending.diagnostics
+    let saveReadiness ← fetchSyncSaveReadinessIO server session uri
     let payload := toJson ({
       version := version
       errorCount := syncErrorCount pending.diagnostics
       warningCount := syncWarningCount pending.diagnostics
+      stateErrorCount := saveReadiness.stateErrorCount
+      stateCommandErrorCount := saveReadiness.stateCommandErrorCount
+      saveReady := saveReadiness.saveReady
+      saveReadyReason := saveReadiness.saveReadyReason
       : SyncFileResult
     })
     pure (withFileProgress (sessionResult session payload) fileProgress?, false)

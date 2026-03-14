@@ -122,6 +122,12 @@ private def runSyncSmoke
   let syncRes : RunAtCli.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk syncResp)
   if syncRes.version != 1 then
     throw <| IO.userError s!"expected sync_file version 1, got {syncRes.version}"
+  if !syncRes.saveReady then
+    throw <| IO.userError
+      s!"expected sync_file saveReady = true for clean module, got {(toJson syncRes).compress}"
+  if syncRes.stateErrorCount != 0 || syncRes.stateCommandErrorCount != 0 then
+    throw <| IO.userError
+      s!"expected sync_file state error counts to be zero for clean module, got {(toJson syncRes).compress}"
   let syncTop := ← requireFileProgress "sync_file" syncResp
   expectClientRequestId "sync_file response" syncResp.clientRequestId? syncRequestId
   if !syncTop.done then
@@ -156,6 +162,15 @@ private def runErrorOnlySyncSmoke
   let errorRes : RunAtCli.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk errorResp)
   if errorRes.version != 1 then
     throw <| IO.userError s!"expected error-only sync_file version 1, got {errorRes.version}"
+  if errorRes.saveReady then
+    throw <| IO.userError
+      s!"expected error-only sync_file saveReady = false, got {(toJson errorRes).compress}"
+  if errorRes.stateErrorCount == 0 then
+    throw <| IO.userError
+      s!"expected error-only sync_file stateErrorCount > 0, got {(toJson errorRes).compress}"
+  if errorRes.saveReadyReason != "documentErrors" then
+    throw <| IO.userError
+      s!"expected error-only sync_file saveReadyReason = documentErrors, got {(toJson errorRes).compress}"
   let some errorLast := errorProgress.back?
     | throw <| IO.userError "expected error-only sync_file to stream fileProgress events"
   if !errorLast.done then

@@ -102,6 +102,11 @@ def main : IO Unit := do
     let syncResult : RunAtCli.Broker.SyncFileResult ← IO.ofExcept <| fromJson? syncPayload
     if syncResult.version != 1 then
       throw <| IO.userError s!"expected sync_file version 1, got {syncResult.version}"
+    if !syncResult.saveReady then
+      throw <| IO.userError s!"expected sync_file saveReady = true, got {(toJson syncResult).compress}"
+    if syncResult.stateErrorCount != 0 || syncResult.stateCommandErrorCount != 0 then
+      throw <| IO.userError
+        s!"expected sync_file state error counts = 0, got {(toJson syncResult).compress}"
     let syncProgress := ← requireAnyStreamFileProgress "sync_file" syncMessages
     let some syncLast := syncProgress.back?
       | throw <| IO.userError "expected sync_file fileProgress tail"

@@ -1125,7 +1125,14 @@ private def syncWaitSpec (path : String) : BrokerWaitSpec :=
       match decodeSyncFileResult? resp with
       | some result =>
           let suffix := syncFileProgressSuffix (responseFileProgress? resp)
-          s!"runat: sync complete for {path} (version {result.version}{suffix})"
+          let readinessSuffix :=
+            if result.saveReady then
+              ""
+            else
+              s!", saveReady=false ({result.saveReadyReason}, " ++
+                s!"stateErrorCount={result.stateErrorCount}, " ++
+                s!"stateCommandErrorCount={result.stateCommandErrorCount})"
+          s!"runat: sync complete for {path} (version {result.version}{suffix}{readinessSuffix})"
       | none =>
           s!"runat: sync complete for {path}"
   }

@@ -215,6 +215,9 @@ Diagnostic defaults on that path:
 - by default they stream only errors
 - add `+full` to widen the current request to warnings, info, and hints
 - the final JSON does not replay streamed diagnostics
+- `lean-sync` final JSON reports fresh streamed counts in `result.errorCount` /
+  `result.warningCount`, and current save-readiness in `result.saveReady` plus
+  `result.stateErrorCount` / `result.stateCommandErrorCount`
 - when `lean-save` or `lean-close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
   messages

@@ -173,9 +173,10 @@ printf '%s\n' "$probe_out"
 Interpretation:
 
 - after `lean-sync`, expect top-level `fileProgress.done = true`
-- successful `lean-sync` transport does not mean the file is error-free; inspect final
-  `result.errorCount` / `result.warningCount` for the authoritative summary and streamed diagnostics
-  for the actual Lean messages and ranges
+- successful `lean-sync` transport does not mean the file is error-free; inspect
+  `result.errorCount` / `result.warningCount` for fresh streamed diagnostics in this request, and
+  inspect `result.saveReady` plus `result.stateErrorCount` / `result.stateCommandErrorCount` for
+  current save-readiness
 - if `lean-sync` fails with an incomplete diagnostics barrier, fix the stale or broken dependency
   state before relying on `lean-save` or downstream probes
 - after `lean-run-at`, top-level `fileProgress` may exist with `done = false`; that is normal
