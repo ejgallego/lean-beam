@@ -5,8 +5,8 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import RunAtCli.Broker.Client
-import RunAtCli.Broker.Protocol
+import Beam.Broker.Client
+import Beam.Broker.Protocol
 import RunAtTest.TestHarness
 
 open Lean
@@ -15,7 +15,7 @@ namespace RunAtTest.Broker.TestUtil
 
 structure ProgressEvent where
   clientRequestId? : Option String := none
-  progress : RunAtCli.Broker.SyncFileProgress
+  progress : Beam.Broker.SyncFileProgress
 
 abbrev nullBrokerStdio : IO.Process.StdioConfig where
   stdin := .null
@@ -101,7 +101,7 @@ private partial def waitForPidGone (pid : Nat) (tries : Nat := 40) : IO Unit := 
     pure ()
 
 def killLeanServerForEndpoint
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let port ←
     match endpoint with
@@ -123,7 +123,7 @@ def killLeanServerForEndpoint
   waitForPidGone serverPid
 
 def spawnLeanBrokerWithPlugin
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root leanPlugin : System.FilePath)
     (leanCmd : String := "lean") : IO (IO.Process.Child nullBrokerStdio) := do
   let port ←
@@ -143,18 +143,18 @@ def spawnLeanBrokerWithPlugin
   }
 
 def spawnLeanBroker
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath)
     (leanCmd : String := "lean") : IO (IO.Process.Child nullBrokerStdio) := do
   spawnLeanBrokerWithPlugin endpoint root (← RunAtTest.TestHarness.pluginPath) leanCmd
 
 def runClientWithStream
-    (endpoint : RunAtCli.Broker.Endpoint)
-    (req : RunAtCli.Broker.Request) :
-    IO (RunAtCli.Broker.Response × Array RunAtCli.Broker.SyncFileProgress × Array RunAtCli.Broker.StreamDiagnostic) := do
+    (endpoint : Beam.Broker.Endpoint)
+    (req : Beam.Broker.Request) :
+    IO (Beam.Broker.Response × Array Beam.Broker.SyncFileProgress × Array Beam.Broker.StreamDiagnostic) := do
   let progressRef ← IO.mkRef #[]
   let diagnosticRef ← IO.mkRef #[]
-  let resp ← RunAtCli.Broker.sendRequestWithCallbacks endpoint req {
+  let resp ← Beam.Broker.sendRequestWithCallbacks endpoint req {
     onFileProgress := fun _ progress =>
       progressRef.modify fun seen => seen.push progress
     onDiagnostic := fun _ diagnostic =>
@@ -163,21 +163,21 @@ def runClientWithStream
   pure (resp, ← progressRef.get, ← diagnosticRef.get)
 
 def runClientWithProgress
-    (endpoint : RunAtCli.Broker.Endpoint)
-    (req : RunAtCli.Broker.Request) : IO (RunAtCli.Broker.Response × Array ProgressEvent) := do
+    (endpoint : Beam.Broker.Endpoint)
+    (req : Beam.Broker.Request) : IO (Beam.Broker.Response × Array ProgressEvent) := do
   let progressRef ← IO.mkRef #[]
-  let resp ← RunAtCli.Broker.sendRequestWithCallbacks endpoint req {
+  let resp ← Beam.Broker.sendRequestWithCallbacks endpoint req {
     onFileProgress := fun clientRequestId? progress =>
       progressRef.modify fun seen => seen.push { clientRequestId?, progress }
   }
   pure (resp, ← progressRef.get)
 
-def runClient (endpoint : RunAtCli.Broker.Endpoint) (req : RunAtCli.Broker.Request) : IO RunAtCli.Broker.Response := do
+def runClient (endpoint : Beam.Broker.Endpoint) (req : Beam.Broker.Request) : IO Beam.Broker.Response := do
   let (resp, _) ← runClientWithProgress endpoint req
   pure resp
 
-def requireFileProgress (label : String) (resp : RunAtCli.Broker.Response) :
-    IO RunAtCli.Broker.SyncFileProgress := do
+def requireFileProgress (label : String) (resp : Beam.Broker.Response) :
+    IO Beam.Broker.SyncFileProgress := do
   let some progress := resp.fileProgress?
     | throw <| IO.userError s!"expected {label} to include top-level fileProgress"
   pure progress
@@ -191,7 +191,7 @@ def expectNoReplayDiagnosticsField (label : String) (payload : Json) : IO Unit :
 
 def requireFinalStreamResponse
     (label : String)
-    (messages : Array RunAtCli.Broker.StreamMessage) : IO RunAtCli.Broker.Response := do
+    (messages : Array Beam.Broker.StreamMessage) : IO Beam.Broker.Response := do
   if messages.isEmpty then
     throw <| IO.userError s!"expected {label} stream messages"
   let responseCount := messages.foldl (init := 0) fun acc msg =>
@@ -208,7 +208,7 @@ def requireFinalStreamResponse
 
 def expectStreamKindsOnly
     (label : String)
-    (messages : Array RunAtCli.Broker.StreamMessage) : IO Unit := do
+    (messages : Array Beam.Broker.StreamMessage) : IO Unit := do
   unless messages.all (fun msg =>
       msg.kind == .diagnostic || msg.kind == .fileProgress || msg.kind == .response) do
     throw <| IO.userError
@@ -216,7 +216,7 @@ def expectStreamKindsOnly
 
 def requireAnyStreamDiagnostics
     (label : String)
-    (messages : Array RunAtCli.Broker.StreamMessage) : IO (Array RunAtCli.Broker.StreamDiagnostic) := do
+    (messages : Array Beam.Broker.StreamMessage) : IO (Array Beam.Broker.StreamDiagnostic) := do
   let diagnostics := messages.filterMap (·.diagnostic?)
   if diagnostics.isEmpty then
     throw <| IO.userError s!"expected {label} to stream diagnostics, got {(toJson messages).compress}"
@@ -224,7 +224,7 @@ def requireAnyStreamDiagnostics
 
 def requireAnyStreamFileProgress
     (label : String)
-    (messages : Array RunAtCli.Broker.StreamMessage) : IO (Array RunAtCli.Broker.SyncFileProgress) := do
+    (messages : Array Beam.Broker.StreamMessage) : IO (Array Beam.Broker.SyncFileProgress) := do
   let progress := messages.filterMap (·.fileProgress?)
   if progress.isEmpty then
     throw <| IO.userError s!"expected {label} to stream fileProgress, got {(toJson messages).compress}"
@@ -232,13 +232,13 @@ def requireAnyStreamFileProgress
 
 def expectDiagnosticsForPath
     (label path : String)
-    (diagnostics : Array RunAtCli.Broker.StreamDiagnostic) : IO Unit := do
+    (diagnostics : Array Beam.Broker.StreamDiagnostic) : IO Unit := do
   unless diagnostics.all (fun diagnostic => diagnostic.path == path) do
     throw <| IO.userError s!"expected {label} diagnostics for {path}, got {(toJson diagnostics).compress}"
 
 def expectNonErrorDiagnosticsForPath
     (label path : String)
-    (diagnostics : Array RunAtCli.Broker.StreamDiagnostic) : IO Unit := do
+    (diagnostics : Array Beam.Broker.StreamDiagnostic) : IO Unit := do
   unless diagnostics.all (fun diagnostic =>
       diagnostic.path == path && diagnostic.severity? != some .error) do
     throw <| IO.userError
@@ -246,17 +246,17 @@ def expectNonErrorDiagnosticsForPath
 
 def expectWarningDiagnosticPresent
     (label : String)
-    (diagnostics : Array RunAtCli.Broker.StreamDiagnostic) : IO Unit := do
+    (diagnostics : Array Beam.Broker.StreamDiagnostic) : IO Unit := do
   unless diagnostics.any (fun diagnostic => diagnostic.severity? == some .warning) do
     throw <| IO.userError
       s!"expected {label} diagnostics to include at least one warning, got {(toJson diagnostics).compress}"
 
-def expectOk (resp : RunAtCli.Broker.Response) : IO Json := do
+def expectOk (resp : Beam.Broker.Response) : IO Json := do
   if !resp.ok then
     throw <| IO.userError s!"unexpected Beam daemon error: {(toJson resp).compress}"
   return resp.result?.getD Json.null
 
-def expectErrCode (resp : RunAtCli.Broker.Response) (code : String) : IO Unit := do
+def expectErrCode (resp : Beam.Broker.Response) (code : String) : IO Unit := do
   if resp.ok then
     throw <| IO.userError s!"expected error {code}, got success {(toJson resp).compress}"
   let actual := resp.error?.map (·.code)

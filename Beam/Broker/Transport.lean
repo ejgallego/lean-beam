@@ -7,12 +7,12 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Std.Internal.Async.TCP
 import Std.Net.Addr
-import RunAtCli.Broker.UnixNative
+import Beam.Broker.UnixNative
 
 open Lean
 open Std.Internal.IO.Async
 
-namespace RunAtCli.Broker.Transport
+namespace Beam.Broker.Transport
 
 open Std.Net
 
@@ -137,4 +137,4 @@ def recvMsg (conn : Connection) : IO String := do
   | .tcp client => recvMsgTcp client
   | .unix fd => UnixNative.recvMsg fd
 
-end RunAtCli.Broker.Transport
+end Beam.Broker.Transport

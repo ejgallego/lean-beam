@@ -99,8 +99,8 @@ assert_symlink_target() {
 
 assert_runtime_layout() {
   local runtime_root="$1"
-  assert_file "$runtime_root/RunAtCli.lean"
-  assert_file "$runtime_root/RunAtCli/Broker/Server.lean"
+  assert_file "$runtime_root/Beam.lean"
+  assert_file "$runtime_root/Beam/Broker/Server.lean"
   assert_file "$runtime_root/RunAt/Internal/SaveArtifacts.lean"
   assert_file "$runtime_root/supported-lean-toolchains"
   assert_file "$runtime_root/libexec/runAt-cli"
@@ -217,8 +217,8 @@ assert_bundle_layout() {
 
   local workspace
   workspace="$(dirname "$metadata")/workspace"
-  assert_file "$workspace/RunAtCli.lean"
-  assert_file "$workspace/RunAtCli/Broker/Server.lean"
+  assert_file "$workspace/Beam.lean"
+  assert_file "$workspace/Beam/Broker/Server.lean"
   assert_file "$workspace/RunAt/Internal/SaveArtifacts.lean"
   assert_file "$workspace/.lake/build/bin/beam-daemon"
   assert_file "$workspace/.lake/build/bin/beam-client"

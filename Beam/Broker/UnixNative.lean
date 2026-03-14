@@ -6,7 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 
-namespace RunAtCli.Broker.UnixNative
+namespace Beam.Broker.UnixNative
 
 @[extern "lean_runat_unix_listen"]
 opaque listen (path : @& String) : IO UInt32
@@ -26,4 +26,4 @@ opaque sendMsg (fd : UInt32) (msg : @& String) : IO Unit
 @[extern "lean_runat_unix_recv_msg"]
 opaque recvMsg (fd : UInt32) : IO String
 
-end RunAtCli.Broker.UnixNative
+end Beam.Broker.UnixNative

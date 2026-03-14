@@ -1,6 +1,6 @@
 # runAt
 
-`runAt` is an alpha Lean LSP extension with optional local CLI-daemon and command layers on top.
+`runAt` is an alpha Lean LSP extension with optional local Beam daemon and command layers on top.
 
 This repository is public because the code is useful, but it is still mostly a personal
 experiment. Expect rough edges, moving interfaces, and workflow changes while the core ideas
@@ -52,7 +52,7 @@ Minimal request shape:
 That is the layer a TypeScript or Python client would call directly if it already owns the LSP
 session and document lifecycle.
 
-### 2. Local CLI Daemon
+### 2. Local Beam Daemon
 
 On top of the Lean extension, this repo ships a single-root local Beam daemon:
 
@@ -71,8 +71,8 @@ The Beam daemon owns:
 The default transport is localhost TCP. Unix socket transport exists, but it is still experimental
 and is not the recommended path for user-facing workflow guidance yet.
 
-The daemon protocol lives in [RunAtCli/Broker/Protocol.lean](RunAtCli/Broker/Protocol.lean).
-The implementation lives in [RunAtCli/Broker/Server.lean](RunAtCli/Broker/Server.lean).
+The daemon protocol lives in [Beam/Broker/Protocol.lean](Beam/Broker/Protocol.lean).
+The implementation lives in [Beam/Broker/Server.lean](Beam/Broker/Server.lean).
 For programmatic local consumers, the preferred stream surface is
 `beam-client request-stream`, not the wrapper's human stderr formatting.
 
@@ -80,7 +80,7 @@ For programmatic local consumers, the preferred stream surface is
 
 On top of the Beam daemon, this repo ships local command surfaces:
 
-- `lake exe runAt`
+- `lake exe runAt-cli`
 - [scripts/runat](scripts/runat)
 - [scripts/runat-lean-search](scripts/runat-lean-search)
 
@@ -96,7 +96,7 @@ These commands own:
 ### 4. Future MCP Layer
 
 MCP is not implemented yet, but it is the likely future agent-facing layer above the current LSP and
-CLI-daemon stack. The current design note is in [MCP_PLAN.md](MCP_PLAN.md).
+Beam-daemon stack. The current design note is in [MCP_PLAN.md](MCP_PLAN.md).
 
 The intended relationship is:
 
@@ -213,8 +213,8 @@ to manage explicit environment or proof-state ids themselves.
 
 - [RunAt/Plugin.lean](RunAt/Plugin.lean): Lean LSP extension implementation
 - [RunAt/Protocol.lean](RunAt/Protocol.lean): public request and response structures
-- [RunAtCli/Broker/](RunAtCli/Broker): local CLI-daemon support for Lean workflows
-- [RunAtCli/Cli.lean](RunAtCli/Cli.lean): public `runat` CLI and daemon orchestration
+- [Beam/Broker/](Beam/Broker): local Beam-daemon support for Lean workflows
+- [Beam/Cli.lean](Beam/Cli.lean): public `runat` CLI and daemon orchestration
 - [RunAtTest/](RunAtTest): scenario, handle, and daemon regression support
 - [scripts/runat](scripts/runat): thin wrapper around the `runAt-cli` executable
 - [scripts/runat-lean-search](scripts/runat-lean-search): shell helper for handle-based search workflows

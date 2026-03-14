@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import RunAtCli.Broker.Protocol
+import Beam.Broker.Protocol
 import RunAtTest.Broker.TestUtil
 import Lean
 
@@ -51,7 +51,7 @@ private def expectStringContains (label haystack needle : String) : IO Unit := d
   unless haystack.contains needle do
     throw <| IO.userError s!"expected {label} to contain '{needle}', got '{haystack}'"
 
-private def requireErrorMessage (label : String) (resp : RunAtCli.Broker.Response) : IO String := do
+private def requireErrorMessage (label : String) (resp : Beam.Broker.Response) : IO String := do
   match resp.error? with
   | some err => pure err.message
   | none => throw <| IO.userError s!"expected {label} to contain an error payload"
@@ -110,7 +110,7 @@ private def writeSlowSyncFile (root : System.FilePath) : IO System.FilePath := d
   pure path
 
 private def runSyncSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let syncRequestId := some "smoke-sync"
   let (syncResp, syncEvents) ← runClientWithProgress endpoint {
@@ -119,7 +119,7 @@ private def runSyncSmoke
     root? := some root.toString
     path? := some "tests/scenario/docs/CommandA.lean"
   }
-  let syncRes : RunAtCli.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk syncResp)
+  let syncRes : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk syncResp)
   if syncRes.version != 1 then
     throw <| IO.userError s!"expected sync_file version 1, got {syncRes.version}"
   if !syncRes.saveReady then
@@ -142,7 +142,7 @@ private def runSyncSmoke
     root? := some root.toString
     path? := some "tests/scenario/docs/CommandA.lean"
   }
-  let syncResAgain : RunAtCli.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk syncRespAgain)
+  let syncResAgain : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk syncRespAgain)
   if syncResAgain.version != 1 then
     throw <| IO.userError s!"expected unchanged sync_file version 1, got {syncResAgain.version}"
   let syncTopAgain := ← requireFileProgress "unchanged sync_file" syncRespAgain
@@ -150,7 +150,7 @@ private def runSyncSmoke
     throw <| IO.userError s!"expected unchanged sync_file fileProgress.done = true, got {(toJson syncTopAgain).compress}"
 
 private def runErrorOnlySyncSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let errorPath ← writeStandaloneErrorFile root
   let errorRel := relativePathString root errorPath
@@ -159,7 +159,7 @@ private def runErrorOnlySyncSmoke
     root? := some root.toString
     path? := some errorPath.toString
   }
-  let errorRes : RunAtCli.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk errorResp)
+  let errorRes : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk errorResp)
   if errorRes.version != 1 then
     throw <| IO.userError s!"expected error-only sync_file version 1, got {errorRes.version}"
   if errorRes.saveReady then
@@ -183,7 +183,7 @@ private def runErrorOnlySyncSmoke
     throw <| IO.userError s!"expected error-only sync_file paths to match {errorRel}, got {(toJson errorDiagnostics).compress}"
 
 private def runPartialProgressSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let partialRequestId := some "smoke-partial"
   let (partialResp, partialEvents) ← runClientWithProgress endpoint {
@@ -210,7 +210,7 @@ private def runPartialProgressSmoke
     throw <| IO.userError s!"expected final streamed partial run_at progress to stay incomplete, got {(toJson partialLast.progress).compress}"
 
 private def runConcurrentSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let concurrentSyncId := some "concurrent-sync"
   let concurrentHoverId := some "concurrent-hover"
@@ -248,7 +248,7 @@ private def runConcurrentSmoke
       s!"expected concurrent sync_file fileProgress.done = true, got {(toJson concurrentSyncTop).compress}"
 
 private def runRequestAndGoalsSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let cmdResp ← runClient endpoint {
     op := .runAt
@@ -364,7 +364,7 @@ private def runRequestAndGoalsSmoke
   expectStringContains "request_at position override error" badPositionMsg "'params' must not include 'position'"
 
 private def runCancelSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let slowRequestId := some "cancel-slow"
   let slowTask ← IO.asTask <| runClientWithProgress endpoint {
@@ -404,7 +404,7 @@ private def runCancelSmoke
   expectStringContains "post-cancel hover markdown" postCancelHoverValue "answerA : Nat"
 
 private def runWorkerExitSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let handleSeed ← expectOk <| ← runClient endpoint {
     op := .runAt
@@ -416,7 +416,7 @@ private def runWorkerExitSmoke
     storeHandle? := some true
   }
   let handleJson ← IO.ofExcept <| handleSeed.getObjVal? "handle"
-  let staleHandle : RunAtCli.Broker.Handle ← IO.ofExcept <| fromJson? handleJson
+  let staleHandle : Beam.Broker.Handle ← IO.ofExcept <| fromJson? handleJson
 
   let workerExitRequestId := some "worker-exit-slow"
   let slowTask ← IO.asTask <| runClientWithProgress endpoint {
@@ -458,7 +458,7 @@ private def runWorkerExitSmoke
   expectErrCode staleAfterRestart "contentModified"
 
 private def runHandleAndDepsSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let proofRes ← expectOk <| ← runClient endpoint {
     op := .runAt
@@ -470,7 +470,7 @@ private def runHandleAndDepsSmoke
     storeHandle? := some true
   }
   let handleJson ← IO.ofExcept <| proofRes.getObjVal? "handle"
-  let handle : RunAtCli.Broker.Handle ← IO.ofExcept <| fromJson? handleJson
+  let handle : Beam.Broker.Handle ← IO.ofExcept <| fromJson? handleJson
   let proofNext ← expectOk <| ← runClient endpoint {
     op := .runWith
     root? := some root.toString
@@ -480,7 +480,7 @@ private def runHandleAndDepsSmoke
     storeHandle? := some true
   }
   let nextHandleJson ← IO.ofExcept <| proofNext.getObjVal? "handle"
-  let nextHandle : RunAtCli.Broker.Handle ← IO.ofExcept <| fromJson? nextHandleJson
+  let nextHandle : Beam.Broker.Handle ← IO.ofExcept <| fromJson? nextHandleJson
   let proofDone ← expectOk <| ← runClient endpoint {
     op := .runWith
     root? := some root.toString
@@ -518,7 +518,7 @@ private def runHandleAndDepsSmoke
   expectModuleNames deps "importedByClosure" ["RunAtTest.Deps.DepA"]
 
 private def runSaveAndStatsSmoke
-    (endpoint : RunAtCli.Broker.Endpoint)
+    (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let saveResp ← runClient endpoint {
     op := .saveOlean
@@ -553,7 +553,7 @@ private def runSaveAndStatsSmoke
 
 def smokeMain : IO Unit := do
   let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
-  let endpoint : RunAtCli.Broker.Endpoint := .tcp port
+  let endpoint : Beam.Broker.Endpoint := .tcp port
   let root ← repoRoot
   let otherRoot ← IO.FS.realPath <| root / "tests" / "save_olean_project"
   let broker ← spawnLeanBrokerWithPlugin endpoint root (← pluginPath) (← leanCmd)

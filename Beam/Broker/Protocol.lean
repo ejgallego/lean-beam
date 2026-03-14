@@ -8,7 +8,7 @@ import Lean
 
 open Lean
 
-namespace RunAtCli.Broker
+namespace Beam.Broker
 
 inductive Op where
   | ensure
@@ -363,4 +363,4 @@ def Request.requireHandle (req : Request) : Except String Handle := do
     | throw "missing 'handle'"
   pure handle
 
-end RunAtCli.Broker
+end Beam.Broker

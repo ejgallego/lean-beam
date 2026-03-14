@@ -6,7 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 
-namespace RunAtCli.Broker
+namespace Beam.Broker
 
 structure BrokerConfig where
   root : System.FilePath
@@ -15,4 +15,4 @@ structure BrokerConfig where
   rocqCmd? : Option String := none
   deriving Inhabited, Repr
 
-end RunAtCli.Broker
+end Beam.Broker

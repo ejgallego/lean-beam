@@ -12,11 +12,11 @@ import Lean.Data.Lsp.Internal
 import Lean.Parser.Module
 import RunAt.Protocol
 import RunAt.Internal.SaveArtifacts
-import RunAtCli.Broker.Config
-import RunAtCli.Broker.Protocol
-import RunAtCli.Broker.Transport
-import RunAtCli.Broker.Lean
-import RunAtCli.Broker.LakeSave
+import Beam.Broker.Config
+import Beam.Broker.Protocol
+import Beam.Broker.Transport
+import Beam.Broker.Lean
+import Beam.Broker.LakeSave
 import Std.Sync.Mutex
 
 open Lean
@@ -25,7 +25,7 @@ open Lean.Lsp
 open IO.FS.Stream
 open Std.Internal.IO.Async
 
-namespace RunAtCli.Broker
+namespace Beam.Broker
 
 abbrev brokerStdio : IO.Process.StdioConfig where
   stdin := .piped
@@ -2730,6 +2730,6 @@ def main (args : List String) : IO Unit := do
   finally
     Transport.closeListener listener
 
-end RunAtCli.Broker
+end Beam.Broker
 
-def main := RunAtCli.Broker.main
+def main := Beam.Broker.main

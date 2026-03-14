@@ -4,8 +4,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import RunAtCli.Broker.Protocol
-import RunAtCli.Broker.Server
+import Beam.Broker.Protocol
+import Beam.Broker.Server
 import Lean
 
 open Lean
@@ -61,15 +61,15 @@ private def writeTranscript (messages : Array Json) : IO System.FilePath := do
   IO.FS.writeFile path <| String.intercalate "" <| messages.toList.map lspFrame
   pure path
 
-private def fakeTrackedSession (root transcript : System.FilePath) : IO RunAtCli.Broker.Session := do
+private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Broker.Session := do
   let proc ← IO.Process.spawn {
-    toStdioConfig := RunAtCli.Broker.brokerStdio
+    toStdioConfig := Beam.Broker.brokerStdio
     cmd := "bash"
     args := #["-lc", s!"cat {transcript}; sleep 1"]
     cwd := root.toString
   }
-  let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID RunAtCli.Broker.PendingRequest)
-  let session : RunAtCli.Broker.Session := {
+  let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID Beam.Broker.PendingRequest)
+  let session : Beam.Broker.Session := {
     backend := .lean
     root
     epoch := 1
@@ -79,7 +79,7 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO RunAtCli
     stdout := IO.FS.Stream.ofHandle proc.stdout
     pending
   }
-  let _ ← IO.asTask <| RunAtCli.Broker.sessionReaderLoop session
+  let _ ← IO.asTask <| Beam.Broker.sessionReaderLoop session
   pure session
 
 def check : IO Unit := do
@@ -87,7 +87,7 @@ def check : IO Unit := do
   IO.FS.createDirAll root
   let path := root / "Tracked.lean"
   IO.FS.writeFile path "-- fake tracked file\n"
-  let uri := RunAtCli.Broker.sessionUri path
+  let uri := Beam.Broker.sessionUri path
   let first := jsonDiagnostic 0 0 4 2 "first warning"
   let second := jsonDiagnostic 1 2 6 2 "second warning"
   let transcript ← writeTranscript #[
@@ -101,7 +101,7 @@ def check : IO Unit := do
   let streamedRef ← IO.mkRef #[]
   try
     let (_session, _result, _progress?, diagnostics) ←
-      RunAtCli.Broker.sendRequestJsonTrackedDetailed session "textDocument/waitForDiagnostics"
+      Beam.Broker.sendRequestJsonTrackedDetailed session "textDocument/waitForDiagnostics"
         (toJson <| Lean.Lsp.WaitForDiagnosticsParams.mk uri 1)
         (tracked := some (uri, 1))
         (fullDiagnostics := true)

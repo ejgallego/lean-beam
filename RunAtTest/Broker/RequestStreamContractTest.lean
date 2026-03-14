@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import RunAtCli.Broker.Protocol
+import Beam.Broker.Protocol
 import RunAtTest.Broker.TestUtil
 import Lean
 
@@ -17,7 +17,7 @@ open RunAtTest.Broker.TestUtil
 private structure StreamRun where
   exitCode : UInt32
   stderr : String
-  messages : Array RunAtCli.Broker.StreamMessage
+  messages : Array Beam.Broker.StreamMessage
 
 private def buildLakeTarget (root : System.FilePath) (target : String) : IO Unit := do
   let out ← IO.Process.output {
@@ -28,7 +28,7 @@ private def buildLakeTarget (root : System.FilePath) (target : String) : IO Unit
   if out.exitCode != 0 then
     throw <| IO.userError s!"failed to build {target} in {root}\n{out.stderr}"
 
-private def decodeStreamLines (output : String) : IO (Array RunAtCli.Broker.StreamMessage) := do
+private def decodeStreamLines (output : String) : IO (Array Beam.Broker.StreamMessage) := do
   let lines :=
     output.split (· == '\n') |>.filterMap fun line =>
       let line := line.trimAscii.toString
@@ -43,7 +43,7 @@ private def decodeStreamLines (output : String) : IO (Array RunAtCli.Broker.Stre
 
 private def runRequestStream
     (port : UInt16)
-    (req : RunAtCli.Broker.Request) : IO StreamRun := do
+    (req : Beam.Broker.Request) : IO StreamRun := do
   let out ← IO.Process.output {
     cmd := (← clientExe).toString
     args := #["--port", toString port.toNat, "request-stream", (toJson req).compress]
@@ -55,21 +55,21 @@ private def runRequestStream
     messages
   }
 
-private def requireSuccessStream (label : String) (run : StreamRun) : IO (Array RunAtCli.Broker.StreamMessage) := do
+private def requireSuccessStream (label : String) (run : StreamRun) : IO (Array Beam.Broker.StreamMessage) := do
   if run.exitCode != 0 then
     throw <| IO.userError s!"expected {label} request-stream success, got exit {run.exitCode}\nstderr:\n{run.stderr}"
   unless run.stderr.trimAscii.toString.isEmpty do
     throw <| IO.userError s!"expected {label} request-stream stderr to stay empty, got:\n{run.stderr}"
   pure run.messages
 
-private def requireFailedStream (label : String) (run : StreamRun) : IO (Array RunAtCli.Broker.StreamMessage) := do
+private def requireFailedStream (label : String) (run : StreamRun) : IO (Array Beam.Broker.StreamMessage) := do
   if run.exitCode == 0 then
     throw <| IO.userError s!"expected {label} request-stream failure"
   unless run.stderr.trimAscii.toString.isEmpty do
     throw <| IO.userError s!"expected {label} request-stream stderr to stay empty, got:\n{run.stderr}"
   pure run.messages
 
-private def expectErrorCode (label code : String) (resp : RunAtCli.Broker.Response) : IO Unit := do
+private def expectErrorCode (label code : String) (resp : Beam.Broker.Response) : IO Unit := do
   if resp.ok then
     throw <| IO.userError s!"expected {label} error {code}, got success {(toJson resp).compress}"
   let actual := resp.error?.map (·.code)
@@ -80,7 +80,7 @@ private def expectErrorCode (label code : String) (resp : RunAtCli.Broker.Respon
 
 def main : IO Unit := do
   let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
-  let endpoint : RunAtCli.Broker.Endpoint := .tcp port
+  let endpoint : Beam.Broker.Endpoint := .tcp port
   let root ← mkTempProjectRoot "beam-daemon-request-stream"
   copySaveProjectFixture root
   let broker ← spawnLeanBroker endpoint root
@@ -99,7 +99,7 @@ def main : IO Unit := do
     let syncResp ← requireFinalStreamResponse "sync_file" syncMessages
     let syncPayload ← expectOk syncResp
     expectNoReplayDiagnosticsField "sync_file" syncPayload
-    let syncResult : RunAtCli.Broker.SyncFileResult ← IO.ofExcept <| fromJson? syncPayload
+    let syncResult : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? syncPayload
     if syncResult.version != 1 then
       throw <| IO.userError s!"expected sync_file version 1, got {syncResult.version}"
     if !syncResult.saveReady then
@@ -172,7 +172,7 @@ def main : IO Unit := do
     }
     expectStreamKindsOnly "standalone save_olean" standaloneSaveMessages
     let standaloneSaveResp ← requireFinalStreamResponse "standalone save_olean" standaloneSaveMessages
-    expectErrorCode "standalone save_olean" RunAtCli.Broker.saveTargetNotModuleCode standaloneSaveResp
+    expectErrorCode "standalone save_olean" Beam.Broker.saveTargetNotModuleCode standaloneSaveResp
 
     buildLakeTarget root "SaveSmoke/A.lean"
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
@@ -184,7 +184,7 @@ def main : IO Unit := do
     }
     expectStreamKindsOnly "stale sync_file" staleSyncMessages
     let staleSyncResp ← requireFinalStreamResponse "stale sync_file" staleSyncMessages
-    expectErrorCode "stale sync_file" RunAtCli.Broker.syncBarrierIncompleteCode staleSyncResp
+    expectErrorCode "stale sync_file" Beam.Broker.syncBarrierIncompleteCode staleSyncResp
 
     let staleSaveMessages ← requireFailedStream "stale save_olean" <| ← runRequestStream port {
       op := .saveOlean
@@ -193,7 +193,7 @@ def main : IO Unit := do
     }
     expectStreamKindsOnly "stale save_olean" staleSaveMessages
     let staleSaveResp ← requireFinalStreamResponse "stale save_olean" staleSaveMessages
-    expectErrorCode "stale save_olean" RunAtCli.Broker.syncBarrierIncompleteCode staleSaveResp
+    expectErrorCode "stale save_olean" Beam.Broker.syncBarrierIncompleteCode staleSaveResp
 
     let staleCloseMessages ← requireFailedStream "stale close-save" <| ← runRequestStream port {
       op := .close
@@ -203,7 +203,7 @@ def main : IO Unit := do
     }
     expectStreamKindsOnly "stale close-save" staleCloseMessages
     let staleCloseResp ← requireFinalStreamResponse "stale close-save" staleCloseMessages
-    expectErrorCode "stale close-save" RunAtCli.Broker.syncBarrierIncompleteCode staleCloseResp
+    expectErrorCode "stale close-save" Beam.Broker.syncBarrierIncompleteCode staleCloseResp
 
     discard <| expectOk (← runClient endpoint { op := .shutdown })
   finally

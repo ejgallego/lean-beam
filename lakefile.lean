@@ -26,7 +26,7 @@ extern_lib runat_unix (pkg) := do
 lean_lib RunAt where
   defaultFacets := #[`shared]
 
-lean_lib RunAtCli where
+lean_lib Beam where
   defaultFacets := #[`shared]
 
 lean_lib RunAtTest where
@@ -59,15 +59,15 @@ lean_exe "runAt-search-workload-report" where
   root := `RunAtTest.Scenario.SearchWorkloadReport
 
 lean_exe "beam-daemon" where
-  root := `RunAtCli.Broker.Server
+  root := `Beam.Broker.Server
   supportInterpreter := true
 
 lean_exe "beam-client" where
-  root := `RunAtCli.BrokerClient
+  root := `Beam.BrokerClient
 
 @[default_target]
 lean_exe "runAt-cli" where
-  root := `RunAtCli.Cli
+  root := `Beam.Cli
 
 lean_exe "beam-daemon-smoke-test" where
   root := `RunAtTest.Broker.SmokeTestMain

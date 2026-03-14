@@ -12,14 +12,14 @@ import Lean.Data.Lsp.Internal
 import Lean.Server.Requests
 import RunAt.Protocol
 import RunAt.Internal.SaveArtifacts
-import RunAtCli.Broker.Config
-import RunAtCli.Broker.Protocol
+import Beam.Broker.Config
+import Beam.Broker.Protocol
 
 open Lean
 open Lean.JsonRpc
 open Lean.Lsp
 
-namespace RunAtCli.Broker
+namespace Beam.Broker
 
 private def leanPluginPath (config : BrokerConfig) : IO System.FilePath := do
   match config.leanPlugin? with
@@ -121,4 +121,4 @@ def goalPpFormatValue (ppFormat? : Option GoalPpFormat) : String :=
   | some format => format.key
   | none => GoalPpFormat.str.key
 
-end RunAtCli.Broker
+end Beam.Broker

@@ -15,13 +15,13 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - local Beam daemon/client pair for Lean and Rocq workflows
 - alpha Lean wrapper commands for follow-up handle continuation and release
 - installed `runat-lean-search` helper for shorter shell branching/playout workflows
-- explicit Lean `lean-sync` CLI-daemon barrier with diagnostics wait and compact `fileProgress` reporting
-- `runat open-files` CLI-daemon introspection for tracked documents, including `saved` / `notSaved`,
+- explicit Lean `lean-sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
+- `runat open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with
   `lean-save`, and Lean save preflight fields `saveEligible` / `saveReason` / `saveModule`;
   already-known tracked files are checked incrementally against the on-disk text and carry the last
   observed compact `fileProgress`
-- compact Lean CLI-daemon `fileProgress` reporting on other slow Lean wrapper calls when matching
+- compact Lean Beam-daemon `fileProgress` reporting on other slow Lean wrapper calls when matching
   `$/lean/fileProgress` notifications were observed while the request was pending
 - repo-local regression coverage around isolation, stale state, cancellation, and handle invalidation
 
@@ -138,5 +138,5 @@ Near-term work is mostly about hardening and simplifying:
 - replace broker-side diagnostics/fileProgress barrier inference with a stronger backend-facing
   readiness primitive, so `lean-sync` / `lean-save` can trust one authoritative completion signal
   instead of reconstructing barrier completeness from multiple LSP channels
-- keep CLI-daemon-side conveniences useful without turning them into a large public surface too early
+- keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling

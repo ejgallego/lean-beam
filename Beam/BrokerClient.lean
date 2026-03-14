@@ -5,14 +5,14 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import RunAtCli.Broker.Client
-import RunAtCli.Broker.Protocol
+import Beam.Broker.Client
+import Beam.Broker.Protocol
 
 open Lean
 
-namespace RunAtCli.BrokerClient
+namespace Beam.BrokerClient
 
-open RunAtCli.Broker
+open Beam.Broker
 
 private inductive ClientMode where
   | request
@@ -84,6 +84,6 @@ def main (args : List String) : IO Unit := do
       else
         IO.Process.exit 1
 
-end RunAtCli.BrokerClient
+end Beam.BrokerClient
 
-def main := RunAtCli.BrokerClient.main
+def main := Beam.BrokerClient.main

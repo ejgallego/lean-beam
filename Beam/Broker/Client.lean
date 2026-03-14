@@ -5,12 +5,12 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import RunAtCli.Broker.Protocol
-import RunAtCli.Broker.Transport
+import Beam.Broker.Protocol
+import Beam.Broker.Transport
 
 open Lean
 
-namespace RunAtCli.Broker
+namespace Beam.Broker
 
 structure StreamCallbacks where
   onFileProgress : Option String → SyncFileProgress → IO Unit := fun _ _ => pure ()
@@ -138,4 +138,4 @@ def failOnError (resp : Response) : IO Unit := do
   else
     throw <| IO.userError ((resp.error?.map (·.message)).getD "Beam daemon error")
 
-end RunAtCli.Broker
+end Beam.Broker

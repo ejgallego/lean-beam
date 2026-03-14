@@ -5,15 +5,15 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import RunAtCli.Broker.Client
-import RunAtCli.Broker.Transport
+import Beam.Broker.Client
+import Beam.Broker.Transport
 import Std.Internal.UV.Signal
 
 open Lean
 
-namespace RunAtCli.Cli
+namespace Beam.Cli
 
-open RunAtCli.Broker
+open Beam.Broker
 
 private structure BundlePaths where
   daemon : System.FilePath
@@ -308,11 +308,11 @@ private def mixField (acc : UInt64) (text : String) : UInt64 :=
   hashString text <| hashByte acc 0
 
 private def bundleRootFiles : List String :=
-  ["RunAt.lean", "RunAtCli.lean", "lakefile.lean", "lakefile.toml", "lake-manifest.json", "lean-toolchain",
+  ["RunAt.lean", "Beam.lean", "lakefile.lean", "lakefile.toml", "lake-manifest.json", "lean-toolchain",
     "supported-lean-toolchains"]
 
 private def bundleSourceDirs : List String :=
-  ["RunAt", "RunAtCli", "ffi"]
+  ["RunAt", "Beam", "ffi"]
 
 private def bundleSourceHashInputLabels : List String :=
   bundleRootFiles ++ bundleSourceDirs.map (· ++ "/**")
@@ -1683,6 +1683,6 @@ def main (args : List String) : IO Unit := do
   let opts ← parseCliOptions {} args
   runCommand home opts
 
-end RunAtCli.Cli
+end Beam.Cli
 
-def main := RunAtCli.Cli.main
+def main := Beam.Cli.main

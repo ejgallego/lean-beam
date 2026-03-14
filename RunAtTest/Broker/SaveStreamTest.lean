@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import RunAtCli.Broker.Protocol
+import Beam.Broker.Protocol
 import RunAtTest.Broker.TestUtil
 import Lean
 
@@ -27,7 +27,7 @@ private def expectNoTrackedLeanDoc (payload : Json) (path : String) : IO Unit :=
 
 def main : IO Unit := do
   let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
-  let endpoint : RunAtCli.Broker.Endpoint := .tcp port
+  let endpoint : Beam.Broker.Endpoint := .tcp port
   let root ← mkTempProjectRoot "beam-daemon-save-stream"
   copySaveProjectFixture root
   let broker ← spawnLeanBroker endpoint root

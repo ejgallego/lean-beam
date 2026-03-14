@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import RunAtCli.Broker.Protocol
+import Beam.Broker.Protocol
 import RunAtTest.Broker.TestUtil
 import Lean
 
@@ -37,7 +37,7 @@ private def expectNonemptyError (payload : Json) : IO Unit := do
   if err.trimAscii.isEmpty then
     throw <| IO.userError s!"expected non-empty error field, got {payload.compress}"
 
-private def expectSurfacedError (resp : RunAtCli.Broker.Response) : IO Unit := do
+private def expectSurfacedError (resp : Beam.Broker.Response) : IO Unit := do
   if resp.ok then
     throw <| IO.userError s!"expected broker error, got success {(toJson resp).compress}"
   let some err := resp.error?
@@ -49,7 +49,7 @@ private def expectSurfacedError (resp : RunAtCli.Broker.Response) : IO Unit := d
 
 def main : IO Unit := do
   let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
-  let endpoint : RunAtCli.Broker.Endpoint := .tcp port
+  let endpoint : Beam.Broker.Endpoint := .tcp port
   let root ← rocqRoot
   let broker ← IO.Process.spawn {
     cmd := (← daemonExe).toString

@@ -12,13 +12,13 @@ import Lake.Build.Targets
 import Lake.Build.Job.Monad
 import Lake.Build.Common
 import Lake.Build.InitFacets
-import RunAtCli.Broker.Config
+import Beam.Broker.Config
 
 open Lean
 open System
 open Std
 
-namespace RunAtCli.Broker
+namespace Beam.Broker
 
 open Lake
 
@@ -277,4 +277,4 @@ def writeLeanSaveTrace (spec : LeanSaveSpec) : IO Unit := do
   }
   writeBuildTrace spec.tracePath spec.depTrace outputs {}
 
-end RunAtCli.Broker
+end Beam.Broker
