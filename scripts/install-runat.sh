@@ -42,8 +42,8 @@ runtime_payload_spec=(
   "copy|sourceDirs|RunAtCli|RunAtCli"
   "copy|sourceDirs|ffi|ffi"
   "copy|runtimePaths|.lake/build/bin/runAt-cli|libexec/runAt-cli"
-  "copy|runtimePaths|.lake/build/bin/runAt-cli-daemon|libexec/runAt-cli-daemon"
-  "copy|runtimePaths|.lake/build/bin/runAt-cli-client|libexec/runAt-cli-client"
+  "copy|runtimePaths|.lake/build/bin/beam-daemon|libexec/beam-daemon"
+  "copy|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"
   "copy|runtimePaths|.lake/build/lib/librunAt_RunAt.so|libexec/librunAt_RunAt.so"
   "copy|runtimePaths|.lake/packages|.lake/packages"
   "generated|wrapperPaths||bin/runat"
@@ -367,15 +367,15 @@ hash_tree() {
 
 ensure_runtime_artifacts() {
   if [ -x "$runat_cli" ] \
-    && [ -x "$repo_root/.lake/build/bin/runAt-cli-daemon" ] \
-    && [ -x "$repo_root/.lake/build/bin/runAt-cli-client" ] \
+    && [ -x "$repo_root/.lake/build/bin/beam-daemon" ] \
+    && [ -x "$repo_root/.lake/build/bin/beam-client" ] \
     && [ -f "$repo_root/.lake/build/lib/librunAt_RunAt.so" ]; then
     return 0
   fi
   echo "building runAt runtime artifacts" >&2
   (
     cd "$repo_root"
-    lake build RunAt:shared runAt-cli runAt-cli-daemon runAt-cli-client
+    lake build RunAt:shared runAt-cli beam-daemon beam-client
   )
 }
 

@@ -4,7 +4,7 @@
 
 The repository is public for collaboration and reuse, but it is not yet a polished or stable
 general-purpose product. The main goal is still a small, type-safe, isolated execution surface for
-Lean, with a thin local CLI daemon around it for low-cost experimentation.
+Lean, with a thin local Beam daemon around it for low-cost experimentation.
 
 ## Current Scope
 
@@ -12,7 +12,7 @@ Lean, with a thin local CLI daemon around it for low-cost experimentation.
 - internal proof-first, command-fallback basis selection
 - typed response payload with messages, traces, optional proof state, and optional follow-up handle
 - optional follow-up execution through `$/lean/runWith` and `$/lean/releaseHandle`
-- local CLI daemon/client pair for Lean and Rocq workflows
+- local Beam daemon/client pair for Lean and Rocq workflows
 - alpha Lean wrapper commands for follow-up handle continuation and release
 - installed `runat-lean-search` helper for shorter shell branching/playout workflows
 - explicit Lean `lean-sync` CLI-daemon barrier with diagnostics wait and compact `fileProgress` reporting
@@ -44,20 +44,20 @@ long-term contract. Current handle behavior is:
 - document-bound
 - invalidated by same-document edits
 - invalidated by document close
-- invalidated by worker restart or CLI daemon restart
+- invalidated by worker restart or Beam daemon restart
 - exact continuation requires an explicit handle path; separate `lean-run-at` calls do not chain
   through hidden state
 
-The local CLI daemon convenience layer is also still alpha. In particular, `lean-sync` is now the
+The local Beam daemon convenience layer is also still alpha. In particular, `lean-sync` is now the
 supported on-disk edit barrier for Lean files: it waits for diagnostics for the synced version and
 streams fresh diagnostics to clients such as the CLI without replaying them in the final JSON, and
 returns a compact `fileProgress` summary rather than exposing the full underlying LSP notification
 stream. By default `lean-sync`, `lean-save`, and `lean-close-save` stream only errors for the
-current request; `+full` widens that stream to warnings, info, and hints. The CLI daemon now also
+current request; `+full` widens that stream to warnings, info, and hints. The Beam daemon now also
 forwards compact `fileProgress` updates live to streaming clients. For programmatic local consumers,
 the preferred machine-readable surface is the JSON stream exposed
-by `runAt-cli-client request-stream`; the wrapper stderr format should be treated as human-facing.
-Other slow Lean CLI daemon calls may attach a compact top-level `fileProgress` summary when they had
+by `beam-client request-stream`; the wrapper stderr format should be treated as human-facing.
+Other slow Lean Beam daemon calls may attach a compact top-level `fileProgress` summary when they had
 to wait on the same Lean elaboration progress. For non-barrier calls this summary may be partial,
 because the request can return before the whole file reaches `done = true`. This should be read as a
 Lean-side wrapper contract. The wrapper now also exposes alpha Lean handle commands for
@@ -109,12 +109,12 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
 - The first use of a supported but not-yet-prebuilt toolchain must still build a matching local
   fallback bundle.
 - On a cold machine, that local fallback build may need network access to fetch dependencies.
-- In sandboxed agent environments, CLI daemon startup itself may require elevated permissions even when
+- In sandboxed agent environments, Beam daemon startup itself may require elevated permissions even when
   the installed bundle and project-local `.runat` paths resolve correctly.
-- A startup failure that reports `operation not permitted` through `.runat/cli-daemon-startup.log` is
+- A startup failure that reports `operation not permitted` through `.runat/beam-daemon-startup.log` is
   usually an environment restriction, not a bundle-resolution mismatch.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
-- The CLI daemon is single-root and keeps a conservative single active session per backend.
+- The Beam daemon is single-root and keeps a conservative single active session per backend.
 - Zero-build `lean-save` helps checkpoint one module, but it is not a whole-workspace freshness
   solution.
 - If you edit a dependency of the target file, downstream speculative results should be treated as

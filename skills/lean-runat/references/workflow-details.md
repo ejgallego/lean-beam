@@ -22,7 +22,7 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
 - standalone comments, blank lines, and many declaration headers often do not have a usable basis
 - nearby whitespace/comments may still work when Lean can recover a neighboring basis, but do not
   assume that from arbitrary file positions
-- those errors do not by themselves mean the CLI daemon is unhealthy
+- those errors do not by themselves mean the Beam daemon is unhealthy
 - known-good proof probe in this repo:
   `runat lean-run-at "tests/interactive/proofBasisBefore.lean" 2 2 "exact trivial"`
 
@@ -105,7 +105,7 @@ What is not a valid checkpoint target:
 - actual source edits happen through the normal file-edit workflow
 - after every real source edit to a Lean file, save the file in the normal editor/file sense and
   then run `runat lean-sync "Foo.lean"`
-- treat `lean-sync` as the explicit supported boundary between real file edits and CLI daemon
+- treat `lean-sync` as the explicit supported boundary between real file edits and Beam daemon
   session state
 - `lean-sync` returns compact JSON on stdout, including final `result.errorCount` /
   `result.warningCount`, and streams human diagnostics on stderr
@@ -125,7 +125,7 @@ What is not a valid checkpoint target:
   is normal
 - the probe does not mutate the document's real elaboration state and does not create hidden state
   for the next probe
-- the CLI daemon may implicitly open or resync the file from disk before a probe, but that is not
+- the Beam daemon may implicitly open or resync the file from disk before a probe, but that is not
   the supported readiness barrier after edits
 - use `lean-sync` when the workflow needs an explicit ready/fresh boundary; `lean-run-at` only
   waits for the snapshot it needs
@@ -144,7 +144,7 @@ What is not a valid checkpoint target:
 - when `lean-save` or `lean-close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages
 - wrapper `stderr` is the human-facing diagnostic surface
-- `runAt-cli-client request-stream ...` is the machine-facing streamed surface
+- `beam-client request-stream ...` is the machine-facing streamed surface
 - do not parse wrapper `stderr` in tooling
 - `RUNAT_PROGRESS` controls stderr progress output for slow calls
 - by default, progress prints when stderr is a TTY
@@ -245,16 +245,16 @@ runat stats
 runat reset-stats
 ```
 
-`runat open-files` shows the files currently tracked by the CLI daemon for the current project,
+`runat open-files` shows the files currently tracked by the Beam daemon for the current project,
 along with `saved` / `notSaved`, direct Lean deps when available, whether the current synced version
 has been checkpointed with `lean-save`, and Lean save preflight fields `saveEligible`,
-`saveReason`, and, when applicable, `saveModule`. For files the CLI daemon already knows about, the
+`saveReason`, and, when applicable, `saveModule`. For files the Beam daemon already knows about, the
 wrapper checks that status incrementally against the current on-disk text, and `open-files` also
 reports the last compact `fileProgress` observed for that tracked version.
 
-Stats are in-memory only and scoped to the current project CLI daemon.
+Stats are in-memory only and scoped to the current project Beam daemon.
 
-The CLI daemon is helping if:
+The Beam daemon is helping if:
 
 - many local probes happen before one edit
 - `lake build` is not the inner loop

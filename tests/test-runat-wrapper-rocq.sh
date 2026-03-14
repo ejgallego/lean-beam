@@ -58,18 +58,18 @@ rsync -a \
 (
   cd "$tmp_repo"
   lake build runAt-cli > /dev/null
-  if [ -x ".lake/build/bin/runAt-cli-daemon" ] || [ -x ".lake/build/bin/runAt-cli-client" ]; then
-    echo "expected lake build runAt-cli not to prebuild CLI daemon helper executables" >&2
+  if [ -x ".lake/build/bin/beam-daemon" ] || [ -x ".lake/build/bin/beam-client" ]; then
+    echo "expected lake build runAt-cli not to prebuild Beam daemon helper executables" >&2
     exit 1
   fi
   RUNAT_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/runat" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
-  if [ -x ".lake/build/bin/runAt-cli-daemon" ] || [ -x ".lake/build/bin/runAt-cli-client" ]; then
-    echo "expected doctor rocq to remain read-only and not build CLI daemon helpers" >&2
+  if [ -x ".lake/build/bin/beam-daemon" ] || [ -x ".lake/build/bin/beam-client" ]; then
+    echo "expected doctor rocq to remain read-only and not build Beam daemon helpers" >&2
     exit 1
   fi
   RUNAT_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/runat" --root "$tmp_repo/tests/rocq/Minimal" ensure rocq > /dev/null
-  if [ ! -x ".lake/build/bin/runAt-cli-daemon" ] || [ ! -x ".lake/build/bin/runAt-cli-client" ]; then
-    echo "expected rocq CLI startup to build missing CLI daemon helpers on demand" >&2
+  if [ ! -x ".lake/build/bin/beam-daemon" ] || [ ! -x ".lake/build/bin/beam-client" ]; then
+    echo "expected rocq CLI startup to build missing Beam daemon helpers on demand" >&2
     exit 1
   fi
   RUNAT_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/runat" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null

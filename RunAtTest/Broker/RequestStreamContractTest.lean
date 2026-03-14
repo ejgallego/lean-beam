@@ -81,7 +81,7 @@ private def expectErrorCode (label code : String) (resp : RunAtCli.Broker.Respon
 def main : IO Unit := do
   let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
   let endpoint : RunAtCli.Broker.Endpoint := .tcp port
-  let root ← mkTempProjectRoot "runat-broker-request-stream"
+  let root ← mkTempProjectRoot "beam-daemon-request-stream"
   copySaveProjectFixture root
   let broker ← spawnLeanBroker endpoint root
   try

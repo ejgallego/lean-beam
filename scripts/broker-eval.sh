@@ -44,7 +44,7 @@ case "${1:-}" in
     "$runat" --root "$lean_root" ensure lean > /dev/null
     "$runat" --root "$lean_root" reset-stats > /dev/null
     cat <<EOF
-CLI daemon stats reset.
+Beam daemon stats reset.
 Lean backend ensured at:
   $lean_root
 

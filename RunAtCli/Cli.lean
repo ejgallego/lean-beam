@@ -172,11 +172,11 @@ private def runAtHome : IO System.FilePath := do
       IO.FS.realPath <| climbParents app 4
 
 private def defaultBundlePaths (home : System.FilePath) : IO BundlePaths := do
-  let installedDaemon := home / "libexec" / "runAt-cli-daemon"
-  let installedClient := home / "libexec" / "runAt-cli-client"
+  let installedDaemon := home / "libexec" / "beam-daemon"
+  let installedClient := home / "libexec" / "beam-client"
   let installedPlugin := home / "libexec" / "librunAt_RunAt.so"
-  let checkoutDaemon := home / ".lake" / "build" / "bin" / "runAt-cli-daemon"
-  let checkoutClient := home / ".lake" / "build" / "bin" / "runAt-cli-client"
+  let checkoutDaemon := home / ".lake" / "build" / "bin" / "beam-daemon"
+  let checkoutClient := home / ".lake" / "build" / "bin" / "beam-client"
   let checkoutPlugin := home / ".lake" / "build" / "lib" / "librunAt_RunAt.so"
   let installedReady :=
     (← installedDaemon.pathExists) &&
@@ -202,7 +202,7 @@ private def ensurePathExists (kind : String) (path : System.FilePath) : IO Unit 
 
 private def ensureBundleExists (paths : BundlePaths) : IO Unit := do
   ensurePathExists "CLI client" paths.client
-  ensurePathExists "CLI daemon" paths.daemon
+  ensurePathExists "Beam daemon" paths.daemon
 
 private def ensureLeanBundleExists (paths : BundlePaths) : IO Unit := do
   ensureBundleExists paths
@@ -281,8 +281,8 @@ private def bundleWorkspaceFor (bundleDir : System.FilePath) : System.FilePath :
 
 private def bundlePathsFor (workspace : System.FilePath) : BundlePaths :=
   {
-    daemon := workspace / ".lake" / "build" / "bin" / "runAt-cli-daemon"
-    client := workspace / ".lake" / "build" / "bin" / "runAt-cli-client"
+    daemon := workspace / ".lake" / "build" / "bin" / "beam-daemon"
+    client := workspace / ".lake" / "build" / "bin" / "beam-client"
     plugin := workspace / ".lake" / "build" / "lib" / "librunAt_RunAt.so"
   }
 
@@ -318,7 +318,7 @@ private def bundleSourceHashInputLabels : List String :=
   bundleRootFiles ++ bundleSourceDirs.map (· ++ "/**")
 
 private def installRuntimePaths : List String :=
-  ["libexec/runAt-cli", "libexec/runAt-cli-daemon", "libexec/runAt-cli-client",
+  ["libexec/runAt-cli", "libexec/beam-daemon", "libexec/beam-client",
     "libexec/librunAt_RunAt.so", ".lake/packages"]
 
 private def installWrapperPaths : List String :=
@@ -501,7 +501,7 @@ private def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : S
   IO.eprintln s!"building runAt bundle for {toolchain}"
   let out ← IO.Process.output {
     cmd := "elan"
-    args := #["run", toolchain, "lake", "build", "RunAt:shared", "runAt-cli-daemon", "runAt-cli-client"]
+    args := #["run", toolchain, "lake", "build", "RunAt:shared", "beam-daemon", "beam-client"]
     cwd := workspace.toString
   }
   if out.exitCode != 0 then
@@ -549,11 +549,11 @@ private def ensureDefaultDaemonHelpers (home : System.FilePath) : IO BundlePaths
   else
     let out ← IO.Process.output {
       cmd := "lake"
-      args := #["build", "runAt-cli-daemon", "runAt-cli-client"]
+      args := #["build", "beam-daemon", "beam-client"]
       cwd := home.toString
     }
     if out.exitCode != 0 then
-      throw <| IO.userError s!"failed to build default CLI daemon helpers\n{out.stderr}"
+      throw <| IO.userError s!"failed to build default Beam daemon helpers\n{out.stderr}"
     ensureBundleExists paths
     pure paths
 
@@ -616,7 +616,7 @@ private def controlDir (root : System.FilePath) : IO System.FilePath := do
       pure (runAtStateDir root)
 
 private def registryPath (root : System.FilePath) : IO System.FilePath := do
-  pure ((← controlDir root) / "cli-daemon.json")
+  pure ((← controlDir root) / "beam-daemon.json")
 
 private def leanToolchain (root : System.FilePath) : IO String := do
   let path := root / "lean-toolchain"
@@ -697,7 +697,7 @@ private def registryEndpoint? (entry : RegistryEntry) : Option Transport.Endpoin
 private def endpointFromEntry (entry : RegistryEntry) : IO Transport.Endpoint := do
   match registryEndpoint? entry with
   | some endpoint => pure endpoint
-  | none => throw <| IO.userError s!"invalid CLI daemon transport data in registry for {entry.root}"
+  | none => throw <| IO.userError s!"invalid Beam daemon transport data in registry for {entry.root}"
 
 private def endpointSummary (endpoint : Transport.Endpoint) : String :=
   Transport.endpointDescription endpoint
@@ -750,7 +750,7 @@ private def requestedPortNat? (opts : CliOptions) : Option Nat :=
 private def selectSocketPath (root : System.FilePath) (opts : CliOptions) : IO System.FilePath := do
   match opts.requestedSocket? with
   | some path => pure path
-  | none => pure ((← controlDir root) / "cli-daemon.sock")
+  | none => pure ((← controlDir root) / "beam-daemon.sock")
 
 private def selectPort (opts : CliOptions) : IO UInt16 := do
   match opts.requestedPort? with
@@ -769,7 +769,7 @@ private def selectEndpoint (opts : CliOptions) : IO Transport.Endpoint := do
   | none => pure <| .tcp (← selectPort opts)
 
 private def daemonStartupLogPath (root : System.FilePath) : IO System.FilePath := do
-  pure ((← controlDir root) / "cli-daemon-startup.log")
+  pure ((← controlDir root) / "beam-daemon-startup.log")
 
 private def tailLines (text : String) (count : Nat := 20) : String :=
   let lines := text.splitOn "\n"
@@ -778,8 +778,8 @@ private def tailLines (text : String) (count : Nat := 20) : String :=
 
 private def daemonFailureMessage (root : System.FilePath) (detail : String) : IO String := do
   let shouldAppend :=
-    detail.contains "CLI daemon connection closed" ||
-    detail.contains "no live CLI daemon registered for "
+    detail.contains "Beam daemon connection closed" ||
+    detail.contains "no live Beam daemon registered for "
   if !shouldAppend then
     pure detail
   else
@@ -789,15 +789,15 @@ private def daemonFailureMessage (root : System.FilePath) (detail : String) : IO
       if logText.isEmpty then
         pure detail
       else
-        pure <| detail ++ s!"\ncli daemon log tail ({logPath}):\n{tailLines logText}"
+        pure <| detail ++ s!"\nBeam daemon log tail ({logPath}):\n{tailLines logText}"
     else
       pure detail
 
 private def startupFailureMessage (endpoint : Transport.Endpoint) (logPath : System.FilePath) (detail : String) : IO String := do
   let msg := if detail.isEmpty then
-    s!"failed to start CLI daemon on {endpointSummary endpoint}"
+    s!"failed to start Beam daemon on {endpointSummary endpoint}"
   else
-    s!"failed to start CLI daemon on {endpointSummary endpoint}\n{detail}"
+    s!"failed to start Beam daemon on {endpointSummary endpoint}\n{detail}"
   if ← logPath.pathExists then
     let logText := trimLine (← IO.FS.readFile logPath)
     if logText.isEmpty then
@@ -830,10 +830,10 @@ private def startDaemon (desired : DesiredConfig) (endpoint : Transport.Endpoint
     args := #["-c", shell]
   }
   if out.exitCode != 0 then
-    throw <| IO.userError s!"failed to start CLI daemon for {desired.root}\n{out.stderr}"
+    throw <| IO.userError s!"failed to start Beam daemon for {desired.root}\n{out.stderr}"
   let pidText := trimLine out.stdout
   let some pid := pidText.toNat?
-    | throw <| IO.userError s!"failed to capture CLI daemon pid for {desired.root}"
+    | throw <| IO.userError s!"failed to capture Beam daemon pid for {desired.root}"
   pure pid
 
 private partial def waitForDaemon (pid : Nat) (endpoint : Transport.Endpoint) (logPath : System.FilePath)
@@ -841,9 +841,9 @@ private partial def waitForDaemon (pid : Nat) (endpoint : Transport.Endpoint) (l
   if ← daemonResponds endpoint then
     pure ()
   else if !(← pidAlive pid) then
-    throw <| IO.userError (← startupFailureMessage endpoint logPath "CLI daemon process exited before responding")
+    throw <| IO.userError (← startupFailureMessage endpoint logPath "Beam daemon process exited before responding")
   else if tries == 0 then
-    throw <| IO.userError (← startupFailureMessage endpoint logPath "CLI daemon did not become ready before timeout")
+    throw <| IO.userError (← startupFailureMessage endpoint logPath "Beam daemon did not become ready before timeout")
   else
     IO.sleep 100
     waitForDaemon pid endpoint logPath (tries - 1)
@@ -909,7 +909,7 @@ private def desiredConfig (home root : System.FilePath) (required : Backend) : I
         toolchain? := some toolchain
         bundleId := id
       else
-        throw <| IO.userError s!"could not resolve Lean CLI daemon config for {root}"
+        throw <| IO.userError s!"could not resolve Lean Beam daemon config for {root}"
   | .rocq =>
       let helpers ← ensureDefaultDaemonHelpers home
       daemonBin := helpers.daemon
@@ -921,10 +921,10 @@ private def desiredConfig (home root : System.FilePath) (required : Backend) : I
   match required with
   | .lean =>
       if leanCmd?.isNone || plugin?.isNone then
-        throw <| IO.userError s!"could not resolve Lean CLI daemon config for {root}"
+        throw <| IO.userError s!"could not resolve Lean Beam daemon config for {root}"
   | .rocq =>
       if rocqCmd?.isNone then
-        throw <| IO.userError s!"could not resolve Rocq CLI daemon config for {root}"
+        throw <| IO.userError s!"could not resolve Rocq Beam daemon config for {root}"
   let configHash := computeConfigHash root leanCmd? plugin? rocqCmd? daemonBin clientBin bundleId
   pure {
     root
@@ -987,7 +987,7 @@ private def lookupProjectDaemon (root : System.FilePath) : IO RegistryEntry := d
     | some entry => pure entry
     | none =>
         stopRegisteredDaemon root
-        throw <| IO.userError (← daemonFailureMessage root s!"no live CLI daemon registered for {root}")
+        throw <| IO.userError (← daemonFailureMessage root s!"no live Beam daemon registered for {root}")
 
 private def printJsonLine (json : Json) : IO Unit := do
   IO.println json.pretty
@@ -1268,7 +1268,7 @@ private def usage : String :=
     "For lean-sync / lean-save / lean-close-save, diagnostics always stream for the current request;",
     "default is errors only, and +full widens the stream to warnings, info, and hints.",
     "Wrapper diagnostics and progress are human-facing on stderr.",
-    "For machine-readable streaming diagnostics/progress, use runAt-cli-client request-stream.",
+    "For machine-readable streaming diagnostics/progress, use beam-client request-stream.",
     "",
     "Expert-only experimental commands are documented in docs/experimental.md.",
     "For the Lean workflow contract and anti-patterns, see skills/lean-runat/SKILL.md."
@@ -1647,7 +1647,7 @@ private def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit :=
       if let some endpoint := registryEndpoint? entry then
         callBroker root endpoint { op := .openDocs, root? := some root.toString }
       else
-        throw <| IO.userError s!"invalid CLI daemon endpoint registry for {entry.root}"
+        throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"
   | "cancel" :: requestId :: [] =>
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
@@ -1658,21 +1658,21 @@ private def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit :=
           cancelRequestId? := some requestId
         }
       else
-        throw <| IO.userError s!"invalid CLI daemon endpoint registry for {entry.root}"
+        throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"
   | "stats" :: [] =>
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
       if let some endpoint := registryEndpoint? entry then
         callBroker root endpoint { op := .stats }
       else
-        throw <| IO.userError s!"invalid CLI daemon endpoint registry for {entry.root}"
+        throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"
   | "reset-stats" :: [] =>
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
       if let some endpoint := registryEndpoint? entry then
         callBroker root endpoint { op := .resetStats }
       else
-        throw <| IO.userError s!"invalid CLI daemon endpoint registry for {entry.root}"
+        throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"
   | "shutdown" :: [] =>
       shutdownProjectDaemon opts
   | _ =>

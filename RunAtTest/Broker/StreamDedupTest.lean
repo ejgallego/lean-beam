@@ -57,7 +57,7 @@ private def lspFrame (json : Json) : String :=
   s!"Content-Length: {body.length}\r\n\r\n{body}"
 
 private def writeTranscript (messages : Array Json) : IO System.FilePath := do
-  let path := System.FilePath.mk s!"/tmp/runat-broker-transcript-{← IO.monoNanosNow}.txt"
+  let path := System.FilePath.mk s!"/tmp/beam-daemon-transcript-{← IO.monoNanosNow}.txt"
   IO.FS.writeFile path <| String.intercalate "" <| messages.toList.map lspFrame
   pure path
 
@@ -83,7 +83,7 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO RunAtCli
   pure session
 
 def check : IO Unit := do
-  let root := System.FilePath.mk s!"/tmp/runat-broker-dedup-{← IO.monoNanosNow}"
+  let root := System.FilePath.mk s!"/tmp/beam-daemon-dedup-{← IO.monoNanosNow}"
   IO.FS.createDirAll root
   let path := root / "Tracked.lean"
   IO.FS.writeFile path "-- fake tracked file\n"

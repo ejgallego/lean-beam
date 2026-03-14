@@ -22,10 +22,10 @@ abbrev nullBrokerStdio : IO.Process.StdioConfig where
   stdout := .null
   stderr := .null
 def daemonExe : IO System.FilePath := do
-  pure <| (← IO.appPath).parent.getD (System.FilePath.mk ".") / "runAt-cli-daemon"
+  pure <| (← IO.appPath).parent.getD (System.FilePath.mk ".") / "beam-daemon"
 
 def clientExe : IO System.FilePath := do
-  pure <| (← IO.appPath).parent.getD (System.FilePath.mk ".") / "runAt-cli-client"
+  pure <| (← IO.appPath).parent.getD (System.FilePath.mk ".") / "beam-client"
 
 def repoRoot : IO System.FilePath := do
   IO.FS.realPath <| System.FilePath.mk "."
@@ -109,7 +109,7 @@ def killLeanServerForEndpoint
     | .unix _ => throw <| IO.userError "worker-death helper only supports tcp endpoints"
   let procs ← listProcesses
   let brokerPid ← requireUniquePid "broker daemon" <| procs.filter fun (_, _, cmd) =>
-    cmd.contains "runAt-cli-daemon" &&
+    cmd.contains "beam-daemon" &&
       cmd.contains s!"--port {port.toNat}" &&
       cmd.contains s!"--root {root.toString}"
   let serverPid ← requireUniquePid "Lean server" <| procs.filter fun (_, ppid, cmd) =>
@@ -253,7 +253,7 @@ def expectWarningDiagnosticPresent
 
 def expectOk (resp : RunAtCli.Broker.Response) : IO Json := do
   if !resp.ok then
-    throw <| IO.userError s!"unexpected CLI daemon error: {(toJson resp).compress}"
+    throw <| IO.userError s!"unexpected Beam daemon error: {(toJson resp).compress}"
   return resp.result?.getD Json.null
 
 def expectErrCode (resp : RunAtCli.Broker.Response) (code : String) : IO Unit := do

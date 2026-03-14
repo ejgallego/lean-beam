@@ -82,14 +82,14 @@ private def relativePathString (root path : System.FilePath) : String :=
     pathStr
 
 private def writeStandaloneErrorFile (root : System.FilePath) : IO System.FilePath := do
-  let dir := root / ".tmp" / s!"runat-broker-error-{← IO.monoNanosNow}"
+  let dir := root / ".tmp" / s!"beam-daemon-error-{← IO.monoNanosNow}"
   IO.FS.createDirAll dir
   let path := dir / "ErrorOnly.lean"
   IO.FS.writeFile path "def brokenVal : Nat := \"broken\"\n"
   pure path
 
 private def writeSlowSyncFile (root : System.FilePath) : IO System.FilePath := do
-  let dir := root / ".tmp" / s!"runat-broker-slow-sync-{← IO.monoNanosNow}"
+  let dir := root / ".tmp" / s!"beam-daemon-slow-sync-{← IO.monoNanosNow}"
   IO.FS.createDirAll dir
   let path := dir / "SlowSync.lean"
   IO.FS.writeFile path <| String.intercalate "\n" [

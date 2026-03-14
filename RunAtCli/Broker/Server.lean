@@ -1953,7 +1953,7 @@ private def validateRequestRoot (server : ServerRuntime) (req : Request) : IO (E
   let daemonRoot ← server.withState do
     pure (← get).config.root
   if requestedRoot != daemonRoot then
-    return .error (reqError "invalidParams" s!"CLI daemon serves {daemonRoot}, not {requestedRoot}")
+    return .error (reqError "invalidParams" s!"Beam daemon serves {daemonRoot}, not {requestedRoot}")
   pure (.ok ())
 
 private def mergeFileProgressIfCurrent
@@ -2703,12 +2703,12 @@ private partial def parseCliOptions (opts : CliOptions) : List String → Except
   | "--rocq-cmd" :: rocqCmd :: rest =>
       parseCliOptions { opts with rocqCmd? := some rocqCmd } rest
   | arg :: _ =>
-      throw s!"unexpected CLI daemon argument '{arg}'"
+      throw s!"unexpected Beam daemon argument '{arg}'"
 
 def main (args : List String) : IO Unit := do
   let opts ← IO.ofExcept <| parseCliOptions {} args
   let some root := opts.root?
-    | throw <| IO.userError "missing CLI daemon --root PATH"
+    | throw <| IO.userError "missing Beam daemon --root PATH"
   let root ← IO.FS.realPath <| System.FilePath.mk root
   let leanPlugin? ← opts.leanPlugin?.mapM (fun path => IO.FS.realPath <| System.FilePath.mk path)
   let config : BrokerConfig := {

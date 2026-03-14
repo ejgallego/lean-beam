@@ -11,15 +11,15 @@ cd "$(dirname "$0")/.."
 lake build \
   RunAt:shared \
   runAt-cli \
-  runAt-cli-daemon \
-  runAt-cli-client \
+  beam-daemon \
+  beam-client \
   RunAtTest.Broker.StreamDedupTest \
-  runAt-cli-daemon-smoke-test \
-  runAt-cli-daemon-save-stream-test \
-  runAt-cli-daemon-request-stream-test \
-  runAt-cli-daemon-rocq-smoke-test \
+  beam-daemon-smoke-test \
+  beam-daemon-save-stream-test \
+  beam-daemon-request-stream-test \
+  beam-daemon-rocq-smoke-test \
   > /dev/null
 
-.lake/build/bin/runAt-cli-daemon-smoke-test > /dev/null
-.lake/build/bin/runAt-cli-daemon-save-stream-test > /dev/null
-.lake/build/bin/runAt-cli-daemon-request-stream-test > /dev/null
+.lake/build/bin/beam-daemon-smoke-test > /dev/null
+.lake/build/bin/beam-daemon-save-stream-test > /dev/null
+.lake/build/bin/beam-daemon-request-stream-test > /dev/null

@@ -8,12 +8,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-tmp_bundle_dir="$(mktemp -d /tmp/runat-broker-bundles-XXXXXX)"
-tmp_env_root="$(mktemp -d /tmp/runat-broker-env-XXXXXX)"
+tmp_bundle_dir="$(mktemp -d /tmp/beam-daemon-bundles-XXXXXX)"
+tmp_env_root="$(mktemp -d /tmp/beam-daemon-env-XXXXXX)"
 
 expect_owned_tmp_dir() {
   case "$1" in
-    /tmp/runat-broker-bundles-*|/tmp/runat-broker-env-*|/tmp/runat-validate-*/tmp/runat-broker-bundles-*|/tmp/runat-validate-*/tmp/runat-broker-env-*)
+    /tmp/beam-daemon-bundles-*|/tmp/beam-daemon-env-*|/tmp/runat-validate-*/tmp/beam-daemon-bundles-*|/tmp/runat-validate-*/tmp/beam-daemon-env-*)
       ;;
     *)
       echo "refusing to touch unexpected temp dir: $1" >&2
@@ -42,9 +42,9 @@ echo "[broker-slow] build"
 lake build \
   RunAt:shared \
   runAt-cli \
-  runAt-cli-daemon \
-  runAt-cli-client \
-  runAt-cli-daemon-rocq-smoke-test \
+  beam-daemon \
+  beam-client \
+  beam-daemon-rocq-smoke-test \
   > /dev/null
 
 echo "[broker-slow] bundle install"
@@ -76,7 +76,7 @@ if [ -n "$ROCQ_LSP" ]; then
   fi
   RUNAT_ROCQ_CMD="$PWD/$ROCQ_LSP" bash tests/test-runat-wrapper-rocq.sh > /dev/null
   echo "[broker-slow] rocq smoke test"
-  RUNAT_ROCQ_CMD="$PWD/$ROCQ_LSP" .lake/build/bin/runAt-cli-daemon-rocq-smoke-test > /dev/null
+  RUNAT_ROCQ_CMD="$PWD/$ROCQ_LSP" .lake/build/bin/beam-daemon-rocq-smoke-test > /dev/null
 else
   echo "[broker-slow] rocq skipped: install coq-lsp with tests/setup-rocq-opam.sh." >&2
 fi

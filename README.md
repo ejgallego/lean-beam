@@ -10,7 +10,7 @@ settle.
 
 - alpha code
 - one small public Lean request at the center: `$/lean/runAt`
-- optional follow-up handle APIs and the local CLI daemon exist, but they should also be treated as alpha
+- optional follow-up handle APIs and the local Beam daemon exist, but they should also be treated as alpha
 - packaging and workspace integration are still conservative
 
 Current scope, limitations, and short-term direction live in [docs/STATUS.md](docs/STATUS.md).
@@ -54,14 +54,14 @@ session and document lifecycle.
 
 ### 2. Local CLI Daemon
 
-On top of the Lean extension, this repo ships a single-root local CLI daemon:
+On top of the Lean extension, this repo ships a single-root local Beam daemon:
 
-- `lake exe runAt-cli-daemon`
-- `lake exe runAt-cli-client`
+- `lake exe beam-daemon`
+- `lake exe beam-client`
 
-These internal binaries implement the local CLI daemon for Lean workflows.
+These internal binaries implement the local Beam daemon for Lean workflows.
 
-The CLI daemon owns:
+The Beam daemon owns:
 
 - project-root scoping
 - long-lived Lean session management
@@ -74,11 +74,11 @@ and is not the recommended path for user-facing workflow guidance yet.
 The daemon protocol lives in [RunAtCli/Broker/Protocol.lean](RunAtCli/Broker/Protocol.lean).
 The implementation lives in [RunAtCli/Broker/Server.lean](RunAtCli/Broker/Server.lean).
 For programmatic local consumers, the preferred stream surface is
-`runAt-cli-client request-stream`, not the wrapper's human stderr formatting.
+`beam-client request-stream`, not the wrapper's human stderr formatting.
 
 ### 3. Commands And Helpers
 
-On top of the CLI daemon, this repo ships local command surfaces:
+On top of the Beam daemon, this repo ships local command surfaces:
 
 - `lake exe runAt`
 - [scripts/runat](scripts/runat)
@@ -101,7 +101,7 @@ CLI-daemon stack. The current design note is in [MCP_PLAN.md](MCP_PLAN.md).
 The intended relationship is:
 
 - LSP extension as the core typed execution layer
-- CLI daemon as the local session/orchestration layer
+- Beam daemon as the local session/orchestration layer
 - commands/helpers as the current practical UX
 - MCP as a future agent-native projection layer
 
@@ -262,7 +262,7 @@ Use the Lean LSP extension if:
 - you want the smallest typed surface
 - you are comfortable managing document state and requests yourself
 
-Use the CLI daemon layer if:
+Use the Beam daemon layer if:
 
 - you want one long-lived local process per project root
 - you want a simpler local request/response transport than raw LSP
@@ -319,7 +319,7 @@ First workflow to remember:
 - `lean-save` validates and checkpoints only the module you save; it does not validate downstream
   importers
 - `lean-sync` / `lean-save` / `lean-close-save` stream errors by default; add `+full` when you also want warnings, info, and hints
-- for tooling, use `runAt-cli-client request-stream`; wrapper `stderr` is human-facing
+- for tooling, use `beam-client request-stream`; wrapper `stderr` is human-facing
 - for daemon or save-state trouble, inspect `runat open-files` and `runat doctor lean`
 
 Current local packaging is:
@@ -385,7 +385,7 @@ The important terminology is:
 - local runtime bundle: the same kind of toolchain-keyed bundle, but built on demand for one target project under that project's `.runat` state
 
 There is not a separate "global plugin" mode. `runat` always resolves a full Lean bundle for one
-toolchain, containing the CLI daemon binary, the CLI client binary, and the Lean plugin shared
+toolchain, containing the Beam daemon binary, the CLI client binary, and the Lean plugin shared
 library. The only question is which cache location provides that bundle first.
 
 ### Resolution Order
@@ -426,7 +426,7 @@ In practice this means:
 
 ## Commands
 
-The current local command surface sits on top of the CLI daemon:
+The current local command surface sits on top of the Beam daemon:
 
 - `lake exe runAt-cli`
 - `scripts/runat`
@@ -486,7 +486,7 @@ Important wrapper rules:
   `result.stateCommandErrorCount` summarize current save-readiness
 - by default `lean-sync`, `lean-save`, and `lean-close-save` stream only error diagnostics; `+full`
   widens that set to warnings, info, and hints
-- wrapper `stderr` is human-facing; `runAt-cli-client request-stream` is the machine-readable
+- wrapper `stderr` is human-facing; `beam-client request-stream` is the machine-readable
   streamed surface
 
 `open-files` reports the files currently tracked by the live daemon for the current project,
@@ -500,12 +500,12 @@ the install script exposes `runat-lean-search` as a shorter shell helper on top 
 handle commands.
 
 For programmatic consumers, the supported machine-readable surface is the broker JSON stream, not
-the human stderr formatting. Use `runAt-cli-client request-stream ...`, which emits one compact JSON
+the human stderr formatting. Use `beam-client request-stream ...`, which emits one compact JSON
 `StreamMessage` per line on stdout with `kind = diagnostic | fileProgress | response`; the final
 `response` message arrives last. For example:
 
 ```bash
-runAt-cli-client --port 8765 request-stream \
+beam-client --port 8765 request-stream \
   '{"op":"sync_file","root":"/path/to/root","path":"Foo.lean","fullDiagnostics":true}'
 ```
 
@@ -536,7 +536,7 @@ For workflow examples and edge cases, see:
 ## Notes
 
 - Daemon state lives in the long-running daemon process, not in the short-lived `runat` command.
-- The wrapper keeps one daemon per project root and records it in `<root>/.runat/cli-daemon.json` by
+- The wrapper keeps one daemon per project root and records it in `<root>/.runat/beam-daemon.json` by
   default. If your project root is read-only, set `RUNAT_CONTROL_DIR` to a writable path to keep
   daemon control metadata outside the project.
 - `runat open-files` reports the daemon's currently tracked documents for that project. If there is

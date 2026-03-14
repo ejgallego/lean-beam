@@ -20,7 +20,7 @@ private inductive ClientMode where
 
 private def usage : String :=
   String.intercalate "\n" [
-    "usage: runAt-cli-client [--socket PATH | --port N] request <json|-> | request-stream <json|->",
+    "usage: beam-client [--socket PATH | --port N] request <json|-> | request-stream <json|->",
     "",
     "request prints the final response on stdout and formats streamed diagnostics for humans on stderr.",
     "request-stream is the preferred machine interface: it prints one compact StreamMessage JSON line",

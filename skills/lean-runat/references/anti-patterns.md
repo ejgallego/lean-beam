@@ -21,5 +21,5 @@ Use this reference as a short checklist of what not to assume in Lean `runat` wo
 - use `lean-run-at-handle` plus `lean-run-with` / `lean-run-with-linear` for exact speculative chaining
 - use a real edit, save, then `lean-sync` when the speculative result should become source
 - use `lean-save` only for a synced workspace module
-- use `runAt-cli-client request-stream` for machine-readable streaming diagnostics or progress
+- use `beam-client request-stream` for machine-readable streaming diagnostics or progress
 - use `lake build` when the task has become dependency freshness or final validation

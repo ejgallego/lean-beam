@@ -44,14 +44,14 @@ def parsePortOption (args : List String) : Except String (UInt16 × List String)
 
 private def decodeStreamMessage (msg : String) : IO StreamMessage := do
   match Json.parse msg with
-  | .error err => throw <| IO.userError s!"invalid CLI daemon response json: {err}"
+  | .error err => throw <| IO.userError s!"invalid Beam daemon response json: {err}"
   | .ok json =>
       match fromJson? json with
       | .ok (stream : StreamMessage) => pure stream
       | .error _ =>
           match fromJson? json with
           | .ok (resp : Response) => pure <| StreamMessage.mkResponse resp
-          | .error err => throw <| IO.userError s!"invalid CLI daemon response payload: {err}"
+          | .error err => throw <| IO.userError s!"invalid Beam daemon response payload: {err}"
 
 private def diagnosticSeverityLabel : Option Lsp.DiagnosticSeverity → String
   | some .error => "error"
@@ -87,7 +87,7 @@ partial def sendRequestWithStream
       match stream.kind with
       | .response =>
           let some resp := stream.response?
-            | throw <| IO.userError "invalid CLI daemon response stream: missing response payload"
+            | throw <| IO.userError "invalid Beam daemon response stream: missing response payload"
           pure resp
       | .fileProgress | .diagnostic =>
           loop
@@ -105,11 +105,11 @@ partial def sendRequestWithCallbacks
         pure ()
     | .fileProgress =>
         let some progress := stream.fileProgress?
-          | throw <| IO.userError "invalid CLI daemon response stream: missing fileProgress payload"
+          | throw <| IO.userError "invalid Beam daemon response stream: missing fileProgress payload"
         callbacks.onFileProgress stream.clientRequestId? progress
     | .diagnostic =>
         let some diagnostic := stream.diagnostic?
-          | throw <| IO.userError "invalid CLI daemon response stream: missing diagnostic payload"
+          | throw <| IO.userError "invalid Beam daemon response stream: missing diagnostic payload"
         callbacks.onDiagnostic stream.clientRequestId? diagnostic
 def sendRequestWithProgress
     (endpoint : Endpoint)
@@ -136,6 +136,6 @@ def failOnError (resp : Response) : IO Unit := do
   if resp.ok then
     pure ()
   else
-    throw <| IO.userError ((resp.error?.map (·.message)).getD "CLI daemon error")
+    throw <| IO.userError ((resp.error?.map (·.message)).getD "Beam daemon error")
 
 end RunAtCli.Broker

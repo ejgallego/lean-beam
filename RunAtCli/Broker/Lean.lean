@@ -24,18 +24,18 @@ namespace RunAtCli.Broker
 private def leanPluginPath (config : BrokerConfig) : IO System.FilePath := do
   match config.leanPlugin? with
   | some path => IO.FS.realPath path
-  | none => throw <| IO.userError "missing CLI daemon --lean-plugin configuration"
+  | none => throw <| IO.userError "missing Beam daemon --lean-plugin configuration"
 
 private def rocqLspPath (config : BrokerConfig) : IO String := do
   match config.rocqCmd? with
   | some path => pure path
-  | none => throw <| IO.userError "missing CLI daemon --rocq-cmd configuration"
+  | none => throw <| IO.userError "missing Beam daemon --rocq-cmd configuration"
 
 def backendCommand (config : BrokerConfig) (backend : Backend) : IO (String × Array String) := do
   match backend with
   | .lean =>
       let some cmd := config.leanCmd?
-        | throw <| IO.userError "missing CLI daemon --lean-cmd configuration"
+        | throw <| IO.userError "missing Beam daemon --lean-cmd configuration"
       let pluginPath := ← leanPluginPath config
       pure (cmd, #["--server", s!"--plugin={pluginPath}", "-DstderrAsMessages=false", "-Dexperimental.module=true"])
   | .rocq =>

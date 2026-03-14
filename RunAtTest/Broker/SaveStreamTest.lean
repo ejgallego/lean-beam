@@ -28,7 +28,7 @@ private def expectNoTrackedLeanDoc (payload : Json) (path : String) : IO Unit :=
 def main : IO Unit := do
   let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
   let endpoint : RunAtCli.Broker.Endpoint := .tcp port
-  let root ← mkTempProjectRoot "runat-broker-save-stream"
+  let root ← mkTempProjectRoot "beam-daemon-save-stream"
   copySaveProjectFixture root
   let broker ← spawnLeanBroker endpoint root
   try

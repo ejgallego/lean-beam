@@ -104,8 +104,8 @@ assert_runtime_layout() {
   assert_file "$runtime_root/RunAt/Internal/SaveArtifacts.lean"
   assert_file "$runtime_root/supported-lean-toolchains"
   assert_file "$runtime_root/libexec/runAt-cli"
-  assert_file "$runtime_root/libexec/runAt-cli-daemon"
-  assert_file "$runtime_root/libexec/runAt-cli-client"
+  assert_file "$runtime_root/libexec/beam-daemon"
+  assert_file "$runtime_root/libexec/beam-client"
   assert_file "$runtime_root/libexec/librunAt_RunAt.so"
   assert_not_exists "$runtime_root/.lake/build"
   assert_file "$runtime_root/bin/runat"
@@ -220,8 +220,8 @@ assert_bundle_layout() {
   assert_file "$workspace/RunAtCli.lean"
   assert_file "$workspace/RunAtCli/Broker/Server.lean"
   assert_file "$workspace/RunAt/Internal/SaveArtifacts.lean"
-  assert_file "$workspace/.lake/build/bin/runAt-cli-daemon"
-  assert_file "$workspace/.lake/build/bin/runAt-cli-client"
+  assert_file "$workspace/.lake/build/bin/beam-daemon"
+  assert_file "$workspace/.lake/build/bin/beam-client"
   assert_file "$workspace/.lake/build/lib/librunAt_RunAt.so"
 }
 

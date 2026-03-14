@@ -77,18 +77,18 @@ Use `runat`, not raw JSON and not raw LSP.
 `runat` for Rocq:
 
 - infers the target project root from the current directory or `--root`
-- keeps one CLI daemon per project root and records it in `<root>/.runat/cli-daemon.json`
+- keeps one Beam daemon per project root and records it in `<root>/.runat/beam-daemon.json`
   - in sandboxed or read-only project trees, set `RUNAT_CONTROL_DIR` to a writable directory
 - for Lean-backed brokers, bundle builds can be redirected via `RUNAT_BUNDLE_DIR` in the same way as
   `RUNAT_CONTROL_DIR` to avoid project-local cache writes
 - Lean-backed runtime resolution first tries the installed runAt bundle cache and then falls
   back to the project-local bundle cache
-- owns CLI daemon startup, shutdown, and registry handling
+- owns Beam daemon startup, shutdown, and registry handling
 - resolves `coq-lsp` from the target project's local `_opam` when available
-- starts a Rocq-capable CLI daemon with explicit startup args instead of relying on inherited editor state
-- wrapper commands talk to the per-project CLI daemon over localhost TCP; they are not direct in-process Rocq calls
-- in Codex-style sandboxes, CLI daemon startup may still require elevated permissions even when all paths resolve correctly
-- in the same environments, localhost TCP bind/connect for the CLI daemon and client may also require elevated permissions
+- starts a Rocq-capable Beam daemon with explicit startup args instead of relying on inherited editor state
+- wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Rocq calls
+- in Codex-style sandboxes, Beam daemon startup may still require elevated permissions even when all paths resolve correctly
+- in the same environments, localhost TCP bind/connect for the Beam daemon and client may also require elevated permissions
 - if startup fails with `operation not permitted`, treat that as a sandbox capability problem first, not as a missing install
 - `runat shutdown`, `runat stats`, and `runat reset-stats` apply to the current project only
 
@@ -140,7 +140,7 @@ Execution model:
 
 - every `runat rocq-goals-*` request is an isolated read-only probe against the current saved file
 - do not expect hidden mutable proof-session state to carry from one probe to the next
-- the CLI daemon may reopen or resync the on-disk file before a probe, but saving the file is still the real boundary you control
+- the Beam daemon may reopen or resync the on-disk file before a probe, but saving the file is still the real boundary you control
 - there is no Rocq `lean-sync` equivalent in the wrapper, so after edits the important step is: save, then probe again
 - if the file changes while a request is pending or `coq-lsp` state becomes stale, expect to rerun from the saved file instead of relying on recovery inside the old request
 
@@ -202,13 +202,13 @@ runat stats
 runat reset-stats
 ```
 
-`runat open-files` shows the files currently tracked by the CLI daemon for the current project. For
+`runat open-files` shows the files currently tracked by the Beam daemon for the current project. For
 Lean-backed tracked files it also includes direct deps when available and whether the current synced
 version has been checkpointed with `lean-save`. For files the broker already knows about, the
 wrapper checks that status incrementally against the current on-disk text, and `open-files` also
 reports the last compact `fileProgress` observed for that tracked version.
 
-Stats are in-memory only and scoped to the current project CLI daemon.
+Stats are in-memory only and scoped to the current project Beam daemon.
 
 ## Upstream Rocq Features Not Yet Wrapped
 

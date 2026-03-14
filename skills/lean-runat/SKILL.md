@@ -68,7 +68,7 @@ Core workflow contract:
   graph, for example `MyPkg/Sub/Module.lean`
 - `lean-save` validates and checkpoints only the module you save; it does not validate importers of
   that module
-- treat wrapper `stderr` as human-facing only; use stdout JSON or `runAt-cli-client request-stream`
+- treat wrapper `stderr` as human-facing only; use stdout JSON or `beam-client request-stream`
   for machine-readable automation
 - do not assume hidden mutable session state carries across unrelated requests
 
@@ -146,18 +146,18 @@ Use `runat`, not raw JSON and not raw LSP.
 `runat` for Lean:
 
 - infers the target project root from the current directory or `--root`
-- keeps one CLI daemon per project root and records it in `<root>/.runat/cli-daemon.json`
+- keeps one Beam daemon per project root and records it in `<root>/.runat/beam-daemon.json`
   - in sandboxed or read-only project trees, set `RUNAT_CONTROL_DIR` to a writable directory; `runat` uses a per-root subdirectory there
 - resolves a toolchain-keyed Lean bundle, preferring the installed runAt bundle cache and
   falling back to a project-local runtime bundle under `<root>/.runat/bundles` or `RUNAT_BUNDLE_DIR`
 - only serves Lean toolchains listed in `supported-lean-toolchains`
-- owns CLI daemon startup, shutdown, and registry handling
+- owns Beam daemon startup, shutdown, and registry handling
 - resolves Lean with `elan which lean`
 - builds a local fallback bundle only when no matching installed bundle exists for the target supported Lean toolchain
 - fails early on unsupported Lean toolchains; use `runat supported-toolchains lean` to inspect the allowlist
-- restarts the CLI daemon if the effective Lean startup configuration for that root changes
+- restarts the Beam daemon if the effective Lean startup configuration for that root changes
 - `runat shutdown`, `runat stats`, and `runat reset-stats` apply to the current project only
-- wrapper commands talk to the per-project CLI daemon over localhost TCP; they are not direct in-process Lean calls
+- wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Lean calls
 
 `runAt` is more than a one-shot probe:
 
@@ -167,7 +167,7 @@ Use `runat`, not raw JSON and not raw LSP.
 - treat handles as alpha support APIs: useful, real, and powerful, but more fragile than the base
   request
 - handles are document-bound and are invalidated by same-document edits, close, worker restart, or
-  CLI daemon restart
+  Beam daemon restart
 - do not present handles as the main story unless the task actually needs continuation from the
   exact speculative state
 
@@ -225,7 +225,7 @@ Diagnostic defaults on that path:
 Surface rule:
 
 - wrapper `stderr` is the human-facing diagnostic surface
-- `runAt-cli-client request-stream ...` is the machine-facing streamed surface
+- `beam-client request-stream ...` is the machine-facing streamed surface
 - do not parse wrapper `stderr` in tooling
 
 ## Quick Picks
@@ -238,7 +238,7 @@ Use this when you are deciding between commands:
 - human after a real saved edit: `lean-sync`
 - human checkpointing one synced module: `lean-save` or `lean-close-save`
 - human diagnosing daemon or save-state trouble: `open-files` and `doctor lean`
-- tooling that wants streamed diagnostics or progress: `runAt-cli-client request-stream ...`
+- tooling that wants streamed diagnostics or progress: `beam-client request-stream ...`
 
 ## References
 
@@ -269,5 +269,5 @@ Open these only when the task needs the detail:
   rebuild before trusting importers
 - if daemon/save-state behavior looks wrong, inspect `runat open-files` and `runat doctor lean`
   before assuming the wrapper is confused
-- if a file is open in the CLI daemon, do not edit it out of band without following with `lean-sync` or a close/reopen workflow
+- if a file is open in the Beam daemon, do not edit it out of band without following with `lean-sync` or a close/reopen workflow
 - if Lean reports stale state, `contentModified`, or rebuild trouble unexpectedly, stop and report it explicitly

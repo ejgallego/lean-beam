@@ -16,7 +16,7 @@ Diagnostics
   lean-sync / lean-save / lean-close-save stream errors by default
   add +full to include warnings, info, and hints
   wrapper stderr is human-facing
-  runAt-cli-client request-stream is the machine-readable surface
+  beam-client request-stream is the machine-readable surface
 
 Docs
   See skills/lean-runat/SKILL.md for the Lean workflow contract.

@@ -2,7 +2,7 @@
 
 These commands are expert-only and explicitly unstable.
 
-They do not extend the stable Lean plugin `runAt` surface. They live in the local CLI daemon as
+They do not extend the stable Lean plugin `runAt` surface. They live in the local Beam daemon as
 broker-side conveniences for debugging and exploration.
 
 `lean-request-at` is an unstable broker escape hatch for expert debugging. It does not widen the
@@ -11,7 +11,7 @@ stable `runAt` contract.
 ## `lean-request-at`
 
 `lean-request-at` forwards a small whitelisted set of standard Lean LSP requests against the current
-on-disk file after syncing that file through the CLI daemon.
+on-disk file after syncing that file through the Beam daemon.
 
 Prefer the stable `lean-hover`, `lean-goals-prev`, and `lean-goals-after` wrappers for common
 read-only inspection. `lean-request-at` remains the unstable escape hatch for expert use and for
@@ -34,7 +34,7 @@ runat lean-request-at <path> <line> <character> <method> [params-json|-]
   - omit it for methods such as `textDocument/hover` and `textDocument/definition`
   - pass `-` to read the JSON object from stdin
 
-The CLI daemon injects:
+The Beam daemon injects:
 
 - `textDocument`
 - `position`

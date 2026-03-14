@@ -77,10 +77,10 @@ Keep the Lean and Rocq skills fully separate.
 
 The repo includes:
 
-- `lake exe runAt-broker`
-- `lake exe runAt-broker-client`
-- `lake exe runAt-broker-smoke-test`
-- `lake exe runAt-broker-rocq-smoke-test`
+- `lake exe beam-daemon`
+- `lake exe beam-client`
+- `lake exe beam-daemon-smoke-test`
+- `lake exe beam-daemon-rocq-smoke-test`
 - [scripts/runat](scripts/runat)
 - [scripts/codex-harness.sh](scripts/codex-harness.sh)
 - [scripts/codex-session-start.sh](scripts/codex-session-start.sh)

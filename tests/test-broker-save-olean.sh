@@ -299,14 +299,14 @@ printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
     rm -f "$sync_out" "$sync_err" "$save_out" "$save_err"
     exit 1
   fi
-  if grep -q 'CLI daemon connection closed' "$sync_err"; then
+  if grep -q 'Beam daemon connection closed' "$sync_err"; then
     echo "expected concurrent stale lean-sync to preserve the daemon connection" >&2
     cat "$sync_out" >&2
     cat "$sync_err" >&2
     rm -f "$sync_out" "$sync_err" "$save_out" "$save_err"
     exit 1
   fi
-  if grep -q 'CLI daemon connection closed' "$save_err"; then
+  if grep -q 'Beam daemon connection closed' "$save_err"; then
     echo "expected concurrent stale lean-save to preserve the daemon connection" >&2
     cat "$save_out" >&2
     cat "$save_err" >&2

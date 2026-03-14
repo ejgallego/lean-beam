@@ -58,25 +58,25 @@ lean_exe "runAt-nested-handle-failure-test" where
 lean_exe "runAt-search-workload-report" where
   root := `RunAtTest.Scenario.SearchWorkloadReport
 
-lean_exe "runAt-cli-daemon" where
+lean_exe "beam-daemon" where
   root := `RunAtCli.Broker.Server
   supportInterpreter := true
 
-lean_exe "runAt-cli-client" where
+lean_exe "beam-client" where
   root := `RunAtCli.BrokerClient
 
 @[default_target]
 lean_exe "runAt-cli" where
   root := `RunAtCli.Cli
 
-lean_exe "runAt-cli-daemon-smoke-test" where
+lean_exe "beam-daemon-smoke-test" where
   root := `RunAtTest.Broker.SmokeTestMain
 
-lean_exe "runAt-cli-daemon-save-stream-test" where
+lean_exe "beam-daemon-save-stream-test" where
   root := `RunAtTest.Broker.SaveStreamTestMain
 
-lean_exe "runAt-cli-daemon-request-stream-test" where
+lean_exe "beam-daemon-request-stream-test" where
   root := `RunAtTest.Broker.RequestStreamContractTestMain
 
-lean_exe "runAt-cli-daemon-rocq-smoke-test" where
+lean_exe "beam-daemon-rocq-smoke-test" where
   root := `RunAtTest.Broker.RocqSmokeTest

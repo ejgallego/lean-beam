@@ -65,7 +65,7 @@ instance : FromJson Op where
     | .str "stats" => .ok .stats
     | .str "reset_stats" => .ok .resetStats
     | .str "shutdown" => .ok .shutdown
-    | j => .error s!"expected CLI daemon op, got {j.compress}"
+    | j => .error s!"expected Beam daemon op, got {j.compress}"
 
 inductive Backend where
   | lean
@@ -278,7 +278,7 @@ instance : FromJson StreamKind where
     | .str "response" => .ok .response
     | .str "fileProgress" => .ok .fileProgress
     | .str "diagnostic" => .ok .diagnostic
-    | j => .error s!"expected CLI daemon stream kind, got {j.compress}"
+    | j => .error s!"expected Beam daemon stream kind, got {j.compress}"
 
 structure StreamMessage where
   kind : StreamKind

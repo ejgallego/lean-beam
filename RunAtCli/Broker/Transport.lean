@@ -109,22 +109,22 @@ private def recvMsgTcp (client : TCP.Socket.Client) : IO String := do
   repeat
     let task ← (client.recv? 1).toIO
     let some chunk ← task.block
-      | throw <| IO.userError "CLI daemon connection closed"
+      | throw <| IO.userError "Beam daemon connection closed"
     if chunk[0]! == '\n'.toUInt8 then
       break
     header := header ++ chunk
   let some lenStr := String.fromUTF8? header
-    | throw <| IO.userError "invalid CLI daemon header"
+    | throw <| IO.userError "invalid Beam daemon header"
   let some len := lenStr.toNat?
-    | throw <| IO.userError "invalid CLI daemon length"
+    | throw <| IO.userError "invalid Beam daemon length"
   let mut payload := ByteArray.empty
   while payload.size < len do
     let task ← (client.recv? (len - payload.size).toUInt64).toIO
     let some chunk ← task.block
-      | throw <| IO.userError "CLI daemon connection closed"
+      | throw <| IO.userError "Beam daemon connection closed"
     payload := payload ++ chunk
   let some msg := String.fromUTF8? payload
-    | throw <| IO.userError "invalid CLI daemon UTF-8"
+    | throw <| IO.userError "invalid Beam daemon UTF-8"
   pure msg
 
 def sendMsg (conn : Connection) (msg : String) : IO Unit := do

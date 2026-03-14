@@ -4,7 +4,7 @@ The current test story is good for an alpha repository, but it is recent and mos
 
 Most of the harness was built over March 10-11, 2026. Coverage is strongest around externally
 visible behavior: request semantics, stale-state handling, cancellation, handle invalidation, and
-CLI daemon integration.
+Beam daemon integration.
 
 ## Current Coverage
 
@@ -23,7 +23,7 @@ CLI daemon integration.
   [RunAt/HandleRestartTest.lean](../RunAt/HandleRestartTest.lean)
 - nested handle failure-shape assertions in
   [RunAt/NestedHandleFailureTest.lean](../RunAt/NestedHandleFailureTest.lean)
-- fast CLI daemon smoke coverage in [tests/test-broker-fast.sh](../tests/test-broker-fast.sh),
+- fast Beam daemon smoke coverage in [tests/test-broker-fast.sh](../tests/test-broker-fast.sh),
   including completed barrier progress vs partial request progress expectations
 - slower wrapper/install coverage in [tests/test-broker-slow.sh](../tests/test-broker-slow.sh)
 - experimental Lean broker `request_at` coverage through

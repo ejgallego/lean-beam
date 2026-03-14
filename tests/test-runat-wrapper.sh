@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 runat_script="$PWD/scripts/runat"
 search_helper="$PWD/scripts/runat-lean-search"
-client="$PWD/.lake/build/bin/runAt-cli-client"
+client="$PWD/.lake/build/bin/beam-client"
 
 if [ ! -x "$runat_script" ]; then
   echo "missing runat wrapper at $runat_script" >&2
@@ -209,7 +209,7 @@ mkdir -p "$tmp10/.runat"
   "$runat_script" ensure lean > /dev/null
 )
 
-reg1="$tmp1/.runat/cli-daemon.json"
+reg1="$tmp1/.runat/beam-daemon.json"
 expect_file "$reg1"
 
 pid1="$(read_json_field "$reg1" pid)"
@@ -224,7 +224,7 @@ if [ "$root1" != "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1
   exit 1
 fi
 if ! kill -0 "$pid1" 2>/dev/null; then
-  echo "expected CLI daemon pid $pid1 to be alive" >&2
+  echo "expected Beam daemon pid $pid1 to be alive" >&2
   exit 1
 fi
 
@@ -262,7 +262,7 @@ fi
     exit 1
   fi
   if ! grep -q 'snapshot progress' "$cmd_err"; then
-    echo "expected wrapper lean-run-at forwarded CLI daemon progress stderr output" >&2
+    echo "expected wrapper lean-run-at forwarded Beam daemon progress stderr output" >&2
     cat "$cmd_err" >&2
     rm -f "$cmd_err"
     exit 1
@@ -435,7 +435,7 @@ fi
 pid1_repeat="$(read_json_field "$reg1" pid)"
 port1_repeat="$(read_json_field "$reg1" port)"
 if [ "$pid1" != "$pid1_repeat" ] || [ "$port1" != "$port1_repeat" ]; then
-  echo "wrapper unexpectedly restarted the CLI daemon for the same project" >&2
+  echo "wrapper unexpectedly restarted the Beam daemon for the same project" >&2
   exit 1
 fi
 
@@ -515,7 +515,7 @@ PY
   fi
   post_interrupt_hover="$("$runat_script" --root "$tmp10" lean-hover tests/scenario/docs/CommandA.lean 0 4)"
   if [ "$(RUNAT_JSON_PAYLOAD="$post_interrupt_hover" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper SIGINT cancellation to preserve the isolated CLI daemon session" >&2
+    echo "expected wrapper SIGINT cancellation to preserve the isolated Beam daemon session" >&2
     printf '%s\n' "$post_interrupt_hover" >&2
     rm -f "$interrupt_out" "$interrupt_err"
     exit 1
@@ -664,7 +664,7 @@ EOF
   "$runat_script" ensure lean > /dev/null
   stats_out="$("$runat_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
-    echo "expected ensure lean to start with zero open CLI daemon documents" >&2
+    echo "expected ensure lean to start with zero open Beam daemon documents" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
@@ -683,7 +683,7 @@ EOF
 
   stats_out="$("$runat_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "1" ]; then
-    echo "expected initial wrapper probe to open exactly one CLI daemon document" >&2
+    echo "expected initial wrapper probe to open exactly one Beam daemon document" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
@@ -746,7 +746,7 @@ EOF
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  if printf '%s\n' "$sync_out" | grep -q '"ok"'; then
+  if printf '%s\n' "$sync_out" | grep -q '"ok"[[:space:]]*:'; then
     echo "expected lean-sync output to omit the legacy ok field" >&2
     printf '%s\n' "$sync_out" >&2
     exit 1
@@ -861,7 +861,7 @@ EOF
   sleep 1
   doctor_out="$("$runat_script" doctor lean)"
   if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: live'; then
-    echo "expected doctor lean to report a live CLI daemon after lean-sync and a short idle wait" >&2
+    echo "expected doctor lean to report a live Beam daemon after lean-sync and a short idle wait" >&2
     printf '%s\n' "$doctor_out" >&2
     exit 1
   fi
@@ -887,7 +887,7 @@ EOF
 
   stats_out="$("$runat_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
-    echo "expected lean-close to leave zero open CLI daemon documents" >&2
+    echo "expected lean-close to leave zero open Beam daemon documents" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
@@ -1210,7 +1210,7 @@ EOF
 
   stats_out="$("$runat_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
-    echo "expected final lean-close to leave zero open CLI daemon documents" >&2
+    echo "expected final lean-close to leave zero open Beam daemon documents" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
@@ -1348,7 +1348,7 @@ theorem warnOnly (n : Nat) : True := by
 
 -- close-save fresh version
 EOF
-  reg9="$PWD/.runat/cli-daemon.json"
+  reg9="$PWD/.runat/beam-daemon.json"
   expect_file "$reg9"
   port9="$(read_json_field "$reg9" port)"
   client9="$(read_json_field "$reg9" clientBin 2>/dev/null || true)"
@@ -1434,17 +1434,17 @@ EOF
   "$runat_script" ensure lean > /dev/null
 )
 
-reg2="$tmp2/.runat/cli-daemon.json"
+reg2="$tmp2/.runat/beam-daemon.json"
 expect_file "$reg2"
 
 pid2="$(read_json_field "$reg2" pid)"
 port2="$(read_json_field "$reg2" port)"
 if [ "$pid1" = "$pid2" ]; then
-  echo "expected distinct CLI daemon processes per project" >&2
+  echo "expected distinct Beam daemon processes per project" >&2
   exit 1
 fi
 if [ "$port1" = "$port2" ]; then
-  echo "expected distinct CLI daemon ports per project" >&2
+  echo "expected distinct Beam daemon ports per project" >&2
   exit 1
 fi
 
@@ -1452,14 +1452,14 @@ cross_err="$(mktemp /tmp/runat-wrapper-cross-XXXXXX)"
 cross_req="$(mktemp /tmp/runat-wrapper-cross-req-XXXXXX)"
 printf '{"op":"ensure","root":"%s"}\n' "$tmp2" > "$cross_req"
 if "$client1" --port "$port1" request - <"$cross_req" >"$cross_err" 2>&1; then
-  echo "expected single-root CLI daemon to reject another project root" >&2
+  echo "expected single-root Beam daemon to reject another project root" >&2
   cat "$cross_err" >&2
   rm -f "$cross_req"
   rm -f "$cross_err"
   exit 1
 fi
 if ! grep -q "invalidParams" "$cross_err"; then
-    echo "expected cross-root CLI daemon request to fail with invalidParams" >&2
+    echo "expected cross-root Beam daemon request to fail with invalidParams" >&2
   cat "$cross_err" >&2
   rm -f "$cross_req"
   rm -f "$cross_err"
@@ -1479,7 +1479,7 @@ rm -f "$cross_err"
   fi
 )
 
-reg5="$tmp5/.runat/cli-daemon.json"
+reg5="$tmp5/.runat/beam-daemon.json"
 expect_file "$reg5"
 
 pid5="$(read_json_field "$reg5" pid)"
@@ -1497,14 +1497,14 @@ sleep 1
   cd "$tmp5"
   doctor_out="$("$runat_script" doctor lean)"
   if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: live'; then
-    echo "expected doctor lean to report a live CLI daemon before requested-port reuse check" >&2
+    echo "expected doctor lean to report a live Beam daemon before requested-port reuse check" >&2
     printf '%s\n' "$doctor_out" >&2
     exit 1
   fi
   sed -i 's/1/2/' SaveSmoke/B.lean
   sync_out="$("$runat_script" --port "$busy_port" lean-sync SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected lean-sync with a busy requested port to reuse the live CLI daemon" >&2
+    echo "expected lean-sync with a busy requested port to reuse the live Beam daemon" >&2
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
@@ -1532,7 +1532,7 @@ if [ "$pid5" != "$pid5_after" ] || [ "$port5" != "$port5_after" ]; then
   exit 1
 fi
 if ! kill -0 "$pid5" 2>/dev/null; then
-  echo "expected original CLI daemon pid $pid5 to remain alive after busy-port lean-sync reuse" >&2
+  echo "expected original Beam daemon pid $pid5 to remain alive after busy-port lean-sync reuse" >&2
   exit 1
 fi
 
@@ -1561,7 +1561,7 @@ fi
     rm -f "$stale_sync_err"
     exit 1
   fi
-  if grep -q 'CLI daemon connection closed' "$stale_sync_err"; then
+  if grep -q 'Beam daemon connection closed' "$stale_sync_err"; then
     echo "expected stale-import lean-sync failure to stay structured instead of reporting a dropped daemon connection" >&2
     cat "$stale_sync_err" >&2
     rm -f "$stale_sync_err"
@@ -1588,7 +1588,7 @@ fi
     rm -f "$stale_save_err"
     exit 1
   fi
-  if grep -q 'CLI daemon connection closed' "$stale_save_err"; then
+  if grep -q 'Beam daemon connection closed' "$stale_save_err"; then
     echo "expected stale-import lean-save failure to stay structured instead of reporting a dropped daemon connection" >&2
     cat "$stale_save_err" >&2
     rm -f "$stale_save_err"
@@ -1651,10 +1651,10 @@ EOF
   "$runat_script" shutdown > /dev/null
 )
 if [ -f "$reg1" ]; then
-  echo "expected shutdown to remove the project CLI daemon registry" >&2
+  echo "expected shutdown to remove the project Beam daemon registry" >&2
   exit 1
 fi
 if kill -0 "$pid1" 2>/dev/null; then
-  echo "expected CLI daemon pid $pid1 to be gone after shutdown" >&2
+  echo "expected Beam daemon pid $pid1 to be gone after shutdown" >&2
   exit 1
 fi
