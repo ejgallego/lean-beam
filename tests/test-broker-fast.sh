@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 lake build \
   RunAt:shared \
-  runAt-cli \
+  beam-cli \
   beam-daemon \
   beam-client \
   RunAtTest.Broker.StreamDedupTest \

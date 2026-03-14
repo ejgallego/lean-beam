@@ -1,2 +1,2 @@
-# Validated Lean toolchains that runAt is willing to serve.
+# Validated Lean toolchains that beam is willing to serve.
 leanprover/lean4:v4.29.0-rc6

@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Maintainer workflow helper for this repository.
-# This script is intentionally local contributor tooling, not part of the public runAt interface.
+# This script is intentionally local contributor tooling, not part of the public beam interface.
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "${REPO_ROOT}" ]] || {
@@ -15,7 +15,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   exit 1
 }
 
-TOOL_LOG="${RUNAT_CODEX_TOOL_LOG:-${REPO_ROOT}/.runat/tooling.log}"
+TOOL_LOG="${RUNAT_CODEX_TOOL_LOG:-${REPO_ROOT}/.beam/tooling.log}"
 
 log_tool_use() {
   mkdir -p "$(dirname "${TOOL_LOG}")"

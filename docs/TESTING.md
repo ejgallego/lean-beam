@@ -37,7 +37,7 @@ Beam daemon integration.
   partial success
 - wrapper coverage for alpha Lean handle mint / continue / linear-continue / release flows in
   [tests/test-runat-wrapper.sh](../tests/test-runat-wrapper.sh)
-- wrapper coverage for the installed `runat-lean-search` helper in
+- wrapper coverage for the installed `beam-lean-search` helper in
   [tests/test-runat-wrapper.sh](../tests/test-runat-wrapper.sh)
 - zero-build save regression coverage in [tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh),
   including exact-target replay, downstream importer reuse after daemon shutdown, and a timed

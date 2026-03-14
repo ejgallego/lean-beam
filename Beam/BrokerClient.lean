@@ -67,10 +67,10 @@ def main (args : List String) : IO Unit := do
           let msg :=
             match clientRequestId? with
             | some clientRequestId =>
-                if msg.startsWith "runat:" then
-                  s!"runat[{clientRequestId}]:" ++ (msg.drop 6).toString
+                if msg.startsWith "beam:" then
+                  s!"beam[{clientRequestId}]:" ++ (msg.drop 6).toString
                 else
-                  s!"runat[{clientRequestId}]: {msg}"
+                  s!"beam[{clientRequestId}]: {msg}"
             | none => msg
           IO.eprintln msg
       }

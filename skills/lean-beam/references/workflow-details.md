@@ -4,7 +4,7 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
 
 ## Position Semantics
 
-- `runat lean-run-at` and `runat lean-run-at-handle` take Lean/LSP `Position` coordinates as
+- `beam lean-run-at` and `beam lean-run-at-handle` take Lean/LSP `Position` coordinates as
   `<line> <character>`
 - the wrapper passes those coordinates through directly; they are not editor-specific line numbers,
   byte offsets, or parser-token offsets
@@ -24,44 +24,44 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
   assume that from arbitrary file positions
 - those errors do not by themselves mean the Beam daemon is unhealthy
 - known-good proof probe in this repo:
-  `runat lean-run-at "tests/interactive/proofBasisBefore.lean" 2 2 "exact trivial"`
+  `beam lean-run-at "tests/interactive/proofBasisBefore.lean" 2 2 "exact trivial"`
 
 ## Command Details
 
 Continue from a stored handle:
 
 ```bash
-printf '%s\n' "$HANDLE_JSON" | runat lean-run-with "Foo.lean" - "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | runat lean-run-with-linear "Foo.lean" - "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | runat lean-release "Foo.lean" -
+printf '%s\n' "$HANDLE_JSON" | beam lean-run-with "Foo.lean" - "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | beam lean-run-with-linear "Foo.lean" - "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | beam lean-release "Foo.lean" -
 ```
 
 Short search helper:
 
 ```bash
-runat-lean-search mint "Foo.lean" 10 2 "constructor"
-printf '%s\n' "$HANDLE_JSON" | runat-lean-search branch "Foo.lean" "constructor"
-printf '%s\n' "$HANDLE_JSON" | runat-lean-search playout "Foo.lean" "exact trivial" "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | runat-lean-search release "Foo.lean"
+beam-lean-search mint "Foo.lean" 10 2 "constructor"
+printf '%s\n' "$HANDLE_JSON" | beam-lean-search branch "Foo.lean" "constructor"
+printf '%s\n' "$HANDLE_JSON" | beam-lean-search playout "Foo.lean" "exact trivial" "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | beam-lean-search release "Foo.lean"
 ```
 
 Inspect dependency order for multi-file edits:
 
 ```bash
-runat lean-deps "Foo.lean"
+beam lean-deps "Foo.lean"
 ```
 
 Inspect Lean type/term information at a specific position:
 
 ```bash
-runat lean-hover "Foo.lean" 10 2
+beam lean-hover "Foo.lean" 10 2
 ```
 
 Inspect Lean proof goals at an existing tactic position:
 
 ```bash
-runat lean-goals-prev "Foo.lean" 10 2
-runat lean-goals-after "Foo.lean" 10 2
+beam lean-goals-prev "Foo.lean" 10 2
+beam lean-goals-after "Foo.lean" 10 2
 ```
 
 These commands return structured goals in `result.goals`. A solved state uses
@@ -70,8 +70,8 @@ These commands return structured goals in `result.goals`. A solved state uses
 Checkpoint one synced workspace module without a full project build:
 
 ```bash
-runat lean-save "MyPkg/Sub/Module.lean"
-runat lean-close-save "MyPkg/Sub/Module.lean"
+beam lean-save "MyPkg/Sub/Module.lean"
+beam lean-close-save "MyPkg/Sub/Module.lean"
 ```
 
 These commands require a synced file that belongs to the current Lake workspace and resolves to a
@@ -95,16 +95,16 @@ What is not a valid checkpoint target:
 
 ## Source-File And Execution Model
 
-- `runat lean-run-at` and `runat lean-deps` do not edit `Foo.lean`
-- `runat lean-hover` is the stable read-only semantic inspection command for an existing position
-- `runat lean-goals-prev` and `runat lean-goals-after` are the stable read-only proof-state
+- `beam lean-run-at` and `beam lean-deps` do not edit `Foo.lean`
+- `beam lean-hover` is the stable read-only semantic inspection command for an existing position
+- `beam lean-goals-prev` and `beam lean-goals-after` are the stable read-only proof-state
   inspection commands for an existing tactic position
 - `lean-goals-prev` / `lean-goals-after` return `result.goals`, not speculative execution output,
   and do not accept speculative text
-- `runat` only sees the on-disk file, not unsaved editor buffers
+- `beam` only sees the on-disk file, not unsaved editor buffers
 - actual source edits happen through the normal file-edit workflow
 - after every real source edit to a Lean file, save the file in the normal editor/file sense and
-  then run `runat lean-sync "Foo.lean"`
+  then run `beam lean-sync "Foo.lean"`
 - treat `lean-sync` as the explicit supported boundary between real file edits and Beam daemon
   session state
 - `lean-sync` returns compact JSON on stdout, including final `result.errorCount` /
@@ -112,15 +112,15 @@ What is not a valid checkpoint target:
 - if imported targets are stale or the Lean worker cannot finish that diagnostics barrier,
   `lean-sync` fails; do not treat a failed sync as safe to follow with `lean-save`
 - `lean-sync` keeps machine-readable JSON on stdout; interactive progress text goes to stderr
-- every `runat lean-run-at` request is an isolated read-only probe against one on-disk document
+- every `beam lean-run-at` request is an isolated read-only probe against one on-disk document
   version
-- `runat lean-run-at-handle` is the same style of isolated probe, but asks Lean to retain follow-up
+- `beam lean-run-at-handle` is the same style of isolated probe, but asks Lean to retain follow-up
   state
-- `runat lean-run-with` preserves the current handle and branches from it
-- `runat lean-run-with-linear` consumes the current handle and returns a successor handle for linear
+- `beam lean-run-with` preserves the current handle and branches from it
+- `beam lean-run-with-linear` consumes the current handle and returns a successor handle for linear
   continuation
-- `runat lean-release` explicitly drops a preserved handle
-- `runat-lean-search` is a small convenience wrapper around these same commands
+- `beam lean-release` explicitly drops a preserved handle
+- `beam-lean-search` is a small convenience wrapper around these same commands
 - the request may wait for the Lean snapshot at the requested position to finish elaborating; this
   is normal
 - the probe does not mutate the document's real elaboration state and does not create hidden state
@@ -146,15 +146,15 @@ What is not a valid checkpoint target:
 - wrapper `stderr` is the human-facing diagnostic surface
 - `beam-client request-stream ...` is the machine-facing streamed surface
 - do not parse wrapper `stderr` in tooling
-- `RUNAT_PROGRESS` controls stderr progress output for slow calls
+- `BEAM_PROGRESS` controls stderr progress output for slow calls
 - by default, progress prints when stderr is a TTY
-- set `RUNAT_PROGRESS=1` to force progress output in scripts or CI
-- `RUNAT_REQUEST_ID=<id>` attaches optional request metadata to the broker request
+- set `BEAM_PROGRESS=1` to force progress output in scripts or CI
+- `BEAM_REQUEST_ID=<id>` attaches optional request metadata to the broker request
 - the final stdout JSON echoes it as `clientRequestId`
-- streamed stderr progress/diagnostic lines are annotated as `runat[<id>]: ...`
+- streamed stderr progress/diagnostic lines are annotated as `beam[<id>]: ...`
 - a second live request using the same id is rejected with `invalidParams`
-- `runat cancel <id>` cancels an in-flight broker request by that `clientRequestId`
-- when `RUNAT_REQUEST_ID` is set, `Ctrl-C` asks the broker to cancel that request before the local
+- `beam cancel <id>` cancels an in-flight broker request by that `clientRequestId`
+- when `BEAM_REQUEST_ID` is set, `Ctrl-C` asks the broker to cancel that request before the local
   CLI exits
 
 ## File Progress And Readiness
@@ -162,11 +162,11 @@ What is not a valid checkpoint target:
 Treat `fileProgress` as observability, not as proof that every call is a full barrier.
 
 ```bash
-runat ensure lean
-sync_out="$(runat lean-sync "Foo.lean")"
+beam ensure lean
+sync_out="$(beam lean-sync "Foo.lean")"
 printf '%s\n' "$sync_out"
 
-probe_out="$(runat lean-run-at "Foo.lean" 10 2 "exact trivial")"
+probe_out="$(beam lean-run-at "Foo.lean" 10 2 "exact trivial")"
 printf '%s\n' "$probe_out"
 ```
 
@@ -202,7 +202,7 @@ Write the on-disk document as `prefix ++ E ++ suffix`.
 - `lean-save` and `lean-close-save` checkpoint one synced module after a completed barrier; they do
   not rebuild reverse dependencies and they do not turn workspace freshness into an `O(C)` problem
 - first-use bundle resolution is the expensive outlier: if no installed bundle matches the
-  toolchain, `runat` may build a local fallback bundle under `<root>/.runat/bundles`, which is real
+  toolchain, `beam` may build a local fallback bundle under `<root>/.beam/bundles`, which is real
   `lake build`
 - if imported targets are stale or broken, `lean-sync` / `lean-save` fail instead of silently
   paying dependency-cone rebuild cost
@@ -213,12 +213,12 @@ If you edit `A.lean` and `B.lean` imports `A.lean`, a successful probe in `B.lea
 itself to prove the dependency cone is fresh.
 
 ```bash
-runat ensure lean
-runat lean-deps "B.lean"
+beam ensure lean
+beam lean-deps "B.lean"
 
 # make a real edit in A.lean and save the source file to disk
-runat lean-sync "A.lean"
-runat lean-run-at "B.lean" 12 2 "#check someNameFromA"
+beam lean-sync "A.lean"
+beam lean-run-at "B.lean" 12 2 "#check someNameFromA"
 ```
 
 Rules:
@@ -240,12 +240,12 @@ Use `lake build` when:
 Use:
 
 ```bash
-runat open-files
-runat stats
-runat reset-stats
+beam open-files
+beam stats
+beam reset-stats
 ```
 
-`runat open-files` shows the files currently tracked by the Beam daemon for the current project,
+`beam open-files` shows the files currently tracked by the Beam daemon for the current project,
 along with `saved` / `notSaved`, direct Lean deps when available, whether the current synced version
 has been checkpointed with `lean-save`, and Lean save preflight fields `saveEligible`,
 `saveReason`, and, when applicable, `saveModule`. For files the Beam daemon already knows about, the

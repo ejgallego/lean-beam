@@ -16,7 +16,7 @@ Use this reference when a task is confused about what `lean-run-at` means. The s
 Wrong expectation:
 
 ```bash
-runat lean-run-at "Foo.lean" 20 2 "exact h"
+beam lean-run-at "Foo.lean" 20 2 "exact h"
 # then expect diagnostics for unrelated later declarations as if Foo.lean had been edited
 ```
 
@@ -24,7 +24,7 @@ Correct workflow:
 
 ```bash
 # make the real edit in Foo.lean and save it to disk
-runat lean-sync "Foo.lean"
+beam lean-sync "Foo.lean"
 ```
 
 Use `lean-sync` when you need diagnostics for the saved file version as a whole. `lean-run-at`
@@ -38,16 +38,16 @@ If the speculative probe looks right and you want to keep it, open
 Wrong expectation:
 
 ```bash
-runat lean-run-at "Foo.lean" 30 2 "tac1"
-runat lean-run-at "Foo.lean" 30 2 "tac2"
+beam lean-run-at "Foo.lean" 30 2 "tac1"
+beam lean-run-at "Foo.lean" 30 2 "tac2"
 # then expect the second call to continue from the speculative `tac1`
 ```
 
 Correct workflow:
 
 ```bash
-root="$(runat lean-run-at-handle "Foo.lean" 30 2 "tac1")"
-printf '%s\n' "$root" | runat lean-run-with-linear "Foo.lean" - "tac2"
+root="$(beam lean-run-at-handle "Foo.lean" 30 2 "tac1")"
+printf '%s\n' "$root" | beam lean-run-with-linear "Foo.lean" - "tac2"
 ```
 
 Use a handle when exact speculative continuation matters. Separate `lean-run-at` calls do not share
@@ -64,7 +64,7 @@ If a speculative step looks right and you want it to become real source, open
 Wrong expectation:
 
 ```bash
-runat lean-run-at "Foo.lean" 18 0 "exact h"
+beam lean-run-at "Foo.lean" 18 0 "exact h"
 # where line 18 is a blank line inside an indented block, and expect the wrapper to infer indentation
 #
 # or expect the wrapper to add a leading/trailing newline around the text automatically
@@ -74,17 +74,17 @@ Correct workflow:
 
 ```bash
 # on a truly empty line, only column 0 is valid, so provide the indentation in the text yourself
-runat lean-run-at "Foo.lean" 18 0 "    exact h"
+beam lean-run-at "Foo.lean" 18 0 "    exact h"
 
 # or probe after the existing indentation and pass only the code text
-runat lean-run-at "Foo.lean" 18 4 "exact h"
+beam lean-run-at "Foo.lean" 18 4 "exact h"
 ```
 
 Or make the real edit in the file and save it before syncing:
 
 ```bash
 # edit Foo.lean so the tactic is written with the indentation you want
-runat lean-sync "Foo.lean"
+beam lean-sync "Foo.lean"
 ```
 
 `lean-run-at` uses the text you pass at the position you pass. If layout matters, choose the
@@ -99,7 +99,7 @@ For multi-line probes, include the actual newline characters you want Lean to pa
 
 ```bash
 # using ANSI-C shell quoting so `\n` becomes a real newline
-runat lean-run-at "Foo.lean" 18 0 $'  first | exact h1\n  | exact h2'
+beam lean-run-at "Foo.lean" 18 0 $'  first | exact h1\n  | exact h2'
 ```
 
 Do not expect the wrapper to turn `"first | exact h1 | exact h2"` into a properly line-broken block,

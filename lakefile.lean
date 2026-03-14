@@ -66,7 +66,7 @@ lean_exe "beam-client" where
   root := `Beam.BrokerClient
 
 @[default_target]
-lean_exe "runAt-cli" where
+lean_exe "beam-cli" where
   root := `Beam.Cli
 
 lean_exe "beam-daemon-smoke-test" where

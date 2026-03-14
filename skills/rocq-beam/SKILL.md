@@ -1,9 +1,9 @@
 ---
-name: rocq-runat
-description: Use this when an AI should inspect Rocq proof state from an external Rocq project through the installed `runat` wrapper, giving it direct efficient access to Rocq proof state through cheap coq-lsp goal probes to avoid rebuild-heavy interaction loops, especially for Rocq-to-Lean work.
+name: rocq-beam
+description: Use this when an AI should inspect Rocq proof state from an external Rocq project through the installed `beam` wrapper, giving it direct efficient access to Rocq proof state through cheap coq-lsp goal probes to avoid rebuild-heavy interaction loops, especially for Rocq-to-Lean work.
 ---
 
-# Rocq RunAt
+# Rocq Beam
 
 Use this skill for Rocq projects when you want the AI to inspect Rocq proof state cheaply through `coq-lsp` instead of relying on slower, more manual proof interaction loops.
 
@@ -14,18 +14,18 @@ duplicate short guidance if both skills need it.
 
 ## Setup
 
-From the `runAt` repo root:
+From the `lean-beam` repo root:
 
 ```bash
-./scripts/install-runat.sh --codex
+./scripts/install-beam.sh --codex
 ```
 
 Use `--claude` instead when installing for Claude Code, or `--all-skills` when you want both agent
 skill sets.
 
-The installer puts `runat` in `~/.local/bin`, stages the self-contained runtime under
-`RUNAT_INSTALL_ROOT` (default `~/.local/share/runat`), requires `elan` on `PATH`, prebuilds the
-pinned `lean-toolchain` bundle under `RUNAT_INSTALL_ROOT/state/install-bundles`, and installs the
+The installer puts `beam` in `~/.local/bin`, stages the self-contained runtime under
+`BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on `PATH`, prebuilds the
+pinned `lean-toolchain` bundle under `BEAM_INSTALL_ROOT/state/install-bundles`, and installs the
 Lean and Rocq bundled skills only for the agent flags you request.
 
 Restart Codex or Claude Code after installation.
@@ -35,19 +35,19 @@ Restart Codex or Claude Code after installation.
 Rocq-specific setup:
 
 ```bash
-cd /path/to/runAt
+cd /path/to/lean-beam
 bash tests/setup-rocq-opam.sh
 ```
 
 ## Skill Surface
 
-This skill documents the supported Rocq-facing `runat` workflow surface. Keep the surface narrow:
+This skill documents the supported Rocq-facing `beam` workflow surface. Keep the surface narrow:
 the current wrapper is for goal inspection against saved files, not for hidden proof-session
 mutation.
 
 Supported command families:
 
-- bootstrap the Rocq backend: `runat ensure rocq`
+- bootstrap the Rocq backend: `beam ensure rocq`
 - inspect goals after an existing sentence: `rocq-goals-after`
 - inspect goals before a sentence or after speculative sentence text within that basis:
   `rocq-goals-prev`
@@ -61,9 +61,9 @@ What to treat as the current public skill surface:
 
 Core workflow contract:
 
-- use `runat`, not raw JSON and not raw LSP
+- use `beam`, not raw JSON and not raw LSP
 - save the `.v` file before every new probe after a real edit
-- `runat` only sees the on-disk file, not unsaved editor buffers
+- `beam` only sees the on-disk file, not unsaved editor buffers
 - treat `<line> <character>` as LSP-style coordinates for the saved file: line `0` is the first
   line, character `0` is the first character position on that line, and on a truly empty line only
   character `0` is valid
@@ -72,16 +72,16 @@ Core workflow contract:
 - do not assume hidden mutable proof-session state carries across requests
 - do not use `coqtop` or a fallback executor; only `coq-lsp` is trusted
 
-Use `runat`, not raw JSON and not raw LSP.
+Use `beam`, not raw JSON and not raw LSP.
 
-`runat` for Rocq:
+`beam` for Rocq:
 
 - infers the target project root from the current directory or `--root`
-- keeps one Beam daemon per project root and records it in `<root>/.runat/beam-daemon.json`
-  - in sandboxed or read-only project trees, set `RUNAT_CONTROL_DIR` to a writable directory
-- for Lean-backed brokers, bundle builds can be redirected via `RUNAT_BUNDLE_DIR` in the same way as
-  `RUNAT_CONTROL_DIR` to avoid project-local cache writes
-- Lean-backed runtime resolution first tries the installed runAt bundle cache and then falls
+- keeps one Beam daemon per project root and records it in `<root>/.beam/beam-daemon.json`
+  - in sandboxed or read-only project trees, set `BEAM_CONTROL_DIR` to a writable directory
+- for Lean-backed brokers, bundle builds can be redirected via `BEAM_BUNDLE_DIR` in the same way as
+  `BEAM_CONTROL_DIR` to avoid project-local cache writes
+- Lean-backed runtime resolution first tries the installed beam bundle cache and then falls
   back to the project-local bundle cache
 - owns Beam daemon startup, shutdown, and registry handling
 - resolves `coq-lsp` from the target project's local `_opam` when available
@@ -90,11 +90,11 @@ Use `runat`, not raw JSON and not raw LSP.
 - in Codex-style sandboxes, Beam daemon startup may still require elevated permissions even when all paths resolve correctly
 - in the same environments, localhost TCP bind/connect for the Beam daemon and client may also require elevated permissions
 - if startup fails with `operation not permitted`, treat that as a sandbox capability problem first, not as a missing install
-- `runat shutdown`, `runat stats`, and `runat reset-stats` apply to the current project only
+- `beam shutdown`, `beam stats`, and `beam reset-stats` apply to the current project only
 
 Default rules:
 
-- use `runat`, not raw JSON and not raw LSP
+- use `beam`, not raw JSON and not raw LSP
 - start with `rocq-goals-after`
 - save the file before every new probe after a real edit
 - keep coordinates 0-based; do not guess editor-specific 1-based lines or columns
@@ -106,39 +106,39 @@ Default rules:
 Ensure the Rocq backend:
 
 ```bash
-runat ensure rocq
-runat stats
+beam ensure rocq
+beam stats
 ```
 
 Inspect goals after a sentence:
 
 ```bash
-runat rocq-goals-after "Demo.v" 2 8
+beam rocq-goals-after "Demo.v" 2 8
 ```
 
 Inspect goals before a sentence:
 
 ```bash
-runat rocq-goals-prev "Demo.v" 2 8
+beam rocq-goals-prev "Demo.v" 2 8
 ```
 
 For a tactic sentence like `a; b`, inspect the intermediate state after `a` with:
 
 ```bash
-runat rocq-goals-prev "Demo.v" 2 8 "a."
+beam rocq-goals-prev "Demo.v" 2 8 "a."
 ```
 
 Source-file model:
 
-- `runat rocq-goals-*` does not edit `Demo.v`
+- `beam rocq-goals-*` does not edit `Demo.v`
 - edit the file normally, save it, then probe again
-- `runat` only sees the on-disk Rocq file, not unsaved editor buffers
+- `beam` only sees the on-disk Rocq file, not unsaved editor buffers
 - actual source edits happen through the normal file-edit workflow
 - there is no Rocq `sync` command in the current wrapper; saving the file is the important step before the next probe
 
 Execution model:
 
-- every `runat rocq-goals-*` request is an isolated read-only probe against the current saved file
+- every `beam rocq-goals-*` request is an isolated read-only probe against the current saved file
 - do not expect hidden mutable proof-session state to carry from one probe to the next
 - the Beam daemon may reopen or resync the on-disk file before a probe, but saving the file is still the real boundary you control
 - there is no Rocq `lean-sync` equivalent in the wrapper, so after edits the important step is: save, then probe again
@@ -147,11 +147,11 @@ Execution model:
 Default loop:
 
 ```bash
-runat ensure rocq
-runat rocq-goals-after "Demo.v" 12 4
+beam ensure rocq
+beam rocq-goals-after "Demo.v" 12 4
 
 # make a real edit, save the file
-runat rocq-goals-after "Demo.v" 12 4
+beam rocq-goals-after "Demo.v" 12 4
 ```
 
 Use cases:
@@ -159,16 +159,16 @@ Use cases:
 1. Inspect the current proof state after a sentence
 
 ```bash
-runat ensure rocq
-runat rocq-goals-after "Demo.v" 12 4
+beam ensure rocq
+beam rocq-goals-after "Demo.v" 12 4
 ```
 
 2. Inspect an intermediate tactic state inside one sentence
 
 ```bash
-runat ensure rocq
-runat rocq-goals-prev "Demo.v" 12 4 "intro x."
-runat rocq-goals-prev "Demo.v" 12 4 "split."
+beam ensure rocq
+beam rocq-goals-prev "Demo.v" 12 4 "intro x."
+beam rocq-goals-prev "Demo.v" 12 4 "split."
 ```
 
 3. Check the effect of a small real edit
@@ -176,11 +176,11 @@ runat rocq-goals-prev "Demo.v" 12 4 "split."
 Save the file first, then probe again from the saved document.
 
 ```bash
-runat ensure rocq
-runat rocq-goals-after "Demo.v" 12 4
+beam ensure rocq
+beam rocq-goals-after "Demo.v" 12 4
 
 # make a real edit in Demo.v and save it
-runat rocq-goals-after "Demo.v" 12 4
+beam rocq-goals-after "Demo.v" 12 4
 ```
 
 ## Policy
@@ -188,7 +188,7 @@ runat rocq-goals-after "Demo.v" 12 4
 - default to `rocq-goals-after`
 - use `rocq-goals-prev` plus text for intermediate-state probing
 - keep `ppFormat` as `Str`
-- do not treat `runat` as a source editor; actual `.v` edits happen through the normal file-edit workflow
+- do not treat `beam` as a source editor; actual `.v` edits happen through the normal file-edit workflow
 - do not assume one goal probe mutates the basis of the next probe; each request starts from the current saved document state
 - if `coq-lsp` reports stale or broken state unexpectedly, stop and report it loudly
 
@@ -197,12 +197,12 @@ runat rocq-goals-after "Demo.v" 12 4
 Use:
 
 ```bash
-runat open-files
-runat stats
-runat reset-stats
+beam open-files
+beam stats
+beam reset-stats
 ```
 
-`runat open-files` shows the files currently tracked by the Beam daemon for the current project. For
+`beam open-files` shows the files currently tracked by the Beam daemon for the current project. For
 Lean-backed tracked files it also includes direct deps when available and whether the current synced
 version has been checkpointed with `lean-save`. For files the broker already knows about, the
 wrapper checks that status incrementally against the current on-disk text, and `open-files` also

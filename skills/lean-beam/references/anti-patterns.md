@@ -1,6 +1,6 @@
 # Lean Agent Anti-Patterns
 
-Use this reference as a short checklist of what not to assume in Lean `runat` workflows.
+Use this reference as a short checklist of what not to assume in Lean `beam` workflows.
 
 ## Do Not Assume
 

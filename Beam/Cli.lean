@@ -121,19 +121,19 @@ private def parseLeanSyncArgs (args : List String) : IO Bool := do
   match args with
   | [] => pure false
   | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: runat [--root PATH] [--socket PATH | --port N] lean-sync <path> [+full]"
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-sync <path> [+full]"
 
 private def parseLeanSaveArgs (args : List String) : IO Bool := do
   match args with
   | [] => pure false
   | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: runat [--root PATH] [--socket PATH | --port N] lean-save <path> [+full]"
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-save <path> [+full]"
 
 private def parseLeanCloseSaveArgs (args : List String) : IO Bool := do
   match args with
   | [] => pure false
   | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: runat [--root PATH] [--socket PATH | --port N] lean-close-save <path> [+full]"
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-close-save <path> [+full]"
 
 private def shellQuote (text : String) : String :=
   "'" ++ text.replace "'" "'\\''" ++ "'"
@@ -164,7 +164,7 @@ private partial def climbParents (path : System.FilePath) (count : Nat) : System
   | n + 1 => climbParents (path.parent.getD path) n
 
 private def runAtHome : IO System.FilePath := do
-  match ← IO.getEnv "RUNAT_HOME" with
+  match ← IO.getEnv "BEAM_HOME" with
   | some root =>
       IO.FS.realPath <| System.FilePath.mk root
   | none =>
@@ -214,7 +214,7 @@ private def userHome : IO System.FilePath := do
   | none => throw <| IO.userError "missing HOME in environment"
 
 private def runAtStateDirName : String :=
-  ".runat"
+  ".beam"
 
 private def installBundlesDirName : String :=
   "install-bundles"
@@ -226,7 +226,7 @@ private def runAtStateDir (root : System.FilePath) : System.FilePath :=
   root / runAtStateDirName
 
 private def skillInstallBundleCacheRoot (agentHome : System.FilePath) : System.FilePath :=
-  agentHome / "skills" / "lean-runat" / runAtStateDirName / installBundlesDirName
+  agentHome / "skills" / "lean-beam" / runAtStateDirName / installBundlesDirName
 
 private def defaultEnvPath (name : String) (fallback : System.FilePath) : IO System.FilePath := do
   match ← IO.getEnv name with
@@ -234,7 +234,7 @@ private def defaultEnvPath (name : String) (fallback : System.FilePath) : IO Sys
   | none => pure fallback
 
 private def installBundleCacheRoots : IO (List System.FilePath) := do
-  match ← IO.getEnv "RUNAT_INSTALL_BUNDLE_DIR" with
+  match ← IO.getEnv "BEAM_INSTALL_BUNDLE_DIR" with
   | some path => pure [System.FilePath.mk path]
   | none =>
       let home ← userHome
@@ -246,7 +246,7 @@ private def installBundleCacheRoots : IO (List System.FilePath) := do
       ]
 
 private def runtimeBundleCacheRoot (root : System.FilePath) : IO System.FilePath := do
-  match ← IO.getEnv "RUNAT_BUNDLE_DIR" with
+  match ← IO.getEnv "BEAM_BUNDLE_DIR" with
   | some path => pure (System.FilePath.mk path)
   | none => pure (runAtStateDir root / runtimeBundlesDirName)
 
@@ -270,7 +270,7 @@ private def ensureSupportedLeanToolchain (home : System.FilePath) (toolchain : S
     throw <| IO.userError <| String.intercalate "\n" [
       s!"unsupported Lean toolchain: {toolchain}",
       s!"supported toolchain registry: {path}",
-      "run `runat supported-toolchains lean` to list the validated toolchains"
+      "run `beam supported-toolchains lean` to list the validated toolchains"
     ]
 
 private def boolText (value : Bool) : String :=
@@ -318,11 +318,11 @@ private def bundleSourceHashInputLabels : List String :=
   bundleRootFiles ++ bundleSourceDirs.map (· ++ "/**")
 
 private def installRuntimePaths : List String :=
-  ["libexec/runAt-cli", "libexec/beam-daemon", "libexec/beam-client",
+  ["libexec/beam-cli", "libexec/beam-daemon", "libexec/beam-client",
     "libexec/librunAt_RunAt.so", ".lake/packages"]
 
 private def installWrapperPaths : List String :=
-  ["bin/runat", "bin/runat-lean-search"]
+  ["bin/beam", "bin/beam-lean-search"]
 
 private def installLayout : InstallLayout :=
   {
@@ -445,7 +445,7 @@ private def ensureElan : IO Unit := do
 private def fallbackBuildFailureMessage (toolchain : String) (cacheRoot bundleDir : System.FilePath)
     (stderr : String) : String :=
   String.intercalate "\n" [
-    s!"failed to build local runAt fallback bundle for toolchain {toolchain}",
+    s!"failed to build local beam fallback bundle for toolchain {toolchain}",
     s!"install bundle cache did not provide a matching bundle; attempted local fallback under {cacheRoot}",
     s!"bundle workspace: {bundleWorkspaceFor bundleDir}",
     "this fallback path runs `lake build` and may need network access on a cold machine if dependencies have not been fetched yet",
@@ -498,7 +498,7 @@ private def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : S
     (cacheRoot bundleDir workspace : System.FilePath) : IO Unit := do
   ensureElan
   syncBundleWorkspace home workspace
-  IO.eprintln s!"building runAt bundle for {toolchain}"
+  IO.eprintln s!"building beam bundle for {toolchain}"
   let out ← IO.Process.output {
     cmd := "elan"
     args := #["run", toolchain, "lake", "build", "RunAt:shared", "beam-daemon", "beam-client"]
@@ -608,7 +608,7 @@ private def projectRootAny (opts : CliOptions) : IO System.FilePath := do
         throw <| IO.userError "could not infer project root; use --root PATH"
 
 private def controlDir (root : System.FilePath) : IO System.FilePath := do
-  match ← IO.getEnv "RUNAT_CONTROL_DIR" with
+  match ← IO.getEnv "BEAM_CONTROL_DIR" with
   | some dir =>
       let tag := toString (hash root.toString)
       pure (System.FilePath.mk dir / tag)
@@ -634,7 +634,7 @@ private def maybeRocqCmd (root : System.FilePath) : IO (Option String) := do
   for candidate in rocqCandidates root do
     if ← candidate.pathExists then
       return some candidate.toString
-  match ← IO.getEnv "RUNAT_ROCQ_CMD" with
+  match ← IO.getEnv "BEAM_ROCQ_CMD" with
   | some cmd => pure (some cmd)
   | none => pure none
 
@@ -993,7 +993,7 @@ private def printJsonLine (json : Json) : IO Unit := do
   IO.println json.pretty
 
 private def envClientRequestId? : IO (Option String) := do
-  match ← IO.getEnv "RUNAT_REQUEST_ID" with
+  match ← IO.getEnv "BEAM_REQUEST_ID" with
   | some raw =>
       let trimmed := raw.trimAscii.toString
       pure <| if trimmed.isEmpty then none else some trimmed
@@ -1006,10 +1006,10 @@ private def withEnvClientRequestId (req : Request) : IO Request := do
 private def annotateRunatMessage (clientRequestId? : Option String) (msg : String) : String :=
   match clientRequestId? with
   | some clientRequestId =>
-      if msg.startsWith "runat:" then
-        s!"runat[{clientRequestId}]:" ++ (msg.drop 6).toString
+      if msg.startsWith "beam:" then
+        s!"beam[{clientRequestId}]:" ++ (msg.drop 6).toString
       else
-        s!"runat[{clientRequestId}]: {msg}"
+        s!"beam[{clientRequestId}]: {msg}"
   | none =>
       msg
 
@@ -1055,7 +1055,7 @@ private structure InterruptWatcher where
   task : Task (Except IO.Error Unit)
 
 private def progressEnabled : IO Bool := do
-  match ← IO.getEnv "RUNAT_PROGRESS" with
+  match ← IO.getEnv "BEAM_PROGRESS" with
   | some raw =>
       let normalized := raw.trimAscii.toString.toLower
       pure <| !(normalized.isEmpty || normalized == "0" || normalized == "false" || normalized == "no")
@@ -1091,7 +1091,7 @@ private def awaitBrokerResponse
       | some watcher =>
           if !cancelSent && (← IO.hasFinished watcher.task) then
             cancelSent := true
-            emit "runat: requesting broker cancellation"
+            emit "beam: requesting broker cancellation"
             let cancelReq : Request := {
               op := .cancel
               root? := req.root?
@@ -1118,9 +1118,9 @@ private def awaitBrokerResponse
 
 private def syncWaitSpec (path : String) : BrokerWaitSpec :=
   {
-    startMsg := s!"runat: syncing {path} and waiting for Lean diagnostics"
-    progressMsg := fun progress => s!"runat: sync progress for {path}{syncFileProgressSuffix (some progress)}"
-    stillWaitingMsg := fun seconds => s!"runat: still syncing {path} ({seconds}s)"
+    startMsg := s!"beam: syncing {path} and waiting for Lean diagnostics"
+    progressMsg := fun progress => s!"beam: sync progress for {path}{syncFileProgressSuffix (some progress)}"
+    stillWaitingMsg := fun seconds => s!"beam: still syncing {path} ({seconds}s)"
     completeMsg := fun resp =>
       match decodeSyncFileResult? resp with
       | some result =>
@@ -1132,31 +1132,31 @@ private def syncWaitSpec (path : String) : BrokerWaitSpec :=
               s!", saveReady=false ({result.saveReadyReason}, " ++
                 s!"stateErrorCount={result.stateErrorCount}, " ++
                 s!"stateCommandErrorCount={result.stateCommandErrorCount})"
-          s!"runat: sync complete for {path} (version {result.version}{suffix}{readinessSuffix})"
+          s!"beam: sync complete for {path} (version {result.version}{suffix}{readinessSuffix})"
       | none =>
-          s!"runat: sync complete for {path}"
+          s!"beam: sync complete for {path}"
   }
 
 private def leanRunAtWaitSpec (path : String) (line character : Nat) : BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
   {
-    startMsg := s!"runat: running lean-run-at on {pos} and waiting for a ready Lean snapshot"
-    progressMsg := fun progress => s!"runat: snapshot progress for {pos}{syncFileProgressSuffix (some progress)}"
+    startMsg := s!"beam: running lean-run-at on {pos} and waiting for a ready Lean snapshot"
+    progressMsg := fun progress => s!"beam: snapshot progress for {pos}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
-      s!"runat: still waiting for a ready Lean snapshot for {pos} ({seconds}s)"
+      s!"beam: still waiting for a ready Lean snapshot for {pos} ({seconds}s)"
     completeMsg := fun resp =>
-      s!"runat: lean-run-at complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+      s!"beam: lean-run-at complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
   }
 
 private def leanHoverWaitSpec (path : String) (line character : Nat) : BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
   {
-    startMsg := s!"runat: running lean-hover on {pos} and waiting for a ready Lean snapshot"
-    progressMsg := fun progress => s!"runat: hover progress for {pos}{syncFileProgressSuffix (some progress)}"
+    startMsg := s!"beam: running lean-hover on {pos} and waiting for a ready Lean snapshot"
+    progressMsg := fun progress => s!"beam: hover progress for {pos}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
-      s!"runat: still waiting for lean-hover on {pos} ({seconds}s)"
+      s!"beam: still waiting for lean-hover on {pos} ({seconds}s)"
     completeMsg := fun resp =>
-      s!"runat: lean-hover complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+      s!"beam: lean-hover complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
   }
 
 private def leanGoalsWaitSpec (path : String) (line character : Nat) (mode : GoalMode) : BrokerWaitSpec :=
@@ -1166,44 +1166,44 @@ private def leanGoalsWaitSpec (path : String) (line character : Nat) (mode : Goa
     | .after => "lean-goals-after"
     | .prev => "lean-goals-prev"
   {
-    startMsg := s!"runat: running {action} on {pos} and waiting for a ready Lean snapshot"
-    progressMsg := fun progress => s!"runat: goals progress for {pos}{syncFileProgressSuffix (some progress)}"
+    startMsg := s!"beam: running {action} on {pos} and waiting for a ready Lean snapshot"
+    progressMsg := fun progress => s!"beam: goals progress for {pos}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
-      s!"runat: still waiting for {action} on {pos} ({seconds}s)"
+      s!"beam: still waiting for {action} on {pos} ({seconds}s)"
     completeMsg := fun resp =>
-      s!"runat: {action} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+      s!"beam: {action} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
   }
 
 private def leanRequestAtWaitSpec (path : String) (line character : Nat) (method : String) : BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
   {
-    startMsg := s!"runat: forwarding experimental {method} at {pos} and waiting for a ready Lean snapshot"
-    progressMsg := fun progress => s!"runat: request-at progress for {pos}{syncFileProgressSuffix (some progress)}"
+    startMsg := s!"beam: forwarding experimental {method} at {pos} and waiting for a ready Lean snapshot"
+    progressMsg := fun progress => s!"beam: request-at progress for {pos}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
-      s!"runat: still waiting for experimental {method} at {pos} ({seconds}s)"
+      s!"beam: still waiting for experimental {method} at {pos} ({seconds}s)"
     completeMsg := fun resp =>
-      s!"runat: experimental {method} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+      s!"beam: experimental {method} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
   }
 
 private def leanRunWithWaitSpec (path : String) (linear : Bool := false) : BrokerWaitSpec :=
   let action := if linear then "lean-run-with-linear" else "lean-run-with"
   {
-    startMsg := s!"runat: running {action} on {path} and waiting for a ready Lean snapshot"
-    progressMsg := fun progress => s!"runat: {action} progress for {path}{syncFileProgressSuffix (some progress)}"
+    startMsg := s!"beam: running {action} on {path} and waiting for a ready Lean snapshot"
+    progressMsg := fun progress => s!"beam: {action} progress for {path}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
-      s!"runat: still waiting for {action} on {path} ({seconds}s)"
+      s!"beam: still waiting for {action} on {path} ({seconds}s)"
     completeMsg := fun resp =>
-      s!"runat: {action} complete for {path}{syncFileProgressSuffix (responseFileProgress? resp)}"
+      s!"beam: {action} complete for {path}{syncFileProgressSuffix (responseFileProgress? resp)}"
   }
 
 private def leanSaveWaitSpec (path : String) (closeAfter : Bool := false) : BrokerWaitSpec :=
   let action := if closeAfter then "lean-close-save" else "lean-save"
   let verb := if closeAfter then "closing and saving" else "saving"
   {
-    startMsg := s!"runat: {verb} {path} and waiting for Lean diagnostics/artifacts"
-    progressMsg := fun progress => s!"runat: {action} progress for {path}{syncFileProgressSuffix (some progress)}"
-    stillWaitingMsg := fun seconds => s!"runat: still waiting for {action} on {path} ({seconds}s)"
-    completeMsg := fun resp => s!"runat: {action} complete for {path}{syncFileProgressSuffix (responseFileProgress? resp)}"
+    startMsg := s!"beam: {verb} {path} and waiting for Lean diagnostics/artifacts"
+    progressMsg := fun progress => s!"beam: {action} progress for {path}{syncFileProgressSuffix (some progress)}"
+    stillWaitingMsg := fun seconds => s!"beam: still waiting for {action} on {path} ({seconds}s)"
+    completeMsg := fun resp => s!"beam: {action} complete for {path}{syncFileProgressSuffix (responseFileProgress? resp)}"
   }
 
 private def callBrokerWithProgress
@@ -1233,32 +1233,32 @@ private def callBrokerWithProgress
 private def usage : String :=
   String.intercalate "\n" [
     "usage:",
-    "  runat [--root PATH] [--socket PATH | --port N] ensure lean|rocq",
-    "  runat [--root PATH] cancel <request-id>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-run-at <path> <line> <character> <text...>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-run-at-handle <path> <line> <character> <text...>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-hover <path> <line> <character>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-goals-after <path> <line> <character>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-goals-prev <path> <line> <character>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-run-with <path> <handle-json|-> <text...>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-run-with-linear <path> <handle-json|-> <text...>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-release <path> <handle-json|->",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-deps <path>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-sync <path> [+full]",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-save <path> [+full]",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-close <path>",
-    "  runat [--root PATH] [--socket PATH | --port N] lean-close-save <path> [+full]",
-    "  runat [--root PATH] [--socket PATH | --port N] rocq-goals-after <path> <line> <character> [text...]",
-    "  runat [--root PATH] [--socket PATH | --port N] rocq-goals-prev <path> <line> <character> [text...]",
-    "  runat bundle-install <toolchain>",
-    "  runat supported-toolchains lean",
-    "  runat [--root PATH] doctor lean|rocq",
-    "  runat [--root PATH] open-files",
-    "  runat [--root PATH] cancel <request-id>",
-    "  runat [--root PATH] stats",
-    "  runat [--root PATH] reset-stats",
-    "  runat [--root PATH] shutdown",
-    "  runat experimental",
+    "  beam [--root PATH] [--socket PATH | --port N] ensure lean|rocq",
+    "  beam [--root PATH] cancel <request-id>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-run-at <path> <line> <character> <text...>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-run-at-handle <path> <line> <character> <text...>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-hover <path> <line> <character>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-goals-after <path> <line> <character>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-goals-prev <path> <line> <character>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-run-with <path> <handle-json|-> <text...>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-run-with-linear <path> <handle-json|-> <text...>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-release <path> <handle-json|->",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-deps <path>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-sync <path> [+full]",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-save <path> [+full]",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-close <path>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-close-save <path> [+full]",
+    "  beam [--root PATH] [--socket PATH | --port N] rocq-goals-after <path> <line> <character> [text...]",
+    "  beam [--root PATH] [--socket PATH | --port N] rocq-goals-prev <path> <line> <character> [text...]",
+    "  beam bundle-install <toolchain>",
+    "  beam supported-toolchains lean",
+    "  beam [--root PATH] doctor lean|rocq",
+    "  beam [--root PATH] open-files",
+    "  beam [--root PATH] cancel <request-id>",
+    "  beam [--root PATH] stats",
+    "  beam [--root PATH] reset-stats",
+    "  beam [--root PATH] shutdown",
+    "  beam experimental",
     "",
     "Lean edit loop: save the file, then run lean-sync. lean-save is lean-sync plus a",
     "workspace-module checkpoint, and lean-close-save adds closing the tracked file afterward.",
@@ -1271,7 +1271,7 @@ private def usage : String :=
     "For machine-readable streaming diagnostics/progress, use beam-client request-stream.",
     "",
     "Expert-only experimental commands are documented in docs/experimental.md.",
-    "For the Lean workflow contract and anti-patterns, see skills/lean-runat/SKILL.md."
+    "For the Lean workflow contract and anti-patterns, see skills/lean-beam/SKILL.md."
   ]
 
 private def printExperimentalInfo (home : System.FilePath) : IO Unit := do
@@ -1337,7 +1337,7 @@ private def printRocqDoctorInfo (home root : System.FilePath) : IO Unit := do
 
 private def doctor (home : System.FilePath) (opts : CliOptions) (backend : Backend) : IO Unit := do
   let root ← projectRoot opts backend
-  IO.println s!"runAt home: {home}"
+  IO.println s!"beam home: {home}"
   IO.println s!"project root: {root}"
   match backend with
   | .lean => printLeanDoctorInfo home root
@@ -1366,14 +1366,14 @@ private def printSupportedToolchains (home : System.FilePath) (backendName : Str
       for toolchain in toolchains do
         IO.println toolchain
   | _ =>
-      throw <| IO.userError "usage: runat supported-toolchains lean"
+      throw <| IO.userError "usage: beam supported-toolchains lean"
 
 private def printInstallLayout : IO Unit := do
   printJsonLine (toJson installLayout)
 
 private def printInstallManifest (payloadHash : String) (sourceCommitArg : String) (toolchains : List String) : IO Unit := do
   if toolchains.isEmpty then
-    throw <| IO.userError "usage: runat install-manifest <payload-hash> <source-commit|-> <toolchain...>"
+    throw <| IO.userError "usage: beam install-manifest <payload-hash> <source-commit|-> <toolchain...>"
   let sourceCommit? :=
     if sourceCommitArg == "-" then
       none
@@ -1415,7 +1415,7 @@ private def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit :=
       printExperimentalInfo home
   | "bundle-install" :: toolchain :: [] =>
       let cacheRoot ←
-        match ← IO.getEnv "RUNAT_INSTALL_BUNDLE_DIR" with
+        match ← IO.getEnv "BEAM_INSTALL_BUNDLE_DIR" with
         | some path => pure <| System.FilePath.mk path
         | none =>
             let roots ← installBundleCacheRoots

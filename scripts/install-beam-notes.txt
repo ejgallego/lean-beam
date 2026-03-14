@@ -1,16 +1,16 @@
 
 Quick Start
-  runat ensure lean
-  runat lean-run-at "Foo.lean" 10 2 "exact trivial"
+  beam ensure lean
+  beam lean-run-at "Foo.lean" 10 2 "exact trivial"
 
 After Saving A Real Edit
-  runat lean-sync "Foo.lean"
-  runat lean-save "MyPkg/Sub/Module.lean"
+  beam lean-sync "Foo.lean"
+  beam lean-save "MyPkg/Sub/Module.lean"
 
 Exact Continuation
   Separate lean-run-at calls do not chain.
   For exact continuation from one speculative state:
-  runat lean-run-at-handle "Foo.lean" 10 2 "constructor"
+  beam lean-run-at-handle "Foo.lean" 10 2 "constructor"
 
 Diagnostics
   lean-sync / lean-save / lean-close-save stream errors by default
@@ -19,4 +19,4 @@ Diagnostics
   beam-client request-stream is the machine-readable surface
 
 Docs
-  See skills/lean-runat/SKILL.md for the Lean workflow contract.
+  See skills/lean-beam/SKILL.md for the Lean workflow contract.

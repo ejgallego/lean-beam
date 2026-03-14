@@ -8,11 +8,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-runat_script="$PWD/scripts/runat"
+runat_script="$PWD/scripts/beam"
 lake_cmd="$(command -v lake)"
 
 if [ ! -x "$runat_script" ]; then
-  echo "missing runat wrapper at $runat_script" >&2
+  echo "missing beam wrapper at $runat_script" >&2
   exit 1
 fi
 
@@ -223,7 +223,7 @@ edit_b_slow "$tmp4"
   "$runat_script" --root "$tmp4" ensure lean > /dev/null
   close_out="$(mktemp /tmp/runat-close-save-cancel-out-XXXXXX)"
   close_err="$(mktemp /tmp/runat-close-save-cancel-err-XXXXXX)"
-  RUNAT_REQUEST_ID=cancel-close-save \
+  BEAM_REQUEST_ID=cancel-close-save \
     "$runat_script" --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
   close_pid=$!
   sleep 0.5
@@ -264,11 +264,11 @@ printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
   sync_err="$(mktemp /tmp/runat-stale-sync-err-XXXXXX)"
   save_out="$(mktemp /tmp/runat-stale-save-out-XXXXXX)"
   save_err="$(mktemp /tmp/runat-stale-save-err-XXXXXX)"
-  RUNAT_REQUEST_ID=concurrent-stale-sync \
+  BEAM_REQUEST_ID=concurrent-stale-sync \
     "$runat_script" --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
   sync_pid=$!
   sleep 0.1
-  RUNAT_REQUEST_ID=concurrent-stale-save \
+  BEAM_REQUEST_ID=concurrent-stale-save \
     "$runat_script" --root "$tmp5" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err" &
   save_pid=$!
   if wait "$sync_pid"; then

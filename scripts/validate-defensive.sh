@@ -23,7 +23,7 @@ Usage:
   bash scripts/validate-defensive.sh [--keep-root] [--print-root] -- <command...>
 
 Default validation command sequence:
-  1. lake build runAt-cli
+  1. lake build beam-cli
   2. bash tests/test-install.sh
   3. bash tests/test-broker-slow.sh
 
@@ -291,7 +291,7 @@ log "cloning checkout into $clone_root"
 log "overlaying current working tree state"
 "$system_rsync" -a --delete \
   --exclude='.git/' \
-  --exclude='.runat/' \
+  --exclude='.beam/' \
   "$repo_root"/ "$clone_root"/
 
 if [ "$print_root" -eq 1 ]; then
@@ -301,7 +301,7 @@ fi
 if [ "${#custom_command[@]}" -gt 0 ]; then
   run_step "running custom command" "${custom_command[@]}"
 else
-  run_step "lake build runAt-cli" lake build runAt-cli
+  run_step "lake build beam-cli" lake build beam-cli
   run_step "bash tests/test-install.sh" bash tests/test-install.sh
   run_step "bash tests/test-broker-slow.sh" bash tests/test-broker-slow.sh
 fi

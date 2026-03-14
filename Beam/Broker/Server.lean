@@ -971,7 +971,7 @@ partial def workspaceLeanFiles (root dir : System.FilePath) : IO (Array System.F
   for entry in entries do
     if ← entry.path.isDir then
       let name := entry.fileName
-      unless name == ".git" || name == ".lake" || name == "build" || name == "_opam" || name == "_eval" || name == ".runat" do
+      unless name == ".git" || name == ".lake" || name == "build" || name == "_opam" || name == "_eval" || name == ".beam" do
         files := files ++ (← workspaceLeanFiles root entry.path)
     else if entry.fileName.endsWith ".lean" then
       files := files.push entry.path

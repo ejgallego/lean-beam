@@ -26,35 +26,35 @@ resolve_script_path() {
 
 script_path="$(resolve_script_path)"
 script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
-runat_home="${RUNAT_HOME:-$(cd -P "$script_dir/.." && pwd)}"
-if [ -x "$runat_home/bin/runat" ]; then
-  runat_script="$runat_home/bin/runat"
+beam_home="${BEAM_HOME:-$(cd -P "$script_dir/.." && pwd)}"
+if [ -x "$beam_home/bin/beam" ]; then
+  beam_script="$beam_home/bin/beam"
 else
-  runat_script="$runat_home/scripts/runat"
+  beam_script="$beam_home/scripts/beam"
 fi
 
 usage() {
   cat <<'EOF' >&2
 usage:
-  runat-lean-search [runat opts...] mint <path> <line> <character> <text...>
-  runat-lean-search [runat opts...] branch <path> <text...>
-  runat-lean-search [runat opts...] linear <path> <text...>
-  runat-lean-search [runat opts...] playout <path> <step> [step...]
-  runat-lean-search [runat opts...] release <path>
+  beam-lean-search [beam opts...] mint <path> <line> <character> <text...>
+  beam-lean-search [beam opts...] branch <path> <text...>
+  beam-lean-search [beam opts...] linear <path> <text...>
+  beam-lean-search [beam opts...] playout <path> <step> [step...]
+  beam-lean-search [beam opts...] release <path>
 
 notes:
   - branch, linear, playout, and release read a prior wrapper response or handle JSON from stdin
-  - runat opts such as --root and --port may appear before the subcommand
+  - beam opts such as --root and --port may appear before the subcommand
 EOF
   exit 1
 }
 
-if [ ! -x "$runat_script" ]; then
-  echo "missing runat wrapper at $runat_script" >&2
+if [ ! -x "$beam_script" ]; then
+  echo "missing beam wrapper at $beam_script" >&2
   exit 1
 fi
 
-runat_prefix=()
+beam_prefix=()
 subcmd=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -64,7 +64,7 @@ while [ "$#" -gt 0 ]; do
       break
       ;;
     *)
-      runat_prefix+=("$1")
+      beam_prefix+=("$1")
       shift
       ;;
   esac
@@ -79,24 +79,24 @@ case "$subcmd" in
     line="$2"
     character="$3"
     shift 3
-    exec "$runat_script" "${runat_prefix[@]}" lean-run-at-handle "$path" "$line" "$character" "$@"
+    exec "$beam_script" "${beam_prefix[@]}" lean-run-at-handle "$path" "$line" "$character" "$@"
     ;;
   branch)
     [ "$#" -ge 2 ] || usage
     path="$1"
     shift
-    exec "$runat_script" "${runat_prefix[@]}" lean-run-with "$path" - "$@"
+    exec "$beam_script" "${beam_prefix[@]}" lean-run-with "$path" - "$@"
     ;;
   linear)
     [ "$#" -ge 2 ] || usage
     path="$1"
     shift
-    exec "$runat_script" "${runat_prefix[@]}" lean-run-with-linear "$path" - "$@"
+    exec "$beam_script" "${beam_prefix[@]}" lean-run-with-linear "$path" - "$@"
     ;;
   release)
     [ "$#" -eq 1 ] || usage
     path="$1"
-    exec "$runat_script" "${runat_prefix[@]}" lean-release "$path" -
+    exec "$beam_script" "${beam_prefix[@]}" lean-release "$path" -
     ;;
   playout)
     [ "$#" -ge 2 ] || usage
@@ -104,7 +104,7 @@ case "$subcmd" in
     shift
     current="$(cat)"
     for step in "$@"; do
-      current="$(printf '%s\n' "$current" | "$runat_script" "${runat_prefix[@]}" lean-run-with-linear "$path" - "$step")"
+      current="$(printf '%s\n' "$current" | "$beam_script" "${beam_prefix[@]}" lean-run-with-linear "$path" - "$step")"
     done
     printf '%s\n' "$current"
     ;;

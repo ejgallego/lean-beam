@@ -10,14 +10,14 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 codex_skills_home="${CODEX_HOME:-$HOME/.codex}/skills"
 claude_skills_home="${CLAUDE_HOME:-$HOME/.claude}/skills"
 bin_home="${HOME}/.local/bin"
-install_root="${RUNAT_INSTALL_ROOT:-$HOME/.local/share/runat}"
+install_root="${BEAM_INSTALL_ROOT:-$HOME/.local/share/beam}"
 versions_root="$install_root/versions"
 current_root="$install_root/current"
 state_root="$install_root/state"
 install_bundles_root="$state_root/install-bundles"
-runat_cli="$repo_root/.lake/build/bin/runAt-cli"
-install_notes_path="$repo_root/scripts/install-runat-notes.txt"
-installer_cmd="./scripts/install-runat.sh"
+beam_cli="$repo_root/.lake/build/bin/beam-cli"
+install_notes_path="$repo_root/scripts/install-beam-notes.txt"
+installer_cmd="./scripts/install-beam.sh"
 install_codex_skills=0
 install_claude_skills=0
 install_all_supported=0
@@ -41,13 +41,13 @@ runtime_payload_spec=(
   "copy|sourceDirs|RunAt|RunAt"
   "copy|sourceDirs|Beam|Beam"
   "copy|sourceDirs|ffi|ffi"
-  "copy|runtimePaths|.lake/build/bin/runAt-cli|libexec/runAt-cli"
+  "copy|runtimePaths|.lake/build/bin/beam-cli|libexec/beam-cli"
   "copy|runtimePaths|.lake/build/bin/beam-daemon|libexec/beam-daemon"
   "copy|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"
   "copy|runtimePaths|.lake/build/lib/librunAt_RunAt.so|libexec/librunAt_RunAt.so"
   "copy|runtimePaths|.lake/packages|.lake/packages"
-  "generated|wrapperPaths||bin/runat"
-  "copy|wrapperPaths|scripts/runat-lean-search|bin/runat-lean-search"
+  "generated|wrapperPaths||bin/beam"
+  "copy|wrapperPaths|scripts/beam-lean-search|bin/beam-lean-search"
 )
 
 usage() {
@@ -55,12 +55,12 @@ usage() {
 Usage:
   $installer_cmd [--toolchain TOOLCHAIN ... | --all-supported] [--codex] [--claude] [--all-skills]
 
-Installs the local runAt command wrappers and self-contained runtime under:
+Installs the local beam command wrappers and self-contained runtime under:
   $install_root
 
 With no flags, this installs:
-  - $bin_home/runat
-  - $bin_home/runat-lean-search
+  - $bin_home/beam
+  - $bin_home/beam-lean-search
   - one prebuilt toolchain build for the repo-pinned Lean toolchain
 
 With no agent flags, this does not install Codex or Claude Code skills.
@@ -75,7 +75,7 @@ Optional flags:
   -h, --help    show this help
 
 Environment:
-  RUNAT_INSTALL_ROOT   override the runtime install root
+  BEAM_INSTALL_ROOT   override the runtime install root
   CODEX_HOME           override the Codex home used by --codex
   CLAUDE_HOME          override the Claude home used by --claude
 
@@ -225,8 +225,8 @@ replace_symlink_atomically() {
 
 verify_publish_targets() {
   ensure_replaceable_path "$current_root" "$install_root" "current link"
-  ensure_replaceable_path "$bin_home/runat" "$bin_home" "runat wrapper link"
-  ensure_replaceable_path "$bin_home/runat-lean-search" "$bin_home" "runat-lean-search link"
+  ensure_replaceable_path "$bin_home/beam" "$bin_home" "beam wrapper link"
+  ensure_replaceable_path "$bin_home/beam-lean-search" "$bin_home" "beam-lean-search link"
 }
 
 parse_args() {
@@ -291,7 +291,7 @@ hash_tool() {
 read_supported_toolchains() {
   local output_name="$1"
   local -n output_ref="$output_name"
-  mapfile -t output_ref < <("$runat_cli" supported-toolchains lean)
+  mapfile -t output_ref < <("$beam_cli" supported-toolchains lean)
 }
 
 array_contains() {
@@ -320,7 +320,7 @@ resolve_install_toolchains() {
 
   read_supported_toolchains supported_toolchains
   if [ "${#supported_toolchains[@]}" -eq 0 ]; then
-    die "runAt CLI reported no supported Lean toolchains"
+    die "beam CLI reported no supported Lean toolchains"
   fi
 
   if [ "$install_all_supported" -eq 1 ]; then
@@ -366,16 +366,16 @@ hash_tree() {
 }
 
 ensure_runtime_artifacts() {
-  if [ -x "$runat_cli" ] \
+  if [ -x "$beam_cli" ] \
     && [ -x "$repo_root/.lake/build/bin/beam-daemon" ] \
     && [ -x "$repo_root/.lake/build/bin/beam-client" ] \
     && [ -f "$repo_root/.lake/build/lib/librunAt_RunAt.so" ]; then
     return 0
   fi
-  echo "building runAt runtime artifacts" >&2
+  echo "building beam runtime artifacts" >&2
   (
     cd "$repo_root"
-    lake build RunAt:shared runAt-cli beam-daemon beam-client
+    lake build RunAt:shared beam-cli beam-daemon beam-client
   )
 }
 
@@ -385,7 +385,7 @@ repo_source_commit() {
 
 require_elan() {
   if ! command -v elan >/dev/null 2>&1; then
-    echo "missing elan on PATH; runAt install requires elan to prebuild the pinned Lean bundle" >&2
+    echo "missing elan on PATH; beam install requires elan to prebuild the pinned Lean bundle" >&2
     exit 1
   fi
 }
@@ -421,7 +421,7 @@ stage_runtime_tree() {
   done
 }
 
-write_runat_wrapper() {
+write_beam_wrapper() {
   local dest="$1"
   local default_home="$2"
   local default_install_bundles="$3"
@@ -429,20 +429,20 @@ write_runat_wrapper() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-default_runat_home="$default_home"
+default_beam_home="$default_home"
 default_install_bundle_dir="$default_install_bundles"
-runat_home="\${RUNAT_HOME:-\$default_runat_home}"
-runat_install_bundle_dir="\${RUNAT_INSTALL_BUNDLE_DIR:-\$default_install_bundle_dir}"
-runat_bin="\$runat_home/libexec/runAt-cli"
+beam_home="\${BEAM_HOME:-\$default_beam_home}"
+beam_install_bundle_dir="\${BEAM_INSTALL_BUNDLE_DIR:-\$default_install_bundle_dir}"
+beam_bin="\$beam_home/libexec/beam-cli"
 
-if [ ! -x "\$runat_bin" ]; then
-  echo "missing runAt CLI at \$runat_bin" >&2
+if [ ! -x "\$beam_bin" ]; then
+  echo "missing beam CLI at \$beam_bin" >&2
   exit 1
 fi
 
-export RUNAT_HOME="\$runat_home"
-export RUNAT_INSTALL_BUNDLE_DIR="\$runat_install_bundle_dir"
-exec "\$runat_bin" "\$@"
+export BEAM_HOME="\$beam_home"
+export BEAM_INSTALL_BUNDLE_DIR="\$beam_install_bundle_dir"
+exec "\$beam_bin" "\$@"
 EOF
   chmod +x "$dest"
 }
@@ -463,8 +463,8 @@ stage_install_version() {
       generated)
         mkdir -p "$(dirname "$dest/$dest_rel")"
         case "$dest_rel" in
-          bin/runat)
-            write_runat_wrapper "$dest/$dest_rel" "$default_home" "$default_install_bundles"
+          bin/beam)
+            write_beam_wrapper "$dest/$dest_rel" "$default_home" "$default_install_bundles"
             ;;
           *)
             die "unknown generated runtime payload destination: $dest_rel"
@@ -485,7 +485,7 @@ write_install_manifest() {
   if [ -n "$source_commit" ]; then
     source_commit_arg="$source_commit"
   fi
-  "$runat_cli" install-manifest "$payload_id" "$source_commit_arg" "${toolchains_ref[@]}" >"$dest"
+  "$beam_cli" install-manifest "$payload_id" "$source_commit_arg" "${toolchains_ref[@]}" >"$dest"
 }
 
 prebuild_bundle() {
@@ -493,16 +493,16 @@ prebuild_bundle() {
   local toolchain="$2"
   local bundle_home="$3"
   mkdir -p "$bundle_home"
-  RUNAT_HOME="$runtime_home" RUNAT_INSTALL_BUNDLE_DIR="$bundle_home" \
-    "$runtime_home/libexec/runAt-cli" bundle-install "$toolchain"
+  BEAM_HOME="$runtime_home" BEAM_INSTALL_BUNDLE_DIR="$bundle_home" \
+    "$runtime_home/libexec/beam-cli" bundle-install "$toolchain"
 }
 
 install_skills() {
   local skills_home="$1"
   require_absolute_path "$skills_home" "skills home"
-  mkdir -p "$skills_home/lean-runat" "$skills_home/rocq-runat"
-  rsync -a "$repo_root/skills/lean-runat/" "$skills_home/lean-runat/"
-  rsync -a "$repo_root/skills/rocq-runat/" "$skills_home/rocq-runat/"
+  mkdir -p "$skills_home/lean-beam" "$skills_home/rocq-beam"
+  rsync -a "$repo_root/skills/lean-beam/" "$skills_home/lean-beam/"
+  rsync -a "$repo_root/skills/rocq-beam/" "$skills_home/rocq-beam/"
 }
 
 install_skill_target() {
@@ -560,7 +560,7 @@ prebuild_install_bundles() {
   shift
   local toolchain=""
   for toolchain in "$@"; do
-    echo "prebuilding runAt bundle for $toolchain" >&2
+    echo "prebuilding beam bundle for $toolchain" >&2
     prebuild_bundle "$version_root" "$toolchain" "$install_bundles_root"
   done
 }
@@ -568,8 +568,8 @@ prebuild_install_bundles() {
 publish_runtime() {
   local version_root="$1"
   replace_symlink_atomically "$version_root" "$current_root" "$install_root" "current link"
-  replace_symlink_atomically "$current_root/bin/runat" "$bin_home/runat" "$bin_home" "runat wrapper link"
-  replace_symlink_atomically "$current_root/bin/runat-lean-search" "$bin_home/runat-lean-search" "$bin_home" "runat-lean-search link"
+  replace_symlink_atomically "$current_root/bin/beam" "$bin_home/beam" "$bin_home" "beam wrapper link"
+  replace_symlink_atomically "$current_root/bin/beam-lean-search" "$bin_home/beam-lean-search" "$bin_home" "beam-lean-search link"
 }
 
 install_requested_skills() {
@@ -591,7 +591,7 @@ print_install_summary() {
   local path_status="$bin_home is not on PATH yet"
 
   if path_contains_dir "$bin_home"; then
-    path_status="ready for direct \`runat\` use in this shell"
+    path_status="ready for direct \`beam\` use in this shell"
   fi
   for toolchain in "${installed_skill_targets[@]}"; do
     case "$toolchain" in
@@ -605,8 +605,8 @@ print_install_summary() {
   done
 
   print_section "$style_green" "Install Complete"
-  print_field "runat" "$bin_home/runat"
-  print_field "search helper" "$bin_home/runat-lean-search"
+  print_field "beam" "$bin_home/beam"
+  print_field "search helper" "$bin_home/beam-lean-search"
   print_field "active install" "$current_root"
   print_field "versioned install" "$version_root"
   print_field "Lean toolchain store" "$install_bundles_root"

@@ -68,8 +68,8 @@ If a behavior is subtle, encode it in tests before optimizing it.
 
 Keep the Lean and Rocq skills fully separate.
 
-- `lean-runat` must stay Lean-only and must not require Rocq setup or Rocq concepts
-- `rocq-runat` must stay Rocq-only and must not require Lean-specific workflow guidance
+- `lean-beam` must stay Lean-only and must not require Rocq setup or Rocq concepts
+- `rocq-beam` must stay Rocq-only and must not require Lean-specific workflow guidance
 - do not introduce a shared skill helper, common skill file, or mixed Lean/Rocq skill layer
 - if a short instruction is needed in both skills, duplicate it instead of coupling the two skills
 
@@ -81,20 +81,20 @@ The repo includes:
 - `lake exe beam-client`
 - `lake exe beam-daemon-smoke-test`
 - `lake exe beam-daemon-rocq-smoke-test`
-- [scripts/runat](scripts/runat)
+- [scripts/beam](scripts/beam)
 - [scripts/codex-harness.sh](scripts/codex-harness.sh)
 - [scripts/codex-session-start.sh](scripts/codex-session-start.sh)
 - [scripts/validate-defensive.sh](scripts/validate-defensive.sh)
 
 The Codex harness scripts are maintainer workflow helpers for this repository. They are not part of
-the public `runat` API or the installed skill surface.
+the public `beam` API or the installed skill surface.
 
 When working locally:
 
 - start new Codex tasks from `./scripts/codex-harness.sh session start <task-id>` so the task runs
   in a dedicated git worktree instead of the primary checkout
 - keep destructive shell cleanup scoped to owned temp/worktree paths; do not use broad `rm` or
-  `rm -rf` against repo-local `.runat`, install caches, or user homes as part of normal workflows
+  `rm -rf` against repo-local `.beam`, install caches, or user homes as part of normal workflows
 - for broker protocol / stream / barrier changes, run `bash tests/test-broker-fast.sh` first
 - for wrapper / install / bundle-resolution changes, also run `bash tests/test-broker-slow.sh`
 - for risky local install / wrapper validation, prefer `bash scripts/validate-defensive.sh` so slow
@@ -108,5 +108,5 @@ When working locally:
 
 Helpful repo docs:
 
-- [skills/lean-runat/SKILL.md](skills/lean-runat/SKILL.md)
-- [skills/rocq-runat/SKILL.md](skills/rocq-runat/SKILL.md)
+- [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md)
+- [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md)

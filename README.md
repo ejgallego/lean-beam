@@ -80,9 +80,9 @@ For programmatic local consumers, the preferred stream surface is
 
 On top of the Beam daemon, this repo ships local command surfaces:
 
-- `lake exe runAt-cli`
-- [scripts/runat](scripts/runat)
-- [scripts/runat-lean-search](scripts/runat-lean-search)
+- `lake exe beam-cli`
+- [scripts/beam](scripts/beam)
+- [scripts/beam-lean-search](scripts/beam-lean-search)
 
 This is the intended local entry point for experimentation today.
 
@@ -166,10 +166,10 @@ In short:
 
 For worked examples and the current “commit speculative result” workflow, see:
 
-- [skills/lean-runat/references/lean-run-at-semantics.md](skills/lean-runat/references/lean-run-at-semantics.md)
-- [skills/lean-runat/references/commit-speculative.md](skills/lean-runat/references/commit-speculative.md)
-- [skills/lean-runat/references/anti-patterns.md](skills/lean-runat/references/anti-patterns.md)
-- [skills/lean-runat/references/workflow-details.md](skills/lean-runat/references/workflow-details.md)
+- [skills/lean-beam/references/lean-run-at-semantics.md](skills/lean-beam/references/lean-run-at-semantics.md)
+- [skills/lean-beam/references/commit-speculative.md](skills/lean-beam/references/commit-speculative.md)
+- [skills/lean-beam/references/anti-patterns.md](skills/lean-beam/references/anti-patterns.md)
+- [skills/lean-beam/references/workflow-details.md](skills/lean-beam/references/workflow-details.md)
 
 ## Position Semantics
 
@@ -214,10 +214,10 @@ to manage explicit environment or proof-state ids themselves.
 - [RunAt/Plugin.lean](RunAt/Plugin.lean): Lean LSP extension implementation
 - [RunAt/Protocol.lean](RunAt/Protocol.lean): public request and response structures
 - [Beam/Broker/](Beam/Broker): local Beam-daemon support for Lean workflows
-- [Beam/Cli.lean](Beam/Cli.lean): public `runat` CLI and daemon orchestration
+- [Beam/Cli.lean](Beam/Cli.lean): public `beam` CLI and daemon orchestration
 - [RunAtTest/](RunAtTest): scenario, handle, and daemon regression support
-- [scripts/runat](scripts/runat): thin wrapper around the `runAt-cli` executable
-- [scripts/runat-lean-search](scripts/runat-lean-search): shell helper for handle-based search workflows
+- [scripts/beam](scripts/beam): thin wrapper around the `beam-cli` executable
+- [scripts/beam-lean-search](scripts/beam-lean-search): shell helper for handle-based search workflows
 - [tests/](tests): interactive, scenario, and daemon regression coverage
 - [AGENTS.md](AGENTS.md): repo-specific instructions for coding agents
 
@@ -282,14 +282,14 @@ Today the practical outside-user surface is the command layer.
 From another Lean project, call the wrapper by absolute path:
 
 ```bash
-/path/to/runAt/scripts/runat ensure lean
-/path/to/runAt/scripts/runat lean-run-at "Foo.lean" 10 2 "exact trivial"
+/path/to/lean-beam/scripts/beam ensure lean
+/path/to/lean-beam/scripts/beam lean-run-at "Foo.lean" 10 2 "exact trivial"
 ```
 
 If you want the wrapper on `PATH`, install it with:
 
 ```bash
-./scripts/install-runat.sh
+./scripts/install-beam.sh
 ```
 
 See [Installation And Resolution](#installation-and-resolution) for the full install procedure,
@@ -300,13 +300,13 @@ optional agent add-ons on top of that command path, rather than part of the requ
 
 The installed skill entrypoints are:
 
-- Lean skill surface: [skills/lean-runat/SKILL.md](skills/lean-runat/SKILL.md)
-- Rocq skill surface: [skills/rocq-runat/SKILL.md](skills/rocq-runat/SKILL.md)
+- Lean skill surface: [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md)
+- Rocq skill surface (experimental, low-profile): [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md)
 
 For the Lean skill, the current command families are inspection (`lean-hover`, `lean-goals-*`),
 speculative execution (`lean-run-at`), real-edit boundary and checkpointing (`lean-sync`,
 `lean-save`, `lean-close-save`), and alpha follow-up continuation (`lean-run-at-handle`,
-`lean-run-with`, `lean-run-with-linear`, `lean-release`, `runat-lean-search`).
+`lean-run-with`, `lean-run-with-linear`, `lean-release`, `beam-lean-search`).
 
 First workflow to remember:
 
@@ -320,11 +320,11 @@ First workflow to remember:
   importers
 - `lean-sync` / `lean-save` / `lean-close-save` stream errors by default; add `+full` when you also want warnings, info, and hints
 - for tooling, use `beam-client request-stream`; wrapper `stderr` is human-facing
-- for daemon or save-state trouble, inspect `runat open-files` and `runat doctor lean`
+- for daemon or save-state trouble, inspect `beam open-files` and `beam doctor lean`
 
 Current local packaging is:
 
-- one installer for the `runat` wrapper and self-contained runtime, with optional bundled Codex and
+- one installer for the `beam` wrapper and self-contained runtime, with optional bundled Codex and
   Claude skill installation flags
 - the documented agent-facing workflow here is Lean-only
 - repo-local `AGENTS.md` guidance for Codex
@@ -338,12 +338,12 @@ Future distribution work is:
 
 ### Install
 
-Use `./scripts/install-runat.sh` as the supported install path today.
+Use `./scripts/install-beam.sh` as the supported install path today.
 
 Installation procedure:
 
 1. Ensure `elan` is on `PATH`.
-2. Run `./scripts/install-runat.sh` for the base runtime.
+2. Run `./scripts/install-beam.sh` for the base runtime.
 3. Optionally add `--toolchain <toolchain>` one or more times to prebuild explicit supported Lean
    bundles, or `--all-supported` to prebuild the full supported allowlist.
 4. Optionally rerun with `--codex`, `--claude`, or `--all-skills` to install the bundled agent
@@ -352,24 +352,24 @@ Installation procedure:
 
 That installer:
 
-- puts `runat` in `~/.local/bin`
-- puts `runat-lean-search` in `~/.local/bin`
-- stages an immutable runtime under `RUNAT_INSTALL_ROOT`, defaulting to `~/.local/share/runat`
-- points `~/.local/bin/runat` and `runat-lean-search` at `RUNAT_INSTALL_ROOT/current`
+- puts `beam` in `~/.local/bin`
+- puts `beam-lean-search` in `~/.local/bin`
+- stages an immutable runtime under `BEAM_INSTALL_ROOT`, defaulting to `~/.local/share/beam`
+- points `~/.local/bin/beam` and `beam-lean-search` at `BEAM_INSTALL_ROOT/current`
 - requires `elan` on `PATH` and prebuilds the selected supported Lean bundle(s) under
-  `RUNAT_INSTALL_ROOT/state/install-bundles`
-- requires `RUNAT_INSTALL_ROOT` to be absolute when overridden
+  `BEAM_INSTALL_ROOT/state/install-bundles`
+- requires `BEAM_INSTALL_ROOT` to be absolute when overridden
 - refuses to replace a real directory at the public wrapper link paths
 - installs bundled skills only when you pass `--codex`, `--claude`, or `--all-skills`
 
 Optional skill install commands:
 
 ```bash
-./scripts/install-runat.sh --codex
-./scripts/install-runat.sh --claude
-./scripts/install-runat.sh --all-skills
-./scripts/install-runat.sh --toolchain leanprover/lean4:v4.29.0-rc6
-./scripts/install-runat.sh --all-supported
+./scripts/install-beam.sh --codex
+./scripts/install-beam.sh --claude
+./scripts/install-beam.sh --all-skills
+./scripts/install-beam.sh --toolchain leanprover/lean4:v4.29.0-rc6
+./scripts/install-beam.sh --all-supported
 ```
 
 Those flags install the bundled Lean and Rocq skills into `$CODEX_HOME/skills` or
@@ -379,12 +379,12 @@ Those flags install the bundled Lean and Rocq skills into `$CODEX_HOME/skills` o
 
 The important terminology is:
 
-- installed runtime: the staged wrapper and binary payload under `RUNAT_INSTALL_ROOT/current`
+- installed runtime: the staged wrapper and binary payload under `BEAM_INSTALL_ROOT/current`
 - installed bundle: the prebuilt toolchain-keyed bundle stored under
-  `RUNAT_INSTALL_ROOT/state/install-bundles`
-- local runtime bundle: the same kind of toolchain-keyed bundle, but built on demand for one target project under that project's `.runat` state
+  `BEAM_INSTALL_ROOT/state/install-bundles`
+- local runtime bundle: the same kind of toolchain-keyed bundle, but built on demand for one target project under that project's `.beam` state
 
-There is not a separate "global plugin" mode. `runat` always resolves a full Lean bundle for one
+There is not a separate "global plugin" mode. `beam` always resolves a full Lean bundle for one
 toolchain, containing the Beam daemon binary, the CLI client binary, and the Lean plugin shared
 library. The only question is which cache location provides that bundle first.
 
@@ -392,25 +392,25 @@ library. The only question is which cache location provides that bundle first.
 
 Resolution order for Lean is:
 
-1. Installed wrapper resolution: the installer writes `~/.local/bin/runat` as a symlink to
-   `RUNAT_INSTALL_ROOT/current/bin/runat`; that wrapper sets `RUNAT_HOME` to the installed runtime
-   and `RUNAT_INSTALL_BUNDLE_DIR` to `RUNAT_INSTALL_ROOT/state/install-bundles` unless you override
+1. Installed wrapper resolution: the installer writes `~/.local/bin/beam` as a symlink to
+   `BEAM_INSTALL_ROOT/current/bin/beam`; that wrapper sets `BEAM_HOME` to the installed runtime
+   and `BEAM_INSTALL_BUNDLE_DIR` to `BEAM_INSTALL_ROOT/state/install-bundles` unless you override
    them explicitly.
-2. Project-root resolution: `runat --root PATH ...` uses that root directly; otherwise the CLI
+2. Project-root resolution: `beam --root PATH ...` uses that root directly; otherwise the CLI
    searches upward from the current directory for a Lean project root.
-3. Installed-bundle lookup: if `RUNAT_INSTALL_BUNDLE_DIR` is set, only that installed cache root is
-   checked. The installed wrapper sets this to `RUNAT_INSTALL_ROOT/state/install-bundles` by
+3. Installed-bundle lookup: if `BEAM_INSTALL_BUNDLE_DIR` is set, only that installed cache root is
+   checked. The installed wrapper sets this to `BEAM_INSTALL_ROOT/state/install-bundles` by
    default.
-4. `runat` only serves Lean toolchains listed in `supported-lean-toolchains`. Use
-   `runat supported-toolchains lean` to inspect that allowlist.
-5. If a matching installed bundle already exists for a supported target Lean toolchain, `runat`
+4. `beam` only serves Lean toolchains listed in `supported-lean-toolchains`. Use
+   `beam supported-toolchains lean` to inspect that allowlist.
+5. If a matching installed bundle already exists for a supported target Lean toolchain, `beam`
    uses it.
-6. If no installed bundle matches, `runat` falls back to the local runtime bundle cache under
-   `RUNAT_BUNDLE_DIR` when set, otherwise under `<root>/.runat/bundles`, and builds that bundle on
+6. If no installed bundle matches, `beam` falls back to the local runtime bundle cache under
+   `BEAM_BUNDLE_DIR` when set, otherwise under `<root>/.beam/bundles`, and builds that bundle on
    demand for that supported toolchain.
 7. Unsupported toolchains fail early before bundle reuse or build.
-8. Daemon control metadata lives under `RUNAT_CONTROL_DIR` when set, otherwise under
-   `<root>/.runat`, with one daemon registry per project root. Under `RUNAT_CONTROL_DIR`, `runat`
+8. Daemon control metadata lives under `BEAM_CONTROL_DIR` when set, otherwise under
+   `<root>/.beam`, with one daemon registry per project root. Under `BEAM_CONTROL_DIR`, `beam`
    uses a per-root subdirectory rather than writing the registry file directly at the top level.
 
 In practice this means:
@@ -428,13 +428,13 @@ In practice this means:
 
 The current local command surface sits on top of the Beam daemon:
 
-- `lake exe runAt-cli`
-- `scripts/runat`
-- `scripts/runat-lean-search`
+- `lake exe beam-cli`
+- `scripts/beam`
+- `scripts/beam-lean-search`
 
-`runat` is the intended local entry point for experimentation. The Lean CLI owns project-root
+`beam` is the intended local entry point for experimentation. The Lean CLI owns project-root
 inference, daemon lifecycle, registry handling, and toolchain-keyed bundle selection. The shell
-wrapper is only a thin launcher for that executable. `runat-lean-search` is a small shell helper on
+wrapper is only a thin launcher for that executable. `beam-lean-search` is a small shell helper on
 top of the handle commands.
 
 Chaining rule:
@@ -446,19 +446,19 @@ Chaining rule:
 Common commands:
 
 ```bash
-runat ensure lean
-runat lean-run-at "Foo.lean" 10 2 "exact trivial"
-runat lean-run-at-handle "Foo.lean" 10 2 "constructor"
-runat lean-hover "Foo.lean" 10 2
-runat lean-goals-prev "Foo.lean" 10 2
-runat lean-goals-after "Foo.lean" 10 2
-runat lean-sync "MyPkg/Sub/Module.lean"
-runat lean-deps "Foo.lean"
-runat lean-save "MyPkg/Sub/Module.lean"
-runat lean-close-save "MyPkg/Sub/Module.lean"
-runat open-files
-runat supported-toolchains lean
-runat doctor lean
+beam ensure lean
+beam lean-run-at "Foo.lean" 10 2 "exact trivial"
+beam lean-run-at-handle "Foo.lean" 10 2 "constructor"
+beam lean-hover "Foo.lean" 10 2
+beam lean-goals-prev "Foo.lean" 10 2
+beam lean-goals-after "Foo.lean" 10 2
+beam lean-sync "MyPkg/Sub/Module.lean"
+beam lean-deps "Foo.lean"
+beam lean-save "MyPkg/Sub/Module.lean"
+beam lean-close-save "MyPkg/Sub/Module.lean"
+beam open-files
+beam supported-toolchains lean
+beam doctor lean
 ```
 
 Read the Lean wrapper surface as this progression:
@@ -478,7 +478,7 @@ Important wrapper rules:
   `lean-run-with-linear`
 - `lean-save` is module-oriented, not file-oriented; standalone `.lean` files outside the workspace
   package graph are valid `lean-sync` targets but not valid `lean-save` targets
-- if daemon or save-state behavior looks wrong, inspect `runat open-files` and `runat doctor lean`
+- if daemon or save-state behavior looks wrong, inspect `beam open-files` and `beam doctor lean`
   before assuming the wrapper is confused
 - `lean-sync` transport success means the diagnostics barrier completed, not that the file is
   error-free; `result.errorCount` / `result.warningCount` summarize fresh streamed diagnostics for
@@ -496,7 +496,7 @@ companion operational check for daemon health, toolchain support state, bundle s
 key inputs.
 
 The wrapper also exposes alpha handle commands for exact continuation from speculative state, and
-the install script exposes `runat-lean-search` as a shorter shell helper on top of those same
+the install script exposes `beam-lean-search` as a shorter shell helper on top of those same
 handle commands.
 
 For programmatic consumers, the supported machine-readable surface is the broker JSON stream, not
@@ -522,10 +522,10 @@ Expert-only unstable broker escape hatches such as `lean-request-at` are documen
 
 For workflow examples and edge cases, see:
 
-- [skills/lean-runat/SKILL.md](skills/lean-runat/SKILL.md)
-- [skills/lean-runat/references/lean-run-at-semantics.md](skills/lean-runat/references/lean-run-at-semantics.md)
-- [skills/lean-runat/references/commit-speculative.md](skills/lean-runat/references/commit-speculative.md)
-- [skills/lean-runat/references/workflow-details.md](skills/lean-runat/references/workflow-details.md)
+- [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md)
+- [skills/lean-beam/references/lean-run-at-semantics.md](skills/lean-beam/references/lean-run-at-semantics.md)
+- [skills/lean-beam/references/commit-speculative.md](skills/lean-beam/references/commit-speculative.md)
+- [skills/lean-beam/references/workflow-details.md](skills/lean-beam/references/workflow-details.md)
 
 ## Non-Goals
 
@@ -535,21 +535,21 @@ For workflow examples and edge cases, see:
 
 ## Notes
 
-- Daemon state lives in the long-running daemon process, not in the short-lived `runat` command.
-- The wrapper keeps one daemon per project root and records it in `<root>/.runat/beam-daemon.json` by
-  default. If your project root is read-only, set `RUNAT_CONTROL_DIR` to a writable path to keep
+- Daemon state lives in the long-running daemon process, not in the short-lived `beam` command.
+- The wrapper keeps one daemon per project root and records it in `<root>/.beam/beam-daemon.json` by
+  default. If your project root is read-only, set `BEAM_CONTROL_DIR` to a writable path to keep
   daemon control metadata outside the project.
-- `runat open-files` reports the daemon's currently tracked documents for that project. If there is
+- `beam open-files` reports the daemon's currently tracked documents for that project. If there is
   no live daemon yet, there is nothing to report.
-- `runat shutdown` only stops the current project's daemon; other project daemons are unaffected.
+- `beam shutdown` only stops the current project's daemon; other project daemons are unaffected.
 - Lean plugin loading currently relies on shared-library support with `-Dexperimental.module=true`.
 - Lean bundles are toolchain-keyed. The wrapper does not try to make one `.so` work across multiple
   Lean toolchains; instead it builds and reuses one cached bundle per toolchain.
 - Supported Lean toolchains are listed in `supported-lean-toolchains`.
 - The supported fast path is the toolchain pinned by this repository's `lean-toolchain`, because
   the plugin uses internal Lean APIs and the installer prebuilds that bundle by default.
-- Unsupported Lean toolchains fail early. Use `runat supported-toolchains lean` to list the current
-  allowlist and `runat doctor lean` to inspect the selected toolchain, bundle source, and bundle
+- Unsupported Lean toolchains fail early. Use `beam supported-toolchains lean` to list the current
+  allowlist and `beam doctor lean` to inspect the selected toolchain, bundle source, and bundle
   key inputs.
 - Bundle rebuild keys use the selected toolchain, platform, and a source hash over the runtime
   source tree plus `lean-toolchain`, `lake-manifest.json`, and `supported-lean-toolchains`.

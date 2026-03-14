@@ -16,12 +16,12 @@ That is the current explicit handoff from speculative execution to saved file st
 ## Minimal Pattern
 
 ```bash
-runat lean-run-at "Foo.lean" 20 2 "exact h"
+beam lean-run-at "Foo.lean" 20 2 "exact h"
 
 # if the speculative result is the change you want:
 # 1. edit Foo.lean for real
 # 2. save Foo.lean
-runat lean-sync "Foo.lean"
+beam lean-sync "Foo.lean"
 ```
 
 Use `lean-save` only after that sync succeeds and only when the file is a valid workspace module.
@@ -36,8 +36,8 @@ Sometimes the task is:
 Use the handle path first:
 
 ```bash
-root="$(runat lean-run-at-handle "Foo.lean" 20 2 "tac1")"
-next="$(printf '%s\n' "$root" | runat lean-run-with-linear "Foo.lean" - "tac2")"
+root="$(beam lean-run-at-handle "Foo.lean" 20 2 "tac1")"
+next="$(printf '%s\n' "$root" | beam lean-run-with-linear "Foo.lean" - "tac2")"
 ```
 
 If that sequence is the one you want to keep, the commit path is still the same: apply the edit to

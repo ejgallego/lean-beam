@@ -10,8 +10,8 @@ cd "$(dirname "$0")/.."
 
 files=(
   scripts/*.sh
-  scripts/runat
-  scripts/runat-lean-search
+  scripts/beam
+  scripts/beam-lean-search
   tests/*.sh
 )
 

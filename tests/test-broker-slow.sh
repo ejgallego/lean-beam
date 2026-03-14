@@ -41,25 +41,25 @@ toolchain="$(awk 'NR==1 {print $1}' lean-toolchain)"
 echo "[broker-slow] build"
 lake build \
   RunAt:shared \
-  runAt-cli \
+  beam-cli \
   beam-daemon \
   beam-client \
   beam-daemon-rocq-smoke-test \
   > /dev/null
 
 echo "[broker-slow] bundle install"
-RUNAT_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" ./.lake/build/bin/runAt-cli bundle-install "$toolchain" > /dev/null
+BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" ./.lake/build/bin/beam-cli bundle-install "$toolchain" > /dev/null
 
 echo "[broker-slow] wrapper tests"
 HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
-  RUNAT_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-runat-wrapper.sh > /dev/null
+  BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-runat-wrapper.sh > /dev/null
 
 echo "[broker-slow] install tests"
 bash tests/test-install.sh > /dev/null
 
 echo "[broker-slow] save replay tests"
 HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
-  RUNAT_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-broker-save-olean.sh > /dev/null
+  BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-broker-save-olean.sh > /dev/null
 
 ROCQ_LSP=""
 for candidate in "_opam/bin/coq-lsp" "_opam/_opam/bin/coq-lsp"; do
@@ -74,9 +74,9 @@ if [ -n "$ROCQ_LSP" ]; then
   if [ -d "_opam/_opam" ]; then
     eval "$(opam env --switch=./_opam --set-switch)"
   fi
-  RUNAT_ROCQ_CMD="$PWD/$ROCQ_LSP" bash tests/test-runat-wrapper-rocq.sh > /dev/null
+  BEAM_ROCQ_CMD="$PWD/$ROCQ_LSP" bash tests/test-runat-wrapper-rocq.sh > /dev/null
   echo "[broker-slow] rocq smoke test"
-  RUNAT_ROCQ_CMD="$PWD/$ROCQ_LSP" .lake/build/bin/beam-daemon-rocq-smoke-test > /dev/null
+  BEAM_ROCQ_CMD="$PWD/$ROCQ_LSP" .lake/build/bin/beam-daemon-rocq-smoke-test > /dev/null
 else
   echo "[broker-slow] rocq skipped: install coq-lsp with tests/setup-rocq-opam.sh." >&2
 fi

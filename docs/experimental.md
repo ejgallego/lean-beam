@@ -22,7 +22,7 @@ Use the stable goals commands for proof state. `lean-request-at` is not the path
 Current command shape:
 
 ```bash
-runat lean-request-at <path> <line> <character> <method> [params-json|-]
+beam lean-request-at <path> <line> <character> <method> [params-json|-]
 ```
 
 - `<line>` and `<character>` use Lean/LSP `Position` semantics
@@ -50,9 +50,9 @@ the CLI path/line/character arguments.
 Examples:
 
 ```bash
-runat lean-request-at "SaveSmoke/A.lean" 2 18 textDocument/definition
+beam lean-request-at "SaveSmoke/A.lean" 2 18 textDocument/definition
 printf '%s\n' '{"context":{"includeDeclaration":true}}' | \
-  runat lean-request-at "SaveSmoke/A.lean" 2 18 textDocument/references -
+  beam lean-request-at "SaveSmoke/A.lean" 2 18 textDocument/references -
 ```
 
 ## Stability

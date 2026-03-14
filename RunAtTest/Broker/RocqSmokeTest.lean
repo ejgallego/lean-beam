@@ -56,7 +56,7 @@ def main : IO Unit := do
     args := #[
       "--port", toString port.toNat,
       "--root", root.toString,
-      "--rocq-cmd", (← IO.getEnv "RUNAT_ROCQ_CMD").getD "coq-lsp"
+      "--rocq-cmd", (← IO.getEnv "BEAM_ROCQ_CMD").getD "coq-lsp"
     ]
     stdin := .null
     stdout := .null

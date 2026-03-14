@@ -9,20 +9,20 @@ branches.”
 Use these commands:
 
 ```bash
-runat lean-run-at-handle "Proofs.lean" 42 6 "constructor"
-printf '%s\n' "$HANDLE_JSON" | runat lean-run-with "Proofs.lean" - "constructor"
-printf '%s\n' "$HANDLE_JSON" | runat lean-run-with-linear "Proofs.lean" - "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | runat lean-release "Proofs.lean" -
+beam lean-run-at-handle "Proofs.lean" 42 6 "constructor"
+printf '%s\n' "$HANDLE_JSON" | beam lean-run-with "Proofs.lean" - "constructor"
+printf '%s\n' "$HANDLE_JSON" | beam lean-run-with-linear "Proofs.lean" - "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | beam lean-release "Proofs.lean" -
 ```
 
 Or use the shorter helper:
 
 ```bash
-runat-lean-search mint "Proofs.lean" 42 6 "constructor"
-printf '%s\n' "$HANDLE_JSON" | runat-lean-search branch "Proofs.lean" "constructor"
-printf '%s\n' "$HANDLE_JSON" | runat-lean-search linear "Proofs.lean" "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | runat-lean-search playout "Proofs.lean" "exact trivial" "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | runat-lean-search release "Proofs.lean"
+beam-lean-search mint "Proofs.lean" 42 6 "constructor"
+printf '%s\n' "$HANDLE_JSON" | beam-lean-search branch "Proofs.lean" "constructor"
+printf '%s\n' "$HANDLE_JSON" | beam-lean-search linear "Proofs.lean" "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | beam-lean-search playout "Proofs.lean" "exact trivial" "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | beam-lean-search release "Proofs.lean"
 ```
 
 Rules:
@@ -36,14 +36,14 @@ Rules:
 ## Minimal branching example
 
 ```bash
-runat ensure lean
-root="$(runat lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
+beam ensure lean
+root="$(beam lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
 
-left="$(printf '%s\n' "$root" | runat lean-run-with "Proofs.lean" - "constructor")"
-right="$(printf '%s\n' "$root" | runat lean-run-with "Proofs.lean" - "aesop")"
+left="$(printf '%s\n' "$root" | beam lean-run-with "Proofs.lean" - "constructor")"
+right="$(printf '%s\n' "$root" | beam lean-run-with "Proofs.lean" - "aesop")"
 
-printf '%s\n' "$left" | runat lean-release "Proofs.lean" -
-printf '%s\n' "$right" | runat lean-release "Proofs.lean" -
+printf '%s\n' "$left" | beam lean-release "Proofs.lean" -
+printf '%s\n' "$right" | beam lean-release "Proofs.lean" -
 ```
 
 Use this when you want to explore multiple children from the same preserved basis.
@@ -51,11 +51,11 @@ Use this when you want to explore multiple children from the same preserved basi
 ## Minimal linear playout example
 
 ```bash
-runat ensure lean
-root="$(runat lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
-step1="$(printf '%s\n' "$root" | runat lean-run-with-linear "Proofs.lean" - "constructor")"
-step2="$(printf '%s\n' "$step1" | runat lean-run-with-linear "Proofs.lean" - "exact trivial")"
-printf '%s\n' "$step2" | runat lean-run-with-linear "Proofs.lean" - "exact trivial"
+beam ensure lean
+root="$(beam lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
+step1="$(printf '%s\n' "$root" | beam lean-run-with-linear "Proofs.lean" - "constructor")"
+step2="$(printf '%s\n' "$step1" | beam lean-run-with-linear "Proofs.lean" - "exact trivial")"
+printf '%s\n' "$step2" | beam lean-run-with-linear "Proofs.lean" - "exact trivial"
 ```
 
 Use this when you want one evolving playout path instead of a preserved branch point.
@@ -72,27 +72,27 @@ Use this when you want one evolving playout path instead of a preserved branch p
 Concrete shell sketch:
 
 ```bash
-runat ensure lean
-root="$(runat lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
+beam ensure lean
+root="$(beam lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
 
-child_a="$(printf '%s\n' "$root" | runat lean-run-with "Proofs.lean" - "constructor")"
-child_b="$(printf '%s\n' "$root" | runat lean-run-with "Proofs.lean" - "aesop")"
+child_a="$(printf '%s\n' "$root" | beam lean-run-with "Proofs.lean" - "constructor")"
+child_b="$(printf '%s\n' "$root" | beam lean-run-with "Proofs.lean" - "aesop")"
 
-playout_a1="$(printf '%s\n' "$child_a" | runat lean-run-with-linear "Proofs.lean" - "exact trivial")"
-playout_a2="$(printf '%s\n' "$playout_a1" | runat lean-run-with-linear "Proofs.lean" - "exact trivial")"
+playout_a1="$(printf '%s\n' "$child_a" | beam lean-run-with-linear "Proofs.lean" - "exact trivial")"
+playout_a2="$(printf '%s\n' "$playout_a1" | beam lean-run-with-linear "Proofs.lean" - "exact trivial")"
 
-printf '%s\n' "$child_b" | runat lean-release "Proofs.lean" -
+printf '%s\n' "$child_b" | beam lean-release "Proofs.lean" -
 ```
 
 The same sketch with the helper:
 
 ```bash
-runat ensure lean
-root="$(runat-lean-search mint "Proofs.lean" 42 6 "constructor")"
-child_a="$(printf '%s\n' "$root" | runat-lean-search branch "Proofs.lean" "constructor")"
-child_b="$(printf '%s\n' "$root" | runat-lean-search branch "Proofs.lean" "aesop")"
-playout_a="$(printf '%s\n' "$child_a" | runat-lean-search playout "Proofs.lean" "exact trivial" "exact trivial")"
-printf '%s\n' "$child_b" | runat-lean-search release "Proofs.lean"
+beam ensure lean
+root="$(beam-lean-search mint "Proofs.lean" 42 6 "constructor")"
+child_a="$(printf '%s\n' "$root" | beam-lean-search branch "Proofs.lean" "constructor")"
+child_b="$(printf '%s\n' "$root" | beam-lean-search branch "Proofs.lean" "aesop")"
+playout_a="$(printf '%s\n' "$child_a" | beam-lean-search playout "Proofs.lean" "exact trivial" "exact trivial")"
+printf '%s\n' "$child_b" | beam-lean-search release "Proofs.lean"
 ```
 
 ## Failure semantics to expect
@@ -114,8 +114,8 @@ Do not try to salvage old handles.
 
 ```bash
 # make a real edit and save the source file to disk
-runat lean-sync "Proofs.lean"
-root="$(runat lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
+beam lean-sync "Proofs.lean"
+root="$(beam lean-run-at-handle "Proofs.lean" 42 6 "constructor")"
 ```
 
 ## When to stop using search
@@ -126,9 +126,9 @@ Then:
 
 ```bash
 # make the real edit in Proofs.lean and save the source file to disk
-runat lean-sync "Proofs.lean"
+beam lean-sync "Proofs.lean"
 # only after a successful sync on a valid workspace module
-runat lean-save "Proofs.lean"
+beam lean-save "Proofs.lean"
 ```
 
 ## In-repo references

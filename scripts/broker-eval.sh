@@ -7,11 +7,11 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-runat="$repo_root/scripts/runat"
+beam="$repo_root/scripts/beam"
 
-if [ ! -x "$runat" ]; then
-  echo "missing runat wrapper at $runat" >&2
-  echo "run: lake build runAt-cli" >&2
+if [ ! -x "$beam" ]; then
+  echo "missing beam wrapper at $beam" >&2
+  echo "run: lake build beam-cli" >&2
   exit 1
 fi
 
@@ -41,8 +41,8 @@ case "${1:-}" in
       exit 1
     fi
     lean_root="$(ensure_abs_dir "$2")"
-    "$runat" --root "$lean_root" ensure lean > /dev/null
-    "$runat" --root "$lean_root" reset-stats > /dev/null
+    "$beam" --root "$lean_root" ensure lean > /dev/null
+    "$beam" --root "$lean_root" reset-stats > /dev/null
     cat <<EOF
 Beam daemon stats reset.
 Lean backend ensured at:
@@ -58,7 +58,7 @@ EOF
       exit 1
     fi
     root="$(ensure_abs_dir "$2")"
-    "$runat" --root "$root" stats
+    "$beam" --root "$root" stats
     ;;
   reset)
     if [ $# -ne 2 ]; then
@@ -66,7 +66,7 @@ EOF
       exit 1
     fi
     root="$(ensure_abs_dir "$2")"
-    "$runat" --root "$root" reset-stats
+    "$beam" --root "$root" reset-stats
     ;;
   shutdown)
     if [ $# -ne 2 ]; then
@@ -74,7 +74,7 @@ EOF
       exit 1
     fi
     root="$(ensure_abs_dir "$2")"
-    "$runat" --root "$root" shutdown
+    "$beam" --root "$root" shutdown
     ;;
   *)
     usage >&2

@@ -14,9 +14,9 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - optional follow-up execution through `$/lean/runWith` and `$/lean/releaseHandle`
 - local Beam daemon/client pair for Lean and Rocq workflows
 - alpha Lean wrapper commands for follow-up handle continuation and release
-- installed `runat-lean-search` helper for shorter shell branching/playout workflows
+- installed `beam-lean-search` helper for shorter shell branching/playout workflows
 - explicit Lean `lean-sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
-- `runat open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
+- `beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with
   `lean-save`, and Lean save preflight fields `saveEligible` / `saveReason` / `saveModule`;
   already-known tracked files are checked incrementally against the on-disk text and carry the last
@@ -99,9 +99,9 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
 - The install script also accepts `--toolchain <toolchain>` for explicit supported bundles and
   `--all-supported` for the full validated allowlist.
 - Runtime requests first try that installed-skill bundle cache, then fall back to a project-local
-  runtime bundle under `.runat/bundles/` for supported toolchains.
+  runtime bundle under `.beam/bundles/` for supported toolchains.
 - Unsupported Lean toolchains fail early instead of attempting an opportunistic build.
-- `runat supported-toolchains lean` lists the validated toolchains, and `runat doctor lean`
+- `beam supported-toolchains lean` lists the validated toolchains, and `beam doctor lean`
   reports support state, bundle source, and bundle key inputs.
 - Bundle rebuild keys intentionally exclude the full `.lake/packages` checkout tree and instead use
   the runtime source tree plus `lean-toolchain`, `lake-manifest.json`, and
@@ -110,8 +110,8 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   fallback bundle.
 - On a cold machine, that local fallback build may need network access to fetch dependencies.
 - In sandboxed agent environments, Beam daemon startup itself may require elevated permissions even when
-  the installed bundle and project-local `.runat` paths resolve correctly.
-- A startup failure that reports `operation not permitted` through `.runat/beam-daemon-startup.log` is
+  the installed bundle and project-local `.beam` paths resolve correctly.
+- A startup failure that reports `operation not permitted` through `.beam/beam-daemon-startup.log` is
   usually an environment restriction, not a bundle-resolution mismatch.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
 - The Beam daemon is single-root and keeps a conservative single active session per backend.
