@@ -8,11 +8,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-runat_script="$PWD/scripts/beam"
+beam_script="$PWD/scripts/beam"
 lake_cmd="$(command -v lake)"
 
-if [ ! -x "$runat_script" ]; then
-  echo "missing beam wrapper at $runat_script" >&2
+if [ ! -x "$beam_script" ]; then
+  echo "missing beam wrapper at $beam_script" >&2
   exit 1
 fi
 
@@ -137,8 +137,8 @@ fi
 edit_b "$tmp2"
 (
   cd "$tmp2"
-  "$runat_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
-  save_json="$("$runat_script" --root "$tmp2" lean-close-save SaveSmoke/B.lean)"
+  "$beam_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  save_json="$("$beam_script" --root "$tmp2" lean-close-save SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$save_json" python3 - <<'PY'
 import json, os
 print(json.loads(os.environ["RUNAT_JSON_PAYLOAD"])["result"]["saved"]["version"])
@@ -157,12 +157,12 @@ PY
     printf '%s\n' "$save_json" >&2
     exit 1
   fi
-  "$runat_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
   "$lake_cmd" build -v SaveSmoke/B.lean >"$log4" 2>&1
   rm -f .lake/build/lib/lean/SaveSmoke/A.olean .lake/build/lib/lean/SaveSmoke/A.ilean .lake/build/lib/lean/SaveSmoke/A.trace .lake/build/ir/SaveSmoke/A.c
   "$lake_cmd" build -v SaveSmoke/A.lean >"$log5" 2>&1
   "$lake_cmd" build >"$log2" 2>&1
-  "$runat_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
 )
 if ! grep -Eq "Replayed SaveSmoke\\.B" "$log4"; then
   echo "expected exact-target lake build to replay SaveSmoke.B after broker save" >&2
@@ -193,8 +193,8 @@ fi
 (cd "$tmp3" && lake build > /dev/null)
 (
   cd "$tmp3"
-  "$runat_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
+  "$beam_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
 )
 edit_b_slow "$tmp3"
 (
@@ -204,10 +204,10 @@ edit_b_slow "$tmp3"
     edit_b_final "$tmp3"
   ) &
   racer_pid="$!"
-  "$runat_script" --root "$tmp3" lean-close-save SaveSmoke/B.lean > /dev/null
+  "$beam_script" --root "$tmp3" lean-close-save SaveSmoke/B.lean > /dev/null
   wait "$racer_pid"
   "$lake_cmd" build -v SaveSmoke/A.lean >"$log3" 2>&1
-  "$runat_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
 )
 if ! grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log3"; then
   echo "expected save_olean race to leave SaveSmoke.B stale for downstream builds" >&2
@@ -219,15 +219,15 @@ fi
 edit_b_slow "$tmp4"
 (
   cd "$tmp4"
-  "$runat_script" --root "$tmp4" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp4" ensure lean > /dev/null
+  "$beam_script" --root "$tmp4" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp4" ensure lean > /dev/null
   close_out="$(mktemp /tmp/runat-close-save-cancel-out-XXXXXX)"
   close_err="$(mktemp /tmp/runat-close-save-cancel-err-XXXXXX)"
   BEAM_REQUEST_ID=cancel-close-save \
-    "$runat_script" --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
+    "$beam_script" --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
   close_pid=$!
   sleep 0.5
-  cancel_json="$("$runat_script" --root "$tmp4" cancel cancel-close-save)"
+  cancel_json="$("$beam_script" --root "$tmp4" cancel cancel-close-save)"
   if ! printf '%s\n' "$cancel_json" | grep -q '"cancelled": true'; then
     echo "expected explicit cancel to report cancelled=true for lean-close-save" >&2
     printf '%s\n' "$cancel_json" >&2
@@ -250,7 +250,7 @@ edit_b_slow "$tmp4"
     rm -f "$close_out" "$close_err"
     exit 1
   fi
-  "$runat_script" --root "$tmp4" stats > /dev/null
+  "$beam_script" --root "$tmp4" stats > /dev/null
   rm -f "$close_out" "$close_err"
 )
 
@@ -258,18 +258,18 @@ edit_b_slow "$tmp4"
 printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
 (
   cd "$tmp5"
-  "$runat_script" --root "$tmp5" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp5" ensure lean > /dev/null
+  "$beam_script" --root "$tmp5" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp5" ensure lean > /dev/null
   sync_out="$(mktemp /tmp/runat-stale-sync-out-XXXXXX)"
   sync_err="$(mktemp /tmp/runat-stale-sync-err-XXXXXX)"
   save_out="$(mktemp /tmp/runat-stale-save-out-XXXXXX)"
   save_err="$(mktemp /tmp/runat-stale-save-err-XXXXXX)"
   BEAM_REQUEST_ID=concurrent-stale-sync \
-    "$runat_script" --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
+    "$beam_script" --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
   sync_pid=$!
   sleep 0.1
   BEAM_REQUEST_ID=concurrent-stale-save \
-    "$runat_script" --root "$tmp5" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err" &
+    "$beam_script" --root "$tmp5" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err" &
   save_pid=$!
   if wait "$sync_pid"; then
     echo "expected concurrent stale lean-sync to fail" >&2
@@ -313,6 +313,6 @@ printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
     rm -f "$sync_out" "$sync_err" "$save_out" "$save_err"
     exit 1
   fi
-  "$runat_script" --root "$tmp5" stats > /dev/null
+  "$beam_script" --root "$tmp5" stats > /dev/null
   rm -f "$sync_out" "$sync_err" "$save_out" "$save_err"
 )

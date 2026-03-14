@@ -52,7 +52,7 @@ BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" ./.lake/build/bin/beam-cli bundle-inst
 
 echo "[broker-slow] wrapper tests"
 HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
-  BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-runat-wrapper.sh > /dev/null
+  BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-beam-wrapper.sh > /dev/null
 
 echo "[broker-slow] install tests"
 bash tests/test-install.sh > /dev/null
@@ -74,7 +74,7 @@ if [ -n "$ROCQ_LSP" ]; then
   if [ -d "_opam/_opam" ]; then
     eval "$(opam env --switch=./_opam --set-switch)"
   fi
-  BEAM_ROCQ_CMD="$PWD/$ROCQ_LSP" bash tests/test-runat-wrapper-rocq.sh > /dev/null
+  BEAM_ROCQ_CMD="$PWD/$ROCQ_LSP" bash tests/test-beam-wrapper-rocq.sh > /dev/null
   echo "[broker-slow] rocq smoke test"
   BEAM_ROCQ_CMD="$PWD/$ROCQ_LSP" .lake/build/bin/beam-daemon-rocq-smoke-test > /dev/null
 else

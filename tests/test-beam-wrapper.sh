@@ -8,12 +8,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-runat_script="$PWD/scripts/beam"
+beam_script="$PWD/scripts/beam"
 search_helper="$PWD/scripts/beam-lean-search"
 client="$PWD/.lake/build/bin/beam-client"
 
-if [ ! -x "$runat_script" ]; then
-  echo "missing beam wrapper at $runat_script" >&2
+if [ ! -x "$beam_script" ]; then
+  echo "missing beam wrapper at $beam_script" >&2
   exit 1
 fi
 
@@ -97,7 +97,7 @@ expect_file() {
 
 expect_owned_tmp_dir() {
   case "$1" in
-    /tmp/runat-wrapper-*|/tmp/runat-validate-*/tmp/runat-wrapper-*)
+    /tmp/beam-wrapper-*|/tmp/runat-validate-*/tmp/beam-wrapper-*)
       ;;
     *)
       echo "refusing to touch unexpected temp dir: $1" >&2
@@ -150,16 +150,16 @@ wait_for_exit() {
   return 1
 }
 
-tmp1="$(mktemp -d /tmp/runat-wrapper-a-XXXXXX)"
-tmp2="$(mktemp -d /tmp/runat-wrapper-b-XXXXXX)"
-tmp3="$(mktemp -d /tmp/runat-wrapper-c-XXXXXX)"
-tmp4="$(mktemp -d /tmp/runat-wrapper-d-XXXXXX)"
-tmp5="$(mktemp -d /tmp/runat-wrapper-e-XXXXXX)"
-tmp6="$(mktemp -d /tmp/runat-wrapper-f-XXXXXX)"
-tmp7="$(mktemp -d /tmp/runat-wrapper-g-XXXXXX)"
-tmp8="$(mktemp -d /tmp/runat-wrapper-h-XXXXXX)"
-tmp9="$(mktemp -d /tmp/runat-wrapper-i-XXXXXX)"
-tmp10="$(mktemp -d /tmp/runat-wrapper-j-XXXXXX)"
+tmp1="$(mktemp -d /tmp/beam-wrapper-a-XXXXXX)"
+tmp2="$(mktemp -d /tmp/beam-wrapper-b-XXXXXX)"
+tmp3="$(mktemp -d /tmp/beam-wrapper-c-XXXXXX)"
+tmp4="$(mktemp -d /tmp/beam-wrapper-d-XXXXXX)"
+tmp5="$(mktemp -d /tmp/beam-wrapper-e-XXXXXX)"
+tmp6="$(mktemp -d /tmp/beam-wrapper-f-XXXXXX)"
+tmp7="$(mktemp -d /tmp/beam-wrapper-g-XXXXXX)"
+tmp8="$(mktemp -d /tmp/beam-wrapper-h-XXXXXX)"
+tmp9="$(mktemp -d /tmp/beam-wrapper-i-XXXXXX)"
+tmp10="$(mktemp -d /tmp/beam-wrapper-j-XXXXXX)"
 busy_pid=""
 
 cleanup() {
@@ -167,16 +167,16 @@ cleanup() {
     kill "$busy_pid" > /dev/null 2>&1 || true
     wait "$busy_pid" 2>/dev/null || true
   fi
-  "$runat_script" --root "$tmp1" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp4" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp5" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp6" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp7" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp8" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp9" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp1" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp4" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp5" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp6" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp7" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp8" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp9" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
   remove_owned_tmp_tree "$tmp1"
   remove_owned_tmp_tree "$tmp2"
   remove_owned_tmp_tree "$tmp3"
@@ -206,7 +206,7 @@ mkdir -p "$tmp10/.beam"
 
 (
   cd "$tmp1"
-  "$runat_script" ensure lean > /dev/null
+  "$beam_script" ensure lean > /dev/null
 )
 
 reg1="$tmp1/.beam/beam-daemon.json"
@@ -230,9 +230,9 @@ fi
 
 (
   cd "$tmp1"
-  "$runat_script" ensure lean > /dev/null
-  cmd_err="$(mktemp /tmp/runat-wrapper-progress-XXXXXX)"
-  cmd_out="$(BEAM_PROGRESS=1 "$runat_script" lean-run-at CommandA.lean 0 2 "#check answerA" 2>"$cmd_err")"
+  "$beam_script" ensure lean > /dev/null
+  cmd_err="$(mktemp /tmp/beam-wrapper-progress-XXXXXX)"
+  cmd_out="$(BEAM_PROGRESS=1 "$beam_script" lean-run-at CommandA.lean 0 2 "#check answerA" 2>"$cmd_err")"
   if [ "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-run-at to succeed" >&2
     printf '%s\n' "$cmd_out" >&2
@@ -274,7 +274,7 @@ fi
     exit 1
   fi
   rm -f "$cmd_err"
-  blank_ok_out="$("$runat_script" lean-run-at PositionEmptyLine.lean 1 0 "#check answer")"
+  blank_ok_out="$("$beam_script" lean-run-at PositionEmptyLine.lean 1 0 "#check answer")"
   if [ "$(RUNAT_JSON_PAYLOAD="$blank_ok_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper blank-line probe at character 0 to succeed" >&2
     printf '%s\n' "$blank_ok_out" >&2
@@ -285,8 +285,8 @@ fi
     printf '%s\n' "$blank_ok_out" >&2
     exit 1
   fi
-  blank_err="$(mktemp /tmp/runat-wrapper-empty-line-XXXXXX)"
-  if "$runat_script" lean-run-at PositionEmptyLine.lean 1 1 "#check answer" >"$blank_err" 2>&1; then
+  blank_err="$(mktemp /tmp/beam-wrapper-empty-line-XXXXXX)"
+  if "$beam_script" lean-run-at PositionEmptyLine.lean 1 1 "#check answer" >"$blank_err" 2>&1; then
     echo "expected wrapper blank-line probe at character 1 to be rejected" >&2
     cat "$blank_err" >&2
     rm -f "$blank_err"
@@ -299,7 +299,7 @@ fi
     exit 1
   fi
   rm -f "$blank_err"
-  utf16_ok_out="$("$runat_script" lean-run-at PositionUtf16.lean 1 5 "#check Nat")"
+  utf16_ok_out="$("$beam_script" lean-run-at PositionUtf16.lean 1 5 "#check Nat")"
   if [ "$(RUNAT_JSON_PAYLOAD="$utf16_ok_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper UTF-16 boundary probe to succeed" >&2
     printf '%s\n' "$utf16_ok_out" >&2
@@ -310,8 +310,8 @@ fi
     printf '%s\n' "$utf16_ok_out" >&2
     exit 1
   fi
-  utf16_err="$(mktemp /tmp/runat-wrapper-utf16-XXXXXX)"
-  if "$runat_script" lean-run-at PositionUtf16.lean 1 6 "#check Nat" >"$utf16_err" 2>&1; then
+  utf16_err="$(mktemp /tmp/beam-wrapper-utf16-XXXXXX)"
+  if "$beam_script" lean-run-at PositionUtf16.lean 1 6 "#check Nat" >"$utf16_err" 2>&1; then
     echo "expected wrapper UTF-16 out-of-range probe to be rejected" >&2
     cat "$utf16_err" >&2
     rm -f "$utf16_err"
@@ -324,7 +324,7 @@ fi
     exit 1
   fi
   rm -f "$utf16_err"
-  stats_out="$("$runat_script" stats)"
+  stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper stats to succeed" >&2
     printf '%s\n' "$stats_out" >&2
@@ -336,7 +336,7 @@ fi
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
-  hover_out="$("$runat_script" lean-hover CommandA.lean 0 4)"
+  hover_out="$("$beam_script" lean-hover CommandA.lean 0 4)"
   if [ "$(RUNAT_JSON_PAYLOAD="$hover_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-hover probe to succeed" >&2
     printf '%s\n' "$hover_out" >&2
@@ -347,7 +347,7 @@ fi
     printf '%s\n' "$hover_out" >&2
     exit 1
   fi
-  goals_prev_out="$("$runat_script" lean-goals-prev GoalSmoke.lean 1 2)"
+  goals_prev_out="$("$beam_script" lean-goals-prev GoalSmoke.lean 1 2)"
   if [ "$(RUNAT_JSON_PAYLOAD="$goals_prev_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-goals-prev probe to succeed" >&2
     printf '%s\n' "$goals_prev_out" >&2
@@ -358,7 +358,7 @@ fi
     printf '%s\n' "$goals_prev_out" >&2
     exit 1
   fi
-  goals_after_out="$("$runat_script" lean-goals-after GoalSmoke.lean 1 2)"
+  goals_after_out="$("$beam_script" lean-goals-after GoalSmoke.lean 1 2)"
   if [ "$(RUNAT_JSON_PAYLOAD="$goals_after_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-goals-after probe to succeed" >&2
     printf '%s\n' "$goals_after_out" >&2
@@ -369,7 +369,7 @@ fi
     printf '%s\n' "$goals_after_out" >&2
     exit 1
   fi
-  stats_out="$("$runat_script" stats)"
+  stats_out="$("$beam_script" stats)"
   request_at_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.request_at.count)"
   if [ "${request_at_count:-0}" -lt 1 ]; then
     echo "expected wrapper stats to record at least one request_at-backed hover request" >&2
@@ -382,14 +382,14 @@ fi
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
-  references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/references -)"
+  references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/references -)"
   if [ "$(RUNAT_JSON_PAYLOAD="$references_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-request-at references probe from stdin json to succeed" >&2
     printf '%s\n' "$references_out" >&2
     exit 1
   fi
-  unsupported_err="$(mktemp /tmp/runat-wrapper-request-at-unsupported-XXXXXX)"
-  if "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/completion '{}' >"$unsupported_err" 2>&1; then
+  unsupported_err="$(mktemp /tmp/beam-wrapper-request-at-unsupported-XXXXXX)"
+  if "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/completion '{}' >"$unsupported_err" 2>&1; then
     echo "expected wrapper lean-request-at to reject unsupported methods" >&2
     cat "$unsupported_err" >&2
     rm -f "$unsupported_err"
@@ -402,8 +402,8 @@ fi
     exit 1
   fi
   rm -f "$unsupported_err"
-  params_doc_err="$(mktemp /tmp/runat-wrapper-request-at-textDocument-XXXXXX)"
-  if "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"textDocument":{"uri":"file:///tmp/nope.lean"}}' >"$params_doc_err" 2>&1; then
+  params_doc_err="$(mktemp /tmp/beam-wrapper-request-at-textDocument-XXXXXX)"
+  if "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"textDocument":{"uri":"file:///tmp/nope.lean"}}' >"$params_doc_err" 2>&1; then
     echo "expected wrapper lean-request-at to reject user-supplied textDocument" >&2
     cat "$params_doc_err" >&2
     rm -f "$params_doc_err"
@@ -416,8 +416,8 @@ fi
     exit 1
   fi
   rm -f "$params_doc_err"
-  params_pos_err="$(mktemp /tmp/runat-wrapper-request-at-position-XXXXXX)"
-  if "$runat_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"position":{"line":99,"character":0}}' >"$params_pos_err" 2>&1; then
+  params_pos_err="$(mktemp /tmp/beam-wrapper-request-at-position-XXXXXX)"
+  if "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"position":{"line":99,"character":0}}' >"$params_pos_err" 2>&1; then
     echo "expected wrapper lean-request-at to reject user-supplied position" >&2
     cat "$params_pos_err" >&2
     rm -f "$params_pos_err"
@@ -441,18 +441,18 @@ fi
 
 (
   cd "$tmp10"
-  "$runat_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp10" ensure lean > /dev/null
-  interrupt_out="$(mktemp /tmp/runat-wrapper-interrupt-out-XXXXXX)"
-  interrupt_err="$(mktemp /tmp/runat-wrapper-interrupt-err-XXXXXX)"
-  interrupt_status="$(python3 - "$runat_script" "$tmp10" "$interrupt_out" "$interrupt_err" <<'PY'
+  "$beam_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp10" ensure lean > /dev/null
+  interrupt_out="$(mktemp /tmp/beam-wrapper-interrupt-out-XXXXXX)"
+  interrupt_err="$(mktemp /tmp/beam-wrapper-interrupt-err-XXXXXX)"
+  interrupt_status="$(python3 - "$beam_script" "$tmp10" "$interrupt_out" "$interrupt_err" <<'PY'
 import os
 import signal
 import subprocess
 import sys
 import time
 
-runat_script, project_root, out_path, err_path = sys.argv[1:]
+beam_script, project_root, out_path, err_path = sys.argv[1:]
 env = os.environ.copy()
 env["BEAM_PROGRESS"] = "1"
 env["BEAM_REQUEST_ID"] = "wrapper-sigint"
@@ -460,7 +460,7 @@ env["BEAM_REQUEST_ID"] = "wrapper-sigint"
 with open(out_path, "wb") as out, open(err_path, "wb") as err:
     proc = subprocess.Popen(
         [
-            runat_script,
+            beam_script,
             "--root",
             project_root,
             "lean-run-at",
@@ -513,7 +513,7 @@ PY
     rm -f "$interrupt_out" "$interrupt_err"
     exit 1
   fi
-  post_interrupt_hover="$("$runat_script" --root "$tmp10" lean-hover tests/scenario/docs/CommandA.lean 0 4)"
+  post_interrupt_hover="$("$beam_script" --root "$tmp10" lean-hover tests/scenario/docs/CommandA.lean 0 4)"
   if [ "$(RUNAT_JSON_PAYLOAD="$post_interrupt_hover" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper SIGINT cancellation to preserve the isolated Beam daemon session" >&2
     printf '%s\n' "$post_interrupt_hover" >&2
@@ -521,24 +521,24 @@ PY
     exit 1
   fi
   rm -f "$interrupt_out" "$interrupt_err"
-  "$runat_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
 )
 
 (
   cd "$tmp10"
-  "$runat_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
-  "$runat_script" --root "$tmp10" ensure lean > /dev/null
-  duplicate_slow_out="$(mktemp /tmp/runat-wrapper-duplicate-slow-out-XXXXXX)"
-  duplicate_slow_err="$(mktemp /tmp/runat-wrapper-duplicate-slow-err-XXXXXX)"
-  duplicate_out="$(mktemp /tmp/runat-wrapper-duplicate-out-XXXXXX)"
-  duplicate_err="$(mktemp /tmp/runat-wrapper-duplicate-err-XXXXXX)"
+  "$beam_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp10" ensure lean > /dev/null
+  duplicate_slow_out="$(mktemp /tmp/beam-wrapper-duplicate-slow-out-XXXXXX)"
+  duplicate_slow_err="$(mktemp /tmp/beam-wrapper-duplicate-slow-err-XXXXXX)"
+  duplicate_out="$(mktemp /tmp/beam-wrapper-duplicate-out-XXXXXX)"
+  duplicate_err="$(mktemp /tmp/beam-wrapper-duplicate-err-XXXXXX)"
   BEAM_PROGRESS=1 BEAM_REQUEST_ID=wrapper-duplicate-active \
-    "$runat_script" --root "$tmp10" lean-run-at tests/scenario/docs/SlowPoll.lean 25 2 "poll_sleep_cmd" \
+    "$beam_script" --root "$tmp10" lean-run-at tests/scenario/docs/SlowPoll.lean 25 2 "poll_sleep_cmd" \
     >"$duplicate_slow_out" 2>"$duplicate_slow_err" &
   duplicate_slow_pid=$!
   sleep 1
   if BEAM_REQUEST_ID=wrapper-duplicate-active \
-      "$runat_script" --root "$tmp10" lean-hover tests/scenario/docs/CommandA.lean 0 4 \
+      "$beam_script" --root "$tmp10" lean-hover tests/scenario/docs/CommandA.lean 0 4 \
       >"$duplicate_out" 2>"$duplicate_err"; then
     echo "expected duplicate active BEAM_REQUEST_ID wrapper request to fail" >&2
     cat "$duplicate_out" >&2
@@ -576,7 +576,7 @@ PY
     rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
     exit 1
   fi
-  cancel_json="$("$runat_script" --root "$tmp10" cancel wrapper-duplicate-active)"
+  cancel_json="$("$beam_script" --root "$tmp10" cancel wrapper-duplicate-active)"
   if [ "$(RUNAT_JSON_PAYLOAD="$cancel_json" read_json_text_field result.cancelled)" != "true" ]; then
     echo "expected duplicate active BEAM_REQUEST_ID cancel to report cancelled=true" >&2
     printf '%s\n' "$cancel_json" >&2
@@ -606,7 +606,7 @@ PY
     rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
     exit 1
   fi
-  stats_out="$("$runat_script" --root "$tmp10" stats)"
+  stats_out="$("$beam_script" --root "$tmp10" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.invalidParamsCount)" -lt 1 ]; then
     echo "expected duplicate active BEAM_REQUEST_ID wrapper conflict to increment invalidParamsCount" >&2
     printf '%s\n' "$stats_out" >&2
@@ -614,7 +614,7 @@ PY
     exit 1
   fi
   rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
-  "$runat_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp10" shutdown > /dev/null 2>&1 || true
 )
 
 cat >"$tmp3/BrokenHeader.lean" <<'EOF'
@@ -623,7 +623,7 @@ EOF
 
 (
   cd "$tmp3"
-  deps_out="$("$runat_script" lean-deps SaveSmoke/A.lean)"
+  deps_out="$("$beam_script" lean-deps SaveSmoke/A.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$deps_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-deps to succeed despite unrelated broken files" >&2
     printf '%s\n' "$deps_out" >&2
@@ -639,7 +639,7 @@ EOF
     printf '%s\n' "$deps_out" >&2
     exit 1
   fi
-  stats_out="$("$runat_script" stats)"
+  stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.active)" != "false" ]; then
     echo "expected lean-deps not to start a live Lean session" >&2
     printf '%s\n' "$stats_out" >&2
@@ -661,15 +661,15 @@ EOF
 
 (
   cd "$tmp4"
-  "$runat_script" ensure lean > /dev/null
-  stats_out="$("$runat_script" stats)"
+  "$beam_script" ensure lean > /dev/null
+  stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
     echo "expected ensure lean to start with zero open Beam daemon documents" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
 
-  probe_before="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_before="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_before" read_json_text_field ok)" != "true" ]; then
     echo "expected initial wrapper probe to succeed" >&2
     printf '%s\n' "$probe_before" >&2
@@ -681,13 +681,13 @@ EOF
     exit 1
   fi
 
-  stats_out="$("$runat_script" stats)"
+  stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "1" ]; then
     echo "expected initial wrapper probe to open exactly one Beam daemon document" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
-  open_files_initial="$("$runat_script" open-files)"
+  open_files_initial="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field ok)" != "true" ]; then
     echo "expected open-files after initial probe to succeed" >&2
     printf '%s\n' "$open_files_initial" >&2
@@ -715,7 +715,7 @@ EOF
   fi
 
   sed -i 's/1/2/' SaveSmoke/B.lean
-  sync_out="$("$runat_script" lean-sync SaveSmoke/B.lean)"
+  sync_out="$("$beam_script" lean-sync SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
     echo "expected lean-sync after first edit to succeed" >&2
     printf '%s\n' "$sync_out" >&2
@@ -751,7 +751,7 @@ EOF
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  open_files_synced="$("$runat_script" open-files)"
+  open_files_synced="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
     echo "expected open-files after lean-sync to retain completed fileProgress" >&2
     printf '%s\n' "$open_files_synced" >&2
@@ -763,7 +763,7 @@ EOF
     exit 1
   fi
 
-  probe_after="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_after="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_after" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper probe after lean-sync to succeed" >&2
     printf '%s\n' "$probe_after" >&2
@@ -775,7 +775,7 @@ EOF
     exit 1
   fi
 
-  save_out="$("$runat_script" lean-save SaveSmoke/B.lean)"
+  save_out="$("$beam_script" lean-save SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field ok)" != "true" ]; then
     echo "expected lean-save to succeed after a synced good edit" >&2
     printf '%s\n' "$save_out" >&2
@@ -796,7 +796,7 @@ EOF
     printf '%s\n' "$save_out" >&2
     exit 1
   fi
-  open_files_saved="$("$runat_script" open-files)"
+  open_files_saved="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_saved" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "true" ]; then
     echo "expected open-files after lean-save to report savedOlean = true" >&2
     printf '%s\n' "$open_files_saved" >&2
@@ -804,7 +804,7 @@ EOF
   fi
 
   sed -i 's/2/3/' SaveSmoke/B.lean
-  open_files_dirty="$("$runat_script" open-files)"
+  open_files_dirty="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.status)" != "notSaved" ]; then
     echo "expected open-files to detect an on-disk edit for an already known file incrementally" >&2
     printf '%s\n' "$open_files_dirty" >&2
@@ -815,7 +815,7 @@ EOF
     printf '%s\n' "$open_files_dirty" >&2
     exit 1
   fi
-  sync_second="$("$runat_script" lean-sync SaveSmoke/B.lean)"
+  sync_second="$("$beam_script" lean-sync SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field ok)" != "true" ]; then
     echo "expected second lean-sync to succeed" >&2
     printf '%s\n' "$sync_second" >&2
@@ -831,7 +831,7 @@ EOF
     printf '%s\n' "$sync_second" >&2
     exit 1
   fi
-  open_files_second="$("$runat_script" open-files)"
+  open_files_second="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
     echo "expected open-files after second lean-sync to report the file as saved again" >&2
     printf '%s\n' "$open_files_second" >&2
@@ -842,7 +842,7 @@ EOF
     printf '%s\n' "$open_files_second" >&2
     exit 1
   fi
-  sync_third="$("$runat_script" lean-sync SaveSmoke/B.lean)"
+  sync_third="$("$beam_script" lean-sync SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field ok)" != "true" ]; then
     echo "expected unchanged third lean-sync to succeed" >&2
     printf '%s\n' "$sync_third" >&2
@@ -859,14 +859,14 @@ EOF
     exit 1
   fi
   sleep 1
-  doctor_out="$("$runat_script" doctor lean)"
+  doctor_out="$("$beam_script" doctor lean)"
   if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: live'; then
     echo "expected doctor lean to report a live Beam daemon after lean-sync and a short idle wait" >&2
     printf '%s\n' "$doctor_out" >&2
     exit 1
   fi
 
-  probe_second="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_second="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_second" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper probe after a second lean-sync to succeed" >&2
     printf '%s\n' "$probe_second" >&2
@@ -878,21 +878,21 @@ EOF
     exit 1
   fi
 
-  close_good_out="$("$runat_script" lean-close SaveSmoke/B.lean)"
+  close_good_out="$("$beam_script" lean-close SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$close_good_out" read_json_text_field ok)" != "true" ]; then
     echo "expected plain lean-close to succeed after a synced good edit" >&2
     printf '%s\n' "$close_good_out" >&2
     exit 1
   fi
 
-  stats_out="$("$runat_script" stats)"
+  stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
     echo "expected lean-close to leave zero open Beam daemon documents" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
 
-  probe_reopen="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_reopen="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_reopen" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper probe after lean-close to reopen the document successfully" >&2
     printf '%s\n' "$probe_reopen" >&2
@@ -908,7 +908,7 @@ EOF
 example : True ∧ True := by
 EOF
 
-  mint_handle="$("$runat_script" lean-run-at-handle HandleSmoke.lean 0 27 "constructor")"
+  mint_handle="$("$beam_script" lean-run-at-handle HandleSmoke.lean 0 27 "constructor")"
   if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper handle mint to succeed" >&2
     printf '%s\n' "$mint_handle" >&2
@@ -920,7 +920,7 @@ EOF
     exit 1
   fi
 
-  branch_step="$(printf '%s\n' "$mint_handle" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial")"
+  branch_step="$(printf '%s\n' "$mint_handle" | "$beam_script" lean-run-with HandleSmoke.lean - "exact trivial")"
   if [ "$(RUNAT_JSON_PAYLOAD="$branch_step" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper non-linear handle continuation to succeed" >&2
     printf '%s\n' "$branch_step" >&2
@@ -932,7 +932,7 @@ EOF
     exit 1
   fi
 
-  branch_done="$(printf '%s\n' "$branch_step" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial")"
+  branch_done="$(printf '%s\n' "$branch_step" | "$beam_script" lean-run-with HandleSmoke.lean - "exact trivial")"
   if [ "$(RUNAT_JSON_PAYLOAD="$branch_done" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper second non-linear handle continuation to succeed" >&2
     printf '%s\n' "$branch_done" >&2
@@ -944,14 +944,14 @@ EOF
     exit 1
   fi
 
-  mint_linear="$("$runat_script" lean-run-at-handle HandleSmoke.lean 0 27 "constructor")"
+  mint_linear="$("$beam_script" lean-run-at-handle HandleSmoke.lean 0 27 "constructor")"
   if [ "$(RUNAT_JSON_PAYLOAD="$mint_linear" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper linear handle mint to succeed" >&2
     printf '%s\n' "$mint_linear" >&2
     exit 1
   fi
 
-  linear_step="$(printf '%s\n' "$mint_linear" | "$runat_script" lean-run-with-linear HandleSmoke.lean - "exact trivial")"
+  linear_step="$(printf '%s\n' "$mint_linear" | "$beam_script" lean-run-with-linear HandleSmoke.lean - "exact trivial")"
   if [ "$(RUNAT_JSON_PAYLOAD="$linear_step" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper linear handle continuation to succeed" >&2
     printf '%s\n' "$linear_step" >&2
@@ -963,8 +963,8 @@ EOF
     exit 1
   fi
 
-  linear_reuse_err="$(mktemp /tmp/runat-wrapper-linear-reuse-XXXXXX)"
-  if printf '%s\n' "$mint_linear" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial" >"$linear_reuse_err" 2>&1; then
+  linear_reuse_err="$(mktemp /tmp/beam-wrapper-linear-reuse-XXXXXX)"
+  if printf '%s\n' "$mint_linear" | "$beam_script" lean-run-with HandleSmoke.lean - "exact trivial" >"$linear_reuse_err" 2>&1; then
     echo "expected consumed linear handle to fail when reused" >&2
     cat "$linear_reuse_err" >&2
     rm -f "$linear_reuse_err"
@@ -978,15 +978,15 @@ EOF
   fi
   rm -f "$linear_reuse_err"
 
-  release_out="$(printf '%s\n' "$linear_step" | "$runat_script" lean-release HandleSmoke.lean -)"
+  release_out="$(printf '%s\n' "$linear_step" | "$beam_script" lean-release HandleSmoke.lean -)"
   if [ "$(RUNAT_JSON_PAYLOAD="$release_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper handle release to succeed" >&2
     printf '%s\n' "$release_out" >&2
     exit 1
   fi
 
-  release_reuse_err="$(mktemp /tmp/runat-wrapper-release-reuse-XXXXXX)"
-  if printf '%s\n' "$linear_step" | "$runat_script" lean-run-with HandleSmoke.lean - "exact trivial" >"$release_reuse_err" 2>&1; then
+  release_reuse_err="$(mktemp /tmp/beam-wrapper-release-reuse-XXXXXX)"
+  if printf '%s\n' "$linear_step" | "$beam_script" lean-run-with HandleSmoke.lean - "exact trivial" >"$release_reuse_err" 2>&1; then
     echo "expected released handle to fail when reused" >&2
     cat "$release_reuse_err" >&2
     rm -f "$release_reuse_err"
@@ -999,7 +999,7 @@ EOF
     exit 1
   fi
   rm -f "$release_reuse_err"
-  close_handle_out="$("$runat_script" lean-close HandleSmoke.lean)"
+  close_handle_out="$("$beam_script" lean-close HandleSmoke.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$close_handle_out" read_json_text_field ok)" != "true" ]; then
     echo "expected handle smoke file close to succeed" >&2
     printf '%s\n' "$close_handle_out" >&2
@@ -1009,7 +1009,7 @@ EOF
   portable_wrapper_bin="$tmp1/portable-wrapper-bin"
   system_readlink="$(command -v readlink)"
   mkdir -p "$portable_wrapper_bin"
-  ln -sf "$runat_script" "$portable_wrapper_bin/beam"
+  ln -sf "$beam_script" "$portable_wrapper_bin/beam"
   ln -sf "$search_helper" "$portable_wrapper_bin/beam-lean-search"
   cat > "$portable_wrapper_bin/readlink" <<EOF
 #!/usr/bin/env bash
@@ -1045,7 +1045,7 @@ EOF
 
   wrapper_shadow_root="$tmp1/wrapper-shadow-root"
   mkdir -p "$wrapper_shadow_root/scripts" "$wrapper_shadow_root/.lake/build/bin" "$wrapper_shadow_root/libexec"
-  cp "$runat_script" "$wrapper_shadow_root/scripts/beam"
+  cp "$beam_script" "$wrapper_shadow_root/scripts/beam"
   cat > "$wrapper_shadow_root/.lake/build/bin/beam-cli" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1101,7 +1101,7 @@ EOF
     printf '%s\n' "$helper_release" >&2
     exit 1
   fi
-  helper_release_reuse_err="$(mktemp /tmp/runat-helper-release-reuse-XXXXXX)"
+  helper_release_reuse_err="$(mktemp /tmp/beam-helper-release-reuse-XXXXXX)"
   if printf '%s\n' "$helper_root" | "$search_helper" branch HandleSmoke.lean "exact trivial" >"$helper_release_reuse_err" 2>&1; then
     echo "expected released helper root to fail when reused" >&2
     cat "$helper_release_reuse_err" >&2
@@ -1115,7 +1115,7 @@ EOF
     exit 1
   fi
   rm -f "$helper_release_reuse_err"
-  close_helper_handle_out="$("$runat_script" lean-close HandleSmoke.lean)"
+  close_helper_handle_out="$("$beam_script" lean-close HandleSmoke.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$close_helper_handle_out" read_json_text_field ok)" != "true" ]; then
     echo "expected helper handle smoke file close to succeed" >&2
     printf '%s\n' "$close_helper_handle_out" >&2
@@ -1123,9 +1123,9 @@ EOF
   fi
 
   printf 'def bVal : Nat := "broken"\n' > SaveSmoke/B.lean
-  broken_sync_json="$(mktemp /tmp/runat-wrapper-broken-sync-json-XXXXXX)"
-  broken_sync_err="$(mktemp /tmp/runat-wrapper-broken-sync-err-XXXXXX)"
-  "$runat_script" lean-sync SaveSmoke/B.lean >"$broken_sync_json" 2>"$broken_sync_err"
+  broken_sync_json="$(mktemp /tmp/beam-wrapper-broken-sync-json-XXXXXX)"
+  broken_sync_err="$(mktemp /tmp/beam-wrapper-broken-sync-err-XXXXXX)"
+  "$beam_script" lean-sync SaveSmoke/B.lean >"$broken_sync_json" 2>"$broken_sync_err"
   broken_sync="$(cat "$broken_sync_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field ok)" != "true" ]; then
     echo "expected lean-sync to succeed even when Lean reports diagnostics" >&2
@@ -1192,8 +1192,8 @@ EOF
   fi
   rm -f "$broken_sync_json" "$broken_sync_err"
 
-  close_save_err="$(mktemp /tmp/runat-wrapper-close-save-XXXXXX)"
-  if "$runat_script" lean-close-save SaveSmoke/B.lean >"$close_save_err" 2>&1; then
+  close_save_err="$(mktemp /tmp/beam-wrapper-close-save-XXXXXX)"
+  if "$beam_script" lean-close-save SaveSmoke/B.lean >"$close_save_err" 2>&1; then
     echo "expected lean-close-save to fail on a file with Lean errors" >&2
     cat "$close_save_err" >&2
     rm -f "$close_save_err"
@@ -1201,14 +1201,14 @@ EOF
   fi
   rm -f "$close_save_err"
 
-  close_out="$("$runat_script" lean-close SaveSmoke/B.lean)"
+  close_out="$("$beam_script" lean-close SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$close_out" read_json_text_field ok)" != "true" ]; then
     echo "expected plain lean-close to succeed after a broken speculative session" >&2
     printf '%s\n' "$close_out" >&2
     exit 1
   fi
 
-  stats_out="$("$runat_script" stats)"
+  stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
     echo "expected final lean-close to leave zero open Beam daemon documents" >&2
     printf '%s\n' "$stats_out" >&2
@@ -1218,7 +1218,7 @@ EOF
 
 (
   cd "$tmp8"
-  "$runat_script" ensure lean > /dev/null
+  "$beam_script" ensure lean > /dev/null
   cat > SaveSmoke/B.lean <<'EOF'
 def bVal : Nat := 1
 
@@ -1227,9 +1227,9 @@ theorem warnOnly (n : Nat) : True := by
   trivial
 EOF
 
-  warn_sync_json="$(mktemp /tmp/runat-wrapper-warn-sync-json-XXXXXX)"
-  warn_sync_err="$(mktemp /tmp/runat-wrapper-warn-sync-err-XXXXXX)"
-  "$runat_script" lean-sync SaveSmoke/B.lean >"$warn_sync_json" 2>"$warn_sync_err"
+  warn_sync_json="$(mktemp /tmp/beam-wrapper-warn-sync-json-XXXXXX)"
+  warn_sync_err="$(mktemp /tmp/beam-wrapper-warn-sync-err-XXXXXX)"
+  "$beam_script" lean-sync SaveSmoke/B.lean >"$warn_sync_json" 2>"$warn_sync_err"
   warn_sync="$(cat "$warn_sync_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field ok)" != "true" ]; then
     echo "expected warning-only lean-sync to succeed" >&2
@@ -1266,9 +1266,9 @@ EOF
     rm -f "$warn_sync_json" "$warn_sync_err"
     exit 1
   fi
-  warn_save_json="$(mktemp /tmp/runat-wrapper-warn-save-json-XXXXXX)"
-  warn_save_err="$(mktemp /tmp/runat-wrapper-warn-save-err-XXXXXX)"
-  "$runat_script" lean-save SaveSmoke/B.lean >"$warn_save_json" 2>"$warn_save_err"
+  warn_save_json="$(mktemp /tmp/beam-wrapper-warn-save-json-XXXXXX)"
+  warn_save_err="$(mktemp /tmp/beam-wrapper-warn-save-err-XXXXXX)"
+  "$beam_script" lean-save SaveSmoke/B.lean >"$warn_save_json" 2>"$warn_save_err"
   warn_save="$(cat "$warn_save_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field ok)" != "true" ]; then
     echo "expected warning-only lean-save to succeed" >&2
@@ -1291,7 +1291,7 @@ EOF
 
 (
   cd "$tmp9"
-  "$runat_script" ensure lean > /dev/null
+  "$beam_script" ensure lean > /dev/null
   cat > SaveSmoke/B.lean <<'EOF'
 def bVal : Nat := 1
 
@@ -1299,9 +1299,9 @@ set_option linter.unusedVariables true in
 theorem warnOnly (n : Nat) : True := by
   trivial
 EOF
-  warn_sync_full_json="$(mktemp /tmp/runat-wrapper-warn-sync-full-json-XXXXXX)"
-  warn_sync_full_err="$(mktemp /tmp/runat-wrapper-warn-sync-full-err-XXXXXX)"
-  "$runat_script" lean-sync SaveSmoke/B.lean +full >"$warn_sync_full_json" 2>"$warn_sync_full_err"
+  warn_sync_full_json="$(mktemp /tmp/beam-wrapper-warn-sync-full-json-XXXXXX)"
+  warn_sync_full_err="$(mktemp /tmp/beam-wrapper-warn-sync-full-err-XXXXXX)"
+  "$beam_script" lean-sync SaveSmoke/B.lean +full >"$warn_sync_full_json" 2>"$warn_sync_full_err"
   warn_sync_full="$(cat "$warn_sync_full_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field ok)" != "true" ]; then
     echo "expected warning-only lean-sync +full to succeed" >&2
@@ -1356,8 +1356,8 @@ EOF
     client9="$client"
   fi
   stream_req="$(printf '{"op":"sync_file","root":"%s","path":"SaveSmoke/B.lean","fullDiagnostics":true}' "$PWD")"
-  stream_out="$(mktemp /tmp/runat-wrapper-stream-out-XXXXXX)"
-  stream_err="$(mktemp /tmp/runat-wrapper-stream-err-XXXXXX)"
+  stream_out="$(mktemp /tmp/beam-wrapper-stream-out-XXXXXX)"
+  stream_err="$(mktemp /tmp/beam-wrapper-stream-err-XXXXXX)"
   "$client9" --port "$port9" request-stream "$stream_req" >"$stream_out" 2>"$stream_err"
   if [ -s "$stream_err" ]; then
     echo "expected request-stream to keep machine-readable output on stdout only" >&2
@@ -1406,9 +1406,9 @@ theorem warnOnly (n : Nat) : True := by
   trivial
 
 EOF
-  warn_close_save_json="$(mktemp /tmp/runat-wrapper-warn-close-save-json-XXXXXX)"
-  warn_close_save_err="$(mktemp /tmp/runat-wrapper-warn-close-save-err-XXXXXX)"
-  "$runat_script" lean-close-save SaveSmoke/B.lean +full >"$warn_close_save_json" 2>"$warn_close_save_err"
+  warn_close_save_json="$(mktemp /tmp/beam-wrapper-warn-close-save-json-XXXXXX)"
+  warn_close_save_err="$(mktemp /tmp/beam-wrapper-warn-close-save-err-XXXXXX)"
+  "$beam_script" lean-close-save SaveSmoke/B.lean +full >"$warn_close_save_json" 2>"$warn_close_save_err"
   warn_close_save="$(cat "$warn_close_save_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field ok)" != "true" ]; then
     echo "expected warning-only lean-close-save +full to succeed" >&2
@@ -1431,7 +1431,7 @@ EOF
 
 (
   cd "$tmp2"
-  "$runat_script" ensure lean > /dev/null
+  "$beam_script" ensure lean > /dev/null
 )
 
 reg2="$tmp2/.beam/beam-daemon.json"
@@ -1448,8 +1448,8 @@ if [ "$port1" = "$port2" ]; then
   exit 1
 fi
 
-cross_err="$(mktemp /tmp/runat-wrapper-cross-XXXXXX)"
-cross_req="$(mktemp /tmp/runat-wrapper-cross-req-XXXXXX)"
+cross_err="$(mktemp /tmp/beam-wrapper-cross-XXXXXX)"
+cross_req="$(mktemp /tmp/beam-wrapper-cross-req-XXXXXX)"
 printf '{"op":"ensure","root":"%s"}\n' "$tmp2" > "$cross_req"
 if "$client1" --port "$port1" request - <"$cross_req" >"$cross_err" 2>&1; then
   echo "expected single-root Beam daemon to reject another project root" >&2
@@ -1470,8 +1470,8 @@ rm -f "$cross_err"
 
 (
   cd "$tmp5"
-  "$runat_script" ensure lean > /dev/null
-  warm_out="$("$runat_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  "$beam_script" ensure lean > /dev/null
+  warm_out="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warm_out" read_json_text_field ok)" != "true" ]; then
     echo "expected tmp5 warmup probe to succeed before busy-port reuse check" >&2
     printf '%s\n' "$warm_out" >&2
@@ -1495,14 +1495,14 @@ sleep 1
 
 (
   cd "$tmp5"
-  doctor_out="$("$runat_script" doctor lean)"
+  doctor_out="$("$beam_script" doctor lean)"
   if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: live'; then
     echo "expected doctor lean to report a live Beam daemon before requested-port reuse check" >&2
     printf '%s\n' "$doctor_out" >&2
     exit 1
   fi
   sed -i 's/1/2/' SaveSmoke/B.lean
-  sync_out="$("$runat_script" --port "$busy_port" lean-sync SaveSmoke/B.lean)"
+  sync_out="$("$beam_script" --port "$busy_port" lean-sync SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
     echo "expected lean-sync with a busy requested port to reuse the live Beam daemon" >&2
     printf '%s\n' "$sync_out" >&2
@@ -1513,7 +1513,7 @@ sleep 1
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  stats_out="$("$runat_script" stats)"
+  stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
     echo "expected stats to keep working after busy-port lean-sync reuse" >&2
     printf '%s\n' "$stats_out" >&2
@@ -1539,11 +1539,11 @@ fi
 (
   cd "$tmp6"
   lake build SaveSmoke/A.lean > /dev/null
-  "$runat_script" ensure lean > /dev/null
+  "$beam_script" ensure lean > /dev/null
   printf 'def bVal : Nat := "broken"\n' > SaveSmoke/B.lean
 
-  stale_sync_err="$(mktemp /tmp/runat-wrapper-stale-sync-XXXXXX)"
-  if "$runat_script" lean-sync SaveSmoke/A.lean >"$stale_sync_err" 2>&1; then
+  stale_sync_err="$(mktemp /tmp/beam-wrapper-stale-sync-XXXXXX)"
+  if "$beam_script" lean-sync SaveSmoke/A.lean >"$stale_sync_err" 2>&1; then
     echo "expected lean-sync to fail when an imported target is stale and rebuild cannot complete" >&2
     cat "$stale_sync_err" >&2
     rm -f "$stale_sync_err"
@@ -1569,8 +1569,8 @@ fi
   fi
   rm -f "$stale_sync_err"
 
-  stale_save_err="$(mktemp /tmp/runat-wrapper-stale-save-XXXXXX)"
-  if "$runat_script" lean-save SaveSmoke/A.lean >"$stale_save_err" 2>&1; then
+  stale_save_err="$(mktemp /tmp/beam-wrapper-stale-save-XXXXXX)"
+  if "$beam_script" lean-save SaveSmoke/A.lean >"$stale_save_err" 2>&1; then
     echo "expected lean-save to reject an importer whose sync barrier cannot complete" >&2
     cat "$stale_save_err" >&2
     rm -f "$stale_save_err"
@@ -1599,20 +1599,20 @@ fi
 
 (
   cd "$tmp7"
-  "$runat_script" ensure lean > /dev/null
+  "$beam_script" ensure lean > /dev/null
   cat > StandaloneSaveSmoke.lean <<'EOF'
 import SaveSmoke.B
 
 #check bVal
 EOF
 
-  standalone_sync="$("$runat_script" lean-sync StandaloneSaveSmoke.lean)"
+  standalone_sync="$("$beam_script" lean-sync StandaloneSaveSmoke.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$standalone_sync" read_json_text_field ok)" != "true" ]; then
     echo "expected lean-sync to succeed on a standalone file the daemon can open" >&2
     printf '%s\n' "$standalone_sync" >&2
     exit 1
   fi
-  standalone_open="$("$runat_script" open-files)"
+  standalone_open="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "false" ]; then
     echo "expected open-files to report saveEligible = false for a standalone save target" >&2
     printf '%s\n' "$standalone_open" >&2
@@ -1624,8 +1624,8 @@ EOF
     exit 1
   fi
 
-  standalone_save_err="$(mktemp /tmp/runat-wrapper-standalone-save-XXXXXX)"
-  if "$runat_script" lean-save StandaloneSaveSmoke.lean >"$standalone_save_err" 2>&1; then
+  standalone_save_err="$(mktemp /tmp/beam-wrapper-standalone-save-XXXXXX)"
+  if "$beam_script" lean-save StandaloneSaveSmoke.lean >"$standalone_save_err" 2>&1; then
     echo "expected lean-save to reject a standalone file outside the Lake module graph" >&2
     cat "$standalone_save_err" >&2
     rm -f "$standalone_save_err"
@@ -1648,7 +1648,7 @@ EOF
 
 (
   cd "$tmp1"
-  "$runat_script" shutdown > /dev/null
+  "$beam_script" shutdown > /dev/null
 )
 if [ -f "$reg1" ]; then
   echo "expected shutdown to remove the project Beam daemon registry" >&2

@@ -8,11 +8,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-runat_script="$PWD/scripts/beam"
+beam_script="$PWD/scripts/beam"
 rocq_cmd="${BEAM_ROCQ_CMD:-}"
 
-if [ ! -x "$runat_script" ]; then
-  echo "missing beam wrapper at $runat_script" >&2
+if [ ! -x "$beam_script" ]; then
+  echo "missing beam wrapper at $beam_script" >&2
   exit 1
 fi
 
@@ -21,11 +21,11 @@ if [ -z "$rocq_cmd" ]; then
   exit 1
 fi
 
-tmp_repo="$(mktemp -d /tmp/runat-wrapper-rocq-XXXXXX)"
+tmp_repo="$(mktemp -d /tmp/beam-wrapper-rocq-XXXXXX)"
 
 expect_owned_tmp_dir() {
   case "$1" in
-    /tmp/runat-wrapper-rocq-*|/tmp/runat-validate-*/tmp/runat-wrapper-rocq-*)
+    /tmp/beam-wrapper-rocq-*|/tmp/runat-validate-*/tmp/beam-wrapper-rocq-*)
       ;;
     *)
       echo "refusing to touch unexpected temp dir: $1" >&2
