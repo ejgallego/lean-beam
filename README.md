@@ -436,6 +436,8 @@ The current local command surface sits on top of the Beam daemon:
 inference, daemon lifecycle, registry handling, and toolchain-keyed bundle selection. The shell
 wrapper is only a thin launcher for that executable. `beam-lean-search` is a small shell helper on
 top of the handle commands.
+For Lean probes, `beam lean-run-at` wraps the standalone method `$/lean/runAt`, and handle
+follow-ups map to `$/lean/runWith` / `$/lean/releaseHandle`.
 
 Chaining rule:
 

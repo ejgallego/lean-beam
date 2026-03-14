@@ -159,11 +159,13 @@ Use `beam`, not raw JSON and not raw LSP.
 - `beam shutdown`, `beam stats`, and `beam reset-stats` apply to the current project only
 - wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Lean calls
 
-`runAt` is more than a one-shot probe:
+`beam` is more than a one-shot probe:
 
-- the common path is still a single isolated `lean-run-at` request
+- the common path is still a single isolated `lean-run-at` request, which wraps the standalone Lean
+  method `$/lean/runAt`
 - the underlying Lean side can also retain follow-up state through opaque handles for continuation
-  and branching when one-shot probing is not enough
+  and branching when one-shot probing is not enough, through follow-up methods
+  `$/lean/runWith` and `$/lean/releaseHandle`
 - treat handles as alpha support APIs: useful, real, and powerful, but more fragile than the base
   request
 - handles are document-bound and are invalidated by same-document edits, close, worker restart, or

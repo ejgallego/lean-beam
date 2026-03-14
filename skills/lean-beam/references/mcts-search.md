@@ -133,7 +133,7 @@ beam lean-save "Proofs.lean"
 
 ## In-repo references
 
-If you are working inside the `runAt` repo itself, the concrete search patterns live in:
+If you are working inside the `lean-beam` repo itself, the concrete search patterns live in:
 
 - `RunAtTest/Scenario/MctsProofSearchTest.lean`
 - `RunAtTest/Scenario/SearchWorkloadReport.lean`
