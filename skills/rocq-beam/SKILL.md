@@ -141,7 +141,7 @@ Execution model:
 - every `beam rocq-goals-*` request is an isolated read-only probe against the current saved file
 - do not expect hidden mutable proof-session state to carry from one probe to the next
 - the Beam daemon may reopen or resync the on-disk file before a probe, but saving the file is still the real boundary you control
-- there is no Rocq `lean-sync` equivalent in the wrapper, so after edits the important step is: save, then probe again
+- there is no Rocq `lean-beam sync` equivalent in the wrapper, so after edits the important step is: save, then probe again
 - if the file changes while a request is pending or `coq-lsp` state becomes stale, expect to rerun from the saved file instead of relying on recovery inside the old request
 
 Default loop:
@@ -204,7 +204,7 @@ beam reset-stats
 
 `beam open-files` shows the files currently tracked by the Beam daemon for the current project. For
 Lean-backed tracked files it also includes direct deps when available and whether the current synced
-version has been checkpointed with `lean-save`. For files the broker already knows about, the
+version has been checkpointed with `lean-beam save`. For files the broker already knows about, the
 wrapper checks that status incrementally against the current on-disk text, and `open-files` also
 reports the last compact `fileProgress` observed for that tracked version.
 

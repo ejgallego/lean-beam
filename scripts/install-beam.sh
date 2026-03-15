@@ -46,8 +46,8 @@ runtime_payload_spec=(
   "copy|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"
   "copy|runtimePaths|.lake/build/lib/librunAt_RunAt.so|libexec/librunAt_RunAt.so"
   "copy|runtimePaths|.lake/packages|.lake/packages"
-  "generated|wrapperPaths||bin/beam"
-  "copy|wrapperPaths|scripts/beam-lean-search|bin/beam-lean-search"
+  "copy|wrapperPaths|scripts/lean-beam|bin/lean-beam"
+  "copy|wrapperPaths|scripts/lean-beam-search|bin/lean-beam-search"
 )
 
 usage() {
@@ -59,8 +59,8 @@ Installs the local beam command wrappers and self-contained runtime under:
   $install_root
 
 With no flags, this installs:
-  - $bin_home/beam
-  - $bin_home/beam-lean-search
+  - $bin_home/lean-beam
+  - $bin_home/lean-beam-search
   - one prebuilt toolchain build for the repo-pinned Lean toolchain
 
 With no agent flags, this does not install Codex or Claude Code skills.
@@ -225,8 +225,8 @@ replace_symlink_atomically() {
 
 verify_publish_targets() {
   ensure_replaceable_path "$current_root" "$install_root" "current link"
-  ensure_replaceable_path "$bin_home/beam" "$bin_home" "beam wrapper link"
-  ensure_replaceable_path "$bin_home/beam-lean-search" "$bin_home" "beam-lean-search link"
+  ensure_replaceable_path "$bin_home/lean-beam" "$bin_home" "lean-beam wrapper link"
+  ensure_replaceable_path "$bin_home/lean-beam-search" "$bin_home" "lean-beam-search link"
 }
 
 parse_args() {
@@ -421,58 +421,9 @@ stage_runtime_tree() {
   done
 }
 
-write_beam_wrapper() {
-  local dest="$1"
-  local default_home="$2"
-  local default_install_bundles="$3"
-  cat >"$dest" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-
-default_beam_home="$default_home"
-default_install_bundle_dir="$default_install_bundles"
-beam_home="\${BEAM_HOME:-\$default_beam_home}"
-beam_install_bundle_dir="\${BEAM_INSTALL_BUNDLE_DIR:-\$default_install_bundle_dir}"
-beam_bin="\$beam_home/libexec/beam-cli"
-
-if [ ! -x "\$beam_bin" ]; then
-  echo "missing beam CLI at \$beam_bin" >&2
-  exit 1
-fi
-
-export BEAM_HOME="\$beam_home"
-export BEAM_INSTALL_BUNDLE_DIR="\$beam_install_bundle_dir"
-exec "\$beam_bin" "\$@"
-EOF
-  chmod +x "$dest"
-}
-
 stage_install_version() {
   local dest="$1"
-  local default_home="$2"
-  local default_install_bundles="$3"
-  local entry=""
-  local mode=""
-  local manifest_group=""
-  local src_rel=""
-  local dest_rel=""
   stage_runtime_tree "$dest"
-  for entry in "${runtime_payload_spec[@]}"; do
-    IFS='|' read -r mode manifest_group src_rel dest_rel <<< "$entry"
-    case "$mode" in
-      generated)
-        mkdir -p "$(dirname "$dest/$dest_rel")"
-        case "$dest_rel" in
-          bin/beam)
-            write_beam_wrapper "$dest/$dest_rel" "$default_home" "$default_install_bundles"
-            ;;
-          *)
-            die "unknown generated runtime payload destination: $dest_rel"
-            ;;
-        esac
-        ;;
-    esac
-  done
 }
 
 write_install_manifest() {
@@ -540,7 +491,7 @@ prepare_install_version() {
   local -n payload_ref="$payload_name"
   local -n version_root_ref="$version_root_name"
   local -n source_commit_ref="$source_commit_name"
-  stage_install_version "$staging_root" "$current_root" "$install_bundles_root"
+  stage_install_version "$staging_root"
   payload_ref="$(hash_tree "$staging_root")"
   version_root_ref="$versions_root/$payload_ref"
   source_commit_ref="$(repo_source_commit)"
@@ -568,8 +519,8 @@ prebuild_install_bundles() {
 publish_runtime() {
   local version_root="$1"
   replace_symlink_atomically "$version_root" "$current_root" "$install_root" "current link"
-  replace_symlink_atomically "$current_root/bin/beam" "$bin_home/beam" "$bin_home" "beam wrapper link"
-  replace_symlink_atomically "$current_root/bin/beam-lean-search" "$bin_home/beam-lean-search" "$bin_home" "beam-lean-search link"
+  replace_symlink_atomically "$current_root/bin/lean-beam" "$bin_home/lean-beam" "$bin_home" "lean-beam wrapper link"
+  replace_symlink_atomically "$current_root/bin/lean-beam-search" "$bin_home/lean-beam-search" "$bin_home" "lean-beam-search link"
 }
 
 install_requested_skills() {
@@ -591,7 +542,7 @@ print_install_summary() {
   local path_status="$bin_home is not on PATH yet"
 
   if path_contains_dir "$bin_home"; then
-    path_status="ready for direct \`beam\` use in this shell"
+    path_status="ready for direct \`lean-beam\` use in this shell"
   fi
   for toolchain in "${installed_skill_targets[@]}"; do
     case "$toolchain" in
@@ -605,8 +556,8 @@ print_install_summary() {
   done
 
   print_section "$style_green" "Install Complete"
-  print_field "beam" "$bin_home/beam"
-  print_field "search helper" "$bin_home/beam-lean-search"
+  print_field "lean-beam" "$bin_home/lean-beam"
+  print_field "lean search helper" "$bin_home/lean-beam-search"
   print_field "active install" "$current_root"
   print_field "versioned install" "$version_root"
   print_field "Lean toolchain store" "$install_bundles_root"

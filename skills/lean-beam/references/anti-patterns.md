@@ -4,22 +4,22 @@ Use this reference as a short checklist of what not to assume in Lean `beam` wor
 
 ## Do Not Assume
 
-- one `lean-run-at` call automatically changes the basis of the next one
-- `lean-run-at` edits the file or creates a new saved baseline
-- `lean-run-at` implies a full-file diagnostics barrier
-- `lean-run-at` fills indentation, inserts missing newlines, or reformats text for you
-- `lean-sync` recovers speculative text that you never wrote into the file
-- `lean-save` is valid for any `.lean` file the daemon can open
+- one `lean-beam run-at` call automatically changes the basis of the next one
+- `lean-beam run-at` edits the file or creates a new saved baseline
+- `lean-beam run-at` implies a full-file diagnostics barrier
+- `lean-beam run-at` fills indentation, inserts missing newlines, or reformats text for you
+- `lean-beam sync` recovers speculative text that you never wrote into the file
+- `lean-beam save` is valid for any `.lean` file the daemon can open
 - a downstream probe is trustworthy right after editing an imported dependency
 - wrapper `stderr` is the machine-readable surface
 
 ## Prefer Instead
 
-- use `lean-hover` for existing semantic info
-- use `lean-goals-prev` / `lean-goals-after` for existing proof state
-- use `lean-run-at` for one speculative snippet on the current saved file snapshot
-- use `lean-run-at-handle` plus `lean-run-with` / `lean-run-with-linear` for exact speculative chaining
-- use a real edit, save, then `lean-sync` when the speculative result should become source
-- use `lean-save` only for a synced workspace module
+- use `lean-beam hover` for existing semantic info
+- use `lean-beam goals-prev` / `lean-beam goals-after` for existing proof state
+- use `lean-beam run-at` for one speculative snippet on the current saved file snapshot
+- use `lean-beam run-at-handle` plus `lean-beam run-with` / `lean-beam run-with-linear` for exact speculative chaining
+- use a real edit, save, then `lean-beam sync` when the speculative result should become source
+- use `lean-beam save` only for a synced workspace module
 - use `beam-client request-stream` for machine-readable streaming diagnostics or progress
 - use `lake build` when the task has become dependency freshness or final validation

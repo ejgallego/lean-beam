@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 beam_script="$PWD/scripts/beam"
-search_helper="$PWD/scripts/beam-lean-search"
+search_helper="$PWD/scripts/lean-beam-search"
 client="$PWD/.lake/build/bin/beam-client"
 
 if [ ! -x "$beam_script" ]; then
@@ -18,7 +18,7 @@ if [ ! -x "$beam_script" ]; then
 fi
 
 if [ ! -x "$search_helper" ]; then
-  echo "missing beam lean search helper at $search_helper" >&2
+  echo "missing beam search helper at $search_helper" >&2
   exit 1
 fi
 
@@ -1010,7 +1010,7 @@ EOF
   system_readlink="$(command -v readlink)"
   mkdir -p "$portable_wrapper_bin"
   ln -sf "$beam_script" "$portable_wrapper_bin/beam"
-  ln -sf "$search_helper" "$portable_wrapper_bin/beam-lean-search"
+  ln -sf "$search_helper" "$portable_wrapper_bin/lean-beam-search"
   cat > "$portable_wrapper_bin/readlink" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1031,7 +1031,7 @@ EOF
     exit 1
   fi
 
-  portable_helper_root="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/beam-lean-search" mint HandleSmoke.lean 0 27 "constructor")"
+  portable_helper_root="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/lean-beam-search" mint HandleSmoke.lean 0 27 "constructor")"
   if [ "$(RUNAT_JSON_PAYLOAD="$portable_helper_root" read_json_text_field ok)" != "true" ]; then
     echo "expected symlinked helper to work when readlink -f is unavailable" >&2
     printf '%s\n' "$portable_helper_root" >&2

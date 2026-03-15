@@ -108,8 +108,10 @@ assert_runtime_layout() {
   assert_file "$runtime_root/libexec/beam-client"
   assert_file "$runtime_root/libexec/librunAt_RunAt.so"
   assert_not_exists "$runtime_root/.lake/build"
-  assert_file "$runtime_root/bin/beam"
-  assert_file "$runtime_root/bin/beam-lean-search"
+  assert_file "$runtime_root/bin/lean-beam"
+  assert_file "$runtime_root/bin/lean-beam-search"
+  assert_not_exists "$runtime_root/bin/beam"
+  assert_not_exists "$runtime_root/bin/beam-lean-search"
 }
 
 assert_manifest_metadata() {
@@ -302,22 +304,24 @@ assert_not_exists "$BEAM_INSTALL_ROOT/state"
 expected_source_commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
 install_layout_json="$(cd "$source_checkout" && ./.lake/build/bin/beam-cli install-layout)"
 
-installed_beam="$HOME/.local/bin/beam"
-installed_helper="$HOME/.local/bin/beam-lean-search"
+installed_lean_beam="$HOME/.local/bin/lean-beam"
+installed_helper="$HOME/.local/bin/lean-beam-search"
 installed_runtime_root="$BEAM_INSTALL_ROOT/current"
 
-if [ ! -L "$installed_beam" ]; then
-  echo "expected installed beam symlink at $installed_beam" >&2
+if [ ! -L "$installed_lean_beam" ]; then
+  echo "expected installed lean-beam symlink at $installed_lean_beam" >&2
   exit 1
 fi
 
 if [ ! -L "$installed_helper" ]; then
-  echo "expected installed beam-lean-search symlink at $installed_helper" >&2
+  echo "expected installed lean-beam-search symlink at $installed_helper" >&2
   exit 1
 fi
 
-assert_symlink_target "$installed_beam" "$installed_runtime_root/bin/beam"
-assert_symlink_target "$installed_helper" "$installed_runtime_root/bin/beam-lean-search"
+assert_symlink_target "$installed_lean_beam" "$installed_runtime_root/bin/lean-beam"
+assert_symlink_target "$installed_helper" "$installed_runtime_root/bin/lean-beam-search"
+assert_not_exists "$HOME/.local/bin/beam"
+assert_not_exists "$HOME/.local/bin/beam-lean-search"
 assert_runtime_layout "$installed_runtime_root"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 installed_version_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$installed_runtime_root")"
@@ -354,8 +358,8 @@ BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$insta
 
 blocked_home="$tmp_root/blocked-home"
 blocked_install_root="$tmp_root/blocked-install-root"
-blocked_beam_dir="$blocked_home/.local/bin/beam"
-mkdir -p "$blocked_beam_dir" "$blocked_install_root"
+blocked_lean_beam_dir="$blocked_home/.local/bin/lean-beam"
+mkdir -p "$blocked_lean_beam_dir" "$blocked_install_root"
 blocked_wrapper_err="$(mktemp "$tmp_root/install-wrapper-dir-XXXXXX")"
 if (
   cd "$source_checkout"
@@ -367,17 +371,19 @@ if (
   remove_tmp_file "$blocked_wrapper_err"
   exit 1
 fi
-if ! grep -q "refusing to replace directory at $blocked_beam_dir" "$blocked_wrapper_err"; then
+if ! grep -q "refusing to replace directory at $blocked_lean_beam_dir" "$blocked_wrapper_err"; then
   echo "expected wrapper-directory install failure to explain the refusal" >&2
   cat "$blocked_wrapper_err" >&2
   remove_tmp_file "$blocked_wrapper_err"
   exit 1
 fi
 remove_tmp_file "$blocked_wrapper_err"
-if [ ! -d "$blocked_beam_dir" ]; then
+if [ ! -d "$blocked_lean_beam_dir" ]; then
   echo "expected blocked wrapper directory to remain untouched" >&2
   exit 1
 fi
+assert_not_exists "$blocked_home/.local/bin/lean-beam-search"
+assert_not_exists "$blocked_home/.local/bin/beam"
 assert_not_exists "$blocked_home/.local/bin/beam-lean-search"
 assert_not_exists "$blocked_install_root/current"
 assert_not_exists "$blocked_install_root/versions"
@@ -388,14 +394,14 @@ remove_tmp_tree "$source_checkout"
 project_root="$tmp_root/external-project"
 rsync -a tests/save_olean_project/ "$project_root"/
 
-supported_out="$("$installed_beam" supported-toolchains lean)"
+supported_out="$("$installed_lean_beam" supported-toolchains)"
 if ! printf '%s\n' "$supported_out" | grep -qx "$toolchain"; then
-  echo "expected supported-toolchains lean to include the pinned repo toolchain" >&2
+  echo "expected supported-toolchains to include the pinned repo toolchain" >&2
   printf '%s\n' "$supported_out" >&2
   exit 1
 fi
 
-doctor_out="$("$installed_beam" --root "$project_root" doctor lean)"
+doctor_out="$("$installed_lean_beam" --root "$project_root" doctor)"
 if ! printf '%s\n' "$doctor_out" | grep -q 'project toolchain supported: true'; then
   echo "expected installed wrapper doctor lean to report a supported project toolchain" >&2
   printf '%s\n' "$doctor_out" >&2
@@ -436,7 +442,7 @@ unsupported_project_root="$tmp_root/external-project-unsupported"
 rsync -a tests/save_olean_project/ "$unsupported_project_root"/
 printf 'leanprover/lean4:v4.26.0\n' > "$unsupported_project_root/lean-toolchain"
 
-unsupported_doctor_out="$("$installed_beam" --root "$unsupported_project_root" doctor lean)"
+unsupported_doctor_out="$("$installed_lean_beam" --root "$unsupported_project_root" doctor)"
 if ! printf '%s\n' "$unsupported_doctor_out" | grep -q 'project toolchain supported: false'; then
   echo "expected doctor lean to report unsupported toolchains explicitly" >&2
   printf '%s\n' "$unsupported_doctor_out" >&2
@@ -444,7 +450,7 @@ if ! printf '%s\n' "$unsupported_doctor_out" | grep -q 'project toolchain suppor
 fi
 
 unsupported_err="$(mktemp "$tmp_root/install-unsupported-toolchain-XXXXXX")"
-if "$installed_beam" --root "$unsupported_project_root" ensure lean >"$unsupported_err" 2>&1; then
+if "$installed_lean_beam" --root "$unsupported_project_root" ensure >"$unsupported_err" 2>&1; then
   echo "expected installed wrapper ensure lean to reject an unsupported toolchain" >&2
   cat "$unsupported_err" >&2
   remove_tmp_file "$unsupported_err"
@@ -456,7 +462,8 @@ if ! grep -q 'unsupported Lean toolchain: leanprover/lean4:v4.26.0' "$unsupporte
   remove_tmp_file "$unsupported_err"
   exit 1
 fi
-if ! grep -q 'run `beam supported-toolchains lean` to list the validated toolchains' "$unsupported_err"; then
+# shellcheck disable=SC2016
+if ! grep -q 'run `lean-beam supported-toolchains` to list the validated toolchains' "$unsupported_err"; then
   echo "expected unsupported toolchain failure to advertise the support registry command" >&2
   cat "$unsupported_err" >&2
   remove_tmp_file "$unsupported_err"
@@ -471,7 +478,7 @@ remove_tmp_file "$unsupported_err"
 )
 
 stale_sync_err="$(mktemp "$tmp_root/install-stale-sync-XXXXXX")"
-if "$installed_beam" --root "$project_root" lean-sync SaveSmoke/A.lean >"$stale_sync_err" 2>&1; then
+if "$installed_lean_beam" --root "$project_root" sync SaveSmoke/A.lean >"$stale_sync_err" 2>&1; then
   echo "expected installed wrapper lean-sync to fail on a stale imported target" >&2
   cat "$stale_sync_err" >&2
   remove_tmp_file "$stale_sync_err"
@@ -501,7 +508,7 @@ import SaveSmoke.B
 #check bVal
 EOF
 
-standalone_sync="$("$installed_beam" --root "$project_root_standalone" lean-sync StandaloneSaveSmoke.lean)"
+standalone_sync="$("$installed_lean_beam" --root "$project_root_standalone" sync StandaloneSaveSmoke.lean)"
 if ! printf '%s\n' "$standalone_sync" | python3 -c 'import json,sys; payload=json.load(sys.stdin); sys.exit(0 if payload.get("error") is None else 1)'; then
   echo "expected installed wrapper lean-sync to succeed on a standalone file the daemon can open" >&2
   printf '%s\n' "$standalone_sync" >&2
@@ -509,7 +516,7 @@ if ! printf '%s\n' "$standalone_sync" | python3 -c 'import json,sys; payload=jso
 fi
 
 standalone_save_err="$(mktemp "$tmp_root/install-standalone-save-XXXXXX")"
-if "$installed_beam" --root "$project_root_standalone" lean-save StandaloneSaveSmoke.lean >"$standalone_save_err" 2>&1; then
+if "$installed_lean_beam" --root "$project_root_standalone" save StandaloneSaveSmoke.lean >"$standalone_save_err" 2>&1; then
   echo "expected installed wrapper lean-save to reject a standalone file outside the Lake module graph" >&2
   cat "$standalone_save_err" >&2
   remove_tmp_file "$standalone_save_err"

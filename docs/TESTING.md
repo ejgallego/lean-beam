@@ -31,13 +31,13 @@ Beam daemon integration.
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), including whitelisted request
   success, stdin JSON extras, stats accounting, and rejection of user-supplied `textDocument` /
   `position` overrides
-- explicit `lean-sync` regression coverage for diagnostics-wait behavior and compact
+- explicit `lean-beam sync` regression coverage for diagnostics-wait behavior and compact
   `fileProgress.done` reporting in [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh),
   including stale-import cases where the diagnostics barrier must fail instead of reporting a
   partial success
 - wrapper coverage for alpha Lean handle mint / continue / linear-continue / release flows in
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
-- wrapper coverage for the installed `beam-lean-search` helper in
+- wrapper coverage for the installed `lean-beam-search` helper in
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
 - zero-build save regression coverage in [tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh),
   including exact-target replay, downstream importer reuse after daemon shutdown, and a timed

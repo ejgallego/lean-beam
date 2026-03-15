@@ -270,7 +270,7 @@ private def ensureSupportedLeanToolchain (home : System.FilePath) (toolchain : S
     throw <| IO.userError <| String.intercalate "\n" [
       s!"unsupported Lean toolchain: {toolchain}",
       s!"supported toolchain registry: {path}",
-      "run `beam supported-toolchains lean` to list the validated toolchains"
+      "run `lean-beam supported-toolchains` to list the validated toolchains"
     ]
 
 private def boolText (value : Bool) : String :=
@@ -322,7 +322,7 @@ private def installRuntimePaths : List String :=
     "libexec/librunAt_RunAt.so", ".lake/packages"]
 
 private def installWrapperPaths : List String :=
-  ["bin/beam", "bin/beam-lean-search"]
+  ["bin/lean-beam", "bin/lean-beam-search"]
 
 private def installLayout : InstallLayout :=
   {
@@ -1366,7 +1366,7 @@ private def printSupportedToolchains (home : System.FilePath) (backendName : Str
       for toolchain in toolchains do
         IO.println toolchain
   | _ =>
-      throw <| IO.userError "usage: beam supported-toolchains lean"
+      throw <| IO.userError "usage: lean-beam supported-toolchains"
 
 private def printInstallLayout : IO Unit := do
   printJsonLine (toJson installLayout)

@@ -1,19 +1,19 @@
 
 Quick Start
-  beam ensure lean
-  beam lean-run-at "Foo.lean" 10 2 "exact trivial"
+  lean-beam ensure
+  lean-beam run-at "Foo.lean" 10 2 "exact trivial"
 
 After Saving A Real Edit
-  beam lean-sync "Foo.lean"
-  beam lean-save "MyPkg/Sub/Module.lean"
+  lean-beam sync "Foo.lean"
+  lean-beam save "MyPkg/Sub/Module.lean"
 
 Exact Continuation
-  Separate lean-run-at calls do not chain.
+  Separate lean-beam run-at calls do not chain.
   For exact continuation from one speculative state:
-  beam lean-run-at-handle "Foo.lean" 10 2 "constructor"
+  lean-beam run-at-handle "Foo.lean" 10 2 "constructor"
 
 Diagnostics
-  lean-sync / lean-save / lean-close-save stream errors by default
+  lean-beam sync / lean-beam save / lean-beam close-save stream errors by default
   add +full to include warnings, info, and hints
   wrapper stderr is human-facing
   beam-client request-stream is the machine-readable surface

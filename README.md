@@ -81,8 +81,8 @@ For programmatic local consumers, the preferred stream surface is
 On top of the Beam daemon, this repo ships local command surfaces:
 
 - `lake exe beam-cli`
-- [scripts/beam](scripts/beam)
-- [scripts/beam-lean-search](scripts/beam-lean-search)
+- [scripts/lean-beam](scripts/lean-beam)
+- [scripts/lean-beam-search](scripts/lean-beam-search)
 
 This is the intended local entry point for experimentation today.
 
@@ -142,15 +142,15 @@ The concrete public types live in [RunAt/Protocol.lean](RunAt/Protocol.lean).
 
 ## Lean-Run-At Semantics
 
-`lean-run-at` is a speculative execution request against one current saved file snapshot. It is
+`lean-beam run-at` is a speculative execution request against one current saved file snapshot. It is
 not a source edit operation.
 
 Three common misreadings to avoid:
 
-- a successful `lean-run-at` does not imply a full-file diagnostics barrier for the rest of the
-  file; use `lean-sync` when you need diagnostics for the current saved file version
-- a successful `lean-run-at` does not make its speculative text become the basis of the next probe;
-  use `lean-run-at-handle` plus `lean-run-with` / `lean-run-with-linear` when exact continuation
+- a successful `lean-beam run-at` does not imply a full-file diagnostics barrier for the rest of the
+  file; use `lean-beam sync` when you need diagnostics for the current saved file version
+- a successful `lean-beam run-at` does not make its speculative text become the basis of the next probe;
+  use `lean-beam run-at-handle` plus `lean-beam run-with` / `lean-beam run-with-linear` when exact continuation
   matters
 - probing at an indented empty line does not make the wrapper synthesize indentation for you; the
   speculative text is taken as provided, so include the exact whitespace-sensitive text yourself or
@@ -158,11 +158,11 @@ Three common misreadings to avoid:
 
 In short:
 
-- `lean-run-at` is for trying Lean text without editing the file
-- `lean-sync` is the explicit on-disk edit barrier with diagnostics
+- `lean-beam run-at` is for trying Lean text without editing the file
+- `lean-beam sync` is the explicit on-disk edit barrier with diagnostics
 - handle commands are the alpha path for chaining speculative state exactly
-- separate `lean-run-at` calls do not chain through hidden state; exact chaining requires
-  `lean-run-at-handle` plus `lean-run-with` or `lean-run-with-linear`
+- separate `lean-beam run-at` calls do not chain through hidden state; exact chaining requires
+  `lean-beam run-at-handle` plus `lean-beam run-with` or `lean-beam run-with-linear`
 
 For worked examples and the current “commit speculative result” workflow, see:
 
@@ -175,7 +175,7 @@ For worked examples and the current “commit speculative result” workflow, se
 
 `runAt` uses Lean/LSP `Position` semantics for `line` and `character`.
 
-For the CLI, that means the `lean-run-at` and `lean-run-at-handle` arguments are passed straight
+For the CLI, that means the `lean-beam run-at` and `lean-beam run-at-handle` arguments are passed straight
 through as the request `position`; they are not reinterpreted as editor-specific line numbers,
 byte offsets, or parser-token offsets.
 
@@ -184,7 +184,7 @@ Two failure modes matter:
 - `position ... is outside the document`: the requested line/character is not a valid Lean/LSP
   position for the current file text
 - `no command or tactic snapshot`: the position is in the document, but Lean has no usable
-  execution basis there for `lean-run-at`
+  execution basis there for `lean-beam run-at`
 
 Practical consequence:
 
@@ -192,7 +192,7 @@ Practical consequence:
 - on a truly empty line, only character `0` is valid; character `1` is already outside the document
 - on an indented blank line, use the actual existing indentation width if you probe after the spaces,
   or use character `0` and include the indentation in the speculative text yourself
-- valid probe positions are not arbitrary file coordinates; `lean-run-at` needs a command basis or
+- valid probe positions are not arbitrary file coordinates; `lean-beam run-at` needs a command basis or
   proof/tactic snapshot there, or one Lean can recover from nearby syntax
 - positions inside proof bodies usually work for tactic execution
 - positions on standalone comments, blank lines, and many declaration headers do not have a usable
@@ -216,8 +216,8 @@ to manage explicit environment or proof-state ids themselves.
 - [Beam/Broker/](Beam/Broker): local Beam-daemon support for Lean workflows
 - [Beam/Cli.lean](Beam/Cli.lean): public `beam` CLI and daemon orchestration
 - [RunAtTest/](RunAtTest): scenario, handle, and daemon regression support
-- [scripts/beam](scripts/beam): thin wrapper around the `beam-cli` executable
-- [scripts/beam-lean-search](scripts/beam-lean-search): shell helper for handle-based search workflows
+- [scripts/lean-beam](scripts/lean-beam): thin wrapper around the `beam-cli` executable
+- [scripts/lean-beam-search](scripts/lean-beam-search): shell helper for handle-based search workflows
 - [tests/](tests): interactive, scenario, and daemon regression coverage
 - [AGENTS.md](AGENTS.md): repo-specific instructions for coding agents
 
@@ -273,7 +273,7 @@ Use the commands/helpers if:
 
 - you want the easiest local workflow today
 - you are scripting from bash or another process runner
-- you want `lean-sync`, `lean-save`, or handle search helpers without writing your own adapter
+- you want `lean-beam sync`, `lean-beam save`, or handle search helpers without writing your own adapter
 
 ## Quick Start
 
@@ -282,8 +282,8 @@ Today the practical outside-user surface is the command layer.
 From another Lean project, call the wrapper by absolute path:
 
 ```bash
-/path/to/lean-beam/scripts/beam ensure lean
-/path/to/lean-beam/scripts/beam lean-run-at "Foo.lean" 10 2 "exact trivial"
+/path/to/lean-beam/scripts/lean-beam ensure
+/path/to/lean-beam/scripts/lean-beam run-at "Foo.lean" 10 2 "exact trivial"
 ```
 
 If you want the wrapper on `PATH`, install it with:
@@ -303,28 +303,28 @@ The installed skill entrypoints are:
 - Lean skill surface: [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md)
 - Rocq skill surface (experimental, low-profile): [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md)
 
-For the Lean skill, the current command families are inspection (`lean-hover`, `lean-goals-*`),
-speculative execution (`lean-run-at`), real-edit boundary and checkpointing (`lean-sync`,
-`lean-save`, `lean-close-save`), and alpha follow-up continuation (`lean-run-at-handle`,
-`lean-run-with`, `lean-run-with-linear`, `lean-release`, `beam-lean-search`).
+For the Lean skill, the current command families are inspection (`lean-beam hover`, `lean-beam goals-*`),
+speculative execution (`lean-beam run-at`), real-edit boundary and checkpointing (`lean-beam sync`,
+`lean-beam save`, `lean-beam close-save`), and alpha follow-up continuation (`lean-beam run-at-handle`,
+`lean-beam run-with`, `lean-beam run-with-linear`, `lean-beam release`, `lean-beam-search`).
 
 First workflow to remember:
 
-- inspect existing code with `lean-hover`
-- inspect existing proof state with `lean-goals-prev` / `lean-goals-after`
-- try speculative Lean text with `lean-run-at`
-- after a real edit saved to disk, run `lean-sync` on that same file or module path
-- use `lean-save` only for a synced workspace module path such as `MyPkg/Sub/Module.lean`;
-  `lean-close-save` is the same checkpoint plus close
-- `lean-save` validates and checkpoints only the module you save; it does not validate downstream
+- inspect existing code with `lean-beam hover`
+- inspect existing proof state with `lean-beam goals-prev` / `lean-beam goals-after`
+- try speculative Lean text with `lean-beam run-at`
+- after a real edit saved to disk, run `lean-beam sync` on that same file or module path
+- use `lean-beam save` only for a synced workspace module path such as `MyPkg/Sub/Module.lean`;
+  `lean-beam close-save` is the same checkpoint plus close
+- `lean-beam save` validates and checkpoints only the module you save; it does not validate downstream
   importers
-- `lean-sync` / `lean-save` / `lean-close-save` stream errors by default; add `+full` when you also want warnings, info, and hints
+- `lean-beam sync` / `lean-beam save` / `lean-beam close-save` stream errors by default; add `+full` when you also want warnings, info, and hints
 - for tooling, use `beam-client request-stream`; wrapper `stderr` is human-facing
-- for daemon or save-state trouble, inspect `beam open-files` and `beam doctor lean`
+- for daemon or save-state trouble, inspect `lean-beam open-files` and `lean-beam doctor`
 
 Current local packaging is:
 
-- one installer for the `beam` wrapper and self-contained runtime, with optional bundled Codex and
+- one installer for the `lean-beam` wrapper and self-contained runtime, with optional bundled Codex and
   Claude skill installation flags
 - the documented agent-facing workflow here is Lean-only
 - repo-local `AGENTS.md` guidance for Codex
@@ -352,10 +352,10 @@ Installation procedure:
 
 That installer:
 
-- puts `beam` in `~/.local/bin`
-- puts `beam-lean-search` in `~/.local/bin`
+- puts `lean-beam` in `~/.local/bin`
+- puts `lean-beam-search` in `~/.local/bin`
 - stages an immutable runtime under `BEAM_INSTALL_ROOT`, defaulting to `~/.local/share/beam`
-- points `~/.local/bin/beam` and `beam-lean-search` at `BEAM_INSTALL_ROOT/current`
+- points `~/.local/bin/lean-beam` and `lean-beam-search` at `BEAM_INSTALL_ROOT/current`
 - requires `elan` on `PATH` and prebuilds the selected supported Lean bundle(s) under
   `BEAM_INSTALL_ROOT/state/install-bundles`
 - requires `BEAM_INSTALL_ROOT` to be absolute when overridden
@@ -384,7 +384,7 @@ The important terminology is:
   `BEAM_INSTALL_ROOT/state/install-bundles`
 - local runtime bundle: the same kind of toolchain-keyed bundle, but built on demand for one target project under that project's `.beam` state
 
-There is not a separate "global plugin" mode. `beam` always resolves a full Lean bundle for one
+There is not a separate "global plugin" mode. `lean-beam` always resolves a full Lean bundle for one
 toolchain, containing the Beam daemon binary, the CLI client binary, and the Lean plugin shared
 library. The only question is which cache location provides that bundle first.
 
@@ -392,25 +392,25 @@ library. The only question is which cache location provides that bundle first.
 
 Resolution order for Lean is:
 
-1. Installed wrapper resolution: the installer writes `~/.local/bin/beam` as a symlink to
-   `BEAM_INSTALL_ROOT/current/bin/beam`; that wrapper sets `BEAM_HOME` to the installed runtime
+1. Installed wrapper resolution: the installer writes `~/.local/bin/lean-beam` as a symlink to
+   `BEAM_INSTALL_ROOT/current/bin/lean-beam`; that wrapper sets `BEAM_HOME` to the installed runtime
    and `BEAM_INSTALL_BUNDLE_DIR` to `BEAM_INSTALL_ROOT/state/install-bundles` unless you override
    them explicitly.
-2. Project-root resolution: `beam --root PATH ...` uses that root directly; otherwise the CLI
+2. Project-root resolution: `lean-beam --root PATH ...` uses that root directly; otherwise the CLI
    searches upward from the current directory for a Lean project root.
 3. Installed-bundle lookup: if `BEAM_INSTALL_BUNDLE_DIR` is set, only that installed cache root is
    checked. The installed wrapper sets this to `BEAM_INSTALL_ROOT/state/install-bundles` by
    default.
-4. `beam` only serves Lean toolchains listed in `supported-lean-toolchains`. Use
-   `beam supported-toolchains lean` to inspect that allowlist.
-5. If a matching installed bundle already exists for a supported target Lean toolchain, `beam`
+4. `lean-beam` only serves Lean toolchains listed in `supported-lean-toolchains`. Use
+   `lean-beam supported-toolchains` to inspect that allowlist.
+5. If a matching installed bundle already exists for a supported target Lean toolchain, `lean-beam`
    uses it.
-6. If no installed bundle matches, `beam` falls back to the local runtime bundle cache under
+6. If no installed bundle matches, `lean-beam` falls back to the local runtime bundle cache under
    `BEAM_BUNDLE_DIR` when set, otherwise under `<root>/.beam/bundles`, and builds that bundle on
    demand for that supported toolchain.
 7. Unsupported toolchains fail early before bundle reuse or build.
 8. Daemon control metadata lives under `BEAM_CONTROL_DIR` when set, otherwise under
-   `<root>/.beam`, with one daemon registry per project root. Under `BEAM_CONTROL_DIR`, `beam`
+   `<root>/.beam`, with one daemon registry per project root. Under `BEAM_CONTROL_DIR`, `lean-beam`
    uses a per-root subdirectory rather than writing the registry file directly at the top level.
 
 In practice this means:
@@ -429,76 +429,76 @@ In practice this means:
 The current local command surface sits on top of the Beam daemon:
 
 - `lake exe beam-cli`
-- `scripts/beam`
-- `scripts/beam-lean-search`
+- `scripts/lean-beam`
+- `scripts/lean-beam-search`
 
-`beam` is the intended local entry point for experimentation. The Lean CLI owns project-root
+`lean-beam` is the intended Lean entry point for experimentation. The Lean CLI owns project-root
 inference, daemon lifecycle, registry handling, and toolchain-keyed bundle selection. The shell
-wrapper is only a thin launcher for that executable. `beam-lean-search` is a small shell helper on
+wrapper is only a thin launcher for that executable. `lean-beam-search` is a small shell helper on
 top of the handle commands.
-For Lean probes, `beam lean-run-at` wraps the standalone method `$/lean/runAt`, and handle
+For Lean probes, `lean-beam run-at` wraps the standalone method `$/lean/runAt`, and handle
 follow-ups map to `$/lean/runWith` / `$/lean/releaseHandle`.
 
 Chaining rule:
 
-- repeated `lean-run-at` calls are independent speculative probes on the current saved file snapshot
-- if exact speculative continuation matters, use `lean-run-at-handle` and continue with
-  `lean-run-with` or `lean-run-with-linear`
+- repeated `lean-beam run-at` calls are independent speculative probes on the current saved file snapshot
+- if exact speculative continuation matters, use `lean-beam run-at-handle` and continue with
+  `lean-beam run-with` or `lean-beam run-with-linear`
 
 Common commands:
 
 ```bash
-beam ensure lean
-beam lean-run-at "Foo.lean" 10 2 "exact trivial"
-beam lean-run-at-handle "Foo.lean" 10 2 "constructor"
-beam lean-hover "Foo.lean" 10 2
-beam lean-goals-prev "Foo.lean" 10 2
-beam lean-goals-after "Foo.lean" 10 2
-beam lean-sync "MyPkg/Sub/Module.lean"
-beam lean-deps "Foo.lean"
-beam lean-save "MyPkg/Sub/Module.lean"
-beam lean-close-save "MyPkg/Sub/Module.lean"
-beam open-files
-beam supported-toolchains lean
-beam doctor lean
+lean-beam ensure
+lean-beam run-at "Foo.lean" 10 2 "exact trivial"
+lean-beam run-at-handle "Foo.lean" 10 2 "constructor"
+lean-beam hover "Foo.lean" 10 2
+lean-beam goals-prev "Foo.lean" 10 2
+lean-beam goals-after "Foo.lean" 10 2
+lean-beam sync "MyPkg/Sub/Module.lean"
+lean-beam deps "Foo.lean"
+lean-beam save "MyPkg/Sub/Module.lean"
+lean-beam close-save "MyPkg/Sub/Module.lean"
+lean-beam open-files
+lean-beam supported-toolchains
+lean-beam doctor
 ```
 
 Read the Lean wrapper surface as this progression:
 
-- `lean-hover` inspects existing semantic information at one position
-- `lean-goals-prev` / `lean-goals-after` inspect existing proof state at one tactic position
-- `lean-run-at` tries one speculative Lean snippet on the current saved file snapshot
-- `lean-sync` is the explicit barrier after a real edit saved to disk
-- `lean-save` is `lean-sync` plus a zero-build checkpoint for one synced workspace module
-- `lean-save` validates only that saved module; it does not validate downstream importers
-- `lean-close-save` is `lean-save` plus closing the tracked file afterward
+- `lean-beam hover` inspects existing semantic information at one position
+- `lean-beam goals-prev` / `lean-beam goals-after` inspect existing proof state at one tactic position
+- `lean-beam run-at` tries one speculative Lean snippet on the current saved file snapshot
+- `lean-beam sync` is the explicit barrier after a real edit saved to disk
+- `lean-beam save` is `lean-beam sync` plus a zero-build checkpoint for one synced workspace module
+- `lean-beam save` validates only that saved module; it does not validate downstream importers
+- `lean-beam close-save` is `lean-beam save` plus closing the tracked file afterward
 
 Important wrapper rules:
 
-- separate `lean-run-at` calls do not chain through hidden state
-- exact speculative chaining requires `lean-run-at-handle` plus `lean-run-with` or
-  `lean-run-with-linear`
-- `lean-save` is module-oriented, not file-oriented; standalone `.lean` files outside the workspace
-  package graph are valid `lean-sync` targets but not valid `lean-save` targets
-- if daemon or save-state behavior looks wrong, inspect `beam open-files` and `beam doctor lean`
+- separate `lean-beam run-at` calls do not chain through hidden state
+- exact speculative chaining requires `lean-beam run-at-handle` plus `lean-beam run-with` or
+  `lean-beam run-with-linear`
+- `lean-beam save` is module-oriented, not file-oriented; standalone `.lean` files outside the workspace
+  package graph are valid `lean-beam sync` targets but not valid `lean-beam save` targets
+- if daemon or save-state behavior looks wrong, inspect `lean-beam open-files` and `lean-beam doctor`
   before assuming the wrapper is confused
-- `lean-sync` transport success means the diagnostics barrier completed, not that the file is
+- `lean-beam sync` transport success means the diagnostics barrier completed, not that the file is
   error-free; `result.errorCount` / `result.warningCount` summarize fresh streamed diagnostics for
   this request, while `result.saveReady` plus `result.stateErrorCount` /
   `result.stateCommandErrorCount` summarize current save-readiness
-- by default `lean-sync`, `lean-save`, and `lean-close-save` stream only error diagnostics; `+full`
+- by default `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` stream only error diagnostics; `+full`
   widens that set to warnings, info, and hints
 - wrapper `stderr` is human-facing; `beam-client request-stream` is the machine-readable
   streamed surface
 
 `open-files` reports the files currently tracked by the live daemon for the current project,
 including `saved` / `notSaved`, direct Lean deps when available, checkpoint/save eligibility fields,
-and the last compact `fileProgress` observed for that tracked version. `doctor lean` is the
+and the last compact `fileProgress` observed for that tracked version. `lean-beam doctor` is the
 companion operational check for daemon health, toolchain support state, bundle source, and bundle
 key inputs.
 
 The wrapper also exposes alpha handle commands for exact continuation from speculative state, and
-the install script exposes `beam-lean-search` as a shorter shell helper on top of those same
+the install script exposes `lean-beam-search` as a shorter shell helper on top of those same
 handle commands.
 
 For programmatic consumers, the supported machine-readable surface is the broker JSON stream, not
@@ -515,11 +515,11 @@ That mode is the preferred local machine interface for tools that need streamed 
 progress.
 
 If the Lean worker cannot finish the diagnostics barrier, for example because imported targets are
-stale and rebuild failure prevents a stable session, `lean-sync` fails instead of reporting a
-partial success response. `lean-save` and `lean-close-save` refuse to proceed past that incomplete
+stale and rebuild failure prevents a stable session, `lean-beam sync` fails instead of reporting a
+partial success response. `lean-beam save` and `lean-beam close-save` refuse to proceed past that incomplete
 barrier.
 
-Expert-only unstable broker escape hatches such as `lean-request-at` are documented separately in
+Expert-only unstable broker escape hatches such as `lean-beam request-at` are documented separately in
 [docs/experimental.md](docs/experimental.md).
 
 For workflow examples and edge cases, see:
@@ -537,21 +537,21 @@ For workflow examples and edge cases, see:
 
 ## Notes
 
-- Daemon state lives in the long-running daemon process, not in the short-lived `beam` command.
+- Daemon state lives in the long-running daemon process, not in the short-lived `lean-beam` command.
 - The wrapper keeps one daemon per project root and records it in `<root>/.beam/beam-daemon.json` by
   default. If your project root is read-only, set `BEAM_CONTROL_DIR` to a writable path to keep
   daemon control metadata outside the project.
-- `beam open-files` reports the daemon's currently tracked documents for that project. If there is
+- `lean-beam open-files` reports the daemon's currently tracked documents for that project. If there is
   no live daemon yet, there is nothing to report.
-- `beam shutdown` only stops the current project's daemon; other project daemons are unaffected.
+- `lean-beam shutdown` only stops the current project's daemon; other project daemons are unaffected.
 - Lean plugin loading currently relies on shared-library support with `-Dexperimental.module=true`.
 - Lean bundles are toolchain-keyed. The wrapper does not try to make one `.so` work across multiple
   Lean toolchains; instead it builds and reuses one cached bundle per toolchain.
 - Supported Lean toolchains are listed in `supported-lean-toolchains`.
 - The supported fast path is the toolchain pinned by this repository's `lean-toolchain`, because
   the plugin uses internal Lean APIs and the installer prebuilds that bundle by default.
-- Unsupported Lean toolchains fail early. Use `beam supported-toolchains lean` to list the current
-  allowlist and `beam doctor lean` to inspect the selected toolchain, bundle source, and bundle
+- Unsupported Lean toolchains fail early. Use `lean-beam supported-toolchains` to list the current
+  allowlist and `lean-beam doctor` to inspect the selected toolchain, bundle source, and bundle
   key inputs.
 - Bundle rebuild keys use the selected toolchain, platform, and a source hash over the runtime
   source tree plus `lean-toolchain`, `lake-manifest.json`, and `supported-lean-toolchains`.
@@ -562,7 +562,7 @@ For workflow examples and edge cases, see:
   longer while the matching local fallback bundle is built.
 - The daemon is intentionally conservative across multi-file edits.
 - If you edit a file that is imported by the current target file, do not trust downstream `runAt`
-  results after `lean-save`; `lean-save` validates only the saved module, so rebuild before trusting
+  results after `lean-beam save`; `lean-beam save` validates only the saved module, so rebuild before trusting
   importers.
 - Opening a downstream file is not evidence that it is fresh.
 - Maintainer note: `RunAtTest/Broker/SmokeTest.lean` can compile disproportionately slowly after

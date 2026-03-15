@@ -4,7 +4,7 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
 
 ## Position Semantics
 
-- `beam lean-run-at` and `beam lean-run-at-handle` take Lean/LSP `Position` coordinates as
+- `lean-beam run-at` and `lean-beam run-at-handle` take Lean/LSP `Position` coordinates as
   `<line> <character>`
 - the wrapper passes those coordinates through directly; they are not editor-specific line numbers,
   byte offsets, or parser-token offsets
@@ -16,7 +16,7 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
   position for the current on-disk file
 - `no command or tactic snapshot` means the coordinate is in the document, but Lean has no usable
   execution basis there
-- valid probe positions are not arbitrary file coordinates; `lean-run-at` needs a command basis or
+- valid probe positions are not arbitrary file coordinates; `lean-beam run-at` needs a command basis or
   proof/tactic snapshot at that position, or one Lean can recover from nearby syntax
 - positions inside proof bodies are the safest choice for tactic probes
 - standalone comments, blank lines, and many declaration headers often do not have a usable basis
@@ -24,44 +24,44 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
   assume that from arbitrary file positions
 - those errors do not by themselves mean the Beam daemon is unhealthy
 - known-good proof probe in this repo:
-  `beam lean-run-at "tests/interactive/proofBasisBefore.lean" 2 2 "exact trivial"`
+  `lean-beam run-at "tests/interactive/proofBasisBefore.lean" 2 2 "exact trivial"`
 
 ## Command Details
 
 Continue from a stored handle:
 
 ```bash
-printf '%s\n' "$HANDLE_JSON" | beam lean-run-with "Foo.lean" - "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | beam lean-run-with-linear "Foo.lean" - "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | beam lean-release "Foo.lean" -
+printf '%s\n' "$HANDLE_JSON" | lean-beam run-with "Foo.lean" - "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | lean-beam run-with-linear "Foo.lean" - "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | lean-beam release "Foo.lean" -
 ```
 
 Short search helper:
 
 ```bash
-beam-lean-search mint "Foo.lean" 10 2 "constructor"
-printf '%s\n' "$HANDLE_JSON" | beam-lean-search branch "Foo.lean" "constructor"
-printf '%s\n' "$HANDLE_JSON" | beam-lean-search playout "Foo.lean" "exact trivial" "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | beam-lean-search release "Foo.lean"
+lean-beam-search mint "Foo.lean" 10 2 "constructor"
+printf '%s\n' "$HANDLE_JSON" | lean-beam-search branch "Foo.lean" "constructor"
+printf '%s\n' "$HANDLE_JSON" | lean-beam-search playout "Foo.lean" "exact trivial" "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | lean-beam-search release "Foo.lean"
 ```
 
 Inspect dependency order for multi-file edits:
 
 ```bash
-beam lean-deps "Foo.lean"
+lean-beam deps "Foo.lean"
 ```
 
 Inspect Lean type/term information at a specific position:
 
 ```bash
-beam lean-hover "Foo.lean" 10 2
+lean-beam hover "Foo.lean" 10 2
 ```
 
 Inspect Lean proof goals at an existing tactic position:
 
 ```bash
-beam lean-goals-prev "Foo.lean" 10 2
-beam lean-goals-after "Foo.lean" 10 2
+lean-beam goals-prev "Foo.lean" 10 2
+lean-beam goals-after "Foo.lean" 10 2
 ```
 
 These commands return structured goals in `result.goals`. A solved state uses
@@ -70,22 +70,22 @@ These commands return structured goals in `result.goals`. A solved state uses
 Checkpoint one synced workspace module without a full project build:
 
 ```bash
-beam lean-save "MyPkg/Sub/Module.lean"
-beam lean-close-save "MyPkg/Sub/Module.lean"
+lean-beam save "MyPkg/Sub/Module.lean"
+lean-beam close-save "MyPkg/Sub/Module.lean"
 ```
 
 These commands require a synced file that belongs to the current Lake workspace and resolves to a
 module in the package graph. A standalone `.lean` file that the daemon can open but Lake cannot map
-to a module is a valid `lean-sync` target, but not a valid `lean-save` target.
+to a module is a valid `lean-beam sync` target, but not a valid `lean-beam save` target.
 
 ## Save Eligibility
 
-When `lean-save` is valid:
+When `lean-beam save` is valid:
 
 - the file has already been synced successfully
 - the file belongs to the current Lake workspace package graph
 - Lake resolves that path to a module
-- `lean-save` means checkpointing a synced Lake module; it does not mean saving editor buffers or
+- `lean-beam save` means checkpointing a synced Lake module; it does not mean saving editor buffers or
   writing source text to disk
 
 What is not a valid checkpoint target:
@@ -95,53 +95,53 @@ What is not a valid checkpoint target:
 
 ## Source-File And Execution Model
 
-- `beam lean-run-at` and `beam lean-deps` do not edit `Foo.lean`
-- `beam lean-hover` is the stable read-only semantic inspection command for an existing position
-- `beam lean-goals-prev` and `beam lean-goals-after` are the stable read-only proof-state
+- `lean-beam run-at` and `lean-beam deps` do not edit `Foo.lean`
+- `lean-beam hover` is the stable read-only semantic inspection command for an existing position
+- `lean-beam goals-prev` and `lean-beam goals-after` are the stable read-only proof-state
   inspection commands for an existing tactic position
-- `lean-goals-prev` / `lean-goals-after` return `result.goals`, not speculative execution output,
+- `lean-beam goals-prev` / `lean-beam goals-after` return `result.goals`, not speculative execution output,
   and do not accept speculative text
 - `beam` only sees the on-disk file, not unsaved editor buffers
 - actual source edits happen through the normal file-edit workflow
 - after every real source edit to a Lean file, save the file in the normal editor/file sense and
-  then run `beam lean-sync "Foo.lean"`
-- treat `lean-sync` as the explicit supported boundary between real file edits and Beam daemon
+  then run `lean-beam sync "Foo.lean"`
+- treat `lean-beam sync` as the explicit supported boundary between real file edits and Beam daemon
   session state
-- `lean-sync` returns compact JSON on stdout, including final `result.errorCount` /
+- `lean-beam sync` returns compact JSON on stdout, including final `result.errorCount` /
   `result.warningCount`, and streams human diagnostics on stderr
 - if imported targets are stale or the Lean worker cannot finish that diagnostics barrier,
-  `lean-sync` fails; do not treat a failed sync as safe to follow with `lean-save`
-- `lean-sync` keeps machine-readable JSON on stdout; interactive progress text goes to stderr
-- every `beam lean-run-at` request is an isolated read-only probe against one on-disk document
+  `lean-beam sync` fails; do not treat a failed sync as safe to follow with `lean-beam save`
+- `lean-beam sync` keeps machine-readable JSON on stdout; interactive progress text goes to stderr
+- every `lean-beam run-at` request is an isolated read-only probe against one on-disk document
   version
-- `beam lean-run-at-handle` is the same style of isolated probe, but asks Lean to retain follow-up
+- `lean-beam run-at-handle` is the same style of isolated probe, but asks Lean to retain follow-up
   state
-- `beam lean-run-with` preserves the current handle and branches from it
-- `beam lean-run-with-linear` consumes the current handle and returns a successor handle for linear
+- `lean-beam run-with` preserves the current handle and branches from it
+- `lean-beam run-with-linear` consumes the current handle and returns a successor handle for linear
   continuation
-- `beam lean-release` explicitly drops a preserved handle
-- `beam-lean-search` is a small convenience wrapper around these same commands
+- `lean-beam release` explicitly drops a preserved handle
+- `lean-beam-search` is a small convenience wrapper around these same commands
 - the request may wait for the Lean snapshot at the requested position to finish elaborating; this
   is normal
 - the probe does not mutate the document's real elaboration state and does not create hidden state
   for the next probe
 - the Beam daemon may implicitly open or resync the file from disk before a probe, but that is not
   the supported readiness barrier after edits
-- use `lean-sync` when the workflow needs an explicit ready/fresh boundary; `lean-run-at` only
+- use `lean-beam sync` when the workflow needs an explicit ready/fresh boundary; `lean-beam run-at` only
   waits for the snapshot it needs
 - if the same document changes while a request or stored handle is pending, expect
   `contentModified` or handle invalidation instead of hidden reuse
-- `lean-save` / `lean-close-save` checkpoint the current synced Lake module only; they do not
+- `lean-beam save` / `lean-beam close-save` checkpoint the current synced Lake module only; they do not
   rebuild reverse dependencies or make downstream files fresh by themselves
 
 ## Diagnostics, Progress, And Request IDs
 
-- `lean-sync`, `lean-save`, and `lean-close-save` always stream fresh diagnostics for the current
+- `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` always stream fresh diagnostics for the current
   request
 - by default they stream only errors
 - add `+full` to widen the current request to warnings, info, and hints
 - the final JSON does not replay streamed diagnostics
-- when `lean-save` or `lean-close-save` returns `invalidParams` for document errors, the transport
+- when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages
 - wrapper `stderr` is the human-facing diagnostic surface
 - `beam-client request-stream ...` is the machine-facing streamed surface
@@ -162,28 +162,28 @@ What is not a valid checkpoint target:
 Treat `fileProgress` as observability, not as proof that every call is a full barrier.
 
 ```bash
-beam ensure lean
-sync_out="$(beam lean-sync "Foo.lean")"
+lean-beam ensure
+sync_out="$(lean-beam sync "Foo.lean")"
 printf '%s\n' "$sync_out"
 
-probe_out="$(beam lean-run-at "Foo.lean" 10 2 "exact trivial")"
+probe_out="$(lean-beam run-at "Foo.lean" 10 2 "exact trivial")"
 printf '%s\n' "$probe_out"
 ```
 
 Interpretation:
 
-- after `lean-sync`, expect top-level `fileProgress.done = true`
-- successful `lean-sync` transport does not mean the file is error-free; inspect
+- after `lean-beam sync`, expect top-level `fileProgress.done = true`
+- successful `lean-beam sync` transport does not mean the file is error-free; inspect
   `result.errorCount` / `result.warningCount` for fresh streamed diagnostics in this request, and
   inspect `result.saveReady` plus `result.stateErrorCount` / `result.stateCommandErrorCount` for
   current save-readiness
-- if `lean-sync` fails with an incomplete diagnostics barrier, fix the stale or broken dependency
-  state before relying on `lean-save` or downstream probes
-- after `lean-run-at`, top-level `fileProgress` may exist with `done = false`; that is normal
+- if `lean-beam sync` fails with an incomplete diagnostics barrier, fix the stale or broken dependency
+  state before relying on `lean-beam save` or downstream probes
+- after `lean-beam run-at`, top-level `fileProgress` may exist with `done = false`; that is normal
   because the request only waited for its own target snapshot
-- use `lean-hover` for stable semantic inspection and `lean-goals-prev` / `lean-goals-after` for
-  existing proof state; use `lean-run-at` only when you need speculative execution
-- if you need a real ready/fresh boundary after edits, use `lean-sync`, not a successful probe
+- use `lean-beam hover` for stable semantic inspection and `lean-beam goals-prev` / `lean-beam goals-after` for
+  existing proof state; use `lean-beam run-at` only when you need speculative execution
+- if you need a real ready/fresh boundary after edits, use `lean-beam sync`, not a successful probe
 
 ## Cost Model
 
@@ -192,19 +192,19 @@ Write the on-disk document as `prefix ++ E ++ suffix`.
 - `N := |prefix| + |E| + |suffix|` is the full document length
 - `C := |E|` is the changed region length
 - the wrapper is cheap only after the per-root daemon and matching bundle already exist
-- `lean-run-at`, `lean-run-at-handle`, `lean-run-with`, and `lean-release` do not edit the file;
+- `lean-beam run-at`, `lean-beam run-at-handle`, `lean-beam run-with`, and `lean-beam release` do not edit the file;
   they are speculative checks on one current snapshot, so their cost is not a workspace rebuild cost
-- `lean-sync` always transmits the full current file text to Lean, so the wire/update cost is
+- `lean-beam sync` always transmits the full current file text to Lean, so the wire/update cost is
   `O(N)`, not `O(C)`, even when `C << N`
 - `lake build Foo.lean` is also at least `O(N)` in the target file length for that file
 - the intended win is avoiding repeated `lake build` loops and repeated cold starts, not making
   one-file rebuild asymptotically sublinear
-- `lean-save` and `lean-close-save` checkpoint one synced module after a completed barrier; they do
+- `lean-beam save` and `lean-beam close-save` checkpoint one synced module after a completed barrier; they do
   not rebuild reverse dependencies and they do not turn workspace freshness into an `O(C)` problem
 - first-use bundle resolution is the expensive outlier: if no installed bundle matches the
   toolchain, `beam` may build a local fallback bundle under `<root>/.beam/bundles`, which is real
   `lake build`
-- if imported targets are stale or broken, `lean-sync` / `lean-save` fail instead of silently
+- if imported targets are stale or broken, `lean-beam sync` / `lean-beam save` fail instead of silently
   paying dependency-cone rebuild cost
 
 ## Dependency Edits And Rebuild Boundary
@@ -213,12 +213,12 @@ If you edit `A.lean` and `B.lean` imports `A.lean`, a successful probe in `B.lea
 itself to prove the dependency cone is fresh.
 
 ```bash
-beam ensure lean
-beam lean-deps "B.lean"
+lean-beam ensure
+lean-beam deps "B.lean"
 
 # make a real edit in A.lean and save the source file to disk
-beam lean-sync "A.lean"
-beam lean-run-at "B.lean" 12 2 "#check someNameFromA"
+lean-beam sync "A.lean"
+lean-beam run-at "B.lean" 12 2 "#check someNameFromA"
 ```
 
 Rules:
@@ -240,14 +240,14 @@ Use `lake build` when:
 Use:
 
 ```bash
-beam open-files
-beam stats
-beam reset-stats
+lean-beam open-files
+lean-beam stats
+lean-beam reset-stats
 ```
 
-`beam open-files` shows the files currently tracked by the Beam daemon for the current project,
+`lean-beam open-files` shows the files currently tracked by the Beam daemon for the current project,
 along with `saved` / `notSaved`, direct Lean deps when available, whether the current synced version
-has been checkpointed with `lean-save`, and Lean save preflight fields `saveEligible`,
+has been checkpointed with `lean-beam save`, and Lean save preflight fields `saveEligible`,
 `saveReason`, and, when applicable, `saveModule`. For files the Beam daemon already knows about, the
 wrapper checks that status incrementally against the current on-disk text, and `open-files` also
 reports the last compact `fileProgress` observed for that tracked version.
@@ -258,4 +258,4 @@ The Beam daemon is helping if:
 
 - many local probes happen before one edit
 - `lake build` is not the inner loop
-- stats show more `lean-run-at` / `lean-save` than full builds
+- stats show more `lean-beam run-at` / `lean-beam save` than full builds

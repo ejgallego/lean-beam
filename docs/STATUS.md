@@ -14,11 +14,11 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - optional follow-up execution through `$/lean/runWith` and `$/lean/releaseHandle`
 - local Beam daemon/client pair for Lean and Rocq workflows
 - alpha Lean wrapper commands for follow-up handle continuation and release
-- installed `beam-lean-search` helper for shorter shell branching/playout workflows
-- explicit Lean `lean-sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
-- `beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
+- installed `lean-beam-search` helper for shorter shell branching/playout workflows
+- explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
+- `lean-beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with
-  `lean-save`, and Lean save preflight fields `saveEligible` / `saveReason` / `saveModule`;
+  `lean-beam save`, and Lean save preflight fields `saveEligible` / `saveReason` / `saveModule`;
   already-known tracked files are checked incrementally against the on-disk text and carry the last
   observed compact `fileProgress`
 - compact Lean Beam-daemon `fileProgress` reporting on other slow Lean wrapper calls when matching
@@ -45,14 +45,14 @@ long-term contract. Current handle behavior is:
 - invalidated by same-document edits
 - invalidated by document close
 - invalidated by worker restart or Beam daemon restart
-- exact continuation requires an explicit handle path; separate `lean-run-at` calls do not chain
+- exact continuation requires an explicit handle path; separate `lean-beam run-at` calls do not chain
   through hidden state
 
-The local Beam daemon convenience layer is also still alpha. In particular, `lean-sync` is now the
+The local Beam daemon convenience layer is also still alpha. In particular, `lean-beam sync` is now the
 supported on-disk edit barrier for Lean files: it waits for diagnostics for the synced version and
 streams fresh diagnostics to clients such as the CLI without replaying them in the final JSON, and
 returns a compact `fileProgress` summary rather than exposing the full underlying LSP notification
-stream. By default `lean-sync`, `lean-save`, and `lean-close-save` stream only errors for the
+stream. By default `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` stream only errors for the
 current request; `+full` widens that stream to warnings, info, and hints. The Beam daemon now also
 forwards compact `fileProgress` updates live to streaming clients. For programmatic local consumers,
 the preferred machine-readable surface is the JSON stream exposed
@@ -66,13 +66,13 @@ more fragile than the base one-shot request. Rocq support remains narrower and d
 expose an equivalent public sync command in the wrapper.
 
 If Lean cannot reach a completed diagnostics barrier for the synced version, for example because an
-imported target is stale and rebuild failure kills the worker session, `lean-sync` now fails rather
-than reporting a partial success. `lean-save` and `lean-close-save` refuse to proceed past that
+imported target is stale and rebuild failure kills the worker session, `lean-beam sync` now fails rather
+than reporting a partial success. `lean-beam save` and `lean-beam close-save` refuse to proceed past that
 incomplete barrier.
 
-`lean-sync`, `lean-save`, and `lean-close-save` should be read as a progression rather than as
-unrelated commands: `lean-sync` establishes the synced diagnostics-complete saved file snapshot,
-`lean-save` checkpoints that snapshot for one module, and `lean-close-save` does the same
+`lean-beam sync`, `lean-beam save`, and `lean-beam close-save` should be read as a progression rather than as
+unrelated commands: `lean-beam sync` establishes the synced diagnostics-complete saved file snapshot,
+`lean-beam save` checkpoints that snapshot for one module, and `lean-beam close-save` does the same
 checkpoint and then closes the tracked file. This remains a narrower contract than a full batch
 rebuild: the save path reports the saved `version` and `sourceHash`. For an unchanged file,
 `lake build Foo.lean` should replay that saved module, and Lake should be able to reuse it when
@@ -80,11 +80,11 @@ rebuilding importers. If the file changes during the save, the resulting checkpo
 coherent for the older snapshot and later `lake build` should rebuild it as stale.
 
 If a speculative probe looks right and should become real source, the current contract is still:
-make the real edit in the file, save it, then `lean-sync`. The intended future direction is to make
+make the real edit in the file, save it, then `lean-beam sync`. The intended future direction is to make
 that handoff cheap by reusing speculative execution rather than replaying it from scratch.
 
-`lean-save` is module-oriented, not file-oriented. `lean-sync` can operate on an arbitrary file the
-daemon can open, but `lean-save` requires a file that Lake resolves to a module in the current
+`lean-beam save` is module-oriented, not file-oriented. `lean-beam sync` can operate on an arbitrary file the
+daemon can open, but `lean-beam save` requires a file that Lake resolves to a module in the current
 workspace package graph. Standalone `.lean` files outside that graph are not valid save targets.
 
 ## Known Limitations
@@ -101,7 +101,7 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
 - Runtime requests first try that installed-skill bundle cache, then fall back to a project-local
   runtime bundle under `.beam/bundles/` for supported toolchains.
 - Unsupported Lean toolchains fail early instead of attempting an opportunistic build.
-- `beam supported-toolchains lean` lists the validated toolchains, and `beam doctor lean`
+- `lean-beam supported-toolchains` lists the validated toolchains, and `lean-beam doctor`
   reports support state, bundle source, and bundle key inputs.
 - Bundle rebuild keys intentionally exclude the full `.lake/packages` checkout tree and instead use
   the runtime source tree plus `lean-toolchain`, `lake-manifest.json`, and
@@ -115,7 +115,7 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   usually an environment restriction, not a bundle-resolution mismatch.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
 - The Beam daemon is single-root and keeps a conservative single active session per backend.
-- Zero-build `lean-save` helps checkpoint one module, but it is not a whole-workspace freshness
+- Zero-build `lean-beam save` helps checkpoint one module, but it is not a whole-workspace freshness
   solution.
 - If you edit a dependency of the target file, downstream speculative results should be treated as
   stale until rebuild or checkpoint.
@@ -136,7 +136,7 @@ Near-term work is mostly about hardening and simplifying:
 - publish a smoother distribution path, likely GitHub-backed install for Codex and plugin marketplace packaging for Claude
 - improve stale-dependency handling
 - replace broker-side diagnostics/fileProgress barrier inference with a stronger backend-facing
-  readiness primitive, so `lean-sync` / `lean-save` can trust one authoritative completion signal
+  readiness primitive, so `lean-beam sync` / `lean-beam save` can trust one authoritative completion signal
   instead of reconstructing barrier completeness from multiple LSP channels
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling

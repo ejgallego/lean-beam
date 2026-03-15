@@ -81,13 +81,13 @@ The repo includes:
 - `lake exe beam-client`
 - `lake exe beam-daemon-smoke-test`
 - `lake exe beam-daemon-rocq-smoke-test`
-- [scripts/beam](scripts/beam)
+- [scripts/lean-beam](scripts/lean-beam)
 - [scripts/codex-harness.sh](scripts/codex-harness.sh)
 - [scripts/codex-session-start.sh](scripts/codex-session-start.sh)
 - [scripts/validate-defensive.sh](scripts/validate-defensive.sh)
 
 The Codex harness scripts are maintainer workflow helpers for this repository. They are not part of
-the public `beam` API or the installed skill surface.
+the public `lean-beam` API or the installed skill surface.
 
 When working locally:
 

@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+
+# Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
+# Author: Emilio J. Gallego Arias
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF' >&2
+usage:
+  lean-beam [--root PATH] [--socket PATH | --port N] ensure
+  lean-beam [--root PATH] [--socket PATH | --port N] run-at <path> <line> <character> <text...>
+  lean-beam [--root PATH] [--socket PATH | --port N] run-at-handle <path> <line> <character> <text...>
+  lean-beam [--root PATH] [--socket PATH | --port N] hover <path> <line> <character>
+  lean-beam [--root PATH] [--socket PATH | --port N] goals-after <path> <line> <character>
+  lean-beam [--root PATH] [--socket PATH | --port N] goals-prev <path> <line> <character>
+  lean-beam [--root PATH] [--socket PATH | --port N] run-with <path> <handle-json|-> <text...>
+  lean-beam [--root PATH] [--socket PATH | --port N] run-with-linear <path> <handle-json|-> <text...>
+  lean-beam [--root PATH] [--socket PATH | --port N] release <path> <handle-json|->
+  lean-beam [--root PATH] [--socket PATH | --port N] deps <path>
+  lean-beam [--root PATH] [--socket PATH | --port N] sync <path> [+full]
+  lean-beam [--root PATH] [--socket PATH | --port N] save <path> [+full]
+  lean-beam [--root PATH] [--socket PATH | --port N] close <path>
+  lean-beam [--root PATH] [--socket PATH | --port N] close-save <path> [+full]
+  lean-beam supported-toolchains
+  lean-beam [--root PATH] doctor
+  lean-beam [--root PATH] open-files
+  lean-beam [--root PATH] stats
+  lean-beam [--root PATH] reset-stats
+  lean-beam [--root PATH] shutdown
+  lean-beam [--root PATH] cancel <request-id>
+
+notes:
+  - lean-beam is Lean-focused and maps these commands to beam-cli internal lean-* commands
+  - for Rocq commands or low-level internals, use beam-cli directly
+EOF
+}
+
+resolve_script_path() {
+  local source="${BASH_SOURCE[0]}"
+  local dir=""
+  while [ -L "$source" ]; do
+    dir="$(cd -P "$(dirname "$source")" && pwd)"
+    source="$(readlink "$source")"
+    case "$source" in
+      /*)
+        ;;
+      *)
+        source="$dir/$source"
+        ;;
+    esac
+  done
+  dir="$(cd -P "$(dirname "$source")" && pwd)"
+  printf '%s/%s\n' "$dir" "$(basename "$source")"
+}
+
+script_path="$(resolve_script_path)"
+script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+beam_home="${BEAM_HOME:-$(cd -P "$script_dir/.." && pwd)}"
+beam_bin=""
+if [ -x "$beam_home/libexec/beam-cli" ]; then
+  beam_bin="$beam_home/libexec/beam-cli"
+elif [ -x "$beam_home/.lake/build/bin/beam-cli" ]; then
+  beam_bin="$beam_home/.lake/build/bin/beam-cli"
+elif [ -x "$beam_home/scripts/beam" ]; then
+  beam_bin="$beam_home/scripts/beam"
+fi
+
+if [ -z "$beam_bin" ] || [ ! -x "$beam_bin" ]; then
+  echo "missing beam-cli executable under $beam_home" >&2
+  exit 1
+fi
+
+if [ -z "${BEAM_INSTALL_BUNDLE_DIR:-}" ]; then
+  case "$beam_home" in
+    */versions/*)
+      install_root="$(cd -P "$beam_home/../.." && pwd)"
+      default_install_bundle_dir="$install_root/state/install-bundles"
+      if [ -d "$default_install_bundle_dir" ]; then
+        export BEAM_INSTALL_BUNDLE_DIR="$default_install_bundle_dir"
+      fi
+      ;;
+  esac
+fi
+export BEAM_HOME="$beam_home"
+
+prefix=()
+cmd=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root|--port|--socket)
+      [ "$#" -ge 2 ] || break
+      prefix+=("$1" "$2")
+      shift 2
+      ;;
+    *)
+      cmd="$1"
+      shift
+      break
+      ;;
+  esac
+done
+
+rest=("$@")
+mapped=()
+
+if [ -z "$cmd" ]; then
+  usage
+  exit 0
+fi
+
+case "$cmd" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  run-at)
+    mapped=("lean-run-at")
+    ;;
+  run-at-handle)
+    mapped=("lean-run-at-handle")
+    ;;
+  hover)
+    mapped=("lean-hover")
+    ;;
+  goals-after)
+    mapped=("lean-goals-after")
+    ;;
+  goals-prev)
+    mapped=("lean-goals-prev")
+    ;;
+  run-with)
+    mapped=("lean-run-with")
+    ;;
+  run-with-linear)
+    mapped=("lean-run-with-linear")
+    ;;
+  release)
+    mapped=("lean-release")
+    ;;
+  deps)
+    mapped=("lean-deps")
+    ;;
+  sync)
+    mapped=("lean-sync")
+    ;;
+  save)
+    mapped=("lean-save")
+    ;;
+  close)
+    mapped=("lean-close")
+    ;;
+  close-save)
+    mapped=("lean-close-save")
+    ;;
+  request-at)
+    mapped=("lean-request-at")
+    ;;
+  ensure)
+    if [ "${#rest[@]}" -eq 0 ]; then
+      mapped=("ensure" "lean")
+      rest=()
+    else
+      mapped=("ensure")
+    fi
+    ;;
+  doctor)
+    if [ "${#rest[@]}" -eq 0 ]; then
+      mapped=("doctor" "lean")
+      rest=()
+    else
+      mapped=("doctor")
+    fi
+    ;;
+  supported-toolchains)
+    if [ "${#rest[@]}" -eq 0 ]; then
+      mapped=("supported-toolchains" "lean")
+      rest=()
+    else
+      mapped=("supported-toolchains")
+    fi
+    ;;
+  *)
+    mapped=("$cmd")
+    ;;
+esac
+
+exec "$beam_bin" "${prefix[@]}" "${mapped[@]}" "${rest[@]}"

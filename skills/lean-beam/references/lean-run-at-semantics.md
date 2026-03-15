@@ -1,7 +1,7 @@
 # Lean Run-At Semantics
 
-Use this reference when a task is confused about what `lean-run-at` means. The short rule is:
-`lean-run-at` is a speculative execution probe against one saved file snapshot, not a source edit.
+Use this reference when a task is confused about what `lean-beam run-at` means. The short rule is:
+`lean-beam run-at` is a speculative execution probe against one saved file snapshot, not a source edit.
 
 ## What It Is Not
 
@@ -16,7 +16,7 @@ Use this reference when a task is confused about what `lean-run-at` means. The s
 Wrong expectation:
 
 ```bash
-beam lean-run-at "Foo.lean" 20 2 "exact h"
+lean-beam run-at "Foo.lean" 20 2 "exact h"
 # then expect diagnostics for unrelated later declarations as if Foo.lean had been edited
 ```
 
@@ -24,10 +24,10 @@ Correct workflow:
 
 ```bash
 # make the real edit in Foo.lean and save it to disk
-beam lean-sync "Foo.lean"
+lean-beam sync "Foo.lean"
 ```
 
-Use `lean-sync` when you need diagnostics for the saved file version as a whole. `lean-run-at`
+Use `lean-beam sync` when you need diagnostics for the saved file version as a whole. `lean-beam run-at`
 only waits for the snapshot needed by that speculative request.
 
 If the speculative probe looks right and you want to keep it, open
@@ -38,19 +38,19 @@ If the speculative probe looks right and you want to keep it, open
 Wrong expectation:
 
 ```bash
-beam lean-run-at "Foo.lean" 30 2 "tac1"
-beam lean-run-at "Foo.lean" 30 2 "tac2"
+lean-beam run-at "Foo.lean" 30 2 "tac1"
+lean-beam run-at "Foo.lean" 30 2 "tac2"
 # then expect the second call to continue from the speculative `tac1`
 ```
 
 Correct workflow:
 
 ```bash
-root="$(beam lean-run-at-handle "Foo.lean" 30 2 "tac1")"
-printf '%s\n' "$root" | beam lean-run-with-linear "Foo.lean" - "tac2"
+root="$(lean-beam run-at-handle "Foo.lean" 30 2 "tac1")"
+printf '%s\n' "$root" | lean-beam run-with-linear "Foo.lean" - "tac2"
 ```
 
-Use a handle when exact speculative continuation matters. Separate `lean-run-at` calls do not share
+Use a handle when exact speculative continuation matters. Separate `lean-beam run-at` calls do not share
 hidden mutable proof state.
 
 If the task is branching or doing playouts, also open
@@ -64,7 +64,7 @@ If a speculative step looks right and you want it to become real source, open
 Wrong expectation:
 
 ```bash
-beam lean-run-at "Foo.lean" 18 0 "exact h"
+lean-beam run-at "Foo.lean" 18 0 "exact h"
 # where line 18 is a blank line inside an indented block, and expect the wrapper to infer indentation
 #
 # or expect the wrapper to add a leading/trailing newline around the text automatically
@@ -74,20 +74,20 @@ Correct workflow:
 
 ```bash
 # on a truly empty line, only column 0 is valid, so provide the indentation in the text yourself
-beam lean-run-at "Foo.lean" 18 0 "    exact h"
+lean-beam run-at "Foo.lean" 18 0 "    exact h"
 
 # or probe after the existing indentation and pass only the code text
-beam lean-run-at "Foo.lean" 18 4 "exact h"
+lean-beam run-at "Foo.lean" 18 4 "exact h"
 ```
 
 Or make the real edit in the file and save it before syncing:
 
 ```bash
 # edit Foo.lean so the tactic is written with the indentation you want
-beam lean-sync "Foo.lean"
+lean-beam sync "Foo.lean"
 ```
 
-`lean-run-at` uses the text you pass at the position you pass. If layout matters, choose the
+`lean-beam run-at` uses the text you pass at the position you pass. If layout matters, choose the
 position and text together instead of expecting the wrapper to rewrite indentation for you.
 On a truly empty line, `18 1` would already be out of range; blank lines are still 0-based Lean/LSP
 positions.
@@ -99,7 +99,7 @@ For multi-line probes, include the actual newline characters you want Lean to pa
 
 ```bash
 # using ANSI-C shell quoting so `\n` becomes a real newline
-beam lean-run-at "Foo.lean" 18 0 $'  first | exact h1\n  | exact h2'
+lean-beam run-at "Foo.lean" 18 0 $'  first | exact h1\n  | exact h2'
 ```
 
 Do not expect the wrapper to turn `"first | exact h1 | exact h2"` into a properly line-broken block,

@@ -11,7 +11,8 @@ cd "$(dirname "$0")/.."
 files=(
   scripts/*.sh
   scripts/beam
-  scripts/beam-lean-search
+  scripts/lean-beam
+  scripts/lean-beam-search
   tests/*.sh
 )
 
