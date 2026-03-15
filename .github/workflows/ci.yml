@@ -6,6 +6,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 permissions:
@@ -57,3 +59,47 @@ jobs:
 
       - name: Broker Slow Test
         run: bash tests/test-broker-slow.sh
+
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - name: Install Test
+        run: bash tests/test-install.sh
+
+  toolchain-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - leanprover/lean4:v4.29.0-rc6
+          - leanprover/lean4:v4.29.0-rc5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - name: Validate toolchain compatibility
+        run: bash tests/test-toolchain-compat.sh '${{ matrix.toolchain }}'
+
+  broker-rocq:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - name: Set up OCaml / opam
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 4.14.2
+
+      - name: Install Rocq Tooling
+        run: bash tests/setup-rocq-opam.sh
+
+      - name: Broker Rocq Test
+        run: bash tests/test-broker-rocq.sh

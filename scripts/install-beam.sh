@@ -289,9 +289,7 @@ hash_tool() {
 }
 
 read_supported_toolchains() {
-  local output_name="$1"
-  local -n output_ref="$output_name"
-  mapfile -t output_ref < <("$beam_cli" supported-toolchains lean)
+  "$beam_cli" supported-toolchains lean
 }
 
 array_contains() {
@@ -308,8 +306,6 @@ array_contains() {
 
 resolve_install_toolchains() {
   local repo_toolchain="$1"
-  local output_name="$2"
-  local -n output_ref="$output_name"
   local supported_toolchains=()
   local selected=()
   local toolchain=""
@@ -318,7 +314,7 @@ resolve_install_toolchains() {
     die "cannot combine --all-supported with --toolchain"
   fi
 
-  read_supported_toolchains supported_toolchains
+  mapfile -t supported_toolchains < <(read_supported_toolchains)
   if [ "${#supported_toolchains[@]}" -eq 0 ]; then
     die "beam CLI reported no supported Lean toolchains"
   fi
@@ -341,7 +337,7 @@ resolve_install_toolchains() {
     selected=("$repo_toolchain")
   fi
 
-  output_ref=("${selected[@]}")
+  printf '%s\n' "${selected[@]}"
 }
 
 hash_tree() {
@@ -402,12 +398,11 @@ stage_runtime_tree() {
   local dest="$1"
   local entry=""
   local mode=""
-  local manifest_group=""
   local src_rel=""
   local dest_rel=""
   mkdir -p "$dest"
   for entry in "${runtime_payload_spec[@]}"; do
-    IFS='|' read -r mode manifest_group src_rel dest_rel <<< "$entry"
+    IFS='|' read -r mode _ src_rel dest_rel <<< "$entry"
     case "$mode" in
       copy)
         copy_repo_path_if_present "$repo_root/$src_rel" "$dest/$dest_rel" "$dest"
@@ -471,12 +466,19 @@ prepare_install_environment() {
   local toolchain_name="$1"
   local selected_name="$2"
   local -n toolchain_ref="$toolchain_name"
-  local -n selected_ref="$selected_name"
+  local -n selected_toolchains_ref="$selected_name"
+  local resolved_toolchains=""
   require_elan
   toolchain_ref="$(awk 'NR==1 {print $1}' "$repo_root/lean-toolchain")"
   require_repo_toolchain "$toolchain_ref"
   ensure_runtime_artifacts
-  resolve_install_toolchains "$toolchain_ref" selected_ref
+  resolved_toolchains="$(resolve_install_toolchains "$toolchain_ref")"
+  # shellcheck disable=SC2034
+  if [ -n "$resolved_toolchains" ]; then
+    mapfile -t selected_toolchains_ref <<< "$resolved_toolchains"
+  else
+    selected_toolchains_ref=()
+  fi
   verify_publish_targets
   mkdir -p "$bin_home" "$versions_root" "$state_root"
 }
