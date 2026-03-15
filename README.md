@@ -6,10 +6,11 @@ cheap speculative execution, and a thin local broker that exposes a more idiomat
 surface over Lean's LSP and Beam-specific extensions.
 
 Lean Beam is aimed at agent-heavy workflows such as proof repair,
-porting from other systems to Lean, proof-search experimentation, and
-autoformalization. For agents making many edits to Lean files, Lean
-Beam can provide asymptotic savings over repeating `lake build` after
-every change; see the [cost model and workflow details](skills/lean-beam/references/workflow-details.md#cost-model).
+porting from other systems to Lean, proof-search experimentation
+including Monte Carlo Tree Search (MCTS), and autoformalization. For
+agents making many edits to Lean files, Lean Beam can provide
+asymptotic savings over repeating `lake build` after every change; see
+the [cost model and workflow details](skills/lean-beam/references/workflow-details.md#cost-model).
 
 Lean Beam started as a personal internal project and is now published for public use. It is not an
 official Lean FRO product, the code remains experimental, and you should use it at your own risk.
