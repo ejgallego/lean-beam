@@ -8,12 +8,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-beam_script="$PWD/scripts/beam"
+beam_script="$PWD/scripts/lean-beam"
 search_helper="$PWD/scripts/lean-beam-search"
 client="$PWD/.lake/build/bin/beam-client"
 
 if [ ! -x "$beam_script" ]; then
-  echo "missing beam wrapper at $beam_script" >&2
+  echo "missing lean-beam wrapper at $beam_script" >&2
   exit 1
 fi
 
@@ -1009,7 +1009,7 @@ EOF
   portable_wrapper_bin="$tmp1/portable-wrapper-bin"
   system_readlink="$(command -v readlink)"
   mkdir -p "$portable_wrapper_bin"
-  ln -sf "$beam_script" "$portable_wrapper_bin/beam"
+  ln -sf "$beam_script" "$portable_wrapper_bin/lean-beam"
   ln -sf "$search_helper" "$portable_wrapper_bin/lean-beam-search"
   cat > "$portable_wrapper_bin/readlink" <<EOF
 #!/usr/bin/env bash
@@ -1024,7 +1024,7 @@ exec "$system_readlink" "\$@"
 EOF
   chmod +x "$portable_wrapper_bin/readlink"
 
-  portable_stats_out="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/beam" stats)"
+  portable_stats_out="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/lean-beam" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$portable_stats_out" read_json_text_field ok)" != "true" ]; then
     echo "expected symlinked wrapper to work when readlink -f is unavailable" >&2
     printf '%s\n' "$portable_stats_out" >&2
@@ -1045,7 +1045,7 @@ EOF
 
   wrapper_shadow_root="$tmp1/wrapper-shadow-root"
   mkdir -p "$wrapper_shadow_root/scripts" "$wrapper_shadow_root/.lake/build/bin" "$wrapper_shadow_root/libexec"
-  cp "$beam_script" "$wrapper_shadow_root/scripts/beam"
+  cp "$beam_script" "$wrapper_shadow_root/scripts/lean-beam"
   cat > "$wrapper_shadow_root/.lake/build/bin/beam-cli" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1058,14 +1058,14 @@ printf 'installed\n'
 EOF
   chmod +x "$wrapper_shadow_root/.lake/build/bin/beam-cli" "$wrapper_shadow_root/libexec/beam-cli"
 
-  wrapper_shadow_out="$("$wrapper_shadow_root/scripts/beam" stats)"
+  wrapper_shadow_out="$("$wrapper_shadow_root/scripts/lean-beam" stats)"
   if [ "$wrapper_shadow_out" != "checkout" ]; then
     echo "expected checkout wrapper to prefer .lake/build over sibling libexec when BEAM_HOME is unset" >&2
     printf '%s\n' "$wrapper_shadow_out" >&2
     exit 1
   fi
 
-  wrapper_override_out="$(BEAM_HOME="$wrapper_shadow_root" "$wrapper_shadow_root/scripts/beam" stats)"
+  wrapper_override_out="$(BEAM_HOME="$wrapper_shadow_root" "$wrapper_shadow_root/scripts/lean-beam" stats)"
   if [ "$wrapper_override_out" != "installed" ]; then
     echo "expected explicit BEAM_HOME to prefer libexec in the overridden runtime" >&2
     printf '%s\n' "$wrapper_override_out" >&2

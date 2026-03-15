@@ -4,121 +4,61 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import Lean
-import Lean.Data.Lsp.Communication
-import Lean.Data.Lsp.Extra
-import Lean.Data.Lsp.LanguageFeatures
-import Lean.Data.Lsp.Internal
-import Lean.Server.Requests
-import RunAt.Protocol
-import RunAt.Internal.SaveArtifacts
-import Beam.Broker.Config
-import Beam.Broker.Protocol
-
-open Lean
-open Lean.JsonRpc
-open Lean.Lsp
+import Beam.Broker.Backend.Lean
+import Beam.Broker.Backend.Rocq
+import Beam.Broker.Backend.Shared
 
 namespace Beam.Broker
 
-private def leanPluginPath (config : BrokerConfig) : IO System.FilePath := do
-  match config.leanPlugin? with
-  | some path => IO.FS.realPath path
-  | none => throw <| IO.userError "missing Beam daemon --lean-plugin configuration"
-
-private def rocqLspPath (config : BrokerConfig) : IO String := do
-  match config.rocqCmd? with
-  | some path => pure path
-  | none => throw <| IO.userError "missing Beam daemon --rocq-cmd configuration"
-
 def backendCommand (config : BrokerConfig) (backend : Backend) : IO (String × Array String) := do
   match backend with
-  | .lean =>
-      let some cmd := config.leanCmd?
-        | throw <| IO.userError "missing Beam daemon --lean-cmd configuration"
-      let pluginPath := ← leanPluginPath config
-      pure (cmd, #["--server", s!"--plugin={pluginPath}", "-DstderrAsMessages=false", "-Dexperimental.module=true"])
-  | .rocq =>
-      pure ((← rocqLspPath config), #[])
+  | .lean => Backend.Lean.command config
+  | .rocq => Backend.Rocq.command config
 
-def initializeParams (backend : Backend) (root : System.FilePath) : Json := Id.run do
-  let rootUri := System.Uri.pathToUri root
+def initializeParams (backend : Backend) (root : System.FilePath) : Json :=
   match backend with
-  | .lean =>
-      return toJson ({
-        processId? := some 0
-        rootUri? := some rootUri
-        workspaceFolders? := some #[{ uri := rootUri, name := root.fileName.getD root.toString }]
-        initializationOptions? := some { hasWidgets? := some true, logCfg? := none }
-        capabilities := {
-          textDocument? := some {
-            completion? := some {
-              completionItem? := some { insertReplaceSupport? := true }
-            }
-          }
-          lean? := some { silentDiagnosticSupport? := some true }
-        }
-        : InitializeParams
-      })
-  | .rocq =>
-      return toJson ({
-        rootUri? := some rootUri
-        workspaceFolders? := some #[{ uri := rootUri, name := root.fileName.getD root.toString }]
-        capabilities := {}
-        : InitializeParams
-      })
+  | .lean => Backend.Lean.initializeParams root
+  | .rocq => Backend.Rocq.initializeParams root
 
 def runAtMethod (backend : Backend) : Except String String :=
   match backend with
-  | .lean => .ok RunAt.method
-  | .rocq => .error "rocq backend does not support run_at yet"
+  | .lean => .ok Backend.Lean.runAtMethod
+  | .rocq => Backend.Rocq.runAtMethod
 
 def requestAtMethod (backend : Backend) (method : String) : Except String String :=
   match backend with
-  | .lean =>
-      match method with
-      | "textDocument/definition"
-      | "textDocument/hover"
-      | "textDocument/references" => .ok method
-      | _ => .error s!"lean backend experimental request_at does not support '{method}'"
-  | .rocq => .error "rocq backend does not support request_at yet"
+  | .lean => Backend.Lean.requestAtMethod method
+  | .rocq => Backend.Rocq.requestAtMethod
 
 def runWithMethod (backend : Backend) : Except String String :=
   match backend with
-  | .lean => .ok RunAt.runWithMethod
-  | .rocq => .error "rocq backend does not support run_with yet"
+  | .lean => .ok Backend.Lean.runWithMethod
+  | .rocq => Backend.Rocq.runWithMethod
 
 def releaseMethod (backend : Backend) : Except String String :=
   match backend with
-  | .lean => .ok RunAt.releaseHandleMethod
-  | .rocq => .error "rocq backend does not support release yet"
+  | .lean => .ok Backend.Lean.releaseMethod
+  | .rocq => Backend.Rocq.releaseMethod
 
 def saveArtifactsMethod (backend : Backend) : Except String String :=
   match backend with
-  | .lean => .ok RunAt.Internal.saveArtifactsMethod
-  | .rocq => .error "rocq backend does not support artifact save yet"
+  | .lean => .ok Backend.Lean.saveArtifactsMethod
+  | .rocq => Backend.Rocq.saveArtifactsMethod
 
 def saveReadinessMethod (backend : Backend) : Except String String :=
   match backend with
-  | .lean => .ok RunAt.Internal.saveReadinessMethod
-  | .rocq => .error "rocq backend does not support save-readiness checks yet"
+  | .lean => .ok Backend.Lean.saveReadinessMethod
+  | .rocq => Backend.Rocq.saveReadinessMethod
 
 def goalsMethod (backend : Backend) (mode? : Option GoalMode := none) : Except String String :=
   match backend with
-  | .lean =>
-      match mode?.getD .after with
-      | .after => .ok RunAt.goalsAfterMethod
-      | .prev => .ok RunAt.goalsPrevMethod
-  | .rocq => .ok "proof/goals"
+  | .lean => .ok (Backend.Lean.goalsMethod mode?)
+  | .rocq => .ok Backend.Rocq.goalsMethod
 
 def goalModeValue (mode? : Option GoalMode) : String :=
-  match mode? with
-  | some mode => mode.key
-  | none => GoalMode.after.key
+  Backend.Shared.goalModeValue mode?
 
 def goalPpFormatValue (ppFormat? : Option GoalPpFormat) : String :=
-  match ppFormat? with
-  | some format => format.key
-  | none => GoalPpFormat.str.key
+  Backend.Shared.goalPpFormatValue ppFormat?
 
 end Beam.Broker

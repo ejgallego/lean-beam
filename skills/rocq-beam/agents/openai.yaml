@@ -5,7 +5,7 @@
 interface:
   display_name: "Rocq Beam"
   short_description: "Direct Rocq proof-state access"
-  default_prompt: "Use $rocq-beam on an external Rocq project for isolated on-disk goal probes through coq-lsp via beam; save before probing and do not assume hidden cross-request proof state or unsaved-buffer access."
+  default_prompt: "Use $rocq-beam on an external Rocq project for isolated on-disk goal probes through coq-lsp via lean-beam; save before probing and do not assume hidden cross-request proof state or unsaved-buffer access."
 
 policy:
   allow_implicit_invocation: true

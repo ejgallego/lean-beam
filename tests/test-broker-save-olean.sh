@@ -8,11 +8,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-beam_script="$PWD/scripts/beam"
+beam_script="$PWD/scripts/lean-beam"
 lake_cmd="$(command -v lake)"
 
 if [ ! -x "$beam_script" ]; then
-  echo "missing beam wrapper at $beam_script" >&2
+  echo "missing lean-beam wrapper at $beam_script" >&2
   exit 1
 fi
 

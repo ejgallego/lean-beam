@@ -8,11 +8,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-beam_script="$PWD/scripts/beam"
+beam_script="$PWD/scripts/lean-beam"
 rocq_cmd="${BEAM_ROCQ_CMD:-}"
 
 if [ ! -x "$beam_script" ]; then
-  echo "missing beam wrapper at $beam_script" >&2
+  echo "missing lean-beam wrapper at $beam_script" >&2
   exit 1
 fi
 
@@ -42,7 +42,7 @@ remove_owned_tmp_tree() {
 
 cleanup() {
   if [ -d "$tmp_repo/tests/rocq/Minimal" ]; then
-    BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null 2>&1 || true
+    BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null 2>&1 || true
   fi
   remove_owned_tmp_tree "$tmp_repo"
 }
@@ -62,15 +62,15 @@ rsync -a \
     echo "expected lake build beam-cli not to prebuild Beam daemon helper executables" >&2
     exit 1
   fi
-  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/beam" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
+  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
   if [ -x ".lake/build/bin/beam-daemon" ] || [ -x ".lake/build/bin/beam-client" ]; then
     echo "expected doctor rocq to remain read-only and not build Beam daemon helpers" >&2
     exit 1
   fi
-  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/beam" --root "$tmp_repo/tests/rocq/Minimal" ensure rocq > /dev/null
+  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" ensure rocq > /dev/null
   if [ ! -x ".lake/build/bin/beam-daemon" ] || [ ! -x ".lake/build/bin/beam-client" ]; then
     echo "expected rocq CLI startup to build missing Beam daemon helpers on demand" >&2
     exit 1
   fi
-  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null
+  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null
 )

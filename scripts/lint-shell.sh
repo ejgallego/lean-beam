@@ -10,7 +10,6 @@ cd "$(dirname "$0")/.."
 
 files=(
   scripts/*.sh
-  scripts/beam
   scripts/lean-beam
   scripts/lean-beam-search
   tests/*.sh

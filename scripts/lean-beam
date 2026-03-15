@@ -33,7 +33,7 @@ usage:
 
 notes:
   - lean-beam is Lean-focused and maps these commands to beam-cli internal lean-* commands
-  - for Rocq commands or low-level internals, use beam-cli directly
+  - Rocq commands are also available through lean-beam (for example: `lean-beam ensure rocq`)
 EOF
 }
 
@@ -57,14 +57,26 @@ resolve_script_path() {
 
 script_path="$(resolve_script_path)"
 script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
-beam_home="${BEAM_HOME:-$(cd -P "$script_dir/.." && pwd)}"
+beam_home_explicit=0
+if [ -n "${BEAM_HOME:-}" ]; then
+  beam_home="$BEAM_HOME"
+  beam_home_explicit=1
+else
+  beam_home="$(cd -P "$script_dir/.." && pwd)"
+fi
 beam_bin=""
-if [ -x "$beam_home/libexec/beam-cli" ]; then
-  beam_bin="$beam_home/libexec/beam-cli"
-elif [ -x "$beam_home/.lake/build/bin/beam-cli" ]; then
-  beam_bin="$beam_home/.lake/build/bin/beam-cli"
-elif [ -x "$beam_home/scripts/beam" ]; then
-  beam_bin="$beam_home/scripts/beam"
+if [ "$beam_home_explicit" -eq 1 ]; then
+  if [ -x "$beam_home/libexec/beam-cli" ]; then
+    beam_bin="$beam_home/libexec/beam-cli"
+  elif [ -x "$beam_home/.lake/build/bin/beam-cli" ]; then
+    beam_bin="$beam_home/.lake/build/bin/beam-cli"
+  fi
+else
+  if [ -x "$beam_home/.lake/build/bin/beam-cli" ]; then
+    beam_bin="$beam_home/.lake/build/bin/beam-cli"
+  elif [ -x "$beam_home/libexec/beam-cli" ]; then
+    beam_bin="$beam_home/libexec/beam-cli"
+  fi
 fi
 
 if [ -z "$beam_bin" ] || [ ! -x "$beam_bin" ]; then

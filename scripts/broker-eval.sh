@@ -7,10 +7,10 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-beam="$repo_root/scripts/beam"
+beam="$repo_root/scripts/lean-beam"
 
 if [ ! -x "$beam" ]; then
-  echo "missing beam wrapper at $beam" >&2
+  echo "missing lean-beam wrapper at $beam" >&2
   echo "run: lake build beam-cli" >&2
   exit 1
 fi
