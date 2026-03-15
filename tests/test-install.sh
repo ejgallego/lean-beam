@@ -212,7 +212,12 @@ assert_bundle_layout() {
     echo "missing bundle metadata under $bundle_root" >&2
     exit 1
   fi
-  if ! rg -n --fixed-strings "\"toolchain\": \"$toolchain\"" "$metadata" > /dev/null; then
+  if command -v rg >/dev/null 2>&1; then
+    if ! rg -n --fixed-strings "\"toolchain\": \"$toolchain\"" "$metadata" > /dev/null; then
+      echo "bundle metadata does not mention expected toolchain $toolchain: $metadata" >&2
+      exit 1
+    fi
+  elif ! grep -F "\"toolchain\": \"$toolchain\"" "$metadata" > /dev/null; then
     echo "bundle metadata does not mention expected toolchain $toolchain: $metadata" >&2
     exit 1
   fi
