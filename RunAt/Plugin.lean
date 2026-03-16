@@ -204,10 +204,12 @@ private def mkExecutionResult
         proofState?
       }
 
-private def proofStateOfGoals (goals : List MVarId) (ctxInfo : ContextInfo) : RequestM ProofState := do
-  let goals ← goals.mapM fun goal =>
-    ctxInfo.runMetaM {} <| goalOfMVarId goal
+private def proofStateOfGoalList (goals : List MVarId) : MetaM ProofState := do
+  let goals ← goals.mapM goalOfMVarId
   return { goals := goals.toArray }
+
+private def proofStateOfGoals (goals : List MVarId) (ctxInfo : ContextInfo) : RequestM ProofState := do
+  ctxInfo.runMetaM {} <| proofStateOfGoalList goals
 
 private def mkBasisCtxInfo (result : GoalsAtResult) (useAfter : Bool := result.useAfter) : ContextInfo :=
   if useAfter then
@@ -291,10 +293,9 @@ private def singleLineText (text : String) : String :=
   String.intercalate " " parts
 
 private def formatErrorDiagnostic (diagnostic : Lean.Widget.InteractiveDiagnostic) : String :=
-  let diagnostic := Lean.Widget.InteractiveDiagnostic.toDiagnostic diagnostic
   let line := diagnostic.range.start.line + 1
   let character := diagnostic.range.start.character + 1
-  s!"{line}:{character}: {singleLineText diagnostic.message}"
+  s!"{line}:{character}: {singleLineText diagnostic.message.stripTags}"
 
 private def summarizeErrorItems (items : Array String) (maxItems : Nat := 3) : String :=
   let limit := Nat.min maxItems items.size
@@ -578,11 +579,8 @@ private def runCommandText (snap : Snapshots.Snapshot) (text : String) : Request
     return (result, nextHandle?)
 
 private def proofStateOfSnapshot (snapshot : ProofSnapshot) : RequestM ProofState := do
-  let (interactiveGoals, _) ← snapshot.runMetaM do
-    snapshot.tacticState.goals.mapM goalOfMVarId
-  return {
-    goals := interactiveGoals.toArray
-  }
+  let (proofState, _) ← snapshot.runMetaM <| proofStateOfGoalList snapshot.tacticState.goals
+  return proofState
 
 private def runTacticText (snapshot : ProofSnapshot) (initialProofState : ProofState) (text : String) :
     RequestM (Result × Option StoredHandleState) := do
