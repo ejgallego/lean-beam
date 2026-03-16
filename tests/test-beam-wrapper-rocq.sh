@@ -10,18 +10,13 @@ cd "$(dirname "$0")/.."
 
 beam_script="$PWD/scripts/lean-beam"
 rocq_cmd="${BEAM_ROCQ_CMD:-}"
-path_rocq_cmd=""
 
 if [ ! -x "$beam_script" ]; then
   echo "missing lean-beam wrapper at $beam_script" >&2
   exit 1
 fi
 
-if [ -z "$rocq_cmd" ]; then
-  path_rocq_cmd="$(command -v coq-lsp || true)"
-fi
-
-if [ -z "$rocq_cmd" ] && [ -z "$path_rocq_cmd" ]; then
+if [ -z "$rocq_cmd" ] && ! command -v coq-lsp > /dev/null 2>&1; then
   echo "missing coq-lsp; set BEAM_ROCQ_CMD or install it in PATH" >&2
   exit 1
 fi
@@ -74,8 +69,6 @@ rsync -a \
   if [ -n "$rocq_cmd" ]; then
     BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
   else
-    mkdir -p "$tmp_repo/tests/rocq/Minimal/_opam/bin"
-    ln -sf "$path_rocq_cmd" "$tmp_repo/tests/rocq/Minimal/_opam/bin/coq-lsp"
     "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
   fi
   if [ -x ".lake/build/bin/beam-daemon" ] || [ -x ".lake/build/bin/beam-client" ]; then

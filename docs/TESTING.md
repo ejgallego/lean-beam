@@ -96,7 +96,7 @@ correctness regression, not yet a performance benchmark.
 - add [tests/test-broker-slow.sh](../tests/test-broker-slow.sh) when the change touches wrapper,
   install, or bundle-resolution behavior
 - use [tests/test-broker-rocq.sh](../tests/test-broker-rocq.sh) for Rocq broker and wrapper
-  coverage, including project-local `coq-lsp` discovery
+  coverage, including `coq-lsp` discovery from project-local `_opam` roots and the active PATH
 - use [tests/test-broker.sh](../tests/test-broker.sh) to execute both suites together before
   landing a broader broker-facing change
 - use [scripts/lint-shell.sh](../scripts/lint-shell.sh) when you change shell wrappers, installer,

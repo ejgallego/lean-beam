@@ -636,13 +636,19 @@ private def leanBin (root : System.FilePath) : IO String := do
 private def rocqCandidates (root : System.FilePath) : List System.FilePath :=
   [root / "_opam" / "bin" / "coq-lsp", root / "_opam" / "_opam" / "bin" / "coq-lsp"]
 
+private def pathCmd? (cmd : String) : IO (Option String) := do
+  try
+    return some (← readCmdTrim "sh" #["-c", s!"command -v {shellQuote cmd}"])
+  catch _ =>
+    return none
+
 private def maybeRocqCmd (root : System.FilePath) : IO (Option String) := do
   for candidate in rocqCandidates root do
     if ← candidate.pathExists then
       return some candidate.toString
   match ← IO.getEnv "BEAM_ROCQ_CMD" with
   | some cmd => pure (some cmd)
-  | none => pure none
+  | none => pathCmd? "coq-lsp"
 
 private def rocqCmd (root : System.FilePath) : IO String := do
   match ← maybeRocqCmd root with
