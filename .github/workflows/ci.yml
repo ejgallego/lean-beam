@@ -97,6 +97,7 @@ jobs:
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: 4.14.2
+          dune-cache: true
           opam-repositories: |
             default: git+https://github.com/ocaml/opam-repository.git
             coq-released: https://coq.inria.fr/opam/released
