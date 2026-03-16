@@ -26,73 +26,6 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
 - known-good proof probe in this repo:
   `lean-beam run-at "tests/interactive/proofBasisBefore.lean" 2 2 "exact trivial"`
 
-## Command Details
-
-Continue from a stored handle:
-
-```bash
-printf '%s\n' "$HANDLE_JSON" | lean-beam run-with "Foo.lean" - "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | lean-beam run-with-linear "Foo.lean" - "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | lean-beam release "Foo.lean" -
-```
-
-Short search helper:
-
-```bash
-lean-beam-search mint "Foo.lean" 10 2 "constructor"
-printf '%s\n' "$HANDLE_JSON" | lean-beam-search branch "Foo.lean" "constructor"
-printf '%s\n' "$HANDLE_JSON" | lean-beam-search playout "Foo.lean" "exact trivial" "exact trivial"
-printf '%s\n' "$HANDLE_JSON" | lean-beam-search release "Foo.lean"
-```
-
-Inspect dependency order for multi-file edits:
-
-```bash
-lean-beam deps "Foo.lean"
-```
-
-Inspect Lean type/term information at a specific position:
-
-```bash
-lean-beam hover "Foo.lean" 10 2
-```
-
-Inspect Lean proof goals at an existing tactic position:
-
-```bash
-lean-beam goals-prev "Foo.lean" 10 2
-lean-beam goals-after "Foo.lean" 10 2
-```
-
-These commands return structured goals in `result.goals`. A solved state uses
-`result.goals = []`.
-
-Checkpoint one synced workspace module without a full project build:
-
-```bash
-lean-beam save "MyPkg/Sub/Module.lean"
-lean-beam close-save "MyPkg/Sub/Module.lean"
-```
-
-These commands require a synced file that belongs to the current Lake workspace and resolves to a
-module in the package graph. A standalone `.lean` file that the daemon can open but Lake cannot map
-to a module is a valid `lean-beam sync` target, but not a valid `lean-beam save` target.
-
-## Save Eligibility
-
-When `lean-beam save` is valid:
-
-- the file has already been synced successfully
-- the file belongs to the current Lake workspace package graph
-- Lake resolves that path to a module
-- `lean-beam save` means checkpointing a synced Lake module; it does not mean saving editor buffers or
-  writing source text to disk
-
-What is not a valid checkpoint target:
-
-- a standalone `.lean` file at repo root that is outside the package module graph
-- any file the daemon can open but Lake cannot map to a workspace module
-
 ## Source-File And Execution Model
 
 - `lean-beam run-at` and `lean-beam deps` do not edit `Foo.lean`
@@ -136,17 +69,85 @@ What is not a valid checkpoint target:
 - `lean-beam save` / `lean-beam close-save` checkpoint the current synced Lake module only; they do not
   rebuild reverse dependencies or make downstream files fresh by themselves
 
+## Command Details
+
+Inspect dependency order for multi-file edits:
+
+```bash
+lean-beam deps "Foo.lean"
+```
+
+Inspect Lean type/term information at a specific position:
+
+```bash
+lean-beam hover "Foo.lean" 10 2
+```
+
+Inspect Lean proof goals at an existing tactic position:
+
+```bash
+lean-beam goals-prev "Foo.lean" 10 2
+lean-beam goals-after "Foo.lean" 10 2
+```
+
+These commands return structured goals in `result.goals`. A solved state uses
+`result.goals = []`.
+
+Checkpoint one synced workspace module without a full project build:
+
+```bash
+lean-beam save "MyPkg/Sub/Module.lean"
+lean-beam close-save "MyPkg/Sub/Module.lean"
+```
+
+These commands require a synced file that belongs to the current Lake workspace and resolves to a
+module in the package graph. A standalone `.lean` file that the daemon can open but Lake cannot map
+to a module is a valid `lean-beam sync` target, but not a valid `lean-beam save` target.
+
+Continue from a stored handle:
+
+```bash
+printf '%s\n' "$HANDLE_JSON" | lean-beam run-with "Foo.lean" - "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | lean-beam run-with-linear "Foo.lean" - "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | lean-beam release "Foo.lean" -
+```
+
+Short search helper:
+
+```bash
+lean-beam-search mint "Foo.lean" 10 2 "constructor"
+printf '%s\n' "$HANDLE_JSON" | lean-beam-search branch "Foo.lean" "constructor"
+printf '%s\n' "$HANDLE_JSON" | lean-beam-search playout "Foo.lean" "exact trivial" "exact trivial"
+printf '%s\n' "$HANDLE_JSON" | lean-beam-search release "Foo.lean"
+```
+
+## Save Eligibility
+
+When `lean-beam save` is valid:
+
+- the file has already been synced successfully
+- the file belongs to the current Lake workspace package graph
+- Lake resolves that path to a module
+- `lean-beam save` means checkpointing a synced Lake module; it does not mean saving editor buffers or
+  writing source text to disk
+
+What is not a valid checkpoint target:
+
+- a standalone `.lean` file at repo root that is outside the package module graph
+- any file the daemon can open but Lake cannot map to a workspace module
+
 ## Diagnostics, Progress, And Request IDs
 
-- `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` always stream fresh diagnostics for the current
-  request
+- `lean-beam sync`, `lean-beam refresh`, `lean-beam save`, and `lean-beam close-save` always stream fresh
+  diagnostics for the current request
 - by default they stream only errors
 - add `+full` to widen the current request to warnings, info, and hints
 - the final JSON does not replay streamed diagnostics
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages
 - wrapper `stderr` is the human-facing diagnostic surface
-- `beam-client request-stream ...` is the machine-facing streamed surface
+- for lower-level machine-facing streamed integration, `beam-client request-stream ...` exposes the raw
+  stream
 - do not parse wrapper `stderr` in tooling
 - `BEAM_PROGRESS` controls stderr progress output for slow calls
 - by default, progress prints when stderr is a TTY
@@ -155,7 +156,7 @@ What is not a valid checkpoint target:
 - the final stdout JSON echoes it as `clientRequestId`
 - streamed stderr progress/diagnostic lines are annotated as `beam[<id>]: ...`
 - a second live request using the same id is rejected with `invalidParams`
-- `beam cancel <id>` cancels an in-flight broker request by that `clientRequestId`
+- `lean-beam cancel <id>` cancels an in-flight broker request by that `clientRequestId`
 - when `BEAM_REQUEST_ID` is set, `Ctrl-C` asks the broker to cancel that request before the local
   CLI exits
 
@@ -176,9 +177,10 @@ Interpretation:
 
 - after `lean-beam sync`, expect top-level `fileProgress.done = true`
 - successful `lean-beam sync` transport does not mean the file is error-free; inspect
-  `result.errorCount` / `result.warningCount` for fresh streamed diagnostics in this request, and
-  inspect `result.saveReady` plus `result.stateErrorCount` / `result.stateCommandErrorCount` for
-  current save-readiness
+  `result.errorCount` for fresh streamed diagnostics in this request, and inspect `result.saveReady`
+  plus `result.stateErrorCount` / `result.stateCommandErrorCount` for current save-readiness
+- inspect `result.warningCount` only when the current request used `+full`; without `+full`, that
+  field may still be `0` even when the file has warnings
 - if `lean-beam sync` fails with an incomplete diagnostics barrier, inspect the JSON
   `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan`; those hints are
   based on direct imports whose saved checkpoint is newer than the target file's last successful
@@ -274,8 +276,8 @@ lean-beam reset-stats
 along with `saved` / `notSaved`, direct Lean deps when available, whether the current synced version
 has been checkpointed with `lean-beam save`, and Lean save preflight fields `saveEligible`,
 `saveReason`, and, when applicable, `saveModule`. For files the Beam daemon already knows about, the
-wrapper checks that status incrementally against the current on-disk text, and `open-files` also
-reports the last compact `fileProgress` observed for that tracked version.
+wrapper checks that status against the current on-disk text, and `open-files` also reports the last
+compact `fileProgress` observed for that tracked version.
 
 Stats are in-memory only and scoped to the current project Beam daemon.
 
