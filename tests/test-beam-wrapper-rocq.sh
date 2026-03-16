@@ -16,8 +16,8 @@ if [ ! -x "$beam_script" ]; then
   exit 1
 fi
 
-if [ -z "$rocq_cmd" ]; then
-  echo "missing BEAM_ROCQ_CMD for Rocq wrapper test" >&2
+if [ -z "$rocq_cmd" ] && ! command -v coq-lsp > /dev/null 2>&1; then
+  echo "missing coq-lsp; set BEAM_ROCQ_CMD or install it in PATH" >&2
   exit 1
 fi
 
@@ -42,7 +42,11 @@ remove_owned_tmp_tree() {
 
 cleanup() {
   if [ -d "$tmp_repo/tests/rocq/Minimal" ]; then
-    BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null 2>&1 || true
+    if [ -n "$rocq_cmd" ]; then
+      BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null 2>&1 || true
+    else
+      "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null 2>&1 || true
+    fi
   fi
   remove_owned_tmp_tree "$tmp_repo"
 }
@@ -62,15 +66,27 @@ rsync -a \
     echo "expected lake build beam-cli not to prebuild Beam daemon helper executables" >&2
     exit 1
   fi
-  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
+  if [ -n "$rocq_cmd" ]; then
+    BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
+  else
+    "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" doctor rocq > /dev/null
+  fi
   if [ -x ".lake/build/bin/beam-daemon" ] || [ -x ".lake/build/bin/beam-client" ]; then
     echo "expected doctor rocq to remain read-only and not build Beam daemon helpers" >&2
     exit 1
   fi
-  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" ensure rocq > /dev/null
+  if [ -n "$rocq_cmd" ]; then
+    BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" ensure rocq > /dev/null
+  else
+    "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" ensure rocq > /dev/null
+  fi
   if [ ! -x ".lake/build/bin/beam-daemon" ] || [ ! -x ".lake/build/bin/beam-client" ]; then
     echo "expected rocq CLI startup to build missing Beam daemon helpers on demand" >&2
     exit 1
   fi
-  BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null
+  if [ -n "$rocq_cmd" ]; then
+    BEAM_ROCQ_CMD="$rocq_cmd" "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null
+  else
+    "$tmp_repo/scripts/lean-beam" --root "$tmp_repo/tests/rocq/Minimal" shutdown > /dev/null
+  fi
 )
