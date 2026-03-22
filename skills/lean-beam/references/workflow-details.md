@@ -107,6 +107,12 @@ to a module is a valid `lean-beam sync` target, but not a valid `lean-beam save`
 Continue from a stored handle:
 
 ```bash
+# `--handle-file` avoids inlining handle json and frees stdin for continuation text
+lean-beam run-with "Foo.lean" --handle-file handle.json "exact trivial"
+lean-beam run-with-linear "Foo.lean" --handle-file handle.json "exact trivial"
+lean-beam release "Foo.lean" --handle-file handle.json
+
+# stdin handle flow remains supported when it fits your shell loop better
 printf '%s\n' "$HANDLE_JSON" | lean-beam run-with "Foo.lean" - "exact trivial"
 printf '%s\n' "$HANDLE_JSON" | lean-beam run-with-linear "Foo.lean" - "exact trivial"
 printf '%s\n' "$HANDLE_JSON" | lean-beam release "Foo.lean" -
