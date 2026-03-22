@@ -10,7 +10,8 @@ stable `runAt` contract.
 
 Some unsupported or broken compatibility extensions may still exist in the tree for tests or local
 maintainer workflows. Treat those as implementation leftovers, not as experimental API candidates.
-The current example is the hidden `lean-deps` compatibility alias.
+The current example is the hidden `lean-deps` compatibility alias: you can use it at your own risk
+to extract full deps, but there are no guarantees and the information is likely broken.
 
 ## `lean-beam request-at`
 
