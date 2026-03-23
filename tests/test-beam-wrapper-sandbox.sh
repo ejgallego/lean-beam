@@ -26,6 +26,17 @@ if ! command -v bwrap >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! bwrap --new-session --die-with-parent \
+    --ro-bind / / \
+    --dev-bind /dev /dev \
+    --bind /tmp /tmp \
+    --proc /proc \
+    --unshare-pid \
+    -- /bin/sh -c 'exit 0' >/dev/null 2>&1; then
+  echo "skipping sandbox wrapper regression because pid-isolated bwrap is unavailable on this runner" >&2
+  exit 0
+fi
+
 read_json_field() {
   python3 - "$1" "$2" <<'PY'
 import json, sys
