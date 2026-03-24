@@ -41,13 +41,13 @@ remove_owned_tmp_tree() {
 
 cleanup() {
   if [ -d "$worktree_path" ]; then
-    git worktree remove "$worktree_path" >/dev/null 2>&1 || true
+    git worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
   fi
   if git show-ref --verify --quiet "refs/heads/codex/$task_slug"; then
     git branch -D "codex/$task_slug" >/dev/null 2>&1 || true
   fi
   if [ -d "$default_worktree_path" ]; then
-    git worktree remove "$default_worktree_path" >/dev/null 2>&1 || true
+    git worktree remove --force "$default_worktree_path" >/dev/null 2>&1 || true
   fi
   if git show-ref --verify --quiet "refs/heads/codex/$default_task_slug"; then
     git branch -D "codex/$default_task_slug" >/dev/null 2>&1 || true
