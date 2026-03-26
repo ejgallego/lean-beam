@@ -37,6 +37,7 @@
    bcFile? : Option String := none
    deriving FromJson, ToJson
 
+-- Keep this indirection while v4.28 stays supported; see the compat note in `RunAt.Protocol`.
 instance : Lean.Lsp.FileSource SaveArtifactsParams where
    fileSource p := Lean.Lsp.fileSource p.textDocument
 
@@ -45,6 +46,7 @@ instance : Lean.Lsp.FileSource SaveArtifactsParams where
    textDocument : Lean.Lsp.TextDocumentIdentifier
    deriving FromJson, ToJson
 
+-- Keep this indirection while v4.28 stays supported; see the compat note in `RunAt.Protocol`.
 instance : Lean.Lsp.FileSource SaveReadinessParams where
    fileSource p := Lean.Lsp.fileSource p.textDocument
 

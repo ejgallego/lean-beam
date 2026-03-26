@@ -49,6 +49,9 @@ private def traceOptions (opts : LeanOptions) (caption := "opts") : BuildTrace :
     let opt := s!"-D{n}={v.asCliFlagValue}"
     t.mix <| .ofHash (pureHash opt) opt
 
+-- Lean/Lake v4.28 compatibility shim: newer Lake versions let `addPureTrace` hash any `Hashable`
+-- value directly, but v4.28 lacks that generic `ComputeHash` instance. When we drop v4.28 support,
+-- replace this helper with the upstream-style `addPureTrace mod.name` / `addPureTrace mod.pkg.id?`.
 private def hashOfHashable [Hashable α] (a : α) : Hash :=
   Hash.mix Hash.nil <| Hash.mk <| hash a
 

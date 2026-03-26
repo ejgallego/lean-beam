@@ -24,6 +24,7 @@
    textDocument : Lean.Lsp.TextDocumentIdentifier
    deriving FromJson, ToJson
 
+-- Keep this indirection while v4.28 stays supported; see the compat note in `RunAt.Protocol`.
 instance : Lean.Lsp.FileSource DirectImportsParams where
    fileSource p := Lean.Lsp.fileSource p.textDocument
 

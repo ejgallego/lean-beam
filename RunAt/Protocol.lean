@@ -55,6 +55,9 @@ structure Params where
   storeHandle? : Option Bool := none
   deriving FromJson, ToJson
 
+-- Lean v4.28 compatibility shim: `Lean.Lsp.FileSource.fileSource` returns `FileIdent` there, but
+-- newer Lean versions use `DocumentUri`. When we drop v4.28 support, re-check whether these request
+-- types should switch back to the more direct `p.textDocument.uri` style used by newer upstream APIs.
 instance : Lean.Lsp.FileSource Params where
   fileSource p := Lean.Lsp.fileSource p.textDocument
 
