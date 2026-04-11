@@ -1,11 +1,11 @@
 ---
 name: rocq-beam
-description: Use this when an AI needs the auxiliary Rocq goal-probe surface exposed through the installed `lean-beam` wrapper, giving it cheap coq-lsp proof-state access without treating Rocq support as a separate product.
+description: Use this when an AI needs the optional Rocq goal-probe surface exposed through the installed `lean-beam` wrapper while porting Rocq developments to Lean.
 ---
 
 # Rocq Beam
 
-Use this skill when a Rocq project needs the narrow Rocq-facing surface that `lean-beam` already exposes. This is an auxiliary mode of the `lean-beam` toolchain, not a separate product or a second full workflow stack.
+Use this skill when a Rocq project needs the narrow Rocq-facing surface that `lean-beam` already exposes, especially while porting Rocq developments to Lean. This is an optional auxiliary mode of the `lean-beam` toolchain, not a separate product or a second full workflow stack.
 
 The goal is cheap Rocq proof-state inspection through `coq-lsp`, without turning Rocq support into a broad standalone interface.
 
@@ -19,18 +19,20 @@ duplicate short guidance if both skills need it.
 From the `lean-beam` repo root:
 
 ```bash
-./scripts/install-beam.sh --codex
+./scripts/install-beam.sh --codex --rocq-skill
 ```
 
-Use `--claude` instead when installing for Claude Code, or `--all-skills` when you want both agent
-skill sets.
+Use `--claude --rocq-skill` instead when installing for Claude Code, or
+`--all-skills --rocq-skill` when you want both agent skill sets.
 
 The installer puts `lean-beam` in `~/.local/bin`, stages the self-contained runtime under
 `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on `PATH`, prebuilds the
 pinned `lean-toolchain` bundle under `BEAM_INSTALL_ROOT/state/install-bundles`, and installs the
-Lean and Rocq bundled skills only for the agent flags you request.
+optional Rocq skill only when `--rocq-skill` is paired with a selected agent skill target.
 
 Restart Codex or Claude Code after installation.
+
+The user-facing Rocq status and setup page is [docs/ROCQ.md](../../docs/ROCQ.md).
 
 ## Rocq Setup
 
@@ -71,6 +73,7 @@ Core workflow contract:
   character `0` is valid
 - there is no Rocq `sync` command in the current wrapper
 - there is no Rocq handle or continuation surface in the current wrapper
+- there is no Rocq `run-at` command in the current wrapper; use the goal probes instead
 - do not assume hidden mutable proof-session state carries across requests
 - do not use `coqtop` or a fallback executor; only `coq-lsp` is trusted
 
@@ -96,6 +99,7 @@ Default rules:
 - start with `lean-beam rocq-goals-after`
 - save the file before every new probe after a real edit
 - keep coordinates 0-based; do not guess editor-specific 1-based lines or columns
+- if you think you want a Rocq `run-at`, use `lean-beam rocq-goals-prev` with extra text or `rocq-goals-after` instead
 - use `lean-beam rocq-goals-prev` plus text when you need an intermediate state inside a sentence
 - do not assume any hidden proof-session state carries across requests
 

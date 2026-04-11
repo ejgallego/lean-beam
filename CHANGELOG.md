@@ -13,8 +13,8 @@ Current milestone summary:
 - add optional follow-up handles with wrong-document and stale-worker invalidation coverage
 - move most handle coverage into the text scenario DSL, keeping only the successor-handle-on-failure assertion in the Lean API test
 - propagate cooperative Lean cancel tokens into isolated command/proof execution and document the non-preemptive model
-- add a thin broker/client pair for local agent-driven `runAt` and Rocq goal workflows without speaking raw LSP directly
-- add minimal Rocq broker support through `coq-lsp` only, using `proof/goals` over full-text LSP sync
+- add a thin broker/client pair for local agent-driven `runAt` and optional Rocq goal workflows without speaking raw LSP directly
+- add minimal optional Rocq broker support through `coq-lsp` only, using `proof/goals` over full-text LSP sync
 - expose Rocq `proof/goals.command` through broker `goals.text` for intermediate-state probing of tactic prefixes such as `a` in `a; b`
 - add a Lean `deps` broker call for workspace dependency-cone planning
 - add `lean-save` / `lean-close-save` as a zero-build save path: serialize current worker artifacts directly and write the Lake module trace without shelling out to `lake build`

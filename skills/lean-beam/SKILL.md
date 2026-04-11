@@ -20,14 +20,14 @@ From the `lean-beam` repo root:
 ```
 
 Use `--claude` instead when installing for Claude Code, or `--all-skills` when you want both agent
-skill sets.
+targets.
 
 The installer puts `lean-beam` and `lean-beam-search` in `~/.local/bin`, stages the self-contained
 runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on `PATH`,
 prebuilds the pinned `lean-toolchain` bundle under `BEAM_INSTALL_ROOT/state/install-bundles` by
 default, supports `--toolchain <toolchain>` and `--all-supported` for explicit supported bundle
 selection, supports `--custom-toolchain <toolchain>` for explicit elan-linked local Lean
-development toolchains, and installs the bundled skills only for the agent flags you request.
+development toolchains, and installs the bundled Lean skill only for the agent flags you request.
 
 Restart Codex or Claude Code after installation.
 

@@ -15,7 +15,9 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - agent-oriented `$/lean/todo` range inspection for actionable items such as sorries, holes,
   diagnostics, code actions, and incomplete proofs, exposed through the broker, `lean-beam todo`,
   and MCP `lean_todo`
-- local Beam daemon/client pair for Lean and Rocq workflows
+- local Beam daemon/client pair for Lean workflows
+- optional Rocq Beam goal probes through `coq-lsp`, documented separately in
+  [docs/ROCQ.md](ROCQ.md)
 - alpha Lean wrapper commands for follow-up handle continuation and release
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows
 - explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers,
@@ -118,8 +120,8 @@ separate concern; the self-check path now reports explicit workspace setup befor
 `lean_sync`, so slow bundle/runtime setup is not described as Lean-file sync latency.
 The wrapper now also exposes alpha Lean handle commands for
 continuation, linear playout, and release; these are useful for search-style workflows but are still
-more fragile than the base one-shot request. Rocq support remains narrower and does not currently
-expose an equivalent public sync command in the wrapper.
+more fragile than the base one-shot request. Optional Rocq support remains goals-only and does not
+currently expose an equivalent public sync command in the wrapper.
 
 If Lean cannot reach a completed diagnostics barrier for the synced version, for example because an
 imported target is stale and rebuild failure kills the worker session, `lean-beam sync` now fails rather
@@ -277,8 +279,8 @@ version and reporting the saved source hash.
   this limitation is currently explicit and user-visible.
 - agent-skill distribution currently relies on a local checkout and local install script; it is not
   yet published through a registry or marketplace flow.
-- Rocq support is currently limited to goal inspection through `coq-lsp`; it is not yet a full
-  stateful execution layer.
+- Optional Rocq support is currently limited to goal inspection through `coq-lsp`; it is not yet a
+  full stateful execution layer.
 
 ## Direction
 

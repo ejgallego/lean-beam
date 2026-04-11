@@ -259,6 +259,24 @@ private def nextRequestId (session : Session) : Session × RequestID :=
   let id : RequestID := session.nextId
   ({ session with nextId := session.nextId + 1 }, id)
 
+private def embeddedJsonRpcErrorWithId? (msg : String) : Option (RequestID × Json) :=
+  if msg.startsWith "Cannot read LSP message: JSON '" then
+    let raw := (msg.drop 31).toString
+    match (raw.splitOn "' did not have the format of a JSON-RPC message.").head? with
+    | some embedded =>
+        match Json.parse embedded with
+        | .ok json =>
+            match json.getObjVal? "id", json.getObjVal? "error" with
+            | .ok idJson, .ok errJson =>
+                match fromJson? idJson with
+                | .ok (id : RequestID) => some (id, errJson)
+                | .error _ => none
+            | _, _ => none
+        | .error _ => none
+    | none => none
+  else
+    none
+
 partial def sessionReaderLoop (session : Session) : IO Unit := do
   try
     let msg ← session.stdout.readLspMessage
@@ -281,18 +299,24 @@ partial def sessionReaderLoop (session : Session) : IO Unit := do
         pure ()
     sessionReaderLoop session
   catch e =>
-    PendingRequestStore.failAll session.pending <| brokerFailureMessage {
-      code := .workerExited
-      message := e.toString
-    }
-    try
-      session.proc.kill
-    catch _ =>
-      pure ()
-    try
-      discard <| session.proc.tryWait
-    catch _ =>
-      pure ()
+    match embeddedJsonRpcErrorWithId? e.toString with
+    | some (id, errJson) =>
+        if let some pending ← PendingRequestStore.remove session.pending id then
+          PendingRequest.resolveErrorJson pending errJson
+        sessionReaderLoop session
+    | none =>
+        PendingRequestStore.failAll session.pending <| brokerFailureMessage {
+          code := .workerExited
+          message := e.toString
+        }
+        try
+          session.proc.kill
+        catch _ =>
+          pure ()
+        try
+          discard <| session.proc.tryWait
+        catch _ =>
+          pure ()
 
 private def startRequestJsonTrackedDetailed
     (session : Session)

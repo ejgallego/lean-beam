@@ -23,6 +23,7 @@ beam_cli="$repo_root/.lake/build/bin/beam-cli"
 installer_cmd="./scripts/install-beam.sh"
 install_codex_skills=0
 install_claude_skills=0
+install_rocq_skill=0
 register_codex_mcp=0
 register_claude_mcp=0
 install_all_supported=0
@@ -87,7 +88,7 @@ Usage:
 Installs the local beam command wrappers and self-contained runtime under:
   $install_root
 
-With no flags, an interactive install asks which Lean toolchains, agent skills, and MCP
+With no flags, an interactive install asks which Lean toolchains, Lean agent skills, and MCP
 clients to set up before showing the write plan. Press Enter through the setup prompts for the
 minimal runtime install:
   - $bin_home/lean-beam
@@ -106,9 +107,10 @@ Optional flags:
                 prebuild and accept one explicit custom Lean toolchain; may be repeated
   --all-supported
                 prebuild every supported Lean toolchain
-  --codex       install bundled Lean and Rocq skills into $codex_skills_home
-  --claude      install bundled Lean and Rocq skills into $claude_skills_home
-  --all-skills  install bundled skills for both Codex and Claude Code
+  --codex       install bundled Lean skill into $codex_skills_home
+  --claude      install bundled Lean skill into $claude_skills_home
+  --all-skills  install bundled Lean skill for both Codex and Claude Code
+  --rocq-skill  also install the optional Rocq skill for the selected agent target(s)
   --codex-mcp   register lean-beam-mcp with Codex
   --claude-mcp  register lean-beam-mcp with Claude Code user config
   --all-mcp     register lean-beam-mcp with both Codex and Claude Code
@@ -146,6 +148,23 @@ print_field() {
   local label="$1"
   local value="$2"
   printf '  %s%-18s%s %s\n' "$style_dim" "$label" "$style_reset" "$value" >&2
+}
+
+skill_install_names() {
+  if [ "$install_rocq_skill" -eq 1 ]; then
+    printf 'lean-beam, rocq-beam\n'
+  else
+    printf 'lean-beam\n'
+  fi
+}
+
+skill_install_path_summary() {
+  local skills_home="$1"
+  if [ "$install_rocq_skill" -eq 1 ]; then
+    printf '%s/{lean-beam,rocq-beam}\n' "$skills_home"
+  else
+    printf '%s/lean-beam\n' "$skills_home"
+  fi
 }
 
 path_contains_dir() {
@@ -528,6 +547,9 @@ parse_args() {
         install_codex_skills=1
         install_claude_skills=1
         ;;
+      --rocq-skill)
+        install_rocq_skill=1
+        ;;
       --codex-mcp)
         mcp_registration_explicit=1
         register_codex_mcp=1
@@ -735,12 +757,12 @@ prompt_skill_selection() {
   local reply=""
   local choice=""
   print_section "$style_blue" "Agent Skills"
-  printf 'Agent skills to install:\n' >&2
+  printf 'Lean agent skill targets to install:\n' >&2
   printf '  1) none (default)\n' >&2
   printf '  2) Codex (%s)\n' "$codex_skills_home" >&2
   printf '  3) Claude Code (%s)\n' "$claude_skills_home" >&2
   printf '  4) both\n' >&2
-  printf 'Install skills [Enter: none]: ' >&2
+  printf 'Install Lean skill [Enter: none]: ' >&2
   IFS= read -r reply
   choice="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
   case "$choice" in
@@ -764,6 +786,14 @@ prompt_skill_selection() {
       die "unknown skill selection: $reply"
       ;;
   esac
+}
+
+validate_skill_selection() {
+  if [ "$install_rocq_skill" -eq 1 ] \
+    && [ "$install_codex_skills" -eq 0 ] \
+    && [ "$install_claude_skills" -eq 0 ]; then
+    die "--rocq-skill requires --codex, --claude, --all-skills, or an interactive skill target"
+  fi
 }
 
 prompt_mcp_registration_selection() {
@@ -943,10 +973,10 @@ print_install_plan() {
     print_field "skills" "none"
   else
     if [ "$install_codex_skills" -eq 1 ]; then
-      print_field "Codex skills" "$codex_skills_home/{lean-beam,rocq-beam}"
+      print_field "Codex skills" "$(skill_install_path_summary "$codex_skills_home")"
     fi
     if [ "$install_claude_skills" -eq 1 ]; then
-      print_field "Claude skills" "$claude_skills_home/{lean-beam,rocq-beam}"
+      print_field "Claude skills" "$(skill_install_path_summary "$claude_skills_home")"
     fi
   fi
   if [ "$register_codex_mcp" -eq 0 ] && [ "$register_claude_mcp" -eq 0 ]; then
@@ -1132,21 +1162,25 @@ install_skills() {
   require_absolute_path "$skills_home" "skills home"
   ensure_dir_for_install "$skills_home" "skills home"
   install_one_skill "$repo_root/skills/lean-beam" "$skills_home/lean-beam" "lean-beam"
-  install_one_skill "$repo_root/skills/rocq-beam" "$skills_home/rocq-beam" "rocq-beam"
+  if [ "$install_rocq_skill" -eq 1 ]; then
+    install_one_skill "$repo_root/skills/rocq-beam" "$skills_home/rocq-beam" "rocq-beam"
+  fi
 }
 
 install_skill_target() {
   local label="$1"
   local skills_home="$2"
   install_skills "$skills_home"
-  printf '%s: %s\n' "$label" "$skills_home"
+  printf '%s: %s: %s\n' "$label" "$(skill_install_names)" "$skills_home"
 }
 
 verify_skill_home_targets() {
   local skills_home="$1"
   require_absolute_path "$skills_home" "skills home"
   ensure_skill_target_replaceable "$skills_home/lean-beam" "lean-beam"
-  ensure_skill_target_replaceable "$skills_home/rocq-beam" "rocq-beam"
+  if [ "$install_rocq_skill" -eq 1 ]; then
+    ensure_skill_target_replaceable "$skills_home/rocq-beam" "rocq-beam"
+  fi
 }
 
 verify_requested_skill_targets() {
@@ -1215,10 +1249,10 @@ approve_requested_writes() {
   if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ]; then
     printf '\n  Agent skills\n' >&2
     if [ "$install_codex_skills" -eq 1 ]; then
-      printf '    - Codex: %s\n' "$codex_skills_home" >&2
+      printf '    - Codex: %s (%s)\n' "$codex_skills_home" "$(skill_install_names)" >&2
     fi
     if [ "$install_claude_skills" -eq 1 ]; then
-      printf '    - Claude Code: %s\n' "$claude_skills_home" >&2
+      printf '    - Claude Code: %s (%s)\n' "$claude_skills_home" "$(skill_install_names)" >&2
     fi
   fi
 
@@ -1297,6 +1331,7 @@ prepare_install_environment() {
   maybe_prompt_interactive_choices "$prepared_repo_toolchain"
   resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
   resolved_custom_toolchains="$(resolve_custom_install_toolchains)"
+  validate_skill_selection
   print_install_plan "$resolved_toolchains" "$resolved_custom_toolchains"
   verify_requested_skill_targets
   verify_requested_mcp_clients
@@ -1395,6 +1430,7 @@ print_install_summary() {
   local codex_mcp_state="not registered"
   local claude_mcp_state="not registered"
   local path_status="$bin_home is not on PATH yet"
+  local installed_skill_names=""
 
   if path_contains_dir "$bin_home"; then
     path_status="ready for direct \`lean-beam\` and \`lean-beam-mcp\` use in this shell"
@@ -1448,10 +1484,12 @@ print_install_summary() {
 
   print_section "$style_green" "Agent Setup"
   if [ "$codex_skill_installed" -eq 1 ]; then
-    codex_skill_state="installed"
+    installed_skill_names="$(skill_install_names)"
+    codex_skill_state="$installed_skill_names installed"
   fi
   if [ "$claude_skill_installed" -eq 1 ]; then
-    claude_skill_state="installed"
+    installed_skill_names="$(skill_install_names)"
+    claude_skill_state="$installed_skill_names installed"
   fi
   if [ "$codex_mcp_registered" -eq 1 ]; then
     codex_mcp_state="registered"
@@ -1459,19 +1497,19 @@ print_install_summary() {
   if [ "$claude_mcp_registered" -eq 1 ]; then
     claude_mcp_state="registered"
   fi
-  print_field "Codex" "skill: $codex_skill_state; MCP: $codex_mcp_state"
-  print_field "Claude Code" "skill: $claude_skill_state; MCP: $claude_mcp_state"
+  print_field "Codex" "skills: $codex_skill_state; MCP: $codex_mcp_state"
+  print_field "Claude Code" "skills: $claude_skill_state; MCP: $claude_mcp_state"
   if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ]; then
     print_field "Codex setup" "$installer_cmd --codex --codex-mcp"
   elif [ "$codex_skill_installed" -eq 0 ]; then
-    print_field "Codex skill" "$installer_cmd --codex"
+    print_field "Codex Lean skill" "$installer_cmd --codex"
   elif [ "$codex_mcp_registered" -eq 0 ]; then
     print_field "Codex MCP" "$installer_cmd --codex-mcp"
   fi
   if [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ]; then
     print_field "Claude Code setup" "$installer_cmd --claude --claude-mcp"
   elif [ "$claude_skill_installed" -eq 0 ]; then
-    print_field "Claude Code skill" "$installer_cmd --claude"
+    print_field "Claude Lean skill" "$installer_cmd --claude"
   elif [ "$claude_mcp_registered" -eq 0 ]; then
     print_field "Claude Code MCP" "$installer_cmd --claude-mcp"
   fi
@@ -1483,6 +1521,7 @@ print_install_summary() {
   print_field "MCP help" "$bin_home/lean-beam-mcp --help"
   print_field "install guide" "$repo_root/README.md"
   print_field "workflow guide" "$repo_root/skills/lean-beam/SKILL.md"
+  print_field "Rocq guide" "$repo_root/docs/ROCQ.md"
 }
 
 main() {
