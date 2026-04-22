@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 # shellcheck source=tests/lib/ci-steps.sh
 . tests/lib/ci-steps.sh
 
-BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-broker-slow}"
+BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-beam-slow}"
 
 if [ -z "${ELAN_HOME:-}" ] && [ -d "$HOME/.elan" ]; then
   export ELAN_HOME="$HOME/.elan"

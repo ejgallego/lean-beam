@@ -279,20 +279,25 @@ Build:
 lake build
 ```
 
-Core tests:
+LSP surface:
 
 ```bash
-bash tests/test.sh
+bash tests/test-lsp.sh
 ```
 
-Broker and wrapper suites:
+Beam surface:
 
 ```bash
-bash tests/test-broker-fast.sh
-bash tests/test-broker-slow.sh
-bash tests/test-broker.sh
+bash tests/test-beam-fast.sh
+bash tests/test-beam-slow.sh
+bash tests/test-beam.sh
+bash tests/test-beam-toolchain-compat.sh leanprover/lean4:v4.29.0
+bash tests/test-beam-rocq.sh
 bash scripts/lint-shell.sh
 ```
+
+The preferred organization is `LSP` vs `Beam`. Maintainer-only checks live in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/TESTING.md](docs/TESTING.md).
 
 GitHub Actions currently validates the main CI job set from
 [.github/workflows/ci.yml](.github/workflows/ci.yml) on both Ubuntu and macOS.
@@ -306,7 +311,7 @@ More detail on test coverage and gaps lives in [docs/TESTING.md](docs/TESTING.md
 - [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md): Lean workflow contract
 - [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): AI-first maintainer workflow and harness guidance
-- [docs/TESTING.md](docs/TESTING.md): test coverage and gaps
+- [docs/TESTING.md](docs/TESTING.md): testing surfaces, coverage, and gaps
 - [docs/experimental.md](docs/experimental.md): unstable experimental surfaces
 - [AGENTS.md](AGENTS.md): repo-specific agent instructions
 
