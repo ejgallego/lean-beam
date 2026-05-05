@@ -3,3 +3,7 @@
 /_opam/
 /_eval/
 /.runat/
+/.codex
+/.tmp/
+.beam/
+/tests/save_olean_project/lake-manifest.json

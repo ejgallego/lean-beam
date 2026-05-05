@@ -12,12 +12,17 @@ Use this reference as a short checklist of what not to assume in Lean `beam` wor
 - `lean-beam save` is valid for any `.lean` file the daemon can open
 - a downstream probe is trustworthy right after editing an imported dependency
 - wrapper `stderr` is the machine-readable surface
+- creating a `/tmp` scratch Lean file for a question that belongs at a real source position
+- batching unrelated proof attempts into one scratch file just to amortize Lean startup
+- treating a detached scratch file success as equivalent to success in the workspace module context
 
 ## Prefer Instead
 
 - use `lean-beam hover` for existing semantic info
 - use `lean-beam goals-prev` / `lean-beam goals-after` for existing proof state
 - use `lean-beam run-at` for one speculative snippet on the current saved file snapshot
+- probe at the real source position with `lean-beam run-at`
+- pass multiline speculative text with `--stdin` instead of writing a temporary Lean file
 - use `lean-beam run-at-handle` plus `lean-beam run-with` / `lean-beam run-with-linear` for exact speculative chaining
 - use a real edit, save, then `lean-beam sync` when the speculative result should become source
 - use `lean-beam save` only for a synced workspace module
