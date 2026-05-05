@@ -210,6 +210,17 @@ Practical boundary:
 
 ## Cost Model
 
+For agent workflows, distinguish fixed startup cost from marginal probe cost.
+
+Detached scratch files, including temporary files outside the workspace module graph, pay the cost
+of constructing an artificial Lean context and often reload imports from a colder basis. They are
+useful for context-free syntax checks, but they are the wrong default for questions whose answer
+depends on the real module, imports, options, notation, instances, or proof state.
+
+Beam is designed for the opposite loop. Once the per-root daemon and target document are warm,
+`run-at`, `hover`, and `goals-*` are cheap local questions against the saved source snapshot. The
+intended agent style is therefore small, source-position probes, not large detached experiments.
+
 Write the on-disk document as `prefix ++ E ++ suffix`.
 
 - `N := |prefix| + |E| + |suffix|` is the full document length

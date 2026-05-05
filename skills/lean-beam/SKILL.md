@@ -72,6 +72,26 @@ Core workflow contract:
   for machine-readable automation
 - do not assume hidden mutable session state carries across unrelated requests
 
+## Agent Cost Model
+
+Prefer Beam probes over detached scratch Lean files for project-local questions.
+
+A standalone scratch file has a high fixed cost: it starts from a detached module, reloads imports
+and environment, and encourages simplified contexts that may not match the real source position.
+
+A `lean-beam run-at` probe has low marginal cost once the per-project daemon and module context are
+warm: it asks one speculative question against the current saved file snapshot and the real module
+environment.
+
+This changes the right agent behavior:
+
+- prefer many small `run-at` probes at the source position over one large scratch experiment
+- use `goals-prev`, `goals-after`, and `hover` instead of reconstructing proof state elsewhere
+- do not batch unrelated questions just to amortize Lean startup
+- after a real source edit, run `lean-beam sync <file>` before trusting later probes
+- use `lake build` for dependency-cone or final validation, not as the inner loop
+- use scratch files only for context-free Lean syntax checks or Beam incident isolation
+
 ## Prompting Contract
 
 Prefer the smallest command that matches the actual task:
