@@ -1680,7 +1680,12 @@ private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
   let toolchain ← leanToolchain root
   let (supportPath, supportedToolchains) ← supportedLeanToolchains home
   let toolchainSupported := supportedToolchains.elem toolchain
-  let leanCmd ← leanBin root
+  let leanCmd? ←
+    if toolchainSupported then
+      let leanCmd ← leanBin root
+      pure (some leanCmd)
+    else
+      pure none
   let runtimeRoot ← runtimeBundleCacheRoot root
   let platform ← bundlePlatform
   let srcHash ← sourceHash home
@@ -1698,7 +1703,7 @@ private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
   IO.println s!"project toolchain: {toolchain}"
   IO.println s!"project toolchain supported: {boolText toolchainSupported}"
   IO.println s!"supported toolchains registry: {supportPath}"
-  IO.println s!"lean binary: {leanCmd}"
+  IO.println s!"lean binary: {leanCmd?.getD "(not resolved for unsupported toolchain)"}"
   IO.println s!"bundle platform: {platform}"
   IO.println s!"bundle source: {source}"
   IO.println s!"bundle source hash: {srcHash}"

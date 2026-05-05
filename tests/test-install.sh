@@ -64,7 +64,15 @@ while IFS= read -r line; do
   [ -n "$line" ] || continue
   supported_toolchains+=("$line")
 done < <(grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d')
-toolchain="${supported_toolchains[0]}"
+toolchain="$(awk 'NR==1 {print $1}' lean-toolchain)"
+if [ -z "$toolchain" ]; then
+  echo "missing pinned Lean toolchain in lean-toolchain" >&2
+  exit 1
+fi
+if ! printf '%s\n' "${supported_toolchains[@]}" | grep -qxF "$toolchain"; then
+  echo "pinned Lean toolchain is not in supported-lean-toolchains: $toolchain" >&2
+  exit 1
+fi
 source_checkout="$tmp_root/source-checkout"
 runat_plugin_shared_lib="$(beam_shared_lib_name runAt_RunAt)"
 
