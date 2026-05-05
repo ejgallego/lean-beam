@@ -5,6 +5,8 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean.Compiler.IR
+import Lean.Elab.Term
+import Lean.Shell
 import Lean.Server.FileWorker.RequestHandling
 import Lean.Server.Requests
 import RunAt.Internal.SaveSupport
@@ -18,6 +20,19 @@ open Lean.Server.RequestM
 open RunAt.Lib
 
 namespace RunAt.Requests
+
+private def legacyIREmitCName : Name :=
+  .str (.str (.str .anonymous "Lean") "IR") "emitC"
+
+-- Lean v4.30 moved C emission from `Lean.IR.emitC` to `Lean.Compiler.LCNF.emitC`.
+-- Select the available API at elaboration time so one source tree still builds on v4.28-v4.30.
+elab "emitCForSavedModule(" env:term ", " modName:term ")" : term => do
+  if (← getEnv).contains legacyIREmitCName then
+    Lean.Elab.Term.elabTerm (← `(term| IO.ofExcept <| Lean.IR.emitC $env $modName)) none
+  else
+    Lean.Elab.Term.elabTerm (← `(term| (Lean.Compiler.LCNF.emitC $modName).toIO'
+        { fileName := "", fileMap := default }
+        { env := $env })) none
 
 def mkFilePath (path : String) : System.FilePath :=
   System.FilePath.mk path
@@ -140,7 +155,7 @@ def saveCurrentArtifacts
   Lean.writeModule env oleanFile
   let trees := snaps.toArray.map (·.infoTree)
   writeIlean doc.meta doc.initSnap.stx mainModule trees ileanFile
-  let cOutput ← IO.ofExcept <| Lean.IR.emitC env mainModule
+  let cOutput ← emitCForSavedModule(env, mainModule)
   IO.FS.writeFile cFile cOutput
   if let some bcFile := p.bcFile?.map mkFilePath then
     ensureParentDir bcFile

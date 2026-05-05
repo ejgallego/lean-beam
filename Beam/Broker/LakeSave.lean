@@ -12,6 +12,7 @@ import Lake.Build.Targets
 import Lake.Build.Job.Monad
 import Lake.Build.Common
 import Lake.Build.InitFacets
+import Lean.Elab.Term
 import Beam.Broker.Config
 
 open Lean
@@ -21,6 +22,37 @@ open Std
 namespace Beam.Broker
 
 open Lake
+
+private def moduleOutputIsModuleName : Name :=
+  .str (.str (.str .anonymous "Lake") "ModuleOutputDescrs") "isModule"
+
+-- Lake v4.30 added `ModuleOutputDescrs.isModule`; older supported Lake versions do not have it.
+-- Select the record shape at elaboration time so save traces work across the supported range.
+elab "mkModuleOutputDescrsCompat(" isModule:term ", " olean:term ", " oleanServer:term ", "
+    oleanPrivate:term ", " ilean:term ", " ir:term ", " c:term ", " bc:term ")" : term => do
+  if (← getEnv).contains moduleOutputIsModuleName then
+    Lean.Elab.Term.elabTerm (← `(term| ({
+      isModule := $isModule
+      olean := $olean
+      oleanServer? := $oleanServer
+      oleanPrivate? := $oleanPrivate
+      ilean := $ilean
+      ir? := $ir
+      c := $c
+      bc? := $bc
+    } : ModuleOutputDescrs))) none
+  else
+    Lean.Elab.Term.elabTerm (← `(term| (
+    let _ := $isModule
+    {
+      olean := $olean
+      oleanServer? := $oleanServer
+      oleanPrivate? := $oleanPrivate
+      ilean := $ilean
+      ir? := $ir
+      c := $c
+      bc? := $bc
+    } : ModuleOutputDescrs))) none
 
 structure LeanSaveSpec where
   relPath : String
@@ -275,15 +307,16 @@ private def hashDescr (path : FilePath) (ext : String) : IO ArtifactDescr :=
   return artifactWithExt (← computeHash path) ext
 
 def writeLeanSaveTrace (spec : LeanSaveSpec) : IO Unit := do
-  let outputs : ModuleOutputDescrs := {
-    olean := ← hashDescr spec.oleanPath "olean"
-    oleanServer? := ← spec.oleanServerPath?.mapM (fun path => hashDescr path "olean.server")
-    oleanPrivate? := ← spec.oleanPrivatePath?.mapM (fun path => hashDescr path "olean.private")
-    ilean := ← hashDescr spec.ileanPath "ilean"
-    ir? := ← spec.irPath?.mapM (fun path => hashDescr path "ir")
-    c := ← hashDescr spec.cPath "c"
-    bc? := ← spec.bcPath?.mapM (fun path => hashDescr path "bc")
-  }
+  let isModule := spec.oleanServerPath?.isSome
+  let olean ← hashDescr spec.oleanPath "olean"
+  let oleanServer? ← spec.oleanServerPath?.mapM (fun path => hashDescr path "olean.server")
+  let oleanPrivate? ← spec.oleanPrivatePath?.mapM (fun path => hashDescr path "olean.private")
+  let ilean ← hashDescr spec.ileanPath "ilean"
+  let ir? ← spec.irPath?.mapM (fun path => hashDescr path "ir")
+  let c ← hashDescr spec.cPath "c"
+  let bc? ← spec.bcPath?.mapM (fun path => hashDescr path "bc")
+  let outputs : ModuleOutputDescrs :=
+    mkModuleOutputDescrsCompat(isModule, olean, oleanServer?, oleanPrivate?, ilean, ir?, c, bc?)
   writeBuildTrace spec.tracePath spec.depTrace outputs {}
 
 end Beam.Broker
