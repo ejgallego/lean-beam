@@ -90,6 +90,8 @@ What the fix does:
   wrapper calls for the same project root drain
 - `lean-beam ensure --hold` gives agents an explicit foreground owner when they need daemon reuse
   across separate PID-isolated shell invocations
+- wrapper leases include PID namespace metadata, so same-namespace stale leases left by killed
+  wrappers are pruned without treating different sandbox namespaces as safe to probe by pid
 - the regression for this path is
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 

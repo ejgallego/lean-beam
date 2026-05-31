@@ -49,7 +49,7 @@ Beam daemon integration.
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
 - wrapper coverage for `lean-beam ensure --hold` in
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which validates the foreground daemon
-  owner path used by PID-isolated command runners
+  owner path used by PID-isolated command runners and stale same-namespace wrapper lease cleanup
 - PID-isolated sandbox wrapper coverage in
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh), which checks that a
   later sandboxed wrapper invocation reuses a live daemon via its endpoint and that overlapping

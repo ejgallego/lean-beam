@@ -255,6 +255,32 @@ if [ "$(RUNAT_JSON_PAYLOAD="$hold_json" read_json_text_field ok)" != "true" ]; t
   exit 1
 fi
 stop_hold_process
+"$beam_script" --root "$tmp9" shutdown > /dev/null
+
+stale_lease_dir="$tmp9/.beam/wrapper-leases"
+stale_lease="$stale_lease_dir/stale-dead-wrapper.lease"
+mkdir -p "$stale_lease_dir"
+pid_namespace="$(readlink /proc/self/ns/pid 2>/dev/null || true)"
+LEASE_PATH="$stale_lease" PID_NAMESPACE="$pid_namespace" python3 - <<'PY'
+import json, os
+
+metadata = {
+    "pid": 999999999,
+    "pidNamespace": os.environ["PID_NAMESPACE"] or None,
+    "createdAt": "test",
+}
+with open(os.environ["LEASE_PATH"], "w") as f:
+    json.dump(metadata, f)
+    f.write("\n")
+PY
+
+"$beam_script" --root "$tmp9" ensure lean > /dev/null
+if [ -e "$stale_lease" ]; then
+  echo "expected wrapper ensure to remove a stale same-namespace wrapper lease" >&2
+  cat "$stale_lease" >&2
+  exit 1
+fi
+"$beam_script" --root "$tmp9" shutdown > /dev/null
 
 (
   cd "$tmp1"
