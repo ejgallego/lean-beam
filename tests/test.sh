@@ -9,6 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 lake build RunAt:shared runAt-test runAt-scenario-test runAt-scenario-api-test runAt-scenario-stress-test runAt-handle-api-test runAt-handle-restart-test runAt-handle-lifecycle-test runAt-mcts-proof-search-test runAt-nested-handle-failure-test runAt-request-surface-test runAt-search-workload-report > /dev/null
+lake build RunAtTest.Deps.DepA > /dev/null
 
 run_case() {
   local name="$1"

@@ -1,6 +1,7 @@
 
 Quick Start
   lean-beam ensure
+  lean-beam ensure --hold   # only when a sandbox needs one foreground daemon owner
   lean-beam run-at "Foo.lean" 10 2 "exact trivial"
   printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" 10 2 --stdin
   BEAM_DEBUG_TEXT=1 lean-beam run-at "Foo.lean" 10 2 "exact trivial"
