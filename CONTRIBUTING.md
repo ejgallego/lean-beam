@@ -57,14 +57,28 @@ format now and add changelog policy later if the release process needs it.
 
 ## Pull Requests
 
-PRs should make review cheap. Include:
+PRs should make review cheap and should also read well as the final squash commit message.
+Before opening or editing a PR, run:
 
-- `Summary`: what changed and why
-- `Testing`: exact commands you ran
-- `Risks` or `Open Questions`: only when they matter
+```sh
+scripts/pr-message.sh
+```
 
-Use the same commit convention for the PR title and description. Pull requests are expected to be
-squash merged, so the final commit message should come from the PR title and body.
+Use the emitted title/body scaffold as the public PR metadata. Do not hand-roll the PR body from
+local status notes or validation transcripts.
+
+Guidelines:
+
+- use the commit convention for the PR title: `<type>: <subject>`
+- start the PR body with a short paragraph beginning `This PR ...`
+- summarize the problem and useful outcome in the body itself; issue links are not a substitute
+- add a few bullets only for behavior, compatibility, review risk, or maintainer-visible workflow
+  changes
+- keep local worktree names, write-scope notes, and routine command transcripts out of the public
+  body
+- treat CI as the default validation record; mention local validation only when it materially
+  changes review risk or covers something CI cannot
+- put questions and extra coordination in PR comments rather than the PR description
 
 If the change affects the wrapper, install flow, bundle resolution, or broker protocol, say that
 explicitly.

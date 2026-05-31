@@ -108,6 +108,17 @@ When working locally:
 - if a file is open in the broker, do not edit it out of band
 - if Lean reports stale or rebuild trouble unexpectedly, stop and surface it loudly
 
+## Pull Request Messages
+
+- Before opening or editing a PR, run `scripts/pr-message.sh` and use the emitted title/body
+  scaffold as the source of truth.
+- Keep the public PR title/body suitable as the final squash commit message.
+- Start PR bodies with a short paragraph beginning `This PR ...`; summarize the problem and useful
+  outcome instead of pasting local status notes.
+- Do not add generator or tool prefixes such as `[codex]` to public PR titles.
+- Keep local worktree names, write-scope notes, command transcripts, and routine validation logs out
+  of public PR bodies unless they materially change review risk or CI cannot show the result.
+
 Helpful repo docs:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
