@@ -15,6 +15,8 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - local Beam daemon/client pair for Lean and Rocq workflows
 - alpha Lean wrapper commands for follow-up handle continuation and release
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows
+- explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers,
+  while still accepting older inferred-`ok` envelopes on input
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
 - `lean-beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with
@@ -57,6 +59,9 @@ current request; `+full` widens that stream to warnings, info, and hints. The Be
 forwards compact `fileProgress` updates live to streaming clients. For programmatic local consumers,
 the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; the wrapper stderr format should be treated as human-facing.
+Beam broker responses include an explicit top-level `ok` boolean. Older response envelopes that omit
+`ok` still decode by inferring success from the absence of `error`, but new producer code should emit
+`ok` because it gives future projection layers an unambiguous success/error discriminator.
 Other slow Lean Beam daemon calls may attach a compact top-level `fileProgress` summary when they had
 to wait on the same Lean elaboration progress. For non-barrier calls this summary may be partial,
 because the request can return before the whole file reaches `done = true`. This should be read as a

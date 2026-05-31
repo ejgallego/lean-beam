@@ -25,6 +25,10 @@ Beam daemon integration.
   [RunAt/NestedHandleFailureTest.lean](../RunAt/NestedHandleFailureTest.lean)
 - fast Beam daemon smoke coverage in [tests/test-broker-fast.sh](../tests/test-broker-fast.sh),
   including completed barrier progress vs partial request progress expectations
+- broker protocol envelope coverage in
+  [RunAtTest/Broker/ProtocolTest.lean](../RunAtTest/Broker/ProtocolTest.lean), including explicit
+  `ok` fields on produced responses, legacy inferred-`ok` decoding, and rejection of inconsistent
+  error/result envelopes
 - GitHub Actions main coverage in [.github/workflows/ci.yml](../.github/workflows/ci.yml), whose
   Linux job set now also runs on `macos-latest`
 - GitHub Actions broker smoke coverage on both Ubuntu and macOS through the matrixed
@@ -43,6 +47,9 @@ Beam daemon integration.
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
 - wrapper coverage for the installed `lean-beam-search` helper in
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
+- wrapper coverage for `lean-beam ensure --hold` in
+  [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which validates the foreground daemon
+  owner path used by PID-isolated command runners
 - PID-isolated sandbox wrapper coverage in
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh), which checks that a
   later sandboxed wrapper invocation reuses a live daemon via its endpoint and that overlapping

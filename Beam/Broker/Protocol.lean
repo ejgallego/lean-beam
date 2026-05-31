@@ -231,6 +231,7 @@ structure Response where
 instance : ToJson Response where
   toJson resp :=
     Json.mkObj <|
+      [("ok", toJson resp.ok)] ++
       (match resp.result? with
       | some result => [("result", result)]
       | none => []) ++
@@ -252,6 +253,12 @@ instance : FromJson Response where
     let clientRequestId? ← optionalField? (α := String) j "clientRequestId"
     let ok? ← optionalField? (α := Bool) j "ok"
     let ok := ok?.getD error?.isNone
+    if ok && error?.isSome then
+      throw "invalid Beam daemon response: ok=true must not include 'error'"
+    if !ok && error?.isNone then
+      throw "invalid Beam daemon response: ok=false must include 'error'"
+    if !ok && result?.isSome then
+      throw "invalid Beam daemon response: ok=false must not include 'result'"
     pure { ok, result?, error?, fileProgress?, clientRequestId? }
 
 def syncBarrierIncompleteCode : String :=

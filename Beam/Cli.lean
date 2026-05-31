@@ -1530,7 +1530,7 @@ private def callBrokerWithProgress
 private def usage : String :=
   String.intercalate "\n" [
     "usage:",
-    "  beam [--root PATH] [--socket PATH | --port N] ensure lean|rocq",
+    "  beam [--root PATH] [--socket PATH | --port N] ensure [lean|rocq] [--hold]",
     "  beam [--root PATH] cancel <request-id>",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-at <path> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-at-handle <path> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",
@@ -1566,6 +1566,8 @@ private def usage : String :=
     "For multiline text-carrying Lean probes, prefer --stdin or --text-file <path>; use -- before",
     "text that itself starts with --.",
     "For handle-based commands, use --handle-file <path> when you do not want to inline handle json.",
+    "Use ensure --hold when a PID-isolated command runner needs one foreground wrapper process",
+    "to keep a newly-started daemon alive across separate wrapper invocations.",
     "For lean-sync / lean-refresh / lean-save / lean-close-save, diagnostics always stream for the",
     "current request;",
     "default is errors only, and +full widens the stream to warnings, info, and hints.",
@@ -1797,6 +1799,33 @@ private def shutdownProjectDaemon (opts : CliOptions) : IO Unit := do
           ("result", Json.mkObj [("shutdown", toJson false), ("reason", toJson ("notFound" : String))])
         ]
 
+private def backendOfName (name : String) : Backend :=
+  if name == "rocq" then .rocq else .lean
+
+private def holdUntilInterrupted : IO Unit := do
+  let signal ← Std.Internal.UV.Signal.mk 2 false
+  try
+    let promise ← Std.Internal.UV.Signal.next signal
+    let some _ ← IO.wait promise.result?
+      | throw <| IO.userError "SIGINT watcher promise dropped"
+    pure ()
+  finally
+    Std.Internal.UV.Signal.stop signal
+
+private def ensureBackend
+    (home : System.FilePath)
+    (opts : CliOptions)
+    (backend : Backend)
+    (hold : Bool := false) : IO Unit := do
+  let root ← projectRoot opts backend
+  let daemon ← ensureProjectDaemon home root backend opts
+  withWrapperLease root daemon.startedNew do
+    callBroker root daemon.endpoint { op := .ensure, backend := backend, root? := some root.toString }
+    if hold then
+      (← IO.getStdout).flush
+      IO.eprintln "beam: holding ensured daemon; interrupt this wrapper process when finished"
+      holdUntilInterrupted
+
 private def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   match opts.args with
   | [] =>
@@ -1818,12 +1847,14 @@ private def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit :=
       printInstallLayout
   | "install-manifest" :: payloadHash :: sourceCommitArg :: toolchains =>
       printInstallManifest payloadHash sourceCommitArg toolchains
+  | "ensure" :: [] =>
+      ensureBackend home opts .lean
+  | "ensure" :: "--hold" :: [] =>
+      ensureBackend home opts .lean (hold := true)
   | "ensure" :: backend :: [] =>
-      let backend := if backend == "rocq" then Backend.rocq else Backend.lean
-      let root ← projectRoot opts backend
-      let daemon ← ensureProjectDaemon home root backend opts
-      withWrapperLease root daemon.startedNew do
-        callBroker root daemon.endpoint { op := .ensure, backend := backend, root? := some root.toString }
+      ensureBackend home opts (backendOfName backend)
+  | "ensure" :: backend :: "--hold" :: [] =>
+      ensureBackend home opts (backendOfName backend) (hold := true)
   | "lean-run-at" :: path :: line :: character :: text =>
       runLeanRunAt home opts "lean-run-at" path line character text
   | "lean-run-at-handle" :: path :: line :: character :: text =>

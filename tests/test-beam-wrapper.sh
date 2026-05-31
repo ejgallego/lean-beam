@@ -159,6 +159,19 @@ wait_for_exit() {
   return 1
 }
 
+stop_hold_process() {
+  if [ -n "$hold_pid" ]; then
+    kill -INT "$hold_pid" > /dev/null 2>&1 || true
+    if ! wait_for_exit "$hold_pid" "ensure --hold wrapper" 20 0.1; then
+      kill "$hold_pid" > /dev/null 2>&1 || true
+      wait "$hold_pid" 2>/dev/null || true
+    else
+      wait "$hold_pid" 2>/dev/null || true
+    fi
+    hold_pid=""
+  fi
+}
+
 tmp1="$(mktemp -d /tmp/beam-wrapper-a-XXXXXX)"
 tmp2="$(mktemp -d /tmp/beam-wrapper-b-XXXXXX)"
 tmp3="$(mktemp -d /tmp/beam-wrapper-c-XXXXXX)"
@@ -170,8 +183,10 @@ tmp8="$(mktemp -d /tmp/beam-wrapper-h-XXXXXX)"
 tmp9="$(mktemp -d /tmp/beam-wrapper-i-XXXXXX)"
 tmp10="$(mktemp -d /tmp/beam-wrapper-j-XXXXXX)"
 busy_pid=""
+hold_pid=""
 
 cleanup() {
+  stop_hold_process
   if [ -n "$busy_pid" ]; then
     kill "$busy_pid" > /dev/null 2>&1 || true
     wait "$busy_pid" 2>/dev/null || true
@@ -212,6 +227,34 @@ mkdir -p "$tmp10/tests/scenario/docs"
 cp tests/scenario/docs/CommandA.lean "$tmp10/tests/scenario/docs/CommandA.lean"
 cp tests/scenario/docs/SlowPoll.lean "$tmp10/tests/scenario/docs/SlowPoll.lean"
 mkdir -p "$tmp10/.beam"
+
+"$beam_script" --root "$tmp9" ensure --hold > "$tmp9/hold.out" 2> "$tmp9/hold.err" &
+hold_pid="$!"
+hold_registry="$tmp9/.beam/beam-daemon.json"
+for _ in $(seq 1 600); do
+  if [ -s "$tmp9/hold.out" ] && [ -f "$hold_registry" ]; then
+    break
+  fi
+  sleep 0.1
+done
+if [ ! -s "$tmp9/hold.out" ] || [ ! -f "$hold_registry" ]; then
+  echo "expected ensure --hold to print an ensure response and create a registry" >&2
+  cat "$tmp9/hold.err" >&2
+  exit 1
+fi
+if ! kill -0 "$hold_pid" 2>/dev/null; then
+  echo "expected ensure --hold wrapper process to remain alive" >&2
+  cat "$tmp9/hold.err" >&2
+  exit 1
+fi
+hold_json="$(cat "$tmp9/hold.out")"
+if [ "$(RUNAT_JSON_PAYLOAD="$hold_json" read_json_text_field ok)" != "true" ]; then
+  echo "expected ensure --hold response to succeed" >&2
+  printf '%s\n' "$hold_json" >&2
+  cat "$tmp9/hold.err" >&2
+  exit 1
+fi
+stop_hold_process
 
 (
   cd "$tmp1"
@@ -874,8 +917,8 @@ EOF
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  if printf '%s\n' "$sync_out" | grep -q '"ok"[[:space:]]*:'; then
-    echo "expected lean-sync output to omit the legacy ok field" >&2
+  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected lean-sync output to include ok=true" >&2
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi

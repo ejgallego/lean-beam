@@ -51,6 +51,8 @@ Preferred maintainer entrypoints:
 - new Codex task: `./scripts/codex-harness.sh session start <task-id>`
 - risky wrapper/install validation: `bash scripts/validate-defensive.sh`
 - public workflow checks: `lean-beam` and the skill docs
+- sandboxed repeated wrapper probes: `lean-beam ensure --hold`, then interrupt that foreground
+  process when the probe loop is finished
 - contributor process questions: [CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ## Human And AI Roles
@@ -86,6 +88,8 @@ What the fix does:
   wrong in the current sandbox
 - if a wrapper call started the daemon, keep that wrapper call alive until overlapping sibling
   wrapper calls for the same project root drain
+- `lean-beam ensure --hold` gives agents an explicit foreground owner when they need daemon reuse
+  across separate PID-isolated shell invocations
 - the regression for this path is
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 

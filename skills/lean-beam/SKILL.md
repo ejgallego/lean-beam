@@ -41,13 +41,16 @@ family that fits the task.
 Supported command families:
 
 - bootstrap the Lean backend: `lean-beam ensure`
+- keep a sandboxed daemon owner alive across separate commands: `lean-beam ensure --hold`
 - inspect existing code or proof state: `lean-beam hover`, `lean-beam goals-prev`, `lean-beam goals-after`
 - inspect file or daemon state: `lean-beam open-files`, `lean-beam doctor`, `lean-beam stats`,
   `lean-beam reset-stats`
 - try one isolated speculative Lean snippet: `lean-beam run-at`
 - continue from one exact speculative state: `lean-beam run-at-handle`, `lean-beam run-with`,
   `lean-beam run-with-linear`, `lean-beam release`
-- refresh or checkpoint one tracked workspace module: `lean-beam sync`, `lean-beam refresh`, `lean-beam save`, `lean-beam close-save`
+- inspect direct workspace dependencies: `lean-beam deps`
+- refresh or checkpoint one tracked workspace module: `lean-beam sync`, `lean-beam refresh`,
+  `lean-beam save`, `lean-beam close-save`
 - run shell-oriented search loops over the same handle APIs: `lean-beam-search`
 
 What to treat as the default public skill surface:
@@ -63,6 +66,8 @@ Core workflow contract:
 
 - use `lean-beam`, not raw JSON and not raw LSP
 - `lean-beam` only sees the on-disk file, not unsaved editor buffers
+- in transient PID-sandboxed command runners, start one foreground `lean-beam ensure --hold`
+  process when you need daemon reuse across separate shell invocations; interrupt it when finished
 - after every real Lean source edit: save the file normally, then run `lean-beam sync`
 - use `lean-beam save` only for a synced workspace module path in the current Lake workspace package
   graph, for example `MyPkg/Sub/Module.lean`
@@ -194,6 +199,9 @@ Use `lean-beam`, not raw JSON and not raw LSP.
 - restarts the Beam daemon if the effective Lean startup configuration for that root changes
 - `lean-beam shutdown`, `lean-beam stats`, and `lean-beam reset-stats` apply to the current project only
 - wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Lean calls
+- `lean-beam ensure --hold` prints the usual JSON ensure response on stdout, keeps the wrapper
+  process alive until interrupted, and is only for environments that reap background daemons when
+  each command exits
 
 `lean-beam` is more than a one-shot probe:
 
@@ -213,6 +221,7 @@ Default rules:
 
 - use `lean-beam`, not raw JSON and not raw LSP
 - start with `lean-beam run-at`
+- use `lean-beam ensure --hold` only when your command runner needs a foreground owner for daemon reuse
 - after every real source edit: save the file to disk normally, then `lean-beam sync`
 - if exact continuation matters: mint a handle
 - if search branches: use `lean-beam run-with`, `lean-beam run-with-linear`, and `lean-beam release`
@@ -225,6 +234,8 @@ If you only remember one workflow, use this one:
 
 ```bash
 lean-beam ensure
+# in PID-isolated command runners, keep this in one foreground session instead
+lean-beam ensure --hold
 
 # inspect existing code or proof state
 lean-beam hover "Foo.lean" 10 2
@@ -286,6 +297,7 @@ Use this when you are deciding between commands:
 - human after a real saved edit: `lean-beam sync`
 - human checkpointing one synced module: `lean-beam save` or `lean-beam close-save`
 - human diagnosing daemon or save-state trouble: `lean-beam open-files` and `lean-beam doctor`
+- human checking direct workspace dependencies: `lean-beam deps`
 - tooling that wants streamed diagnostics or progress: `beam-client request-stream ...`
 
 ## References

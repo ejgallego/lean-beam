@@ -50,6 +50,22 @@ So the right abstraction is a projection framework:
 - whether something is a tool, resource, or notification
 - which editor-oriented fields should be removed from the agent-facing surface
 
+## Current Readiness In This Repository
+
+The current code already has the right first seam for a future MCP projection:
+
+- `RunAt/Protocol.lean` owns the small Lean extension request/response types.
+- `Beam/Broker/Protocol.lean` owns the local broker request/response and stream envelopes.
+- `Beam/Broker/Server.lean` owns session lifecycle, document sync, save barriers, cancellation,
+  and backend dispatch.
+- `Beam/Cli.lean` and `scripts/lean-beam` adapt broker operations into the public shell workflow.
+
+The future MCP server should sit beside the CLI as another projection over the broker/public
+operation set, not inside the raw LSP runtime and not as an automatic mirror of LSP methods.
+Broker responses now include an explicit `ok` boolean and structured `error` object, while still
+accepting older inferred-`ok` responses on input. That gives an MCP projection a stable place to
+separate transport/tool errors from normal Lean semantic failures such as `result.success=false`.
+
 ## Proposed Architecture
 
 ### 1. Protocol Layer
