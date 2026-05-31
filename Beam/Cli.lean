@@ -1114,8 +1114,21 @@ private structure WrapperLease where
   root : System.FilePath
   path : System.FilePath
 
+private structure WrapperLeaseMetadata where
+  pid : Nat
+  pidNamespace? : Option String := none
+  createdAt : String
+  deriving FromJson, ToJson
+
 private def wrapperLeaseDir (root : System.FilePath) : IO System.FilePath := do
   pure ((← controlDir root) / "wrapper-leases")
+
+private def removeWrapperLeasePath (path : System.FilePath) : IO Unit := do
+  try
+    if ← path.pathExists then
+      IO.FS.removeFile path
+  catch _ =>
+    pure ()
 
 private def acquireWrapperLease (root : System.FilePath) : IO WrapperLease := do
   let dir ← wrapperLeaseDir root
@@ -1123,21 +1136,58 @@ private def acquireWrapperLease (root : System.FilePath) : IO WrapperLease := do
   let pid ← IO.Process.getPID
   let stamp ← IO.monoNanosNow
   let path := dir / s!"{stamp}-{pid}.lease"
-  IO.FS.writeFile path ""
+  let tmp := dir / s!"{stamp}-{pid}.lease.tmp"
+  let metadata : WrapperLeaseMetadata := {
+    pid := pid.toNat
+    pidNamespace? := ← currentPidNamespace?
+    createdAt := ← utcTimestamp
+  }
+  IO.FS.writeFile tmp ((toJson metadata).pretty ++ "\n")
+  IO.FS.rename tmp path
   pure { root, path }
 
 private def releaseWrapperLease (lease : WrapperLease) : IO Unit := do
-  if ← lease.path.pathExists then
-    IO.FS.removeFile lease.path
+  removeWrapperLeasePath lease.path
+
+private def readWrapperLeaseMetadata? (path : System.FilePath) : IO (Option WrapperLeaseMetadata) := do
+  try
+    let text ← IO.FS.readFile path
+    let json ← IO.ofExcept <| Json.parse text
+    let metadata ← IO.ofExcept <| fromJson? json
+    pure (some metadata)
+  catch _ =>
+    pure none
+
+private def staleWrapperLease? (currentNamespace? : Option String) (path : System.FilePath) :
+    IO Bool := do
+  match ← readWrapperLeaseMetadata? path with
+  | none => pure false
+  | some metadata =>
+      if metadata.pid == 0 then
+        pure true
+      else if metadata.pidNamespace? == currentNamespace? then
+        pure (!(← pidAlive metadata.pid))
+      else
+        -- The PID may be meaningful only inside a different sandbox namespace.
+        pure false
+
+private def activeOtherWrapperLeases (lease : WrapperLease) : IO (Array IO.FS.DirEntry) := do
+  let dir ← wrapperLeaseDir lease.root
+  unless ← dir.pathExists do
+    return #[]
+  let currentNamespace? ← currentPidNamespace?
+  let entries ← dir.readDir
+  let mut active := #[]
+  for entry in entries do
+    if entry.path != lease.path && entry.fileName.endsWith ".lease" then
+      if ← staleWrapperLease? currentNamespace? entry.path then
+        removeWrapperLeasePath entry.path
+      else
+        active := active.push entry
+  pure active
 
 private partial def waitForOtherWrapperLeases (lease : WrapperLease) (tries : Nat := 600) : IO Unit := do
-  let dir ← wrapperLeaseDir lease.root
-  let others ←
-    if ← dir.pathExists then
-      let entries ← dir.readDir
-      pure <| entries.filter (fun entry => entry.path != lease.path)
-    else
-      pure #[]
+  let others ← activeOtherWrapperLeases lease
   if others.isEmpty then
     pure ()
   else if tries == 0 then

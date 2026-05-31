@@ -201,7 +201,8 @@ Use `lean-beam`, not raw JSON and not raw LSP.
 - wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Lean calls
 - `lean-beam ensure --hold` prints the usual JSON ensure response on stdout, keeps the wrapper
   process alive until interrupted, and is only for environments that reap background daemons when
-  each command exits
+  each command exits; later wrappers recover from same-namespace stale lease files left by killed
+  wrapper processes
 
 `lean-beam` is more than a one-shot probe:
 
