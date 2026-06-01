@@ -117,7 +117,9 @@ When working locally:
   outcome instead of pasting local status notes.
 - Do not add generator or tool prefixes such as `[codex]` to public PR titles.
 - Keep local worktree names, write-scope notes, command transcripts, and routine validation logs out
-  of public PR bodies unless they materially change review risk or CI cannot show the result.
+  of public PR bodies.
+- Do not add a `Testing` or `Validation` section for checks that CI already runs; mention tests only
+  for rare validation that CI cannot represent, and explain why that result matters to review.
 
 Helpful repo docs:
 
