@@ -15,4 +15,6 @@ import Beam.Broker.SyncSaveSupport
 import Beam.Broker.Transport
 import Beam.Broker.UnixNative
 import Beam.Lean.Operation
+import Beam.Mcp.Protocol
 import Beam.Mcp.Projection
+import Beam.Mcp.Server

@@ -34,6 +34,20 @@ Beam daemon integration.
   supported Lean tool names, rejection of raw LSP method names and expert raw request escape
   hatches, shared typed operation-to-broker adapters, root-free MCP inputs, and normalized
   `next_handle` / `proof_state` output for runAt-style results
+- MCP protocol/server coverage in
+  [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), including
+  JSON-RPC request/notification decoding, initialize/tools-list response shape, generated tool
+  schemas, initialize / initialized lifecycle gating, raw LSP rejection, malformed-tool protocol
+  errors, and known-tool input validation as MCP tool execution errors
+- Lean-backed `lean-beam-mcp` stdio coverage in
+  [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py), which runs initialize, initialized
+  notification, tools/list, raw-tool rejection, sync, runAt semantic success/failure, handle
+  mint/continue/linear/release, goals, close, shutdown, stdout JSON parsing, and stderr hygiene
+  assertions against a copied Lean fixture project. Stderr hygiene is a local regression check, not
+  an MCP requirement; the `2025-11-25` stdio transport explicitly permits server logging on stderr.
+- a lightweight `lean-beam-mcp` stdio smoke in
+  [tests/test-broker-fast.sh](../tests/test-broker-fast.sh), which keeps a cheap newline-delimited
+  protocol path check that does not require a Lean worker process
 - GitHub Actions main coverage in [.github/workflows/ci.yml](../.github/workflows/ci.yml), whose
   Linux job set now also runs on `macos-latest`
 - GitHub Actions broker smoke coverage on both Ubuntu and macOS through the matrixed
@@ -113,15 +127,39 @@ correctness regression, not yet a performance benchmark.
 ## Broker Suites
 
 - start with [tests/test-broker-fast.sh](../tests/test-broker-fast.sh) for broker-stream, barrier,
-  request-stream contract, and MCP projection-boundary changes; this is the quickest broker signal
+  request-stream contract, MCP projection-boundary changes, protocol-only MCP checks, and one
+  Lean-backed MCP stdio pass; this is the quickest broker signal
 - add [tests/test-broker-slow.sh](../tests/test-broker-slow.sh) when the change touches wrapper,
-  install, or bundle-resolution behavior
+  install, bundle-resolution behavior, or MCP server reliability; it repeats the MCP stdio harness
+  across several server restarts before running the wrapper/install checks
 - use [tests/test-broker-rocq.sh](../tests/test-broker-rocq.sh) for Rocq broker and wrapper
   coverage, including `coq-lsp` discovery from project-local `_opam` roots and the active PATH
 - use [tests/test-broker.sh](../tests/test-broker.sh) to execute both suites together before
   landing a broader broker-facing change
 - use [scripts/lint-shell.sh](../scripts/lint-shell.sh) when you change shell wrappers, installer,
   or shell-based test harnesses; CI runs the same `shellcheck` pass
+
+## MCP Coverage Plan
+
+The MCP server currently advertises protocol revision `2025-11-25` only. Version support should stay
+narrow until official conformance coverage is in CI; adding another revision means updating
+`Beam.Mcp.protocolVersion` / version negotiation policy, auditing schema and error-mapping changes,
+updating docs, and running both the local MCP harness and external conformance coverage.
+
+Current MCP gates are layered:
+
+- protocol unit tests for JSON-RPC shapes, tool schemas, lifecycle gating, malformed-tool protocol
+  errors, and known-tool input validation as tool execution errors
+- projection tests for the shared Beam operation substrate and agent-facing field names
+- `tests/test-mcp-stdio.py` for real stdio process behavior over a copied Lean project
+- `tests/test-broker-fast.sh` for one quick Lean-backed MCP path and a cheap protocol-only smoke
+- `tests/test-broker-slow.sh` for repeated MCP server restarts and repeated real tool calls
+
+The remaining external conformance gap is tracked in [MCP_PLAN.md](../MCP_PLAN.md). The official
+MCP conformance runner currently expects a Streamable HTTP server URL, so `lean-beam-mcp` needs a
+small HTTP bridge before CI can run `@modelcontextprotocol/conformance` directly. That bridge should
+reuse the same protocol/projection handler as stdio rather than introducing a second MCP
+implementation.
 
 ## Important Next Gap
 

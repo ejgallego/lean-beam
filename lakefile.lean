@@ -65,11 +65,15 @@ lean_exe "runAt-search-workload-report" where
   root := `RunAtTest.Scenario.SearchWorkloadReport
 
 lean_exe "beam-daemon" where
-  root := `Beam.Broker.Server
+  root := `Beam.Broker.ServerMain
   supportInterpreter := true
 
 lean_exe "beam-client" where
   root := `Beam.BrokerClient
+
+lean_exe "lean-beam-mcp" where
+  root := `Beam.Mcp.ServerMain
+  supportInterpreter := true
 
 @[default_target]
 lean_exe "beam-cli" where
@@ -92,6 +96,9 @@ lean_exe "beam-broker-protocol-test" where
 
 lean_exe "beam-mcp-projection-test" where
   root := `RunAtTest.Broker.McpProjectionTest
+
+lean_exe "beam-mcp-protocol-test" where
+  root := `RunAtTest.Broker.McpProtocolTest
 
 lean_exe "beam-daemon-rocq-smoke-test" where
   root := `RunAtTest.Broker.RocqSmokeTest

@@ -1391,6 +1391,21 @@ def ServerRuntime.withState (server : ServerRuntime) (act : M α) : IO α := do
     set state
     pure a
 
+def ServerRuntime.create
+    (config : BrokerConfig)
+    (endpoint : Transport.Endpoint := .tcp 0) : IO ServerRuntime := do
+  let startMonoNanos ← IO.monoNanosNow
+  pure {
+    state := ← Std.Mutex.new { config := config, startMonoNanos := startMonoNanos }
+    endpoint := endpoint
+    stop := ← IO.mkRef false
+    activeRequests := ← Std.Mutex.new ({} : Std.TreeMap String (IO.Ref Bool))
+  }
+
+private def requestTracksActiveRequest : Op → Bool
+  | .cancel | .stats | .resetStats | .shutdown | .openDocs => false
+  | _ => true
+
 private def registerActiveRequest
     (server : ServerRuntime)
     (clientRequestId? : Option String) : IO (Except Response (Option (String × IO.Ref Bool))) := do
@@ -1414,6 +1429,17 @@ private def unregisterActiveRequest
   | some (clientRequestId, _) =>
       server.activeRequests.atomically do
         modify (·.erase clientRequestId)
+
+private def recordDispatchMetrics
+    (server : ServerRuntime)
+    (req : Request)
+    (resp : Response)
+    (startedAt : Nat) : IO Unit := do
+  if requestTracksActiveRequest req.op then
+    let finishedAt ← IO.monoNanosNow
+    let latencyMs := (finishedAt - startedAt) / 1000000
+    server.withState do
+      recordRequestMetrics req.backend req.op.key resp.ok (resp.error?.map (·.code)) latencyMs
 
 private def ensureRequestNotCancelled
     (cancelRef? : Option (IO.Ref Bool)) : IO Unit := do
@@ -2202,6 +2228,36 @@ private def handleRequestIO
           | .openDocs | .stats | .resetStats | .shutdown =>
               unreachable!
 
+def ServerRuntime.dispatchRequest
+    (server : ServerRuntime)
+    (req : Request)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) : IO (Response × Bool) := do
+  let startedAt ← IO.monoNanosNow
+  try
+    let active? ←
+      if requestTracksActiveRequest req.op then
+        match ← registerActiveRequest server req.clientRequestId? with
+        | .ok active? => pure active?
+        | .error resp =>
+            let resp := resp.withClientRequestId req.clientRequestId?
+            recordDispatchMetrics server req resp startedAt
+            return (resp, false)
+      else
+        pure none
+    try
+      let (resp, shouldStop) ←
+        handleRequestIO server req (active?.map Prod.snd) emitProgress? emitDiagnostic?
+      let resp := resp.withClientRequestId req.clientRequestId?
+      recordDispatchMetrics server req resp startedAt
+      pure (resp, shouldStop)
+    finally
+      unregisterActiveRequest server active?
+  catch e =>
+    let resp := (Response.error "internalError" e.toString).withClientRequestId req.clientRequestId?
+    recordDispatchMetrics server req resp startedAt
+    pure (resp, false)
+
 def handleClient (server : ServerRuntime) (client : Transport.Connection) : IO Unit := do
   let clientRequestIdRef ← IO.mkRef (none : Option String)
   try
@@ -2218,36 +2274,10 @@ def handleClient (server : ServerRuntime) (client : Transport.Connection) : IO U
       Transport.sendMsg client (toJson (StreamMessage.mkFileProgress req.clientRequestId? progress)).compress
     let emitDiagnostic : StreamDiagnostic → IO Unit := fun diagnostic =>
       Transport.sendMsg client (toJson (StreamMessage.mkDiagnostic req.clientRequestId? diagnostic)).compress
-    let startedAt ← IO.monoNanosNow
-    let active? ←
-      match req.op with
-      | .cancel | .stats | .resetStats | .shutdown | .openDocs =>
-          pure none
-      | _ =>
-          match ← registerActiveRequest server req.clientRequestId? with
-          | .ok active? => pure active?
-          | .error resp =>
-              let finishedAt ← IO.monoNanosNow
-              let latencyMs := (finishedAt - startedAt) / 1000000
-              server.withState do
-                recordRequestMetrics req.backend req.op.key resp.ok (resp.error?.map (·.code)) latencyMs
-              Transport.sendMsg client (toJson (StreamMessage.mkResponse (resp.withClientRequestId req.clientRequestId?))).compress
-              return
-    try
-      let (resp, shouldStop) ←
-        handleRequestIO server req (active?.map Prod.snd) (some emitProgress) (some emitDiagnostic)
-      let finishedAt ← IO.monoNanosNow
-      if req.op != .stats && req.op != .resetStats && req.op != .shutdown &&
-          req.op != .openDocs && req.op != .cancel then
-        let latencyMs := (finishedAt - startedAt) / 1000000
-        server.withState do
-          recordRequestMetrics req.backend req.op.key resp.ok (resp.error?.map (·.code)) latencyMs
-      let resp := resp.withClientRequestId req.clientRequestId?
-      Transport.sendMsg client (toJson (StreamMessage.mkResponse resp)).compress
-      if shouldStop then
-        requestStop server
-    finally
-      unregisterActiveRequest server active?
+    let (resp, shouldStop) ← server.dispatchRequest req (some emitProgress) (some emitDiagnostic)
+    Transport.sendMsg client (toJson (StreamMessage.mkResponse resp)).compress
+    if shouldStop then
+      requestStop server
   catch e =>
     let resp := (Response.error "internalError" e.toString).withClientRequestId (← clientRequestIdRef.get)
     try
@@ -2335,5 +2365,3 @@ def main (args : List String) : IO Unit := do
     Transport.closeListener listener
 
 end Beam.Broker
-
-def main := Beam.Broker.main

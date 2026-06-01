@@ -73,6 +73,78 @@ def Operation.description : Operation → String
   | .save => "Synchronize a Lean file and save zero-build artifacts when possible."
   | .close => "Close a Lean file in the broker session."
 
+private def stringSchema (description : String) : Json :=
+  Json.mkObj [
+    ("type", toJson "string"),
+    ("description", toJson description)
+  ]
+
+private def natSchema (description : String) : Json :=
+  Json.mkObj [
+    ("type", toJson "integer"),
+    ("minimum", toJson (0 : Nat)),
+    ("description", toJson description)
+  ]
+
+private def boolSchema (description : String) : Json :=
+  Json.mkObj [
+    ("type", toJson "boolean"),
+    ("description", toJson description)
+  ]
+
+private def objectSchema (description : String) : Json :=
+  Json.mkObj [
+    ("type", toJson "object"),
+    ("description", toJson description)
+  ]
+
+private def jsonSchemaDialect : String :=
+  "https://json-schema.org/draft/2020-12/schema"
+
+private def mkInputSchema (properties : List (String × Json)) (required : Array String) : Json :=
+  Json.mkObj [
+    ("$schema", toJson jsonSchemaDialect),
+    ("type", toJson "object"),
+    ("properties", Json.mkObj properties),
+    ("required", toJson required),
+    ("additionalProperties", toJson false)
+  ]
+
+def Operation.inputSchema : Operation → Json
+  | .runAt | .runAtHandle =>
+      mkInputSchema [
+        ("path", stringSchema "Lean file path, relative to the server root unless absolute."),
+        ("line", natSchema "Zero-based LSP line."),
+        ("character", natSchema "Zero-based UTF-16 LSP character."),
+        ("text", stringSchema "Lean text to run at the selected position.")
+      ] #["path", "line", "character", "text"]
+  | .hover | .goalsAfter | .goalsPrev =>
+      mkInputSchema [
+        ("path", stringSchema "Lean file path, relative to the server root unless absolute."),
+        ("line", natSchema "Zero-based LSP line."),
+        ("character", natSchema "Zero-based UTF-16 LSP character.")
+      ] #["path", "line", "character"]
+  | .runWith | .runWithLinear =>
+      mkInputSchema [
+        ("path", stringSchema "Lean file path, relative to the server root unless absolute."),
+        ("handle", objectSchema "Opaque broker-wrapped Lean handle from a previous tool result."),
+        ("text", stringSchema "Lean continuation text to run from the stored handle.")
+      ] #["path", "handle", "text"]
+  | .release =>
+      mkInputSchema [
+        ("path", stringSchema "Lean file path, relative to the server root unless absolute."),
+        ("handle", objectSchema "Opaque broker-wrapped Lean handle to release.")
+      ] #["path", "handle"]
+  | .sync | .save =>
+      mkInputSchema [
+        ("path", stringSchema "Lean file path, relative to the server root unless absolute."),
+        ("full_diagnostics", boolSchema "When true, include full diagnostics in broker diagnostic streams.")
+      ] #["path"]
+  | .deps | .close =>
+      mkInputSchema [
+        ("path", stringSchema "Lean file path, relative to the server root unless absolute.")
+      ] #["path"]
+
 def Operation.expectsRunAtResult : Operation → Bool
   | .runAt | .runAtHandle | .runWith | .runWithLinear => true
   | _ => false
