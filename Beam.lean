@@ -14,3 +14,5 @@ import Beam.Broker.StaleDirectDeps
 import Beam.Broker.SyncSaveSupport
 import Beam.Broker.Transport
 import Beam.Broker.UnixNative
+import Beam.Lean.Operation
+import Beam.Mcp.Projection

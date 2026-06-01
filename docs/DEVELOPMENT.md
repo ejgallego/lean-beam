@@ -70,6 +70,26 @@ Preferred maintainer entrypoints:
 - keep destructive cleanup scoped to owned temp or worktree paths
 - if Lean reports stale or rebuild trouble unexpectedly, stop and surface it explicitly
 
+## MCP Projection Changes
+
+MCP work should go through the shared Lean operation layer in
+[Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) and the typed MCP projection boundary in
+[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean). Neither module is an MCP server.
+`Beam/Lean/Operation.lean` names curated Lean operations and maps typed inputs to broker requests;
+`Beam/Mcp/Projection.lean` names the public MCP tools and normalizes selected broker results.
+
+When adding an MCP-facing operation:
+
+- add or reuse a `Beam.Lean.Operation` first
+- add a `ToolName` only if it is meant to be a public agent tool
+- keep raw LSP methods and params out of the MCP input types
+- keep the project root in server/session context, not in each MCP tool input
+- map to broker operations through the shared operation helpers instead of constructing ad hoc JSON
+- normalize MCP output field names in the projection, for example `next_handle` and `proof_state`
+- do not expose expert/raw escape hatches such as `lean-request-at` as MCP tools
+- add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
+  and run `bash tests/test-broker-fast.sh`
+
 ## Sandboxed Wrapper Path
 
 This wrapper path is easy to break accidentally, so keep the mental model simple.
