@@ -1,0 +1,254 @@
+/-
+Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Author: Emilio J. Gallego Arias
+-/
+
+import Beam.Mcp.Projection
+
+open Lean
+
+namespace RunAtTest.Broker.McpProjectionTest
+
+private def require (label : String) (cond : Bool) : IO Unit := do
+  unless cond do
+    throw <| IO.userError label
+
+private def requireFieldAbsent (label field : String) (json : Json) : IO Unit := do
+  match json.getObjVal? field with
+  | .ok _ => throw <| IO.userError s!"{label}: unexpected field {field}: {json.compress}"
+  | .error _ => pure ()
+
+private def requireObjVal (label field : String) (json : Json) : IO Json := do
+  match json.getObjVal? field with
+  | .ok value => pure value
+  | .error err => throw <| IO.userError s!"{label}: missing field {field}: {err}\n{json.compress}"
+
+private def requireJsonBool (label field : String) (expected : Bool) (json : Json) : IO Unit := do
+  match json.getObjValAs? Bool field with
+  | .ok actual =>
+      if actual != expected then
+        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
+  | .error err =>
+      throw <| IO.userError s!"{label}: invalid bool field {field}: {err}\n{json.compress}"
+
+private def requireJsonString (label field expected : String) (json : Json) : IO Unit := do
+  match json.getObjValAs? String field with
+  | .ok actual =>
+      if actual != expected then
+        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
+  | .error err =>
+      throw <| IO.userError s!"{label}: invalid string field {field}: {err}\n{json.compress}"
+
+private def requireJsonNull (label field : String) (json : Json) : IO Unit := do
+  match ← requireObjVal label field json with
+  | Json.null => pure ()
+  | value => throw <| IO.userError s!"{label}: expected {field}=null, got {value.compress}"
+
+private def expectOk (label : String) (result : Except ε α) [ToString ε] : IO α := do
+  match result with
+  | .ok value => pure value
+  | .error err => throw <| IO.userError s!"{label}: {err}"
+
+private def expectToolOk (label : String) (result : Except Beam.Mcp.ToolError Json) : IO Json := do
+  match result with
+  | .ok value => pure value
+  | .error err => throw <| IO.userError s!"{label}: {err.code}: {err.message}"
+
+private def expectToolError (label expectedCode : String) (result : Except Beam.Mcp.ToolError Json) :
+    IO Beam.Mcp.ToolError := do
+  match result with
+  | .ok json =>
+      throw <| IO.userError s!"{label}: expected error {expectedCode}, got {json.compress}"
+  | .error err =>
+      if err.code != expectedCode then
+        throw <| IO.userError s!"{label}: expected error {expectedCode}, got {err.code}: {err.message}"
+      pure err
+
+private def sampleBrokerHandle : Beam.Broker.Handle := {
+  backend := .lean
+  epoch := 3
+  session := "session"
+  raw := toJson ({ value := "raw-handle" } : RunAt.Handle)
+}
+
+private def checkToolNames : IO Unit := do
+  let decoded ← expectOk "decode lean_run_at" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_run_at")
+  require "decode lean_run_at: wrong tool" (decoded == .leanRunAt)
+
+  let hover ← expectOk "decode lean_hover" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_hover")
+  require "decode lean_hover: wrong tool" (hover == .leanHover)
+
+  match fromJson? (α := Beam.Mcp.ToolName) (Json.str RunAt.method) with
+  | .ok tool =>
+      throw <| IO.userError s!"raw LSP method decoded as MCP tool: {repr tool}"
+  | .error _ =>
+      pure ()
+
+  match fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_request_at") with
+  | .ok tool =>
+      throw <| IO.userError s!"raw request escape hatch decoded as MCP tool: {repr tool}"
+  | .error _ =>
+      pure ()
+
+private def checkToolDescriptors : IO Unit := do
+  require "tool descriptor count tracks tool name count"
+    (Beam.Mcp.toolDescriptors.size == Beam.Mcp.toolNames.size)
+  require "hover descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanHover && desc.operation == .hover && desc.brokerOp == .requestAt))
+  require "goals-after descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanGoalsAfter && desc.operation == .goalsAfter && desc.brokerOp == .goals))
+
+private def checkBrokerRequestAdapters : IO Unit := do
+  let root := "/repo"
+  let runAtInput : Beam.Mcp.RunAtInput := {
+    path := "Demo.lean"
+    line := 4
+    character := 2
+    text := "exact h"
+  }
+  let runAtReq ← expectOk "runAt tool request" <|
+    Beam.Mcp.ToolName.leanRunAt.toBrokerRequest root (toJson runAtInput)
+  require "runAt op" (runAtReq.op == .runAt)
+  require "runAt backend" (runAtReq.backend == .lean)
+  require "runAt root" (runAtReq.root? == some root)
+  require "runAt path" (runAtReq.path? == some "Demo.lean")
+  require "runAt line" (runAtReq.line? == some 4)
+  require "runAt character" (runAtReq.character? == some 2)
+  require "runAt text" (runAtReq.text? == some "exact h")
+  require "runAt does not store by default" runAtReq.storeHandle?.isNone
+  require "runAt hides raw LSP method" runAtReq.method?.isNone
+  require "runAt hides raw LSP params" runAtReq.params?.isNone
+  requireFieldAbsent "runAt input json" "root" (toJson runAtInput)
+
+  let runAtHandleReq ← expectOk "runAt handle tool request" <|
+    Beam.Mcp.ToolName.leanRunAtHandle.toBrokerRequest root (toJson runAtInput)
+  require "runAt handle stores state" (runAtHandleReq.storeHandle? == some true)
+
+  let positionInput : Beam.Mcp.PositionInput := {
+    path := "Demo.lean"
+    line := 7
+    character := 3
+  }
+  let hoverReq ← expectOk "hover tool request" <|
+    Beam.Mcp.ToolName.leanHover.toBrokerRequest root (toJson positionInput)
+  require "hover uses requestAt broker op" (hoverReq.op == .requestAt)
+  require "hover injects hover method" (hoverReq.method? == some "textDocument/hover")
+  require "hover hides raw params" hoverReq.params?.isNone
+
+  let goalsAfterReq ← expectOk "goals-after tool request" <|
+    Beam.Mcp.ToolName.leanGoalsAfter.toBrokerRequest root (toJson positionInput)
+  require "goals-after op" (goalsAfterReq.op == .goals)
+  require "goals-after mode" (goalsAfterReq.mode? == some .after)
+
+  let goalsPrevReq ← expectOk "goals-prev tool request" <|
+    Beam.Mcp.ToolName.leanGoalsPrev.toBrokerRequest root (toJson positionInput)
+  require "goals-prev op" (goalsPrevReq.op == .goals)
+  require "goals-prev mode" (goalsPrevReq.mode? == some .prev)
+
+  let runWithInput : Beam.Mcp.RunWithInput := {
+    path := "Demo.lean"
+    handle := sampleBrokerHandle
+    text := "simp"
+  }
+  let runWithReq ← expectOk "runWith tool request" <|
+    Beam.Mcp.ToolName.leanRunWithLinear.toBrokerRequest root (toJson runWithInput)
+  require "runWith op" (runWithReq.op == .runWith)
+  require "runWith stores successor handle" (runWithReq.storeHandle? == some true)
+  require "runWith linear flag" (runWithReq.linear? == some true)
+  require "runWith handle present" runWithReq.handle?.isSome
+  require "runWith hides raw LSP method" runWithReq.method?.isNone
+  require "runWith hides raw LSP params" runWithReq.params?.isNone
+  requireFieldAbsent "runWith input json" "root" (toJson runWithInput)
+
+  let pathInput : Beam.Mcp.PathInput := { path := "Demo.lean" }
+  let depsReq ← expectOk "deps tool request" <|
+    Beam.Mcp.ToolName.leanDeps.toBrokerRequest root (toJson pathInput)
+  require "deps op" (depsReq.op == .deps)
+  let closeReq ← expectOk "close tool request" <|
+    Beam.Mcp.ToolName.leanClose.toBrokerRequest root (toJson pathInput)
+  require "close op" (closeReq.op == .close)
+
+  let syncInput : Beam.Mcp.SyncInput := { path := "Demo.lean", fullDiagnostics? := some true }
+  let syncReq ← expectOk "sync tool request" <|
+    Beam.Mcp.ToolName.leanSync.toBrokerRequest root (toJson syncInput)
+  require "sync op" (syncReq.op == .syncFile)
+  require "sync full diagnostics" (syncReq.fullDiagnostics? == some true)
+  let saveReq ← expectOk "save tool request" <|
+    Beam.Mcp.ToolName.leanSave.toBrokerRequest root (toJson syncInput)
+  require "save op" (saveReq.op == .saveOlean)
+  require "save full diagnostics" (saveReq.fullDiagnostics? == some true)
+  let syncJson := toJson syncInput
+  requireJsonBool "sync input json" "full_diagnostics" true syncJson
+  requireFieldAbsent "sync input json" "fullDiagnostics" syncJson
+  requireFieldAbsent "sync input json" "root" syncJson
+  let decodedSync ← expectOk "decode sync input" <| fromJson? (α := Beam.Mcp.SyncInput) syncJson
+  require "decoded sync full diagnostics" (decodedSync.fullDiagnostics? == some true)
+
+private def checkRunAtNormalization : IO Unit := do
+  let semanticFailure := Json.mkObj [("success", toJson false)]
+  let normalizedFailure ← expectToolOk "normalize semantic failure" <|
+    Beam.Mcp.normalizeBrokerResponse .leanRunAt {
+      ok := true
+      result? := some semanticFailure
+    }
+  requireJsonBool "semantic failure result" "success" false normalizedFailure
+  requireJsonNull "semantic failure result" "next_handle" normalizedFailure
+  requireJsonNull "semantic failure result" "proof_state" normalizedFailure
+  requireFieldAbsent "semantic failure result" "ok" normalizedFailure
+  requireFieldAbsent "semantic failure result" "handle" normalizedFailure
+  requireFieldAbsent "semantic failure result" "proofState" normalizedFailure
+
+  let successWithHandle := Json.mkObj [
+    ("success", toJson true),
+    ("messages", toJson (#[] : Array RunAt.Message)),
+    ("traces", toJson (#[] : Array String)),
+    ("handle", toJson sampleBrokerHandle)
+  ]
+  let normalizedHandle ← expectToolOk "normalize handle result" <|
+    Beam.Mcp.normalizeBrokerResponse .leanRunAtHandle {
+      ok := true
+      result? := some successWithHandle
+      fileProgress? := some { updates := 2, done := true }
+      clientRequestId? := some "req-1"
+    }
+  let nextHandle ← requireObjVal "handle result" "next_handle" normalizedHandle
+  requireJsonString "next handle" "session" "session" nextHandle
+  let rawHandle ← requireObjVal "next handle" "raw" nextHandle
+  requireJsonString "next handle raw" "value" "raw-handle" rawHandle
+  let progress ← requireObjVal "handle result" "file_progress" normalizedHandle
+  requireJsonBool "handle result progress" "done" true progress
+  requireJsonString "handle result request id" "client_request_id" "req-1" normalizedHandle
+  requireFieldAbsent "handle result" "handle" normalizedHandle
+
+private def checkTransportErrorNormalization : IO Unit := do
+  let err ← expectToolError "normalize transport error" "invalidParams" <|
+    Beam.Mcp.normalizeBrokerResponse .leanRunAt {
+      ok := false
+      error? := some { code := "invalidParams", message := "bad position" }
+    }
+  require "transport error message" (err.message == "bad position")
+
+private def checkInvalidEnvelopeRejection : IO Unit := do
+  discard <| expectToolError "missing error envelope" "invalidEnvelope" <|
+    Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := false }
+
+  discard <| expectToolError "ok envelope with error" "invalidEnvelope" <|
+    Beam.Mcp.normalizeBrokerResponse .leanRunAt {
+      ok := true
+      error? := some { code := "internalError", message := "bad envelope" }
+    }
+
+def main : IO Unit := do
+  checkToolNames
+  checkToolDescriptors
+  checkBrokerRequestAdapters
+  checkRunAtNormalization
+  checkTransportErrorNormalization
+  checkInvalidEnvelopeRejection
+
+end RunAtTest.Broker.McpProjectionTest
+
+def main := RunAtTest.Broker.McpProjectionTest.main

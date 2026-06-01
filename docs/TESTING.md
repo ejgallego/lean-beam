@@ -29,6 +29,11 @@ Beam daemon integration.
   [RunAtTest/Broker/ProtocolTest.lean](../RunAtTest/Broker/ProtocolTest.lean), including explicit
   `ok` fields on produced responses, legacy inferred-`ok` decoding, and rejection of inconsistent
   error/result envelopes
+- MCP projection boundary coverage in
+  [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean), including
+  supported Lean tool names, rejection of raw LSP method names and expert raw request escape
+  hatches, shared typed operation-to-broker adapters, root-free MCP inputs, and normalized
+  `next_handle` / `proof_state` output for runAt-style results
 - GitHub Actions main coverage in [.github/workflows/ci.yml](../.github/workflows/ci.yml), whose
   Linux job set now also runs on `macos-latest`
 - GitHub Actions broker smoke coverage on both Ubuntu and macOS through the matrixed
@@ -108,7 +113,7 @@ correctness regression, not yet a performance benchmark.
 ## Broker Suites
 
 - start with [tests/test-broker-fast.sh](../tests/test-broker-fast.sh) for broker-stream, barrier,
-  and request-stream contract changes; this is the quickest broker signal
+  request-stream contract, and MCP projection-boundary changes; this is the quickest broker signal
 - add [tests/test-broker-slow.sh](../tests/test-broker-slow.sh) when the change touches wrapper,
   install, or bundle-resolution behavior
 - use [tests/test-broker-rocq.sh](../tests/test-broker-rocq.sh) for Rocq broker and wrapper
