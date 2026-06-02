@@ -33,6 +33,7 @@ lake build \
 .lake/build/bin/beam-daemon-startup-handshake-test > /dev/null
 
 python3 tests/test-mcp-stdio.py --iterations 1 --restart-cycles 1 > /dev/null
+python3 tests/test-mcp-http-bridge.py > /dev/null
 
 mcp_smoke_out="$(
   printf '%s\n' \

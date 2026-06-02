@@ -77,8 +77,8 @@ accepting older inferred-`ok` responses on input. That gives an MCP projection a
 separate transport/tool errors from normal Lean semantic failures such as `result.success=false`.
 
 `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` and intentionally does not
-advertise older revisions. Version support should stay narrow until official conformance coverage is
-in CI, so every advertised revision has explicit protocol, schema, and error-shape tests.
+advertise older revisions. Version support should stay narrow, so every advertised revision has
+explicit protocol, schema, error-shape, and external conformance tests.
 
 ## Proposed Architecture
 
@@ -249,18 +249,19 @@ The runtime should support both, but phase 1 is enough for a first useful server
 
 ## Conformance Plan
 
-The official MCP conformance runner currently tests servers through a Streamable HTTP URL, for
-example `npx @modelcontextprotocol/conformance server --url http://localhost:3000/mcp`. The first
-`lean-beam-mcp` implementation is stdio-only, so conformance should be added through one of these
-small bridge options:
+The official MCP conformance runner tests servers through a Streamable HTTP URL, for example
+`npx @modelcontextprotocol/conformance server --url http://localhost:3000/mcp`. The product
+`lean-beam-mcp` implementation is stdio-only, so conformance currently goes through a test-only
+bridge:
 
-- preferred short-term: a test-only HTTP bridge that translates each HTTP JSON-RPC request into the
-  same internal MCP request handler used by stdio, preserving the negotiated protocol version and
-  session state
-- acceptable short-term fallback: a subprocess bridge that hosts a localhost Streamable HTTP
-  endpoint and forwards requests to a child `lean-beam-mcp` stdio process
-- longer-term: a first-class HTTP transport module if real users need HTTP, still sharing the
-  broker-owned protocol/projection code with stdio
+- `tests/mcp_http_bridge.py` hosts a localhost Streamable HTTP endpoint and forwards requests to a
+  child `lean-beam-mcp` stdio process
+- `tests/test-mcp-http-bridge.py` checks deterministic HTTP transport behavior without npm
+- `tests/test-mcp-conformance.sh` is the external conformance runner around the pinned
+  `@modelcontextprotocol/conformance@0.1.16` package; its default scenario set is
+  `server-initialize`, `ping`, and `tools-list`, and CI runs that set on Ubuntu and macOS
+- longer-term: a first-class HTTP transport module can be added if real users need HTTP, still
+  sharing the broker-owned protocol/projection code with stdio
 
 The conformance gate should be version-scoped:
 
@@ -272,6 +273,11 @@ The conformance gate should be version-scoped:
 - fail when an expected failure starts passing, so the baseline cannot become stale
 - treat `server-initialize`, `tools-list`, and selected `tools-call-*` scenarios as required before
   considering the MCP server non-draft
+- keep the npm-backed conformance job separate from the local deterministic bridge smoke so network
+  or package-resolution failures do not obscure local MCP regressions
+- do not mistake fixture-specific scenarios, such as `json-schema-2020-12` or generic
+  `tools-call-*` fixture tools, for validation of the real Lean Beam tool surface unless a dedicated
+  compatibility tool or expected-failure baseline is in place
 
 Local deterministic tests should remain the first line of defense because they can exercise Lean
 project roots, plugin loading, handle behavior, stale-state behavior, and shutdown/restart loops

@@ -37,6 +37,8 @@ trap cleanup EXIT
 mkdir -p "$tmp_env_root/home" "$tmp_env_root/codex" "$tmp_env_root/claude"
 
 toolchain="$(awk 'NR==1 {print $1}' lean-toolchain)"
+# Fake agent homes isolate install state; the wrapper still needs the host Lean toolchain cache.
+host_elan_home="${ELAN_HOME:-$HOME/.elan}"
 
 echo "[broker-slow] shell lint"
 bash scripts/lint-shell.sh > /dev/null
@@ -58,14 +60,17 @@ BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" ./.lake/build/bin/beam-cli bundle-inst
 
 echo "[broker-slow] wrapper tests"
 HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
-  BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-beam-wrapper.sh > /dev/null
+  ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+  bash tests/test-beam-wrapper.sh > /dev/null
 
 if [ "$(uname -s)" = "Linux" ]; then
   echo "[broker-slow] sandbox wrapper tests"
   HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
-    BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-beam-wrapper-sandbox.sh > /dev/null
+    ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+    bash tests/test-beam-wrapper-sandbox.sh > /dev/null
 fi
 
 echo "[broker-slow] save replay tests"
 HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
-  BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" bash tests/test-broker-save-olean.sh > /dev/null
+  ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+  bash tests/test-broker-save-olean.sh > /dev/null

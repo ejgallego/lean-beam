@@ -105,8 +105,19 @@ When adding an MCP-facing operation:
 `Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
 add support for another revision, only with a protocol audit: check the upstream MCP
 schema/changelog, update local protocol tests, run the Lean-backed stdio harness, update
-[docs/STATUS.md](STATUS.md), and update the conformance baseline once the Streamable HTTP bridge
-exists.
+[docs/STATUS.md](STATUS.md), and run [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh)
+against the revised conformance baseline.
+
+The local Streamable HTTP bridge under [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) is a
+test/conformance adapter over the stdio executable, not a separate product transport. Keep it thin:
+it should translate HTTP status/header rules to the stdio server without adding a second MCP tool
+implementation.
+
+The default conformance gate uses the pinned `@modelcontextprotocol/conformance@0.1.16` package and
+the explicit scenario set in [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh).
+Changing the package version or scenario baseline is a protocol change: update
+[docs/TESTING.md](TESTING.md), run the local conformance script, and check the workflow with
+`actionlint`.
 
 ## Sandboxed Wrapper Path
 
