@@ -94,7 +94,8 @@ structure ToolDescriptor where
   operation : Beam.Lean.Operation
   brokerOp : Beam.Broker.Op
   description : String
-  deriving ToJson, Repr
+  inputSchema : Json
+  deriving ToJson
 
 def toolNames : Array ToolName := #[
   .leanRunAt,
@@ -118,6 +119,7 @@ def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
     operation := op
     brokerOp := op.brokerOp
     description := op.description
+    inputSchema := op.inputSchema
   }
 
 def toolDescriptors : Array ToolDescriptor :=
@@ -181,6 +183,9 @@ def ToolError.invalidEnvelope (message : String) : ToolError :=
 
 def ToolError.invalidResult (message : String) : ToolError :=
   { code := "invalidResult", message }
+
+def ToolError.invalidInput (message : String) : ToolError :=
+  { code := "invalidInput", message }
 
 /--
 Normalize a broker-level `runAt` result into the planned agent-facing field names.

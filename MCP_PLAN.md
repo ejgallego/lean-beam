@@ -50,27 +50,35 @@ So the right abstraction is a projection framework:
 - whether something is a tool, resource, or notification
 - which editor-oriented fields should be removed from the agent-facing surface
 
-## Current Readiness In This Repository
+## Current Status In This Repository
 
-The current code already has the right first seam for a future MCP projection:
+The current code now has a first executable MCP path plus the projection boundary it depends on:
 
 - `RunAt/Protocol.lean` owns the small Lean extension request/response types.
 - `Beam/Broker/Protocol.lean` owns the local broker request/response and stream envelopes.
 - `Beam/Broker/Server.lean` owns session lifecycle, document sync, save barriers, cancellation,
-  and backend dispatch.
+  backend dispatch, and the shared in-process `ServerRuntime.dispatchRequest` path used by both the
+  daemon transport and MCP server.
 - `Beam/Cli.lean` and `scripts/lean-beam` adapt broker operations into the public shell workflow.
 - `Beam/Lean/Operation.lean` owns the first shared Lean operation substrate: curated public
-  operations, small typed inputs, and operation-to-broker request adapters.
+  operations, small typed inputs, JSON schemas, and operation-to-broker request adapters.
 - `Beam/Mcp/Projection.lean` owns the MCP projection over that substrate: supported Lean tool
   names, tool descriptors, and normalized agent-facing output shapes.
+- `Beam/Mcp/Protocol.lean` owns the small MCP JSON-RPC/tool-result protocol helpers.
+- `Beam/Mcp/Server.lean` owns the experimental newline-delimited stdio MCP server.
+- `Beam/Broker/ServerMain.lean` and `Beam/Mcp/ServerMain.lean` keep executable entry points separate
+  from importable runtime modules.
 
-The future MCP server should sit beside the CLI as another projection over the broker/public
-operation set, not inside the raw LSP runtime and not as an automatic mirror of LSP methods. In
-the likely first implementation, it can be a broker-owned stdio mode/executable rather than a
-separate client process that talks back to the daemon.
+The MCP server sits beside the CLI as another projection over the broker/public operation set, not
+inside the raw LSP runtime and not as an automatic mirror of LSP methods. It is a broker-owned stdio
+executable (`lean-beam-mcp`) rather than a separate client process that talks back to the daemon.
 Broker responses now include an explicit `ok` boolean and structured `error` object, while still
 accepting older inferred-`ok` responses on input. That gives an MCP projection a stable place to
 separate transport/tool errors from normal Lean semantic failures such as `result.success=false`.
+
+`lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` and intentionally does not
+advertise older revisions. Version support should stay narrow until official conformance coverage is
+in CI, so every advertised revision has explicit protocol, schema, and error-shape tests.
 
 ## Proposed Architecture
 
@@ -178,11 +186,10 @@ Start with these MCP tools:
 - `lean_save`
 - `lean_close`
 
-The current repository does not implement an MCP server yet, but the supported tool names and
-broker adapters are represented by `Beam/Lean/Operation.lean` and `Beam/Mcp/Projection.lean`. New
-agent-facing Lean operations should be added to `Beam/Lean/Operation.lean` first, then projected to
-MCP with an explicit `ToolName` only when they are meant to be public MCP tools. The raw
-`lean-request-at` escape hatch should stay out of the MCP surface.
+The repository now implements an experimental `lean-beam-mcp` stdio server for this curated tool
+set. New agent-facing Lean operations should be added to `Beam/Lean/Operation.lean` first, then
+projected to MCP with an explicit `ToolName` only when they are meant to be public MCP tools. The
+raw `lean-request-at` escape hatch should stay out of the MCP surface.
 
 MCP tool inputs should not carry `root`; the MCP server session supplies the project root. That
 keeps tool calls compact and avoids teaching agents to manage per-call broker session state.
@@ -240,18 +247,64 @@ Phase 2:
 
 The runtime should support both, but phase 1 is enough for a first useful server.
 
+## Conformance Plan
+
+The official MCP conformance runner currently tests servers through a Streamable HTTP URL, for
+example `npx @modelcontextprotocol/conformance server --url http://localhost:3000/mcp`. The first
+`lean-beam-mcp` implementation is stdio-only, so conformance should be added through one of these
+small bridge options:
+
+- preferred short-term: a test-only HTTP bridge that translates each HTTP JSON-RPC request into the
+  same internal MCP request handler used by stdio, preserving the negotiated protocol version and
+  session state
+- acceptable short-term fallback: a subprocess bridge that hosts a localhost Streamable HTTP
+  endpoint and forwards requests to a child `lean-beam-mcp` stdio process
+- longer-term: a first-class HTTP transport module if real users need HTTP, still sharing the
+  broker-owned protocol/projection code with stdio
+
+The conformance gate should be version-scoped:
+
+- run the active server scenarios against the protocol revision advertised by
+  `Beam.Mcp.protocolVersion`
+- include the negotiated `MCP-Protocol-Version` header on HTTP requests once a bridge exists
+- keep expected failures explicit for capabilities the server does not advertise, such as resources
+  and prompts
+- fail when an expected failure starts passing, so the baseline cannot become stale
+- treat `server-initialize`, `tools-list`, and selected `tools-call-*` scenarios as required before
+  considering the MCP server non-draft
+
+Local deterministic tests should remain the first line of defense because they can exercise Lean
+project roots, plugin loading, handle behavior, stale-state behavior, and shutdown/restart loops
+without depending on npm or the external conformance package. The conformance job should supplement
+those tests, not replace them.
+
 ## Implementation Plan
 
 ### Phase 1: Lean Beam MCP Server
 
-Build a `lean-beam-mcp` executable or broker stdio mode with:
+Current first slice:
 
 - single-root server model
 - Lean tools only first
 - broker-runtime-backed implementation
+- `initialize`, `ping`, `tools/list`, `tools/call`, `shutdown`, and `exit`/initialized notification
+  handling over newline-delimited stdio JSON-RPC
+- MCP lifecycle gating for initialize / initialized notification before normal tool requests
+- `2025-11-25` tool-call error split: malformed or unknown tools stay JSON-RPC errors, while
+  invalid inputs for known tools return `isError=true` tool results
+- generated MCP `inputSchema` payloads from the shared operation substrate
 - normalized outputs
+- end-to-end stdio coverage that starts Lean through `lean-beam-mcp`
+- restart/stress coverage for real Lean-backed stdio tool calls
 
 This validates the public MCP shape before generalizing.
+
+Still missing from phase 1:
+
+- install/wrapper integration that supplies `--lean-cmd` and `--lean-plugin` automatically
+- live MCP progress forwarding during long-running calls
+- MCP cancellation notification handling
+- official MCP conformance coverage through a Streamable HTTP bridge
 
 ### Phase 2: Extract Reusable Runtime
 

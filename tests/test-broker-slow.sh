@@ -47,7 +47,11 @@ lake build \
   beam-cli \
   beam-daemon \
   beam-client \
+  lean-beam-mcp \
   > /dev/null
+
+echo "[broker-slow] MCP stdio stress"
+python3 tests/test-mcp-stdio.py --iterations 4 --restart-cycles 3 > /dev/null
 
 echo "[broker-slow] bundle install"
 BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" ./.lake/build/bin/beam-cli bundle-install "$toolchain" > /dev/null

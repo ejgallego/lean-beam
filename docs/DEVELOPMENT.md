@@ -74,9 +74,20 @@ Preferred maintainer entrypoints:
 
 MCP work should go through the shared Lean operation layer in
 [Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) and the typed MCP projection boundary in
-[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean). Neither module is an MCP server.
-`Beam/Lean/Operation.lean` names curated Lean operations and maps typed inputs to broker requests;
-`Beam/Mcp/Projection.lean` names the public MCP tools and normalizes selected broker results.
+[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean).
+`Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
+owns the tool input schemas. `Beam/Mcp/Projection.lean` names the public MCP tools and normalizes
+selected broker results.
+
+The executable MCP path is split into importable runtime modules and tiny entry-point modules:
+
+- [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean): MCP JSON-RPC and tool-result helpers
+- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): broker-backed stdio MCP server logic
+- [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): `lean-beam-mcp` executable entry point
+- [Beam/Broker/ServerMain.lean](../Beam/Broker/ServerMain.lean): `beam-daemon` executable entry point
+
+Keep executable `main` declarations out of importable runtime modules. Otherwise test and adapter
+modules that import a runtime accidentally inherit the wrong root-level `main`.
 
 When adding an MCP-facing operation:
 
@@ -88,7 +99,14 @@ When adding an MCP-facing operation:
 - normalize MCP output field names in the projection, for example `next_handle` and `proof_state`
 - do not expose expert/raw escape hatches such as `lean-request-at` as MCP tools
 - add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
-  and run `bash tests/test-broker-fast.sh`
+  and [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), then run
+  `bash tests/test-broker-fast.sh`
+
+`Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
+add support for another revision, only with a protocol audit: check the upstream MCP
+schema/changelog, update local protocol tests, run the Lean-backed stdio harness, update
+[docs/STATUS.md](STATUS.md), and update the conformance baseline once the Streamable HTTP bridge
+exists.
 
 ## Sandboxed Wrapper Path
 

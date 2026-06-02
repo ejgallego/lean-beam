@@ -17,6 +17,9 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows
 - explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers,
   while still accepting older inferred-`ok` envelopes on input
+- experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set through MCP
+  `initialize`, `tools/list`, and `tools/call`, backed directly by the broker runtime rather than a
+  second daemon/client connection
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
 - `lean-beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with
@@ -122,6 +125,18 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   usually an environment restriction, not a bundle-resolution mismatch.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
 - The Beam daemon is single-root and keeps a conservative single active session per backend.
+- `lean-beam-mcp` is currently an experimental developer entry point. It requires explicit
+  `--root`, and real Lean tool calls still require a caller or wrapper to provide the Lean command
+  and plugin path through `--lean-cmd` and `--lean-plugin`.
+- `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are
+  not advertised or tested.
+- `lean-beam-mcp` follows the `2025-11-25` tool-call error split: malformed or unknown tools are
+  JSON-RPC protocol errors, while invalid inputs for known tools return MCP tool execution errors
+  with `isError=true`.
+- `lean-beam-mcp` currently returns final tool results only; live MCP progress forwarding and MCP
+  cancellation notifications are still future work.
+- `lean-beam-mcp` has local stdio protocol and Lean-backed restart/stress coverage, but official
+  MCP conformance coverage still needs a Streamable HTTP bridge.
 - Zero-build `lean-beam save` helps checkpoint one module, but it is not a whole-workspace freshness
   solution.
 - If you edit a dependency of the target file, downstream speculative results should be treated as
