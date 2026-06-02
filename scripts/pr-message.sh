@@ -110,13 +110,14 @@ printf '\n'
 printf '## Submission\n'
 printf -- "- Push \`%s\` to a branch visible to \`%s\`.\n" "$branch" "$repo"
 printf -- "- Open a draft PR against \`%s:%s\` using the title and body below.\n" "$repo" "$base"
-printf -- '- Keep local worktree names, command transcripts, and coordination notes out of the public body unless they materially change review risk.\n'
+printf -- '- Keep local worktree names, command transcripts, routine validation logs, and coordination notes out of the public body.\n'
 printf '\n'
 printf '## PR Submission Guardrails\n'
 printf -- '- Use the PR title and body below as the public PR metadata; do not hand-roll a replacement from local status notes.\n'
 printf -- '- Keep the title and body suitable as the final squash commit message.\n'
 printf -- "- Do not add generator or tool prefixes such as \`[codex]\` to the public PR title.\n"
-printf -- '- Do not paste routine validation transcripts into the PR body; CI is the default validation record.\n'
+printf -- "- Do not add a \`Testing\` or \`Validation\` section for routine checks that CI already runs.\n"
+printf -- '- Mention tests only for rare validation that CI cannot represent, and explain why that result matters to review.\n'
 printf '\n'
 printf '## PR Title\n'
 printf '%s\n' "$title"

@@ -76,8 +76,9 @@ Guidelines:
   changes
 - keep local worktree names, write-scope notes, and routine command transcripts out of the public
   body
-- treat CI as the default validation record; mention local validation only when it materially
-  changes review risk or covers something CI cannot
+- do not add a `Testing` or `Validation` section for routine checks that CI already runs
+- treat CI as the validation record; mention tests only for rare validation that CI cannot represent,
+  and explain why that result matters to review
 - put questions and extra coordination in PR comments rather than the PR description
 
 If the change affects the wrapper, install flow, bundle resolution, or broker protocol, say that
