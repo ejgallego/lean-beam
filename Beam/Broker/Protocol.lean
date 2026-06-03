@@ -264,6 +264,9 @@ instance : FromJson Response where
 def syncBarrierIncompleteCode : String :=
   "syncBarrierIncomplete"
 
+def saveTraceStaleCode : String :=
+  "saveTraceStale"
+
 def saveTargetNotModuleCode : String :=
   "saveTargetNotModule"
 

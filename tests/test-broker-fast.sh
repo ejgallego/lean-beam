@@ -8,6 +8,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+bash scripts/check-daemon-safety.sh
+
 lake build \
   RunAt:shared \
   beam-cli \

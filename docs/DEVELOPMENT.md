@@ -70,6 +70,23 @@ Preferred maintainer entrypoints:
 - keep destructive cleanup scoped to owned temp or worktree paths
 - if Lean reports stale or rebuild trouble unexpectedly, stop and surface it explicitly
 
+## Daemon Runtime Safety
+
+The Beam daemon embeds Lean and Lake as libraries. Daemon/importable broker code must treat
+process-wide exits as fatal bugs, not as ordinary control flow.
+
+Do not call Lean/Lake APIs from daemon paths when they may call `IO.Process.exit`, `IO.exit`, or an
+equivalent process-wide exit. Known hazards include Lake `runBuild` with `noBuild := true`, which is
+CLI-oriented and can exit with Lake's no-build status, and `Lake.loadWorkspace` with
+`updateToolchain := true`, which can request a Lake restart by exiting the current process. In daemon
+code, use exception-returning checks such as `Workspace.checkNoBuild` for preflight decisions, run
+follow-up trace computation without `noBuild`, and set `updateToolchain := false` on broker-side
+`LoadConfig` literals.
+
+The cheap regression guard is [scripts/check-daemon-safety.sh](../scripts/check-daemon-safety.sh).
+It is intentionally conservative and should be updated when a new daemon-safe wrapper around an
+exit-capable Lean/Lake API is introduced.
+
 ## MCP Projection Changes
 
 MCP work should go through the shared Lean operation layer in
@@ -138,6 +155,42 @@ Keep [Beam/Broker/Server.lean](../Beam/Broker/Server.lean) focused on session li
 dispatch, cancellation, document sync, and save barriers. Pure metrics structures and JSON encoding
 live in [Beam/Broker/Metrics.lean](../Beam/Broker/Metrics.lean), so adding counters or changing
 stats payloads does not require mixing pure reporting code into the process/session runtime.
+
+The broker is not a raw LSP proxy. Its narrow public job is still to expose small Beam requests, but
+internally it coordinates several responsibilities around the LSP process:
+
+- the CLI owns process identity: project-root detection, bundle selection, registry files,
+  endpoint/root validation, startup/shutdown, wrapper leases, and control-directory locks
+- the broker owns request identity: daemon root validation, backend session lifetime, request
+  dispatch, cancellation, active-request bookkeeping, transport errors, and the LSP document mirror
+- the LSP server and plugin own Lean/Rocq semantic facts: elaboration, diagnostics, progress,
+  goals, runAt execution, direct imports, save readiness, and save artifact generation
+- Lake owns build graph and trace semantics; broker code may preflight and translate Lake outcomes,
+  but daemon paths must not enter Lake APIs that can terminate the process
+
+The thick part of the broker is request orchestration. For `sync`, `runAt`, `goals`, `runWith`,
+`release`, and `save`, the broker currently reads the source file, updates the LSP document mirror,
+waits for the relevant diagnostics/progress barrier when needed, asks the backend for extra semantic
+facts, and shapes the final Beam response. That is useful product behavior, but it is policy layered
+over lower-level LSP/plugin facts. Treat broker-side semantic history such as module sync/save
+history, stale direct-dependency hints, save readiness interpretation, and saved-olean bookkeeping as
+explicit orchestration logic. When this grows, prefer moving richer structured facts into a
+backend/plugin method over reconstructing more Lean meaning in the broker.
+
+Do not remove broker-side ordered file snapshots when thinning orchestration. Beam requests are
+path-based and may run concurrently, while LSP document updates are an ordered client stream. The LSP
+server can validate ordering only after the broker sends `didOpen` / `didChange`; it cannot know that
+one filesystem read is older than another. `FileSyncSnapshot` in
+[Beam/Broker/Server.lean](../Beam/Broker/Server.lean) and `syncSnapshotSeq` in
+[Beam/Broker/DocumentState.lean](../Beam/Broker/DocumentState.lean) protect that pre-LSP race:
+request handlers reserve a sequence number under the broker mutex, read and hash the file outside the
+mutex, then ignore a completed snapshot if a newer read has already been applied to the same document.
+Legacy in-session syncs use sequence zero because they do not provide cross-request ordering.
+
+A thinner future design should keep the snapshot ordering boundary, but may reduce broker policy by
+asking the backend for more complete structured answers, for example "sync this exact text/version,
+wait until it is usable, and return save/readiness facts" instead of having the broker infer readiness
+from several notification channels and follow-up requests.
 
 ## Sandboxed Wrapper Path
 

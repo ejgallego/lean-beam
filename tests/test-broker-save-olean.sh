@@ -96,6 +96,7 @@ tmp2="$(mktemp -d /tmp/runat-save-olean-broker-XXXXXX)"
 tmp3="$(mktemp -d /tmp/runat-save-olean-race-XXXXXX)"
 tmp4="$(mktemp -d /tmp/runat-save-olean-cancel-XXXXXX)"
 tmp5="$(mktemp -d /tmp/runat-save-olean-stale-XXXXXX)"
+tmp6="$(mktemp -d /tmp/runat-save-olean-stale-trace-XXXXXX)"
 log1="$(mktemp /tmp/runat-save-olean-build-log-XXXXXX)"
 log2="$(mktemp /tmp/runat-save-olean-broker-log-XXXXXX)"
 log3="$(mktemp /tmp/runat-save-olean-race-log-XXXXXX)"
@@ -108,6 +109,7 @@ cleanup() {
   remove_owned_tmp_tree "$tmp3"
   remove_owned_tmp_tree "$tmp4"
   remove_owned_tmp_tree "$tmp5"
+  remove_owned_tmp_tree "$tmp6"
   remove_owned_tmp_file "$log1"
   remove_owned_tmp_file "$log2"
   remove_owned_tmp_file "$log3"
@@ -121,6 +123,7 @@ mkproj "$tmp2"
 mkproj "$tmp3"
 mkproj "$tmp4"
 mkproj "$tmp5"
+mkproj "$tmp6"
 
 (cd "$tmp1" && lake build > /dev/null)
 edit_b "$tmp1"
@@ -252,6 +255,43 @@ edit_b_slow "$tmp4"
   fi
   "$beam_script" --root "$tmp4" stats > /dev/null
   rm -f "$close_out" "$close_err"
+)
+
+(cd "$tmp6" && lake build SaveSmoke/A.lean > /dev/null)
+(
+  cd "$tmp6"
+  "$beam_script" --root "$tmp6" shutdown > /dev/null 2>&1 || true
+  "$beam_script" --root "$tmp6" ensure lean > /dev/null
+  "$beam_script" --root "$tmp6" lean-sync SaveSmoke/A.lean > /dev/null
+  rm -f \
+    .lake/build/lib/lean/SaveSmoke/B.olean \
+    .lake/build/lib/lean/SaveSmoke/B.ilean \
+    .lake/build/lib/lean/SaveSmoke/B.trace
+  save_out="$(mktemp /tmp/runat-stale-trace-save-out-XXXXXX)"
+  save_err="$(mktemp /tmp/runat-stale-trace-save-err-XXXXXX)"
+  if "$beam_script" --root "$tmp6" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err"; then
+    echo "expected lean-save to reject an importer whose Lake save trace is stale" >&2
+    cat "$save_out" >&2
+    cat "$save_err" >&2
+    rm -f "$save_out" "$save_err"
+    exit 1
+  fi
+  if ! grep -q '"code": "saveTraceStale"' "$save_out"; then
+    echo "expected stale trace lean-save to report saveTraceStale" >&2
+    cat "$save_out" >&2
+    cat "$save_err" >&2
+    rm -f "$save_out" "$save_err"
+    exit 1
+  fi
+  if grep -q 'Beam daemon connection closed' "$save_err"; then
+    echo "expected stale trace lean-save to preserve the daemon connection" >&2
+    cat "$save_out" >&2
+    cat "$save_err" >&2
+    rm -f "$save_out" "$save_err"
+    exit 1
+  fi
+  "$beam_script" --root "$tmp6" stats > /dev/null
+  rm -f "$save_out" "$save_err"
 )
 
 (cd "$tmp5" && lake build SaveSmoke/A.lean > /dev/null)

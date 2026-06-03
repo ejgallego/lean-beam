@@ -90,8 +90,8 @@ private def hashOfHashable [Hashable α] (a : α) : Hash :=
 private def addHashablePureTrace [ToString α] [Hashable α] (a : α) (caption := "pure") : JobM PUnit :=
   addTrace <| .ofHash (hashOfHashable a) s!"{caption}: {toString a}"
 
-private def quietBuildConfig : BuildConfig :=
-  { noBuild := true, verbosity := .quiet }
+private def quietTraceConfig : BuildConfig :=
+  { verbosity := .quiet }
 
 private def quietLogConfig : LogConfig :=
   { outLv := .error }
@@ -201,6 +201,7 @@ private def loadWorkspaceWithConfig (root : FilePath) (lakeEnv : Lake.Env)
     pkgDir := root
     relConfigFile := relConfigFile
     configFile := configFile
+    updateToolchain := false
   }
   let (ws?, log) ← LoggerIO.captureLog <| Lake.loadWorkspace loadConfig
   let messages := log.entries.map fun entry => entry.toString
@@ -246,11 +247,9 @@ private def sourceTrace (path : FilePath) (snapshot : SourceSnapshot) : BuildTra
     mtime := snapshot.mtime
   }
 
-private def buildDepTrace
-    (ws : Workspace)
+private def buildDepTraceJob
     (mod : Lake.Module)
-    (snapshot : SourceSnapshot) : IO (BuildTrace × Bool) :=
-  ws.runBuild (cfg := quietBuildConfig) do
+    (snapshot : SourceSnapshot) : FetchM (Job (BuildTrace × Bool)) := do
     let setupJob ← mod.setup.fetch
     setupJob.mapM (sync := true) fun setup => do
       addLeanTrace
@@ -263,6 +262,31 @@ private def buildDepTrace
       setTraceCaption s!"{mod.name.toString}:leanArts"
       return (← getTrace, setup.isModule)
 
+private def saveTraceStaleMessage (root path : FilePath) : String :=
+  let relPath := (workspaceRelPath? root path).getD path.toString
+  s!"Lake save trace is stale for {relPath}. " ++
+  "A dependency or build input would need to rebuild before Beam can save this module safely. " ++
+  "Save stale direct dependencies with lean-save, or run lake build and retry."
+
+private def ensureSaveTraceReady
+    (ws : Workspace)
+    (root path : FilePath)
+    (mod : Lake.Module)
+    (snapshot : SourceSnapshot) : IO Unit := do
+  -- Lake's no-build `runBuild` mode is CLI-oriented and may exit the process.
+  -- The daemon must convert stale traces into an ordinary request
+  -- error before running the trace job for real.
+  unless ← ws.checkNoBuild (buildDepTraceJob mod snapshot) do
+    throw <| IO.userError <| saveTraceStaleMessage root path
+
+private def buildDepTrace
+    (ws : Workspace)
+    (root path : FilePath)
+    (mod : Lake.Module)
+    (snapshot : SourceSnapshot) : IO (BuildTrace × Bool) := do
+  ensureSaveTraceReady ws root path mod snapshot
+  ws.runBuild (cfg := quietTraceConfig) (buildDepTraceJob mod snapshot)
+
 def mkLeanSaveSpec
     (root path : FilePath)
     (snapshot : SourceSnapshot)
@@ -274,7 +298,7 @@ def mkLeanSaveSpec
     | throw <| IO.userError <|
         s!"could not resolve a Lake module for {path}. " ++
         "lean-save only works for synced files that belong to the current Lake workspace package graph."
-  let (depTrace, isModule) ← buildDepTrace ws mod snapshot
+  let (depTrace, isModule) ← buildDepTrace ws root path mod snapshot
   let relPath := (workspaceRelPath? root path).getD path.toString
   pure {
     relPath

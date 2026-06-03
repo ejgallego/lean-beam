@@ -18,6 +18,9 @@ structure DocState where
   textHash : UInt64
   textTraceHash : Lake.Hash
   textMTime : Lake.MTime
+  -- File contents may be read before the broker state mutex is held. This
+  -- records the newest ordered request snapshot applied to the LSP document.
+  syncSnapshotSeq : Nat := 0
   moduleName? : Option String := none
   savedOleanVersion? : Option Nat := none
   fileProgress? : Option SyncFileProgress := none
@@ -45,6 +48,8 @@ structure FileSnapshot where
   textHash : UInt64
   textTraceHash : Lake.Hash
   textMTime : Lake.MTime
+  /-- Zero means legacy/in-session sync with no cross-request ordering token. -/
+  readSeq : Nat := 0
   moduleName? : Option String := none
 
 inductive SyncFileAction where
@@ -97,14 +102,28 @@ def recordFileProgress
   | none =>
       docs
 
+private def nextSnapshotSeq (docState : DocState) (snapshot : FileSnapshot) : Nat :=
+  if snapshot.readSeq == 0 then docState.syncSnapshotSeq else snapshot.readSeq
+
 private def docStateOfSnapshot (version : Nat) (snapshot : FileSnapshot) : DocState := {
   version
   textHash := snapshot.textHash
   textTraceHash := snapshot.textTraceHash
   textMTime := snapshot.textMTime
+  syncSnapshotSeq := snapshot.readSeq
   moduleName? := snapshot.moduleName?
 }
 
+/--
+Decide how a freshly read file snapshot should update the broker's LSP document
+mirror.
+
+Request handlers reserve nonzero `readSeq` values before reading the filesystem.
+If an older read finishes after a newer read has already been applied, the older
+snapshot is ignored here. The LSP server only sees the ordered notifications the
+broker sends, so this broker-side check prevents stale disk reads from becoming
+newer LSP document versions.
+-/
 def syncFileDecision
     (docs : Docs)
     (uri : DocumentUri)
@@ -118,7 +137,13 @@ def syncFileDecision
         docs := docs.insert uri (docStateOfSnapshot version snapshot)
       }
   | some docState =>
-      if docState.textHash == snapshot.textHash then
+      if snapshot.readSeq != 0 && snapshot.readSeq < docState.syncSnapshotSeq then
+        {
+          action := .unchanged
+          version := docState.version
+          docs
+        }
+      else if docState.textHash == snapshot.textHash then
         {
           action := .unchanged
           version := docState.version
@@ -126,6 +151,7 @@ def syncFileDecision
             docState with
             textTraceHash := snapshot.textTraceHash
             textMTime := snapshot.textMTime
+            syncSnapshotSeq := nextSnapshotSeq docState snapshot
             moduleName? := snapshot.moduleName?
           }
         }
