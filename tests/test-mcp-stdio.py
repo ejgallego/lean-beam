@@ -34,26 +34,47 @@ def shared_lib_name():
 
 
 class McpClient:
-    def __init__(self, repo_root, project_root, timeout):
+    def __init__(
+        self,
+        repo_root,
+        project_root,
+        timeout,
+        *,
+        use_root_arg=True,
+        advertise_roots=False,
+        roots=None,
+        roots_payload=None,
+        roots_response="normal",
+    ):
         self.repo_root = repo_root
         self.project_root = project_root
         self.timeout = timeout
         self.next_id = 0
+        self.advertise_roots = advertise_roots
+        self.roots = [Path(root) for root in (roots if roots is not None else [project_root])]
+        self.roots_payload = roots_payload
+        self.roots_response = roots_response
+        self.roots_request_count = 0
+        self.pending_extra_response_ids = set()
+        self.extra_responses = []
         exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
         plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
         lean_cmd = shutil.which("lean") or "lean"
         require(exe.exists(), f"missing lean-beam-mcp executable at {exe}")
         require(plugin.exists(), f"missing runAt plugin shared library at {plugin}")
-        self.proc = subprocess.Popen(
+        cmd = [str(exe)]
+        if use_root_arg:
+            cmd.extend(["--root", str(project_root)])
+        cmd.extend(
             [
-                str(exe),
-                "--root",
-                str(project_root),
                 "--lean-cmd",
                 lean_cmd,
                 "--lean-plugin",
                 str(plugin),
-            ],
+            ]
+        )
+        self.proc = subprocess.Popen(
+            cmd,
             cwd=str(repo_root),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -83,6 +104,41 @@ class McpClient:
         self.proc.stdin.write(line + "\n")
         self.proc.stdin.flush()
 
+    def handle_server_request(self, request):
+        method = request.get("method")
+        request_id = request.get("id")
+        if method == "roots/list":
+            self.roots_request_count += 1
+            if self.roots_response == "error":
+                self.send_message(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {"code": -32603, "message": "roots unavailable"},
+                    }
+                )
+                return
+            if self.roots_response == "unrelated_then_normal":
+                extra_id = "during-roots"
+                self.pending_extra_response_ids.add(extra_id)
+                self.send_message({"jsonrpc": "2.0", "id": extra_id, "method": "ping"})
+            if self.roots_payload is not None:
+                roots = self.roots_payload
+            else:
+                roots = [
+                    {"uri": root.resolve().as_uri(), "name": root.name or "project"}
+                    for root in self.roots
+                ]
+            self.send_message({"jsonrpc": "2.0", "id": request_id, "result": {"roots": roots}})
+            return
+        self.send_message(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32601, "message": f"unsupported server request: {method}"},
+            }
+        )
+
     def read_response(self, expected_id):
         deadline = time.monotonic() + self.timeout
         while True:
@@ -103,6 +159,13 @@ class McpClient:
             except json.JSONDecodeError as err:
                 fail(f"stdout line is not valid JSON: {err}: {line!r}")
             require(response.get("jsonrpc") == "2.0", f"bad JSON-RPC response: {response}")
+            if "method" in response and "id" in response:
+                self.handle_server_request(response)
+                continue
+            if response.get("id") in self.pending_extra_response_ids:
+                self.extra_responses.append(response)
+                self.pending_extra_response_ids.remove(response.get("id"))
+                continue
             require(response.get("id") == expected_id, f"expected response id {expected_id}, got {response}")
             return response
 
@@ -121,11 +184,14 @@ class McpClient:
         self.send_message(message)
 
     def initialize(self):
+        capabilities = {}
+        if self.advertise_roots:
+            capabilities["roots"] = {"listChanged": False}
         response = self.request(
             "initialize",
             {
                 "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
-                "capabilities": {},
+                "capabilities": capabilities,
                 "clientInfo": {"name": "lean-beam-mcp-test", "version": "0"},
             },
         )
@@ -172,6 +238,15 @@ def expect_error_code(response, code):
     error = response.get("error")
     require(isinstance(error, dict), f"expected JSON-RPC error response, got {response}")
     require(error.get("code") == code, f"expected JSON-RPC error code {code}, got {response}")
+    return error
+
+
+def expect_error_message_contains(response, code, needle):
+    error = expect_error_code(response, code)
+    message = error.get("message")
+    require(isinstance(message, str), f"error response missing message: {response}")
+    require(needle in message, f"expected error message to contain {needle!r}, got {response}")
+    return error
 
 
 def expect_tool_error_code(response, code):
@@ -180,6 +255,21 @@ def expect_tool_error_code(response, code):
     structured = result.get("structuredContent")
     require(isinstance(structured, dict), f"tool error missing structuredContent: {response}")
     require(structured.get("code") == code, f"expected tool error code {code}, got {response}")
+
+
+def require_roots_requests(client, expected, label):
+    require(
+        client.roots_request_count == expected,
+        f"{label}: expected {expected} roots/list request(s), got {client.roots_request_count}",
+    )
+
+
+def expect_extra_error_code(client, response_id, code, label):
+    for response in client.extra_responses:
+        if response.get("id") == response_id:
+            expect_error_code(response, code)
+            return
+    fail(f"{label}: missing extra response id {response_id}; saw {client.extra_responses}")
 
 
 def require_success(label, structured):
@@ -277,11 +367,27 @@ def run_iteration(client, suffix):
     client.call_tool("lean_close", {"path": "GoalSmoke.lean"})
 
 
-def run_cycle(repo_root, fixture_root, cycle, iterations, timeout):
+def run_cycle(
+    repo_root,
+    fixture_root,
+    cycle,
+    iterations,
+    timeout,
+    *,
+    use_root_arg=True,
+    advertise_roots=False,
+    expected_roots_requests=0,
+):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-") as tmp:
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout)
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            use_root_arg=use_root_arg,
+            advertise_roots=advertise_roots,
+        )
         try:
             pre_init = client.request("tools/list")
             expect_error_code(pre_init, -32600)
@@ -314,8 +420,227 @@ def run_cycle(repo_root, fixture_root, cycle, iterations, timeout):
 
             for iteration in range(iterations):
                 run_iteration(client, f"Cycle{cycle}Iter{iteration}")
+            require_roots_requests(client, expected_roots_requests, f"cycle {cycle}")
         finally:
             client.close()
+
+
+def run_root_setup_matrix(repo_root, fixture_root, timeout):
+    cases = [
+        {
+            "name": "explicit_root_ignores_advertised_roots",
+            "use_root_arg": True,
+            "advertise_roots": True,
+            "expected_roots_requests": 0,
+            "expect_success": True,
+        },
+        {
+            "name": "missing_roots_capability",
+            "use_root_arg": False,
+            "advertise_roots": False,
+            "expected_roots_requests": 0,
+            "error_needle": "did not advertise roots",
+        },
+        {
+            "name": "empty_roots",
+            "use_root_arg": False,
+            "advertise_roots": True,
+            "roots_payload": [],
+            "expected_roots_requests": 1,
+            "error_needle": "no roots",
+        },
+        {
+            "name": "multiple_roots",
+            "use_root_arg": False,
+            "advertise_roots": True,
+            "roots": "multiple",
+            "expected_roots_requests": 1,
+            "error_needle": "multiple roots",
+        },
+        {
+            "name": "non_file_root",
+            "use_root_arg": False,
+            "advertise_roots": True,
+            "roots_payload": [{"uri": "https://example.invalid/project", "name": "not-file"}],
+            "expected_roots_requests": 1,
+            "error_needle": "file://",
+        },
+        {
+            "name": "roots_rpc_error",
+            "use_root_arg": False,
+            "advertise_roots": True,
+            "roots_response": "error",
+            "expected_roots_requests": 1,
+            "error_needle": "roots/list failed",
+        },
+        {
+            "name": "unrelated_request_during_roots",
+            "use_root_arg": False,
+            "advertise_roots": True,
+            "roots_response": "unrelated_then_normal",
+            "expected_roots_requests": 1,
+            "expect_success": True,
+            "extra_error_id": "during-roots",
+        },
+    ]
+    for case in cases:
+        with tempfile.TemporaryDirectory(prefix=f"lean-beam-mcp-{case['name']}-") as tmp:
+            project_root = Path(tmp) / "project"
+            shutil.copytree(fixture_root, project_root)
+            roots = None
+            if case.get("roots") == "multiple":
+                extra_root = Path(tmp) / "other-project"
+                extra_root.mkdir()
+                roots = [project_root, extra_root]
+            client = McpClient(
+                repo_root,
+                project_root,
+                timeout,
+                use_root_arg=case["use_root_arg"],
+                advertise_roots=case["advertise_roots"],
+                roots=roots,
+                roots_payload=case.get("roots_payload"),
+                roots_response=case.get("roots_response", "normal"),
+            )
+            try:
+                client.initialize()
+                tools = expect_result(client.request("tools/list")).get("tools")
+                require(isinstance(tools, list) and tools, f"{case['name']}: tools/list should not require root setup: {tools}")
+                response = client.request(
+                    "tools/call",
+                    {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                )
+                if case.get("expect_success"):
+                    result = expect_result(response)
+                    require(result.get("isError") is not True, f"{case['name']}: lean_sync returned tool error: {result}")
+                else:
+                    expect_error_message_contains(response, -32600, case["error_needle"])
+                require_roots_requests(client, case["expected_roots_requests"], case["name"])
+                if "extra_error_id" in case:
+                    expect_extra_error_code(client, case["extra_error_id"], -32600, case["name"])
+            finally:
+                client.close()
+
+
+def initialize_params(capabilities=None):
+    return {
+        "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
+        "capabilities": capabilities if capabilities is not None else {},
+        "clientInfo": {"name": "lean-beam-mcp-lifecycle-test", "version": "0"},
+    }
+
+
+def check_response(response, expectation, label):
+    kind = expectation["kind"]
+    if kind == "result":
+        expect_result(response)
+    elif kind == "error":
+        error = expect_error_code(response, expectation["code"])
+        needle = expectation.get("message_contains")
+        if needle is not None:
+            message = error.get("message")
+            require(isinstance(message, str) and needle in message, f"{label}: expected {needle!r} in {response}")
+    else:
+        fail(f"{label}: unknown expectation kind {kind}")
+
+
+def run_lifecycle_matrix(repo_root, fixture_root, timeout):
+    cases = [
+        {
+            "name": "ping_before_initialize",
+            "actions": [
+                {"request": "ping", "expect": {"kind": "result"}},
+            ],
+        },
+        {
+            "name": "shutdown_before_initialize",
+            "actions": [
+                {"request": "shutdown", "expect": {"kind": "result"}, "stops": True},
+            ],
+        },
+        {
+            "name": "tool_call_before_initialize",
+            "actions": [
+                {
+                    "request": "tools/call",
+                    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                    "expect": {"kind": "error", "code": -32600, "message_contains": "initialize"},
+                },
+            ],
+        },
+        {
+            "name": "tool_call_before_initialized_notification",
+            "actions": [
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
+                {
+                    "request": "tools/call",
+                    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                    "expect": {"kind": "error", "code": -32600, "message_contains": "notifications/initialized"},
+                },
+            ],
+        },
+        {
+            "name": "repeat_initialize",
+            "actions": [
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
+                {
+                    "request": "initialize",
+                    "params": initialize_params(),
+                    "expect": {"kind": "error", "code": -32600, "message_contains": "already completed"},
+                },
+            ],
+        },
+        {
+            "name": "initialized_before_initialize_does_not_ready_server",
+            "actions": [
+                {"notify": "notifications/initialized"},
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
+                {
+                    "request": "tools/list",
+                    "expect": {"kind": "error", "code": -32600, "message_contains": "notifications/initialized"},
+                },
+            ],
+        },
+        {
+            "name": "unknown_method_before_initialize",
+            "actions": [
+                {"request": "unknown/method", "expect": {"kind": "error", "code": -32600, "message_contains": "initialize"}},
+            ],
+        },
+        {
+            "name": "unknown_method_after_initialize",
+            "actions": [
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
+                {"notify": "notifications/initialized"},
+                {"request": "unknown/method", "expect": {"kind": "error", "code": -32601}},
+            ],
+        },
+    ]
+    for case in cases:
+        with tempfile.TemporaryDirectory(prefix=f"lean-beam-mcp-{case['name']}-") as tmp:
+            project_root = Path(tmp) / "project"
+            shutil.copytree(fixture_root, project_root)
+            client = McpClient(repo_root, project_root, timeout)
+            stopped = False
+            try:
+                for action in case["actions"]:
+                    if "notify" in action:
+                        client.notify(action["notify"], action.get("params"))
+                        continue
+                    response = client.request(action["request"], action.get("params"))
+                    check_response(response, action["expect"], f"{case['name']} {action['request']}")
+                    if action.get("stops"):
+                        stopped = True
+                        break
+                require_roots_requests(client, 0, case["name"])
+            finally:
+                if stopped and client.proc.stdin and not client.proc.stdin.closed:
+                    client.proc.stdin.close()
+                    try:
+                        client.proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        pass
+                client.close()
 
 
 def main():
@@ -329,6 +654,18 @@ def main():
     require(fixture_root.exists(), f"missing MCP fixture root at {fixture_root}")
     for cycle in range(args.restart_cycles):
         run_cycle(repo_root, fixture_root, cycle, args.iterations, args.timeout)
+        run_cycle(
+            repo_root,
+            fixture_root,
+            f"Roots{cycle}",
+            1,
+            args.timeout,
+            use_root_arg=False,
+            advertise_roots=True,
+            expected_roots_requests=1,
+        )
+    run_root_setup_matrix(repo_root, fixture_root, args.timeout)
+    run_lifecycle_matrix(repo_root, fixture_root, args.timeout)
 
 
 if __name__ == "__main__":

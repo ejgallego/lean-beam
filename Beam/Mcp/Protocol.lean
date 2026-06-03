@@ -77,6 +77,25 @@ structure Notification where
   method : String
   params? : Option Json := none
 
+structure ClientRoot where
+  uri : String
+  name? : Option String := none
+  deriving Inhabited
+
+instance : FromJson ClientRoot where
+  fromJson? json := do
+    let uri ← json.getObjValAs? String "uri"
+    let name? ← optionalField? (α := String) json "name"
+    pure { uri, name? }
+
+structure ListRootsResult where
+  roots : Array ClientRoot
+
+instance : FromJson ListRootsResult where
+  fromJson? json := do
+    let roots ← json.getObjValAs? (Array ClientRoot) "roots"
+    pure { roots }
+
 inductive Incoming where
   | request (request : Request)
   | notification (notification : Notification)
@@ -95,6 +114,42 @@ def Incoming.fromJson? (json : Json) : Except String Incoming := do
         throw "request id must be a string or number"
   | .error _ =>
       pure <| .notification { method, params? }
+
+def clientSupportsRoots (params? : Option Json) : Bool :=
+  match params? with
+  | none => false
+  | some params =>
+      match params.getObjVal? "capabilities" with
+      | .error _ => false
+      | .ok capabilities =>
+          match capabilities.getObjVal? "roots" with
+          | .ok _ => true
+          | .error _ => false
+
+def rootsListRequestId : String :=
+  "lean-beam-roots-1"
+
+def rootsListRequest : Json :=
+  Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("id", toJson rootsListRequestId),
+    ("method", toJson "roots/list")
+  ]
+
+def parseRootsListResponse (json : Json) : Except String ListRootsResult := do
+  let version ← json.getObjValAs? String "jsonrpc"
+  if version != "2.0" then
+    throw "expected jsonrpc=\"2.0\""
+  let id ← json.getObjValAs? String "id"
+  if id != rootsListRequestId then
+    throw s!"expected roots/list response id {rootsListRequestId}, got {id}"
+  match json.getObjVal? "error" with
+  | .ok err =>
+      throw s!"roots/list failed: {err.compress}"
+  | .error _ =>
+      pure ()
+  let result ← json.getObjVal? "result"
+  fromJson? result
 
 def successResponse (id : Json) (result : Json) : Json :=
   Json.mkObj [
