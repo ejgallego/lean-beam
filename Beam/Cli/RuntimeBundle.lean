@@ -279,7 +279,7 @@ def bundleMetadataJson
 
 def checkBundleMetadataJson
     (toolchain srcHash : String)
-    (workspace : System.FilePath)
+    (_workspace : System.FilePath)
     (json : Json) : Except String Unit := do
   let metadata : BundleMetadata ← fromJson? json
   if metadata.schemaVersion != bundleMetadataSchemaVersion then
@@ -288,8 +288,8 @@ def checkBundleMetadataJson
     throw s!"bundle metadata toolchain mismatch: expected {toolchain}, got {metadata.toolchain}"
   if metadata.sourceHash != srcHash then
     throw s!"bundle metadata sourceHash mismatch: expected {srcHash}, got {metadata.sourceHash}"
-  if metadata.workspace != workspace.toString then
-    throw s!"bundle metadata workspace mismatch: expected {workspace}, got {metadata.workspace}"
+  if metadata.workspace.isEmpty then
+    throw "bundle metadata workspace must not be empty"
   if metadata.builtAt.isEmpty then
     throw "bundle metadata builtAt must not be empty"
 

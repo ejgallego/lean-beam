@@ -128,6 +128,10 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
     require "bundle should accept matching artifacts and metadata"
       (← Beam.Cli.bundleReady bundleDir toolchain sourceHash)
 
+    writeBundleMetadataFile bundleDir toolchain sourceHash (System.FilePath.mk <| "/private" ++ workspace.toString)
+    require "bundle should accept metadata with equivalent diagnostic workspace spelling"
+      (← Beam.Cli.bundleReady bundleDir toolchain sourceHash)
+
     IO.FS.removeFile (Beam.Cli.bundlePathsFor workspace).client
     require "bundle should reject matching metadata without required artifacts"
       (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
