@@ -125,9 +125,12 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   usually an environment restriction, not a bundle-resolution mismatch.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
 - The Beam daemon is single-root and keeps a conservative single active session per backend.
-- `lean-beam-mcp` is currently an experimental developer entry point. It requires explicit
-  `--root`, and real Lean tool calls still require a caller or wrapper to provide the Lean command
-  and plugin path through `--lean-cmd` and `--lean-plugin`.
+- `lean-beam-mcp` is currently an experimental developer entry point. `--root PATH` is supported as
+  an explicit override; when it is omitted, the server discovers exactly one `file://` project root
+  through the MCP `roots/list` request. Multiple roots are rejected for now, so clients should pass
+  `--root` when they expose more than one workspace root. Real Lean tool calls still require a
+  caller or wrapper to provide the Lean command and plugin path through `--lean-cmd` and
+  `--lean-plugin`.
 - `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are
   not advertised or tested.
 - `lean-beam-mcp` follows the `2025-11-25` tool-call error split: malformed or unknown tools are

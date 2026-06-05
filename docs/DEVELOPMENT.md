@@ -94,7 +94,9 @@ When adding an MCP-facing operation:
 - add or reuse a `Beam.Lean.Operation` first
 - add a `ToolName` only if it is meant to be a public agent tool
 - keep raw LSP methods and params out of the MCP input types
-- keep the project root in server/session context, not in each MCP tool input
+- keep the project root in server/session context, not in each MCP tool input; server root
+  negotiation belongs in `Beam/Mcp/Server.lean`, either through the explicit `--root` override or
+  exactly one MCP `roots/list` result
 - map to broker operations through the shared operation helpers instead of constructing ad hoc JSON
 - normalize MCP output field names in the projection, for example `next_handle` and `proof_state`
 - do not expose expert/raw escape hatches such as `lean-request-at` as MCP tools

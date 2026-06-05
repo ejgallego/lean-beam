@@ -38,13 +38,16 @@ Beam daemon integration.
   [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), including
   JSON-RPC request/notification decoding, initialize/tools-list response shape, generated tool
   schemas, initialize / initialized lifecycle gating, raw LSP rejection, malformed-tool protocol
-  errors, and known-tool input validation as MCP tool execution errors
+  errors, known-tool input validation as MCP tool execution errors, roots capability detection, and
+  `roots/list` response decoding
 - Lean-backed `lean-beam-mcp` stdio coverage in
   [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py), which runs initialize, initialized
   notification, tools/list, raw-tool rejection, sync, runAt semantic success/failure, handle
-  mint/continue/linear/release, goals, close, shutdown, stdout JSON parsing, and stderr hygiene
-  assertions against a copied Lean fixture project. Stderr hygiene is a local regression check, not
-  an MCP requirement; the `2025-11-25` stdio transport explicitly permits server logging on stderr.
+  mint/continue/linear/release, goals, close, shutdown, a table-driven lifecycle matrix,
+  explicit-root startup, MCP `roots/list` project-root discovery, root setup error cases, stdout
+  JSON parsing, and stderr hygiene assertions against a copied Lean fixture project. Stderr hygiene
+  is a local regression check, not an MCP requirement; the `2025-11-25` stdio transport explicitly
+  permits server logging on stderr.
 - local Streamable HTTP bridge coverage in
   [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py), which starts
   [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) against a `lean-beam-mcp` stdio child and
@@ -158,9 +161,10 @@ harness and external conformance coverage.
 Current MCP gates are layered:
 
 - protocol unit tests for JSON-RPC shapes, tool schemas, lifecycle gating, malformed-tool protocol
-  errors, and known-tool input validation as tool execution errors
+  errors, roots negotiation helpers, and known-tool input validation as tool execution errors
 - projection tests for the shared Beam operation substrate and agent-facing field names
-- `tests/test-mcp-stdio.py` for real stdio process behavior over a copied Lean project
+- `tests/test-mcp-stdio.py` for real stdio process behavior over a copied Lean project, including
+  table-driven lifecycle/root setup cases, explicit `--root`, and client-advertised MCP roots
 - `tests/test-mcp-http-bridge.py` for local Streamable HTTP transport behavior over the same stdio
   server
 - `tests/test-broker-fast.sh` for one quick Lean-backed MCP stdio path, one HTTP bridge smoke, and a

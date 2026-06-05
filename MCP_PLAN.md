@@ -79,6 +79,9 @@ separate transport/tool errors from normal Lean semantic failures such as `resul
 `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` and intentionally does not
 advertise older revisions. Version support should stay narrow, so every advertised revision has
 explicit protocol, schema, error-shape, and external conformance tests.
+The server accepts `--root` as an explicit single-root override; otherwise it asks the client for
+MCP roots and starts the broker only after receiving exactly one `file://` root. That keeps project
+root selection in MCP session setup rather than in individual tool inputs.
 
 ## Proposed Architecture
 
@@ -191,8 +194,9 @@ set. New agent-facing Lean operations should be added to `Beam/Lean/Operation.le
 projected to MCP with an explicit `ToolName` only when they are meant to be public MCP tools. The
 raw `lean-request-at` escape hatch should stay out of the MCP surface.
 
-MCP tool inputs should not carry `root`; the MCP server session supplies the project root. That
-keeps tool calls compact and avoids teaching agents to manage per-call broker session state.
+MCP tool inputs should not carry `root`; the MCP server session supplies the project root from
+either the explicit `--root` override or a single MCP `roots/list` result. That keeps tool calls
+compact and avoids teaching agents to manage per-call broker session state.
 
 Possible second phase:
 

@@ -100,9 +100,78 @@ private def checkToolsListShape : IO Unit := do
       (tool.getObjValAs? String "name").toOption == some "lean_request_at"
   require "tools/list must not expose raw LSP/request-at tools" (!rawExposed)
 
-private def mkRuntime : IO Beam.Broker.ServerRuntime := do
-  let root ← IO.currentDir
-  Beam.Broker.ServerRuntime.create { root := root }
+private def checkRootsProtocol : IO Unit := do
+  let initWithoutRoots := Json.mkObj [
+    ("capabilities", Json.mkObj [])
+  ]
+  require "empty client capabilities should not advertise roots"
+    (!Beam.Mcp.clientSupportsRoots (some initWithoutRoots))
+
+  let initWithRoots := Json.mkObj [
+    ("capabilities", Json.mkObj [
+      ("roots", Json.mkObj [
+        ("listChanged", toJson false)
+      ])
+    ])
+  ]
+  require "roots client capability should be detected"
+    (Beam.Mcp.clientSupportsRoots (some initWithRoots))
+
+  let rootUri := (System.Uri.pathToUri (System.FilePath.mk "/tmp/lean-beam-mcp-root") : String)
+  let rootsResponse (id : String) (result : Json) : Json := Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("id", toJson id),
+    ("result", result)
+  ]
+  let rootsResult (roots : Array Json) : Json := Json.mkObj [
+    ("roots", Json.arr roots)
+  ]
+  let rpcErrorResponse := Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("id", toJson Beam.Mcp.rootsListRequestId),
+    ("error", Json.mkObj [
+      ("code", toJson (-32603 : Int)),
+      ("message", toJson "client roots failure")
+    ])
+  ]
+  let cases : Array (String × Json × Bool) := #[
+    (
+      "single root",
+      rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[
+        Json.mkObj [
+          ("uri", toJson rootUri),
+          ("name", toJson "fixture")
+        ]
+      ],
+      true
+    ),
+    ("empty roots", rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[], true),
+    ("missing roots field", rootsResponse Beam.Mcp.rootsListRequestId <| Json.mkObj [], false),
+    (
+      "non-string root uri",
+      rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[
+        Json.mkObj [
+          ("uri", toJson (3 : Nat))
+        ]
+      ],
+      false
+    ),
+    ("wrong response id", rootsResponse "other-roots-id" <| rootsResult #[], false),
+    ("JSON-RPC roots error", rpcErrorResponse, false)
+  ]
+  for (label, response, shouldDecode) in cases do
+    match Beam.Mcp.parseRootsListResponse response, shouldDecode with
+    | .ok roots, true =>
+        if label == "single root" then
+          require "roots/list should decode one root" (roots.roots.size == 1)
+          require "roots/list should preserve root uri" (roots.roots[0]!.uri == rootUri)
+          require "roots/list should preserve root name" (roots.roots[0]!.name? == some "fixture")
+    | .error _, false =>
+        pure ()
+    | .ok _, false =>
+        throw <| IO.userError s!"{label}: roots/list response decoded unexpectedly"
+    | .error err, true =>
+        throw <| IO.userError s!"{label}: roots/list response failed to decode: {err}"
 
 private def expectResponse (label : String) (value : Option Json × Bool) : IO Json := do
   match value with
@@ -110,12 +179,13 @@ private def expectResponse (label : String) (value : Option Json × Bool) : IO J
   | (none, _stop) => throw <| IO.userError s!"{label}: expected JSON-RPC response"
 
 private def checkServerBasics : IO Unit := do
-  let runtime ← mkRuntime
   let root ← IO.currentDir
-  let state ← Beam.Mcp.Server.ProtocolState.create
+  let state ← Beam.Mcp.Server.ProtocolState.create (some root)
+  let stdin ← IO.getStdin
+  let opts : Beam.Mcp.Server.Options := {}
 
   let preInitResp ← expectResponse "pre-initialize tools/list rejection" =<<
-    Beam.Mcp.Server.handleJson state runtime root (Json.mkObj [
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
       ("id", toJson (0 : Nat)),
       ("method", toJson "tools/list")
@@ -124,7 +194,7 @@ private def checkServerBasics : IO Unit := do
   requireJsonInt "pre-initialize tools/list error" "code" (-32600) preInitError
 
   let initResp ← expectResponse "initialize" =<<
-    Beam.Mcp.Server.handleJson state runtime root (Json.mkObj [
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
       ("id", toJson (1 : Nat)),
       ("method", toJson "initialize"),
@@ -140,7 +210,7 @@ private def checkServerBasics : IO Unit := do
   requireJsonBool "initialize tools capability" "listChanged" false toolsCapability
 
   let preReadyResp ← expectResponse "pre-ready tools/list rejection" =<<
-    Beam.Mcp.Server.handleJson state runtime root (Json.mkObj [
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
       ("id", toJson (11 : Nat)),
       ("method", toJson "tools/list")
@@ -149,7 +219,7 @@ private def checkServerBasics : IO Unit := do
   requireJsonInt "pre-ready tools/list error" "code" (-32600) preReadyError
 
   let initializedResp ←
-    Beam.Mcp.Server.handleJson state runtime root (Json.mkObj [
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
       ("method", toJson "notifications/initialized")
     ])
@@ -161,7 +231,7 @@ private def checkServerBasics : IO Unit := do
       throw <| IO.userError "initialized notification should not stop the server"
 
   let listResp ← expectResponse "tools/list" =<<
-    Beam.Mcp.Server.handleJson state runtime root (Json.mkObj [
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
       ("id", toJson (2 : Nat)),
       ("method", toJson "tools/list")
@@ -170,7 +240,7 @@ private def checkServerBasics : IO Unit := do
   discard <| requireObjVal "tools/list response" "tools" listResult
 
   let rawToolResp ← expectResponse "raw tool rejection" =<<
-    Beam.Mcp.Server.handleJson state runtime root (Json.mkObj [
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
       ("id", toJson (3 : Nat)),
       ("method", toJson "tools/call"),
@@ -183,7 +253,7 @@ private def checkServerBasics : IO Unit := do
   requireJsonInt "raw tool error" "code" (-32602) rawToolError
 
   let badArgsResp ← expectResponse "bad args rejection" =<<
-    Beam.Mcp.Server.handleJson state runtime root (Json.mkObj [
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
       ("id", toJson (4 : Nat)),
       ("method", toJson "tools/call"),
@@ -204,6 +274,7 @@ private def checkServerBasics : IO Unit := do
 def main : IO Unit := do
   checkIncoming
   checkToolsListShape
+  checkRootsProtocol
   checkServerBasics
 
 end RunAtTest.Broker.McpProtocolTest
