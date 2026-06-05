@@ -82,6 +82,7 @@ selected broker results.
 The executable MCP path is split into importable runtime modules and tiny entry-point modules:
 
 - [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean): MCP JSON-RPC and tool-result helpers
+- [Beam/Mcp/Options.lean](../Beam/Mcp/Options.lean): executable option parsing and usage text
 - [Beam/Mcp/Roots.lean](../Beam/Mcp/Roots.lean): MCP `roots/list` negotiation and root selection
 - [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): project-root to broker-runtime setup
 - [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check driver
@@ -156,13 +157,15 @@ What the fix does:
 - the regression for this path is
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 
-The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Keep wrapper
-and daemon lifecycle code in `Beam/Cli.lean`, but put reusable lock behavior there so it can stay
-unit-tested without importing the full CLI command surface. Install and bundle layout metadata lives
-in [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle cache roots,
-source hashing, fallback bundle builds, and daemon/client/plugin helper resolution live in
-[Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean). Keep `Beam/Cli.lean` focused on
-command parsing, daemon lifecycle, wrapper leases, and user-facing output.
+The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Reusable CLI
+argument parsing lives in [Beam/Cli/Args.lean](../Beam/Cli/Args.lean). Keep wrapper and daemon
+lifecycle code in `Beam/Cli.lean`, but put reusable lock behavior there so it can stay unit-tested
+without importing the full CLI command surface. Install and bundle layout metadata lives in
+[Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle cache roots, source
+hashing, fallback bundle builds, versioned metadata payloads, and daemon/client/plugin helper
+resolution live in [Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean). Keep
+`Beam/Cli.lean` focused on command dispatch, daemon lifecycle, wrapper leases, and user-facing
+output.
 
 What this does not promise:
 
