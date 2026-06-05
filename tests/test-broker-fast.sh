@@ -36,6 +36,38 @@ python3 tests/test-mcp-stdio.py --iterations 1 --restart-cycles 1 > /dev/null
 python3 tests/test-mcp-http-bridge.py > /dev/null
 scripts/lean-beam-mcp --root tests/save_olean_project --self-check PositionEmptyLine.lean > /dev/null
 
+self_check_missing_file_err="$(mktemp /tmp/lean-beam-mcp-self-check-missing-file-XXXXXX)"
+if scripts/lean-beam-mcp --root tests/save_olean_project --self-check DoesNotExist.lean \
+    > /dev/null 2>"$self_check_missing_file_err"; then
+  echo "expected MCP self-check to reject a missing Lean file" >&2
+  rm -f "$self_check_missing_file_err"
+  exit 1
+fi
+if ! grep -Eiq 'No such file|failed to canonicalize|does not exist' "$self_check_missing_file_err"; then
+  echo "expected missing-file MCP self-check failure to explain the path error" >&2
+  cat "$self_check_missing_file_err" >&2
+  rm -f "$self_check_missing_file_err"
+  exit 1
+fi
+rm -f "$self_check_missing_file_err"
+
+self_check_missing_root="/tmp/lean-beam-mcp-missing-root-$$"
+self_check_missing_root_err="$(mktemp /tmp/lean-beam-mcp-self-check-missing-root-XXXXXX)"
+rm -rf -- "$self_check_missing_root"
+if scripts/lean-beam-mcp --root "$self_check_missing_root" --self-check PositionEmptyLine.lean \
+    > /dev/null 2>"$self_check_missing_root_err"; then
+  echo "expected MCP self-check to reject a missing root" >&2
+  rm -f "$self_check_missing_root_err"
+  exit 1
+fi
+if ! grep -Eiq 'No such file|failed to canonicalize|does not exist' "$self_check_missing_root_err"; then
+  echo "expected missing-root MCP self-check failure to explain the root error" >&2
+  cat "$self_check_missing_root_err" >&2
+  rm -f "$self_check_missing_root_err"
+  exit 1
+fi
+rm -f "$self_check_missing_root_err"
+
 mcp_smoke_out="$(
   printf '%s\n' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}' \

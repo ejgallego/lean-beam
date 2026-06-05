@@ -8,6 +8,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# shellcheck source=tests/lib/ci-steps.sh
+. tests/lib/ci-steps.sh
+
+BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-broker-slow}"
+
 tmp_bundle_dir="$(mktemp -d /tmp/beam-daemon-bundles-XXXXXX)"
 tmp_env_root="$(mktemp -d /tmp/beam-daemon-env-XXXXXX)"
 
@@ -40,37 +45,38 @@ toolchain="$(awk 'NR==1 {print $1}' lean-toolchain)"
 # Fake agent homes isolate install state; the wrapper still needs the host Lean toolchain cache.
 host_elan_home="${ELAN_HOME:-$HOME/.elan}"
 
-echo "[broker-slow] shell lint"
-bash scripts/lint-shell.sh > /dev/null
+run_step "shell lint" bash scripts/lint-shell.sh
 
-echo "[broker-slow] build"
-lake build \
+run_step "build" lake build \
   RunAt:shared \
   beam-cli \
   beam-daemon \
   beam-client \
-  lean-beam-mcp \
-  > /dev/null
+  lean-beam-mcp
 
-echo "[broker-slow] MCP stdio stress"
-python3 tests/test-mcp-stdio.py --iterations 4 --restart-cycles 3 > /dev/null
+run_step "MCP stdio stress" python3 tests/test-mcp-stdio.py --iterations 4 --restart-cycles 3
 
-echo "[broker-slow] bundle install"
-BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" ./.lake/build/bin/beam-cli bundle-install "$toolchain" > /dev/null
+run_step "bundle install" env BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+  ./.lake/build/bin/beam-cli bundle-install "$toolchain"
 
-echo "[broker-slow] wrapper tests"
-HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
+run_step "wrapper daemon tests" env \
+  HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
   ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
-  bash tests/test-beam-wrapper.sh > /dev/null
+  bash tests/test-beam-wrapper-daemon.sh
+
+run_step "wrapper tests" env \
+  HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
+  ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+  bash tests/test-beam-wrapper.sh
 
 if [ "$(uname -s)" = "Linux" ]; then
-  echo "[broker-slow] sandbox wrapper tests"
-  HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
+  run_step "sandbox wrapper tests" env \
+    HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
     ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
-    bash tests/test-beam-wrapper-sandbox.sh > /dev/null
+    bash tests/test-beam-wrapper-sandbox.sh
 fi
 
-echo "[broker-slow] save replay tests"
-HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
+run_step "save replay tests" env \
+  HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
   ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
-  bash tests/test-broker-save-olean.sh > /dev/null
+  bash tests/test-broker-save-olean.sh

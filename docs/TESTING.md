@@ -65,6 +65,10 @@ Beam daemon integration.
   `mcp-conformance` job, which runs the pinned external conformance package against the local
   Streamable HTTP bridge
 - slower wrapper/install coverage in [tests/test-broker-slow.sh](../tests/test-broker-slow.sh)
+- focused wrapper daemon lifecycle coverage in
+  [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh), including
+  `lean-beam ensure --hold`, stale same-namespace wrapper lease cleanup, endpoint collisions with
+  another Beam root, stale registries that point at another root, and non-Beam busy-port rejection
 - experimental Lean broker `request_at` coverage through
   [RunAtTest/Broker/SmokeTest.lean](../RunAtTest/Broker/SmokeTest.lean) and
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), including whitelisted request
@@ -78,9 +82,6 @@ Beam daemon integration.
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
 - wrapper coverage for the installed `lean-beam-search` helper in
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
-- wrapper coverage for `lean-beam ensure --hold` in
-  [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which validates the foreground daemon
-  owner path used by PID-isolated command runners and stale same-namespace wrapper lease cleanup
 - PID-isolated sandbox wrapper coverage in
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh), which checks that a
   later sandboxed wrapper invocation reuses a live daemon via its endpoint and that overlapping
@@ -143,7 +144,9 @@ correctness regression, not yet a performance benchmark.
   Lean-backed MCP stdio pass; this is the quickest broker signal
 - add [tests/test-broker-slow.sh](../tests/test-broker-slow.sh) when the change touches wrapper,
   install, bundle-resolution behavior, or MCP server reliability; it repeats the MCP stdio harness
-  across several server restarts before running the wrapper/install checks
+  across several server restarts before running focused daemon lifecycle checks and the broader
+  wrapper/install checks. Slow-suite steps are grouped and timed in CI through
+  [tests/lib/ci-steps.sh](../tests/lib/ci-steps.sh).
 - use [tests/test-broker-rocq.sh](../tests/test-broker-rocq.sh) for Rocq broker and wrapper
   coverage, including `coq-lsp` discovery from project-local `_opam` roots and the active PATH
 - use [tests/test-broker.sh](../tests/test-broker.sh) to execute both suites together before
@@ -169,7 +172,7 @@ Current MCP gates are layered:
   server
 - `tests/test-broker-fast.sh` for one quick Lean-backed MCP stdio path, one HTTP bridge smoke, and a
   cheap protocol-only smoke; it also runs the public `lean-beam-mcp --self-check` path against the
-  fixture project
+  fixture project and negative setup checks for missing roots/files
 - `tests/test-broker-slow.sh` for repeated MCP server restarts and repeated real tool calls
 - `tests/test-install.sh` for installed runtime layout and a real installed `lean-beam-mcp` wrapper
   tool call that resolves its Lean command and plugin through `beam-cli mcp-config`; it also checks

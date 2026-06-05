@@ -13,6 +13,7 @@ files=(
   scripts/lean-beam
   scripts/lean-beam-search
   tests/*.sh
+  tests/lib/*.sh
 )
 
 shellcheck "${files[@]}"

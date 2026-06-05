@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Cli.Daemon
 import Beam.Broker.Client
 import Beam.Broker.Transport
 import RunAt.Lib.NativeLib
@@ -37,38 +38,6 @@ private structure InstallLayout where
   wrapperPaths : List String
   sourceHashInputs : List String
   deriving ToJson
-
-private structure RegistryEntry where
-  daemonId : String
-  pid : Nat
-  pidNamespace? : Option String := none
-  transport : String := "unix"
-  port? : Option Nat := none
-  socket? : Option String := none
-  root : String
-  configHash : String
-  leanCmd? : Option String := none
-  plugin? : Option String := none
-  rocqCmd? : Option String := none
-  toolchain? : Option String := none
-  clientBin? : Option String := none
-  daemonBin? : Option String := none
-  bundleId? : Option String := none
-  startedAt : String
-  requestedPort? : Option Nat := none
-  deriving FromJson, ToJson
-
-private structure DesiredConfig where
-  root : System.FilePath
-  leanCmd? : Option String := none
-  plugin? : Option System.FilePath := none
-  rocqCmd? : Option String := none
-  toolchain? : Option String := none
-  daemonBin : System.FilePath
-  clientBin : System.FilePath
-  bundleId : String
-  configHash : String
-  deriving Repr
 
 private structure CliOptions where
   explicitRoot? : Option System.FilePath := none
@@ -801,60 +770,6 @@ private def removeRegistry (root : System.FilePath) : IO Unit := do
   if ← path.pathExists then
     IO.FS.removeFile path
 
-private def natToPort? (n : Nat) : Option UInt16 :=
-  if n < UInt16.size then some n.toUInt16 else none
-
-private def registryEndpoint? (entry : RegistryEntry) : Option Transport.Endpoint := do
-  match entry.transport with
-  | "tcp" => (natToPort? =<< entry.port?).map Transport.Endpoint.tcp
-  | "unix" => entry.socket?.map (fun path => Transport.Endpoint.unix (System.FilePath.mk path))
-  | _ => none
-
-private def endpointFromEntry (entry : RegistryEntry) : IO Transport.Endpoint := do
-  match registryEndpoint? entry with
-  | some endpoint => pure endpoint
-  | none => throw <| IO.userError s!"invalid Beam daemon transport data in registry for {entry.root}"
-
-private def endpointSummary (endpoint : Transport.Endpoint) : String :=
-  Transport.endpointDescription endpoint
-
-private def statsRoot? (resp : Response) : Option String := do
-  let result ← resp.result?
-  match result.getObjVal? "root" with
-  | .ok (.str root) => some root
-  | _ => none
-
-private def daemonRoot? (endpoint : Transport.Endpoint) : IO (Option String) := do
-  try
-    let resp ← sendRequest endpoint { op := .stats }
-    if resp.ok then
-      pure (statsRoot? resp)
-    else
-      pure none
-  catch _ =>
-    pure none
-
-private def endpointOccupancyError
-    (endpoint : Transport.Endpoint)
-    (daemonRoot requestedRoot : System.FilePath) : String :=
-  s!"selected endpoint {endpointSummary endpoint} already serves Beam root {daemonRoot}, not {requestedRoot}"
-
-private def endpointInUseError (endpoint : Transport.Endpoint) : String :=
-  s!"selected endpoint {endpointSummary endpoint} is already in use"
-
-private def daemonServesRoot (endpoint : Transport.Endpoint) (root : System.FilePath) : IO Bool := do
-  match ← daemonRoot? endpoint with
-  | some daemonRoot => pure (daemonRoot == root.toString)
-  | none => pure false
-
-private def endpointAcceptsConnection (endpoint : Transport.Endpoint) : IO Bool := do
-  try
-    let conn ← Transport.connect endpoint
-    Transport.closeConnection conn
-    pure true
-  catch _ =>
-    pure false
-
 private def killPid (pid : Nat) : IO Unit := do
   try
     let _ ← IO.Process.output { cmd := (← killCommand), args := #[toString pid] }
@@ -1071,7 +986,10 @@ private def registryEntryFor (desired : DesiredConfig) (pid : Nat) (endpoint : T
     requestedPort? := requestedPortNat? opts
   }
 
-private def startDaemonEntry (desired : DesiredConfig) (opts : CliOptions) : IO (Transport.Endpoint × RegistryEntry) := do
+private partial def startDaemonEntry
+    (desired : DesiredConfig)
+    (opts : CliOptions)
+    (tries : Nat := 10) : IO (Transport.Endpoint × RegistryEntry) := do
   let endpoint ← selectUnoccupiedEndpoint desired opts
   let logPath ← daemonStartupLogPath desired.root
   let pid ← startDaemon desired endpoint logPath
@@ -1081,6 +999,8 @@ private def startDaemonEntry (desired : DesiredConfig) (opts : CliOptions) : IO 
     if pid > 0 && (← pidAlive pid) then
       killPid pid
       waitForPidGone pid
+    if usesAutomaticTcpEndpoint opts && tries > 0 && (← endpointAcceptsConnection endpoint) then
+      return ← startDaemonEntry desired opts (tries - 1)
     throw err
   let entry ← registryEntryFor desired pid endpoint opts
   pure (endpoint, entry)

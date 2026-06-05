@@ -8,13 +8,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "[broker-rocq] build"
-lake build \
+# shellcheck source=tests/lib/ci-steps.sh
+. tests/lib/ci-steps.sh
+
+BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-broker-rocq}"
+
+run_step "build" lake build \
   beam-cli \
   beam-daemon \
   beam-client \
-  beam-daemon-rocq-smoke-test \
-  > /dev/null
+  beam-daemon-rocq-smoke-test
 
 eval "$(opam env)"
 
@@ -23,8 +26,6 @@ if ! command -v coq-lsp > /dev/null 2>&1; then
   exit 1
 fi
 
-echo "[broker-rocq] wrapper tests"
-bash tests/test-beam-wrapper-rocq.sh > /dev/null
+run_step "wrapper tests" bash tests/test-beam-wrapper-rocq.sh
 
-echo "[broker-rocq] smoke test"
-.lake/build/bin/beam-daemon-rocq-smoke-test > /dev/null
+run_step "smoke test" .lake/build/bin/beam-daemon-rocq-smoke-test
