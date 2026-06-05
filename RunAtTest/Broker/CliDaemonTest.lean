@@ -47,6 +47,21 @@ private def checkLockLifecycle : IO Unit := do
     catch _ =>
       pure ()
 
+private def writeFakeBundleArtifacts (workspace : System.FilePath) : IO Unit := do
+  let paths := Beam.Cli.bundlePathsFor workspace
+  for path in #[paths.daemon, paths.client, paths.plugin] do
+    if let some parent := path.parent then
+      IO.FS.createDirAll parent
+    IO.FS.writeFile path "fake artifact\n"
+
+private def writeBundleMetadataFile
+    (bundleDir : System.FilePath)
+    (toolchain sourceHash : String)
+    (workspace : System.FilePath) : IO Unit := do
+  IO.FS.writeFile
+    (Beam.Cli.bundleMetadataPath bundleDir)
+    ((Beam.Cli.bundleMetadataJson toolchain sourceHash workspace "2026-06-05T00:00:00Z").pretty ++ "\n")
+
 private def checkRuntimeBundleHelpers : IO Unit := do
   let id := Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-a" "linux-x86_64"
   require "bundle id should be deterministic"
@@ -82,10 +97,52 @@ private def checkRuntimeBundleHelpers : IO Unit := do
   require "bundle metadata should include source hash" (sourceHash == "source-a")
   require "bundle metadata should include workspace" (metadataWorkspace == workspace.toString)
 
+private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
+  let root := System.FilePath.mk s!"/tmp/beam-runtime-bundle-ready-test-{← IO.monoNanosNow}"
+  let bundleDir := root / "bundle"
+  let workspace := Beam.Cli.bundleWorkspaceFor bundleDir
+  let toolchain := "leanprover/lean4:v4.30.0"
+  let sourceHash := "source-a"
+  try
+    writeFakeBundleArtifacts workspace
+
+    require "bundle should reject artifacts without metadata"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+
+    let invalidSchema := Json.mkObj [
+      ("schemaVersion", toJson 0),
+      ("toolchain", toJson toolchain),
+      ("sourceHash", toJson sourceHash),
+      ("workspace", toJson workspace.toString),
+      ("builtAt", toJson "2026-06-05T00:00:00Z")
+    ]
+    IO.FS.writeFile (Beam.Cli.bundleMetadataPath bundleDir) (invalidSchema.pretty ++ "\n")
+    require "bundle should reject unsupported metadata schema"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+
+    writeBundleMetadataFile bundleDir toolchain "source-b" workspace
+    require "bundle should reject stale source metadata"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+
+    writeBundleMetadataFile bundleDir toolchain sourceHash workspace
+    require "bundle should accept matching artifacts and metadata"
+      (← Beam.Cli.bundleReady bundleDir toolchain sourceHash)
+
+    IO.FS.removeFile (Beam.Cli.bundlePathsFor workspace).client
+    require "bundle should reject matching metadata without required artifacts"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+  finally
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
 def main : IO Unit := do
   checkStartupRetryPolicy
   checkLockLifecycle
   checkRuntimeBundleHelpers
+  checkRuntimeBundleMetadataAcceptance
 
 end RunAtTest.Broker.CliDaemonTest
 

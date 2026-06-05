@@ -9,6 +9,7 @@ import Beam.Cli.Args
 import Beam.Cli.Daemon
 import Beam.Cli.InstallLayout
 import Beam.Cli.Lock
+import Beam.Cli.Project
 import Beam.Cli.RuntimeBundle
 import Beam.Broker.Client
 import Beam.Broker.Transport
@@ -21,64 +22,6 @@ namespace Beam.Cli
 
 open Beam.Broker
 
-private partial def climbParents (path : System.FilePath) (count : Nat) : System.FilePath :=
-  match count with
-  | 0 => path
-  | n + 1 => climbParents (path.parent.getD path) n
-
-private def runAtHome : IO System.FilePath := do
-  match ← IO.getEnv "BEAM_HOME" with
-  | some root =>
-      IO.FS.realPath <| System.FilePath.mk root
-  | none =>
-      let app ← IO.appPath
-      IO.FS.realPath <| climbParents app 4
-
-private def hasLeanProject (root : System.FilePath) : IO Bool := do
-  return (← (root / "lean-toolchain").pathExists) ||
-    (← (root / "lakefile.toml").pathExists) ||
-    (← (root / "lakefile.lean").pathExists)
-
-private def hasRocqProject (root : System.FilePath) : IO Bool := do
-  return (← (root / "_RocqProject").pathExists) ||
-    (← (root / "_CoqProject").pathExists)
-
-private partial def findRootUpwards (start : System.FilePath) (backend : Backend) : IO (Option System.FilePath) := do
-  let dir ← IO.FS.realPath start
-  let rec loop (dir : System.FilePath) : IO (Option System.FilePath) := do
-    let found ←
-      match backend with
-      | .lean => hasLeanProject dir
-      | .rocq => hasRocqProject dir
-    if found then
-      pure (some dir)
-    else if dir == System.FilePath.mk "/" then
-      pure none
-    else
-      loop (dir.parent.getD dir)
-  loop dir
-
-private def projectRoot (opts : CliOptions) (backend : Backend) : IO System.FilePath := do
-  match opts.explicitRoot? with
-  | some root => pure root
-  | none =>
-      match ← findRootUpwards (System.FilePath.mk ".") backend with
-      | some root => pure root
-      | none =>
-          let backendName := match backend with | .lean => "lean" | .rocq => "rocq"
-          throw <| IO.userError s!"could not infer {backendName} project root; use --root PATH"
-
-private def projectRootAny (opts : CliOptions) : IO System.FilePath := do
-  match opts.explicitRoot? with
-  | some root => pure root
-  | none =>
-      if let some root ← findRootUpwards (System.FilePath.mk ".") .lean then
-        pure root
-      else if let some root ← findRootUpwards (System.FilePath.mk ".") .rocq then
-        pure root
-      else
-        throw <| IO.userError "could not infer project root; use --root PATH"
-
 private def controlDir (root : System.FilePath) : IO System.FilePath := do
   match ← IO.getEnv "BEAM_CONTROL_DIR" with
   | some dir =>
@@ -89,35 +32,6 @@ private def controlDir (root : System.FilePath) : IO System.FilePath := do
 
 private def registryPath (root : System.FilePath) : IO System.FilePath := do
   pure ((← controlDir root) / "beam-daemon.json")
-
-private def leanToolchain (root : System.FilePath) : IO String := do
-  let path := root / "lean-toolchain"
-  unless ← path.pathExists do
-    throw <| IO.userError s!"missing lean-toolchain in {root}"
-  pure <| trimLine (← IO.FS.readFile path)
-
-private def leanBin (root : System.FilePath) : IO String := do
-  readCmdTrim "elan" #["which", "lean"] (some root)
-
-private def rocqCandidates (root : System.FilePath) : List System.FilePath :=
-  [root / "_opam" / "bin" / "coq-lsp", root / "_opam" / "_opam" / "bin" / "coq-lsp"]
-
-private def maybeRocqCmd (root : System.FilePath) : IO (Option String) := do
-  for candidate in rocqCandidates root do
-    if ← candidate.pathExists then
-      return some candidate.toString
-  match ← IO.getEnv "BEAM_ROCQ_CMD" with
-  | some cmd => pure (some cmd)
-  | none =>
-      if ← commandAvailable "coq-lsp" then
-        pure (some "coq-lsp")
-      else
-        pure none
-
-private def rocqCmd (root : System.FilePath) : IO String := do
-  match ← maybeRocqCmd root with
-  | some cmd => pure cmd
-  | none => throw <| IO.userError s!"could not find coq-lsp for {root}"
 
 private def computeConfigHash
     (root : System.FilePath)
