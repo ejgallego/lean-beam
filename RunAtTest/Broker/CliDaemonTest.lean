@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Cli.Daemon
 import Beam.Cli.Lock
+import Beam.Cli.RuntimeBundle
 
 namespace RunAtTest.Broker.CliDaemonTest
 
@@ -44,9 +45,30 @@ private def checkLockLifecycle : IO Unit := do
     catch _ =>
       pure ()
 
+private def checkRuntimeBundleHelpers : IO Unit := do
+  let id := Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-a" "linux-x86_64"
+  require "bundle id should be deterministic"
+    (id == Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-a" "linux-x86_64")
+  require "bundle id should include platform"
+    (id != Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-a" "darwin-arm64")
+  require "bundle id should include source hash"
+    (id != Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-b" "linux-x86_64")
+
+  let workspace := System.FilePath.mk "/tmp/beam-runtime-bundle-workspace"
+  let paths := Beam.Cli.bundlePathsFor workspace
+  require "bundle daemon path should point at workspace build output"
+    (paths.daemon == workspace / ".lake" / "build" / "bin" / "beam-daemon")
+  require "bundle client path should point at workspace build output"
+    (paths.client == workspace / ".lake" / "build" / "bin" / "beam-client")
+  require "bundle plugin path should live under workspace build lib"
+    (paths.plugin.toString.startsWith (workspace / ".lake" / "build" / "lib").toString)
+  require "state directory should remain the public .beam path"
+    (Beam.Cli.runAtStateDir (System.FilePath.mk "/tmp/project") == System.FilePath.mk "/tmp/project" / ".beam")
+
 def main : IO Unit := do
   checkStartupRetryPolicy
   checkLockLifecycle
+  checkRuntimeBundleHelpers
 
 end RunAtTest.Broker.CliDaemonTest
 

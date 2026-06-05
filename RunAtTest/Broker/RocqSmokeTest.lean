@@ -51,18 +51,7 @@ def main : IO Unit := do
   let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
   let endpoint : Beam.Broker.Endpoint := .tcp port
   let root ← rocqRoot
-  let broker ← IO.Process.spawn {
-    cmd := (← daemonExe).toString
-    args := #[
-      "--port", toString port.toNat,
-      "--root", root.toString,
-      "--rocq-cmd", (← IO.getEnv "BEAM_ROCQ_CMD").getD "coq-lsp"
-    ]
-    stdin := .null
-    stdout := .null
-    stderr := .null
-    setsid := true
-  }
+  let broker ← spawnRocqBroker endpoint root ((← IO.getEnv "BEAM_ROCQ_CMD").getD "coq-lsp")
   try
     waitForBrokerReady endpoint
     discard <| expectOk (← runClient endpoint { op := .ensure, backend := .rocq, root? := some root.toString })
