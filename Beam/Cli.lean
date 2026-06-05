@@ -6,6 +6,8 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Beam.Cli.Daemon
+import Beam.Cli.InstallLayout
+import Beam.Cli.Lock
 import Beam.Broker.Client
 import Beam.Broker.Transport
 import RunAt.Lib.NativeLib
@@ -30,14 +32,6 @@ private structure BundleMetadata where
   workspace : String
   builtAt : String
   deriving FromJson, ToJson
-
-private structure InstallLayout where
-  rootFiles : List String
-  sourceDirs : List String
-  runtimePaths : List String
-  wrapperPaths : List String
-  sourceHashInputs : List String
-  deriving ToJson
 
 private structure CliOptions where
   explicitRoot? : Option System.FilePath := none
@@ -170,41 +164,6 @@ private def parseLeanCloseSaveArgs (args : List String) : IO Bool := do
 
 private def shellQuote (text : String) : String :=
   "'" ++ text.replace "'" "'\\''" ++ "'"
-
-private def trimLine (text : String) : String :=
-  text.trimAscii.toString
-
-private def readCmdTrim (cmd : String) (args : Array String := #[]) (cwd? : Option System.FilePath := none) : IO String := do
-  let out ← IO.Process.output {
-    cmd
-    args
-    cwd := cwd?.map (·.toString)
-  }
-  if out.exitCode != 0 then
-    throw <| IO.userError s!"command failed: {cmd} {String.intercalate " " args.toList}\n{out.stderr}"
-  pure <| trimLine out.stdout
-
-private def commandAvailable (cmd : String) (args : Array String := #["--help"]) : IO Bool := do
-  try
-    let child ← IO.Process.spawn {
-      cmd := cmd
-      args := args
-      stdin := .null
-      stdout := .null
-      stderr := .null
-    }
-    if (← child.tryWait).isNone then
-      try
-        child.kill
-      catch _ =>
-        pure ()
-      try
-        discard <| child.wait
-      catch _ =>
-        pure ()
-    pure true
-  catch _ =>
-    pure false
 
 private partial def climbParents (path : System.FilePath) (count : Nat) : System.FilePath :=
   match count with
@@ -381,42 +340,6 @@ private def hashString (text : String) (init : UInt64 := 14695981039346656037) :
 private def mixField (acc : UInt64) (text : String) : UInt64 :=
   hashString text <| hashByte acc 0
 
-private def bundleRootFiles : List String :=
-  ["RunAt.lean", "Beam.lean", "lakefile.lean", "lakefile.toml", "lake-manifest.json", "lean-toolchain",
-    "supported-lean-toolchains"]
-
-private def bundleSourceDirs : List String :=
-  ["RunAt", "Beam", "ffi"]
-
-private def bundleSourceHashInputLabels : List String :=
-  bundleRootFiles ++ bundleSourceDirs.map (· ++ "/**")
-
-private def installRuntimePaths : List String :=
-  ["libexec/beam-cli", "libexec/beam-daemon", "libexec/beam-client",
-    "libexec/lean-beam-mcp", s!"libexec/{RunAt.Lib.pluginSharedLibName}", ".lake/packages"]
-
-private def installWrapperPaths : List String :=
-  ["bin/lean-beam", "bin/lean-beam-search", "bin/lean-beam-mcp"]
-
-private def installLayout : InstallLayout :=
-  {
-    rootFiles := bundleRootFiles
-    sourceDirs := bundleSourceDirs
-    runtimePaths := installRuntimePaths
-    wrapperPaths := installWrapperPaths
-    sourceHashInputs := bundleSourceHashInputLabels
-  }
-
-private def installManifestJson (payloadHash : String) (sourceCommit? : Option String) (toolchains : List String) :
-    Json :=
-  Json.mkObj [
-    ("schemaVersion", toJson (2 : Nat)),
-    ("payloadHash", toJson payloadHash),
-    ("toolchains", toJson toolchains),
-    ("sourceCommit", sourceCommit?.map toJson |>.getD Json.null),
-    ("artifacts", toJson installLayout)
-  ]
-
 private partial def collectTreeFiles (current : System.FilePath) : IO (Array System.FilePath) := do
   let entries := (← current.readDir).qsort (fun a b => a.fileName < b.fileName)
   let mut files := #[]
@@ -497,9 +420,6 @@ private def syncBundleWorkspace (home workspace : System.FilePath) : IO Unit := 
   if ← packagesDir.pathExists then
     copyTreeInto packagesDir (workspace / ".lake" / "packages")
 
-private def utcTimestamp : IO String := do
-  readCmdTrim "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"]
-
 private def writeBundleMetadata (bundleDir : System.FilePath) (toolchain srcHash : String) (workspace : System.FilePath) : IO Unit := do
   let metadata : BundleMetadata := {
     toolchain
@@ -528,52 +448,6 @@ private def fallbackBuildFailureMessage (toolchain : String) (cacheRoot bundleDi
     "lake stderr:",
     stderr
   ]
-
-private def killCommand : IO String := do
-  let candidates := [System.FilePath.mk "/bin/kill", System.FilePath.mk "/usr/bin/kill"]
-  for candidate in candidates do
-    if ← candidate.pathExists then
-      return candidate.toString
-  if ← commandAvailable "kill" #["-l"] then
-    pure "kill"
-  else
-    throw <| IO.userError "could not find kill command"
-
-private def pidAlive (pid : Nat) : IO Bool := do
-  let out ← IO.Process.output { cmd := (← killCommand), args := #["-0", toString pid] }
-  pure (out.exitCode == 0)
-
-private partial def acquireLock (lockDir : System.FilePath) : IO Unit := do
-  if let some parent := lockDir.parent then
-    IO.FS.createDirAll parent
-  let selfPid ← IO.Process.getPID
-  try
-    IO.FS.createDir lockDir
-    IO.FS.writeFile (lockDir / "pid") s!"{selfPid}\n"
-  catch _ =>
-    let stalePid? ←
-      if ← (lockDir / "pid").pathExists then
-        let text ← IO.FS.readFile (lockDir / "pid")
-        pure <| trimLine text |>.toNat?
-      else
-        pure none
-    if let some stalePid := stalePid? then
-      if !(← pidAlive stalePid) then
-        if ← lockDir.pathExists then
-          IO.FS.removeDirAll lockDir
-    IO.sleep 100
-    acquireLock lockDir
-
-private def releaseLock (lockDir : System.FilePath) : IO Unit := do
-  if ← lockDir.pathExists then
-    IO.FS.removeDirAll lockDir
-
-private def withLock (lockDir : System.FilePath) (act : IO α) : IO α := do
-  acquireLock lockDir
-  try
-    act
-  finally
-    releaseLock lockDir
 
 private def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
     (cacheRoot bundleDir workspace : System.FilePath) : IO Unit := do
@@ -953,12 +827,6 @@ private partial def waitForDaemon
       else
         IO.sleep 100
         waitForDaemon pid endpoint logPath root (tries - 1)
-
-private def currentPidNamespace? : IO (Option String) := do
-  try
-    pure <| some (← readCmdTrim "readlink" #["/proc/self/ns/pid"])
-  catch _ =>
-    pure none
 
 private def registryEntryFor (desired : DesiredConfig) (pid : Nat) (endpoint : Transport.Endpoint) (opts : CliOptions) :
     IO RegistryEntry := do

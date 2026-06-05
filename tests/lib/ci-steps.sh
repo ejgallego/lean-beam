@@ -10,6 +10,7 @@ run_step() {
   local start
   local end
   local rc
+  local restore_errexit
 
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
     printf '::group::%s\n' "$label"
@@ -17,10 +18,22 @@ run_step() {
   start="$(date +%s)"
   printf '[%s] %s\n' "${BEAM_TEST_SUITE:-beam-test}" "$label"
 
+  restore_errexit=false
+  case "$-" in
+    *e*)
+      restore_errexit=true
+      ;;
+  esac
+  # Keep running long enough to print timing and close any GitHub log group. Multi-command
+  # step functions must return the command failure explicitly instead of relying on set -e.
   set +e
   "$@"
   rc=$?
-  set -e
+  if [ "$restore_errexit" = "true" ]; then
+    set -e
+  else
+    set +e
+  fi
 
   end="$(date +%s)"
   printf '[%s] %s finished in %ss\n' "${BEAM_TEST_SUITE:-beam-test}" "$label" "$((end - start))"

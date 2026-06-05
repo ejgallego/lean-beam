@@ -82,6 +82,7 @@ selected broker results.
 The executable MCP path is split into importable runtime modules and tiny entry-point modules:
 
 - [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean): MCP JSON-RPC and tool-result helpers
+- [Beam/Mcp/Roots.lean](../Beam/Mcp/Roots.lean): MCP `roots/list` negotiation and root selection
 - [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): project-root to broker-runtime setup
 - [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check driver
 - [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): broker-backed stdio MCP server logic
@@ -103,9 +104,9 @@ When adding an MCP-facing operation:
 - add or reuse a `Beam.Lean.Operation` first
 - add a `ToolName` only if it is meant to be a public agent tool
 - keep raw LSP methods and params out of the MCP input types
-- keep the project root in server/session context, not in each MCP tool input; server root
-  negotiation belongs in `Beam/Mcp/Server.lean`, either through the explicit `--root` override or
-  exactly one MCP `roots/list` result
+- keep the project root in server/session context, not in each MCP tool input; root negotiation
+  belongs in `Beam/Mcp/Roots.lean`, either through the explicit `--root` override or exactly one
+  MCP `roots/list` result
 - map to broker operations through the shared operation helpers instead of constructing ad hoc JSON
 - normalize MCP output field names in the projection, for example `next_handle` and `proof_state`
 - do not expose expert/raw escape hatches such as `lean-request-at` as MCP tools
@@ -154,6 +155,12 @@ What the fix does:
   wrappers are pruned without treating different sandbox namespaces as safe to probe by pid
 - the regression for this path is
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
+
+The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Keep wrapper
+and daemon lifecycle code in `Beam/Cli.lean`, but put reusable lock behavior there so it can stay
+unit-tested without importing the full CLI command surface. Install and bundle layout metadata lives
+in [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean); heavier bundle cache/build
+resolution still belongs to `Beam/Cli.lean` until it has a stable typed boundary worth extracting.
 
 What this does not promise:
 

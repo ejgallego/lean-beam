@@ -173,6 +173,57 @@ private def checkRootsProtocol : IO Unit := do
     | .error err, true =>
         throw <| IO.userError s!"{label}: roots/list response failed to decode: {err}"
 
+  let clientRoot (uri : String) (name? : Option String := none) : Beam.Mcp.ClientRoot := {
+    uri
+    name?
+  }
+  match Beam.Mcp.Roots.selectClientRoot #[clientRoot rootUri (some "fixture")] with
+  | .ok root =>
+      require "single client root should select /tmp root"
+        (root.toString == (System.FilePath.mk "/tmp/lean-beam-mcp-root").toString)
+  | .error err =>
+      throw <| IO.userError s!"single client root was rejected: {err}"
+  let selectCases : Array (String × Array Beam.Mcp.ClientRoot) := #[
+    ("empty client roots", #[]),
+    ("multiple client roots", #[clientRoot rootUri, clientRoot (System.Uri.pathToUri (System.FilePath.mk "/tmp/other") : String)]),
+    ("non-file client root", #[clientRoot "https://example.com/lean-beam"])
+  ]
+  for (label, roots) in selectCases do
+    match Beam.Mcp.Roots.selectClientRoot roots with
+    | .ok root =>
+        throw <| IO.userError s!"{label}: selected root unexpectedly: {root}"
+    | .error _ =>
+        pure ()
+
+private def checkRuntimeSetupErrors : IO Unit := do
+  let missingRoot := System.FilePath.mk s!"/tmp/lean-beam-missing-mcp-root-{← IO.monoNanosNow}"
+  match ← Beam.Mcp.Runtime.mkBrokerConfig {} missingRoot with
+  | .ok _ =>
+      throw <| IO.userError "missing MCP root resolved unexpectedly"
+  | .error err =>
+      require "missing MCP root should be an invalidRequest error" (err.code == -32600)
+      require "missing MCP root setup error should name the setup boundary"
+        (err.message.startsWith "could not set up Lean Beam MCP runtime:")
+      require "missing MCP root setup error should mention project root"
+        (err.message.contains "project root does not resolve")
+
+  let root := System.FilePath.mk s!"/tmp/lean-beam-mcp-runtime-test-{← IO.monoNanosNow}"
+  try
+    IO.FS.createDirAll root
+    match ← Beam.Mcp.Runtime.mkBrokerConfig {} root with
+    | .ok _ =>
+        throw <| IO.userError "MCP runtime resolved without runtime flags or beam-cli"
+    | .error err =>
+        require "missing MCP runtime should be an invalidRequest error" (err.code == -32600)
+        require "missing MCP runtime setup error should explain usable setup paths"
+          (err.message.contains "--beam-cli PATH")
+  finally
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
 private def expectResponse (label : String) (value : Option Json × Bool) : IO Json := do
   match value with
   | (some json, _stop) => pure json
@@ -275,6 +326,7 @@ def main : IO Unit := do
   checkIncoming
   checkToolsListShape
   checkRootsProtocol
+  checkRuntimeSetupErrors
   checkServerBasics
 
 end RunAtTest.Broker.McpProtocolTest

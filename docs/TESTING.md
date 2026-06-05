@@ -149,7 +149,9 @@ correctness regression, not yet a performance benchmark.
   install, bundle-resolution behavior, or MCP server reliability; it repeats the MCP stdio harness
   across several server restarts before running focused daemon lifecycle checks and the broader
   wrapper/install checks. Slow-suite steps are grouped and timed in CI through
-  [tests/lib/ci-steps.sh](../tests/lib/ci-steps.sh).
+  [tests/lib/ci-steps.sh](../tests/lib/ci-steps.sh). Multi-command functions passed to `run_step`
+  must return failures explicitly, because the helper keeps control long enough to print timing and
+  close GitHub log groups.
 - use [tests/test-broker-rocq.sh](../tests/test-broker-rocq.sh) for Rocq broker and wrapper
   coverage, including `coq-lsp` discovery from project-local `_opam` roots and the active PATH
 - use [tests/test-broker.sh](../tests/test-broker.sh) to execute both suites together before
@@ -167,7 +169,8 @@ harness and external conformance coverage.
 Current MCP gates are layered:
 
 - protocol unit tests for JSON-RPC shapes, tool schemas, lifecycle gating, malformed-tool protocol
-  errors, roots negotiation helpers, and known-tool input validation as tool execution errors
+  errors, roots negotiation helpers, runtime setup errors, and known-tool input validation as tool
+  execution errors
 - projection tests for the shared Beam operation substrate and agent-facing field names
 - `tests/test-mcp-stdio.py` for real stdio process behavior over a copied Lean project, including
   table-driven lifecycle/root setup cases, explicit `--root`, and client-advertised MCP roots

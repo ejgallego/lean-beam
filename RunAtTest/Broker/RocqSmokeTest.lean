@@ -64,7 +64,7 @@ def main : IO Unit := do
     setsid := true
   }
   try
-    IO.sleep 400
+    waitForBrokerReady endpoint
     discard <| expectOk (← runClient endpoint { op := .ensure, backend := .rocq, root? := some root.toString })
     discard <| expectOk (← runClient endpoint { op := .resetStats })
     let goals ← expectOk <| ← runClient endpoint {
