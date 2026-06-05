@@ -34,6 +34,7 @@ lake build \
 
 python3 tests/test-mcp-stdio.py --iterations 1 --restart-cycles 1 > /dev/null
 python3 tests/test-mcp-http-bridge.py > /dev/null
+scripts/lean-beam-mcp --root tests/save_olean_project --self-check PositionEmptyLine.lean > /dev/null
 
 mcp_smoke_out="$(
   printf '%s\n' \

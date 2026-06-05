@@ -67,6 +67,15 @@ The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt 
 project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
 `--lean-plugin` explicitly.
 
+To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
+
+```bash
+lean-beam-mcp --root /path/to/lean/project --self-check MyPkg/Sub/Module.lean
+```
+
+The self-check starts a child MCP server, supplies the root through MCP `roots/list`, calls
+`lean_sync` on the file, and shuts the child server down.
+
 ## Supported Toolchains
 
 Lean Beam only serves Lean toolchains listed in [`supported-lean-toolchains`](supported-lean-toolchains).

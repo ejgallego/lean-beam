@@ -8,6 +8,7 @@ Quick Start
 
 Codex MCP
   codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
+  lean-beam-mcp --root /path/to/lean/project --self-check MyPkg/Sub/Module.lean
   If your MCP client does not provide workspace roots, add:
   codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
 
