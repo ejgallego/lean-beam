@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import Beam.Broker.Errors
 import Beam.Broker.Protocol
 import Lean
 
@@ -44,6 +45,23 @@ private def expectDecodeFailure (label : String) (json : Json) : IO Unit := do
   | .error _ =>
       pure ()
 
+private def requireError
+    (label : String)
+    (expectedCode : String)
+    (expectedMessage : String)
+    (resp : Response) : IO Error := do
+  if resp.ok then
+    throw <| IO.userError s!"{label}: expected error response, got {(toJson resp).compress}"
+  match resp.error? with
+  | some err =>
+      if err.code != expectedCode then
+        throw <| IO.userError s!"{label}: expected code={expectedCode}, got {(toJson resp).compress}"
+      if err.message != expectedMessage then
+        throw <| IO.userError s!"{label}: expected message={expectedMessage}, got {(toJson resp).compress}"
+      pure err
+  | none =>
+      throw <| IO.userError s!"{label}: expected error payload, got {(toJson resp).compress}"
+
 private def checkResponseJsonShape : IO Unit := do
   let successJson := toJson <| Response.success (Json.mkObj [("value", toJson (1 : Nat))])
   requireJsonBool "success response" "ok" true successJson
@@ -81,9 +99,70 @@ private def checkResponseJsonDecode : IO Unit := do
     ("ok", toJson false)
   ]
 
+private def checkBrokerFailureRoundTrip : IO Unit := do
+  let data := Json.mkObj [("uri", toJson "file:///A.lean")]
+  let failure : BrokerFailure := {
+    code := .contentModified
+    message := "file changed"
+    data? := some data
+  }
+  match decodeBrokerFailure? (brokerFailureMessage failure) with
+  | some decoded =>
+      if decoded.code != failure.code || decoded.message != failure.message then
+        throw <| IO.userError s!"broker failure round trip: got {(toJson decoded).compress}"
+  | none =>
+      throw <| IO.userError "broker failure round trip: failed to decode encoded failure"
+
+  let err ← requireError "broker failure response" "contentModified" "file changed" <|
+    responseForExceptionMessage (brokerFailureMessage failure)
+  match err.data? with
+  | some actual =>
+      if actual.compress != data.compress then
+        throw <| IO.userError s!"broker failure response: expected data {data.compress}, got {actual.compress}"
+  | none =>
+      throw <| IO.userError "broker failure response: expected error data"
+
+private def checkExceptionErrorMapping : IO Unit := do
+  discard <| requireError
+    "request cancellation exception"
+    "requestCancelled"
+    "requestCancelled: client cancelled request"
+    (responseForExceptionMessage "requestCancelled: client cancelled request")
+  discard <| requireError
+    "sync barrier exception"
+    syncBarrierIncompleteCode
+    "Lean diagnostics barrier did not complete for /tmp/A.lean"
+    (responseForExceptionMessage "Lean diagnostics barrier did not complete for /tmp/A.lean")
+  discard <| requireError
+    "save target exception"
+    saveTargetNotModuleCode
+    "could not resolve a Lake module for /tmp/A.lean"
+    (responseForExceptionMessage "could not resolve a Lake module for /tmp/A.lean")
+  discard <| requireError
+    "unknown exception"
+    "internalError"
+    "some backend failure"
+    (responseForExceptionMessage "some backend failure")
+
+private def checkJsonRpcErrorMapping : IO Unit := do
+  discard <| requireError
+    "jsonrpc known error"
+    "invalidParams"
+    "bad params"
+    (responseForExceptionMessage "jsonrpcerr:{\"code\":-32602,\"message\":\"bad params\"}")
+  discard <| requireError
+    "embedded jsonrpc error"
+    "-32803"
+    "focused goal error"
+    (responseForExceptionMessage
+      "Cannot read LSP message: JSON '{\"error\":{\"code\":-32803,\"message\":\"focused goal error\"}}' did not have the format of a JSON-RPC message.")
+
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
+  checkBrokerFailureRoundTrip
+  checkExceptionErrorMapping
+  checkJsonRpcErrorMapping
 
 end RunAtTest.Broker.ProtocolTest
 
