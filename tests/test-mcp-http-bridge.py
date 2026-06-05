@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import platform
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+PROTOCOL_VERSION = "2025-11-25"
+
+
+def fail(message):
+    raise RuntimeError(message)
+
+
+def require(condition, message):
+    if not condition:
+        fail(message)
+
+
+def shared_lib_name():
+    system = platform.system()
+    if system == "Darwin":
+        return "librunAt_RunAt.dylib"
+    if system.startswith("Windows") or system in {"MSYS_NT", "MINGW_NT"}:
+        return "runAt_RunAt.dll"
+    return "librunAt_RunAt.so"
+
+
+def wait_for_ready(ready_file, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if ready_file.exists():
+            data = json.loads(ready_file.read_text(encoding="utf-8"))
+            return data["url"]
+        time.sleep(0.05)
+    fail(f"timed out waiting for bridge ready file {ready_file}")
+
+
+def http_json(url, payload, *, protocol_version=PROTOCOL_VERSION, origin=None, content_type="application/json", timeout=30):
+    headers = {
+        "Accept": "application/json, text/event-stream",
+    }
+    if content_type is not None:
+        headers["Content-Type"] = content_type
+    if protocol_version is not None:
+        headers["MCP-Protocol-Version"] = protocol_version
+    if origin is not None:
+        headers["Origin"] = origin
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read()
+            if response.status == 202:
+                return response.status, None
+            require(response.headers.get_content_type() == "application/json", "expected application/json response")
+            return response.status, json.loads(body.decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        body = err.read()
+        parsed = json.loads(body.decode("utf-8")) if body else None
+        return err.code, parsed
+
+
+def http_get_status(url, timeout=30):
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "text/event-stream"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status
+    except urllib.error.HTTPError as err:
+        return err.code
+
+
+def expect_result(response):
+    status, body = response
+    require(status == 200, f"expected HTTP 200, got {status}: {body}")
+    require(isinstance(body, dict), f"expected JSON response body, got {body}")
+    require("error" not in body, f"unexpected JSON-RPC error: {body}")
+    result = body.get("result")
+    require(isinstance(result, dict), f"expected JSON-RPC result object, got {body}")
+    return result
+
+
+def expect_rpc_error(response, code):
+    status, body = response
+    require(status == 200, f"expected HTTP 200 for JSON-RPC protocol error, got {status}: {body}")
+    error = body.get("error") if isinstance(body, dict) else None
+    require(isinstance(error, dict), f"expected JSON-RPC error body, got {body}")
+    require(error.get("code") == code, f"expected JSON-RPC error code {code}, got {body}")
+
+
+def expect_tool_error(response, code):
+    result = expect_result(response)
+    require(result.get("isError") is True, f"expected MCP tool error result, got {result}")
+    structured = result.get("structuredContent")
+    require(isinstance(structured, dict), f"tool error missing structuredContent: {result}")
+    require(structured.get("code") == code, f"expected tool error code {code}, got {structured}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Smoke-test the local MCP stdio-to-HTTP bridge.")
+    parser.add_argument("--timeout", type=float, default=30.0)
+    args = parser.parse_args()
+
+    repo_root = Path(__file__).resolve().parents[1]
+    exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
+    plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
+    lean_cmd = shutil.which("lean") or "lean"
+    require(exe.exists(), f"missing lean-beam-mcp executable at {exe}")
+    require(plugin.exists(), f"missing runAt plugin shared library at {plugin}")
+
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-http-") as tmp:
+        tmp_path = Path(tmp)
+        project_root = tmp_path / "project"
+        shutil.copytree(repo_root / "tests" / "save_olean_project", project_root)
+        ready_file = tmp_path / "ready.json"
+        bridge = subprocess.Popen(
+            [
+                sys.executable,
+                str(repo_root / "tests" / "mcp_http_bridge.py"),
+                "--root",
+                str(project_root),
+                "--server",
+                str(exe),
+                "--lean-cmd",
+                lean_cmd,
+                "--lean-plugin",
+                str(plugin),
+                "--ready-file",
+                str(ready_file),
+                "--timeout",
+                str(args.timeout),
+            ],
+            cwd=str(repo_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        try:
+            url = wait_for_ready(ready_file, args.timeout)
+            require(http_get_status(url, args.timeout) == 405, "bridge GET should return 405 without SSE support")
+
+            forbidden_status, forbidden_body = http_json(
+                url,
+                {"jsonrpc": "2.0", "id": 99, "method": "ping"},
+                origin="https://example.invalid",
+                timeout=args.timeout,
+            )
+            require(forbidden_status == 403, f"invalid Origin should return HTTP 403, got {forbidden_status}: {forbidden_body}")
+
+            bad_content_type_status, _ = http_json(
+                url,
+                {"jsonrpc": "2.0", "id": 97, "method": "ping"},
+                content_type="text/plain",
+                timeout=args.timeout,
+            )
+            require(bad_content_type_status == 415, f"unsupported Content-Type should return HTTP 415, got {bad_content_type_status}")
+
+            bad_version_status, _ = http_json(
+                url,
+                {"jsonrpc": "2.0", "id": 98, "method": "ping"},
+                protocol_version="2025-06-18",
+                timeout=args.timeout,
+            )
+            require(bad_version_status == 400, f"unsupported MCP-Protocol-Version should return HTTP 400, got {bad_version_status}")
+
+            init = expect_result(http_json(
+                url,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": PROTOCOL_VERSION,
+                        "capabilities": {},
+                        "clientInfo": {"name": "lean-beam-http-bridge-test", "version": "0"},
+                    },
+                },
+                protocol_version=None,
+                timeout=args.timeout,
+            ))
+            require(init.get("protocolVersion") == PROTOCOL_VERSION, f"unexpected initialized version: {init}")
+
+            initialized_status, initialized_body = http_json(
+                url,
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                timeout=args.timeout,
+            )
+            require(initialized_status == 202 and initialized_body is None, "initialized notification should return HTTP 202")
+
+            tools = expect_result(http_json(
+                url,
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                timeout=args.timeout,
+            )).get("tools")
+            names = {tool.get("name") for tool in tools}
+            require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
+            require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
+
+            expect_rpc_error(
+                http_json(
+                    url,
+                    {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "$/lean/runAt", "arguments": {}}},
+                    timeout=args.timeout,
+                ),
+                -32602,
+            )
+
+            expect_tool_error(
+                http_json(
+                    url,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "lean_run_at",
+                            "arguments": {"path": "PositionEmptyLine.lean", "line": 1, "character": 0},
+                        },
+                    },
+                    timeout=args.timeout,
+                ),
+                "invalidInput",
+            )
+
+            sync = expect_result(http_json(
+                url,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                },
+                timeout=args.timeout,
+            ))
+            require(sync.get("isError") is not True, f"lean_sync returned tool error: {sync}")
+            structured = sync.get("structuredContent")
+            require(isinstance(structured, dict) and isinstance(structured.get("file_progress"), dict), f"sync missing progress: {sync}")
+
+            expect_result(http_json(url, {"jsonrpc": "2.0", "id": 6, "method": "shutdown"}, timeout=args.timeout))
+            bridge.wait(timeout=5)
+            require(bridge.returncode == 0, f"bridge exited with {bridge.returncode}\n{bridge.stderr.read()}")
+        finally:
+            if bridge.poll() is None:
+                bridge.terminate()
+                try:
+                    bridge.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    bridge.kill()
+                    bridge.wait(timeout=5)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as err:
+        print(f"test-mcp-http-bridge.py: {err}", file=sys.stderr)
+        sys.exit(1)

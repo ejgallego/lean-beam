@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+# Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
+# Author: Emilio J. Gallego Arias
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if ! command -v npx >/dev/null 2>&1; then
+  echo "error: npx is required to run MCP conformance tests" >&2
+  exit 1
+fi
+
+tmp_dir="$(mktemp -d /tmp/lean-beam-mcp-conformance-XXXXXX)"
+npm_cache="${MCP_CONFORMANCE_NPM_CACHE:-$tmp_dir/npm-cache}"
+conformance_package="${MCP_CONFORMANCE_PACKAGE:-@modelcontextprotocol/conformance@0.1.16}"
+bridge_pid=""
+
+cleanup() {
+  if [ -n "$bridge_pid" ] && kill -0 "$bridge_pid" >/dev/null 2>&1; then
+    kill "$bridge_pid" >/dev/null 2>&1 || true
+    wait "$bridge_pid" >/dev/null 2>&1 || true
+  fi
+  case "$tmp_dir" in
+    /tmp/lean-beam-mcp-conformance-*)
+      rm -rf -- "$tmp_dir"
+      ;;
+    *)
+      echo "refusing to clean unexpected temp dir: $tmp_dir" >&2
+      ;;
+  esac
+}
+trap cleanup EXIT
+
+shared_lib_ext() {
+  case "$(uname -s)" in
+    Darwin)
+      printf 'dylib\n'
+      ;;
+    CYGWIN*|MINGW*|MSYS*|Windows_NT)
+      printf 'dll\n'
+      ;;
+    *)
+      printf 'so\n'
+      ;;
+  esac
+}
+
+shared_lib_name() {
+  case "$(uname -s)" in
+    CYGWIN*|MINGW*|MSYS*|Windows_NT)
+      printf 'runAt_RunAt.%s\n' "$(shared_lib_ext)"
+      ;;
+    *)
+      printf 'librunAt_RunAt.%s\n' "$(shared_lib_ext)"
+      ;;
+  esac
+}
+
+wait_for_ready_url() {
+  local ready_file="$1"
+  python3 - "$ready_file" <<'PY'
+import json
+import pathlib
+import sys
+import time
+
+ready = pathlib.Path(sys.argv[1])
+deadline = time.monotonic() + 30
+while time.monotonic() < deadline:
+    if ready.exists():
+        print(json.loads(ready.read_text())["url"])
+        raise SystemExit(0)
+    time.sleep(0.05)
+raise SystemExit("timed out waiting for MCP bridge ready file")
+PY
+}
+
+stop_bridge() {
+  if [ -n "$bridge_pid" ] && kill -0 "$bridge_pid" >/dev/null 2>&1; then
+    kill "$bridge_pid" >/dev/null 2>&1 || true
+    wait "$bridge_pid" >/dev/null 2>&1 || true
+  fi
+  bridge_pid=""
+}
+
+start_bridge() {
+  local scenario="$1"
+  local scenario_dir project_root ready_file
+  scenario_dir="$tmp_dir/$scenario"
+  project_root="$scenario_dir/project"
+  ready_file="$scenario_dir/ready.json"
+  mkdir -p "$scenario_dir"
+  cp -R tests/save_olean_project "$project_root"
+  python3 tests/mcp_http_bridge.py \
+    --root "$project_root" \
+    --server .lake/build/bin/lean-beam-mcp \
+    --lean-cmd "$(command -v lean)" \
+    --lean-plugin ".lake/build/lib/$(shared_lib_name)" \
+    --ready-file "$ready_file" \
+    > "$scenario_dir/bridge.stdout" \
+    2> "$scenario_dir/bridge.stderr" &
+  bridge_pid="$!"
+  wait_for_ready_url "$ready_file"
+}
+
+lake build RunAt:shared lean-beam-mcp > /dev/null
+mkdir -p "$npm_cache"
+
+scenarios="${MCP_CONFORMANCE_SCENARIOS:-server-initialize ping tools-list}"
+extra_args=()
+if [ -n "${MCP_CONFORMANCE_EXPECTED_FAILURES:-}" ]; then
+  extra_args+=(--expected-failures "$MCP_CONFORMANCE_EXPECTED_FAILURES")
+fi
+for scenario in $scenarios; do
+  url="$(start_bridge "$scenario")"
+  echo "running MCP conformance scenario: $scenario" >&2
+  npm_config_cache="$npm_cache" npm_config_update_notifier=false \
+    npx -y "$conformance_package" server \
+    --url "$url" \
+    --scenario "$scenario" \
+    "${extra_args[@]}"
+  stop_bridge
+done

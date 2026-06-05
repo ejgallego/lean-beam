@@ -135,8 +135,10 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   with `isError=true`.
 - `lean-beam-mcp` currently returns final tool results only; live MCP progress forwarding and MCP
   cancellation notifications are still future work.
-- `lean-beam-mcp` has local stdio protocol and Lean-backed restart/stress coverage, but official
-  MCP conformance coverage still needs a Streamable HTTP bridge.
+- `lean-beam-mcp` has local stdio protocol, Lean-backed restart/stress coverage, deterministic
+  Streamable HTTP bridge smoke coverage, and official MCP conformance coverage in CI for the
+  selected `server-initialize`, `ping`, and `tools-list` scenarios. The Streamable HTTP bridge is
+  test-only; the product entry point remains stdio.
 - Zero-build `lean-beam save` helps checkpoint one module, but it is not a whole-workspace freshness
   solution.
 - If you edit a dependency of the target file, downstream speculative results should be treated as

@@ -45,6 +45,12 @@ Beam daemon integration.
   mint/continue/linear/release, goals, close, shutdown, stdout JSON parsing, and stderr hygiene
   assertions against a copied Lean fixture project. Stderr hygiene is a local regression check, not
   an MCP requirement; the `2025-11-25` stdio transport explicitly permits server logging on stderr.
+- local Streamable HTTP bridge coverage in
+  [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py), which starts
+  [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) against a `lean-beam-mcp` stdio child and
+  checks HTTP status behavior, `Origin` rejection, unsupported `MCP-Protocol-Version` rejection,
+  initialize / initialized lifecycle, tools/list, raw-tool rejection, known-tool input errors, a real
+  `lean_sync` call, and shutdown
 - a lightweight `lean-beam-mcp` stdio smoke in
   [tests/test-broker-fast.sh](../tests/test-broker-fast.sh), which keeps a cheap newline-delimited
   protocol path check that does not require a Lean worker process
@@ -52,6 +58,9 @@ Beam daemon integration.
   Linux job set now also runs on `macos-latest`
 - GitHub Actions broker smoke coverage on both Ubuntu and macOS through the matrixed
   `broker-fast` job in [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+- GitHub Actions MCP conformance coverage on both Ubuntu and macOS through the matrixed
+  `mcp-conformance` job, which runs the pinned external conformance package against the local
+  Streamable HTTP bridge
 - slower wrapper/install coverage in [tests/test-broker-slow.sh](../tests/test-broker-slow.sh)
 - experimental Lean broker `request_at` coverage through
   [RunAtTest/Broker/SmokeTest.lean](../RunAtTest/Broker/SmokeTest.lean) and
@@ -142,9 +151,9 @@ correctness regression, not yet a performance benchmark.
 ## MCP Coverage Plan
 
 The MCP server currently advertises protocol revision `2025-11-25` only. Version support should stay
-narrow until official conformance coverage is in CI; adding another revision means updating
-`Beam.Mcp.protocolVersion` / version negotiation policy, auditing schema and error-mapping changes,
-updating docs, and running both the local MCP harness and external conformance coverage.
+narrow; adding another revision means updating `Beam.Mcp.protocolVersion` / version negotiation
+policy, auditing schema and error-mapping changes, updating docs, and running both the local MCP
+harness and external conformance coverage.
 
 Current MCP gates are layered:
 
@@ -152,14 +161,27 @@ Current MCP gates are layered:
   errors, and known-tool input validation as tool execution errors
 - projection tests for the shared Beam operation substrate and agent-facing field names
 - `tests/test-mcp-stdio.py` for real stdio process behavior over a copied Lean project
-- `tests/test-broker-fast.sh` for one quick Lean-backed MCP path and a cheap protocol-only smoke
+- `tests/test-mcp-http-bridge.py` for local Streamable HTTP transport behavior over the same stdio
+  server
+- `tests/test-broker-fast.sh` for one quick Lean-backed MCP stdio path, one HTTP bridge smoke, and a
+  cheap protocol-only smoke
 - `tests/test-broker-slow.sh` for repeated MCP server restarts and repeated real tool calls
+- the `mcp-conformance` CI job for official external protocol/lifecycle coverage over a local
+  Streamable HTTP bridge on Ubuntu and macOS
 
-The remaining external conformance gap is tracked in [MCP_PLAN.md](../MCP_PLAN.md). The official
-MCP conformance runner currently expects a Streamable HTTP server URL, so `lean-beam-mcp` needs a
-small HTTP bridge before CI can run `@modelcontextprotocol/conformance` directly. That bridge should
-reuse the same protocol/projection handler as stdio rather than introducing a second MCP
-implementation.
+[tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) is the external conformance entry
+point. It starts a fresh local HTTP bridge per scenario and runs selected server scenarios from the
+pinned `@modelcontextprotocol/conformance@0.1.16` package. The default scenarios are
+`server-initialize`, `ping`, and `tools-list`, and CI runs that default set on Ubuntu and macOS.
+Keep the scenario list explicit with `MCP_CONFORMANCE_SCENARIOS`; if a broader local run needs a
+temporary baseline, pass it through `MCP_CONFORMANCE_EXPECTED_FAILURES` so stale baselines fail
+loudly. Use `MCP_CONFORMANCE_PACKAGE` only for deliberate package upgrade experiments, and
+`MCP_CONFORMANCE_NPM_CACHE` when the default npm cache is not writable.
+
+Some official conformance scenarios are fixture-specific. For example, `json-schema-2020-12` checks
+for a special tool named `json_schema_2020_12_tool`; it does not merely validate that every real
+server tool uses draft 2020-12. Tool-call scenarios likewise expect conformance fixture tools unless
+the server exposes compatible tools or carries an expected-failure baseline.
 
 ## Important Next Gap
 

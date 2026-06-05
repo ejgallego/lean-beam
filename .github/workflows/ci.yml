@@ -80,6 +80,29 @@ jobs:
       - name: Broker Fast Test
         run: bash tests/test-broker-fast.sh
 
+  mcp-conformance:
+    name: mcp-conformance (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: MCP Conformance Test
+        env:
+          MCP_CONFORMANCE_NPM_CACHE: ${{ runner.temp }}/npm-cache
+        run: bash tests/test-mcp-conformance.sh
+
   broker-slow:
     name: broker-slow (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
