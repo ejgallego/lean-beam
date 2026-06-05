@@ -132,6 +132,13 @@ Changing the package version or scenario baseline is a protocol change: update
 [docs/TESTING.md](TESTING.md), run the local conformance script, and check the workflow with
 `actionlint`.
 
+## Broker Server Boundaries
+
+Keep [Beam/Broker/Server.lean](../Beam/Broker/Server.lean) focused on session lifecycle, request
+dispatch, cancellation, document sync, and save barriers. Pure metrics structures and JSON encoding
+live in [Beam/Broker/Metrics.lean](../Beam/Broker/Metrics.lean), so adding counters or changing
+stats payloads does not require mixing pure reporting code into the process/session runtime.
+
 ## Sandboxed Wrapper Path
 
 This wrapper path is easy to break accidentally, so keep the mental model simple.
@@ -158,14 +165,15 @@ What the fix does:
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 
 The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Reusable CLI
-argument parsing lives in [Beam/Cli/Args.lean](../Beam/Cli/Args.lean). Keep wrapper and daemon
-lifecycle code in `Beam/Cli.lean`, but put reusable lock behavior there so it can stay unit-tested
-without importing the full CLI command surface. Install and bundle layout metadata lives in
-[Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle cache roots, source
-hashing, fallback bundle builds, versioned metadata payloads, and daemon/client/plugin helper
-resolution live in [Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean). Keep
-`Beam/Cli.lean` focused on command dispatch, daemon lifecycle, wrapper leases, and user-facing
-output.
+argument parsing lives in [Beam/Cli/Args.lean](../Beam/Cli/Args.lean). Project-root inference,
+Lean toolchain lookup, and Rocq command discovery live in [Beam/Cli/Project.lean](../Beam/Cli/Project.lean).
+Keep wrapper and daemon lifecycle code in `Beam/Cli.lean`, but put reusable lock behavior there so
+it can stay unit-tested without importing the full CLI command surface. Install and bundle layout
+metadata lives in [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle
+cache roots, source hashing, fallback bundle builds, versioned metadata payloads, metadata
+acceptance checks, and daemon/client/plugin helper resolution live in
+[Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean). Keep `Beam/Cli.lean` focused on
+command dispatch, daemon lifecycle, wrapper leases, and user-facing output.
 
 What this does not promise:
 
