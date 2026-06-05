@@ -254,6 +254,10 @@ assert_bundle_layout() {
       echo "bundle metadata does not mention expected toolchain $expected_toolchain under $bundle_root" >&2
       exit 1
     fi
+    if ! grep -F '"schemaVersion": 1' "$found" > /dev/null; then
+      echo "bundle metadata does not include schemaVersion 1 in $found" >&2
+      exit 1
+    fi
     local workspace
     workspace="$(dirname "$found")/workspace"
     assert_file "$workspace/Beam.lean"

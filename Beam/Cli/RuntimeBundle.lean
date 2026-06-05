@@ -19,7 +19,10 @@ structure BundlePaths where
   plugin : System.FilePath
   deriving Repr
 
+def bundleMetadataSchemaVersion : Nat := 1
+
 private structure BundleMetadata where
+  schemaVersion : Nat
   toolchain : String
   sourceHash : String
   workspace : String
@@ -259,17 +262,23 @@ def syncBundleWorkspace (home workspace : System.FilePath) : IO Unit := do
   if ← packagesDir.pathExists then
     copyTreeInto packagesDir (workspace / ".lake" / "packages")
 
-private def writeBundleMetadata (bundleDir : System.FilePath) (toolchain srcHash : String) (workspace : System.FilePath) : IO Unit := do
-  let metadata : BundleMetadata := {
+def bundleMetadataJson
+    (toolchain srcHash : String)
+    (workspace : System.FilePath)
+    (builtAt : String) : Json :=
+  toJson ({
+    schemaVersion := bundleMetadataSchemaVersion
     toolchain
     sourceHash := srcHash
     workspace := workspace.toString
-    builtAt := ← utcTimestamp
-  }
+    builtAt
+  } : BundleMetadata)
+
+private def writeBundleMetadata (bundleDir : System.FilePath) (toolchain srcHash : String) (workspace : System.FilePath) : IO Unit := do
   let path := bundleDir / "metadata.json"
   if let some parent := path.parent then
     IO.FS.createDirAll parent
-  IO.FS.writeFile path ((toJson metadata).pretty ++ "\n")
+  IO.FS.writeFile path ((bundleMetadataJson toolchain srcHash workspace (← utcTimestamp)).pretty ++ "\n")
 
 private def ensureElan : IO Unit := do
   unless ← commandAvailable "elan" do

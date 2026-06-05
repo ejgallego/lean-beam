@@ -31,7 +31,8 @@ Beam daemon integration.
   error/result envelopes
 - CLI daemon helper coverage in
   [RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean), including startup
-  retry policy, lock lifecycle, and deterministic runtime bundle helper path / identity behavior
+  retry policy, lock lifecycle, deterministic runtime bundle helper path / identity behavior, and
+  runtime bundle metadata schema versioning
 - MCP projection boundary coverage in
   [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean), including
   supported Lean tool names, rejection of raw LSP method names and expert raw request escape

@@ -8,6 +8,8 @@ import Beam.Cli.Daemon
 import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle
 
+open Lean
+
 namespace RunAtTest.Broker.CliDaemonTest
 
 private def require (label : String) (cond : Bool) : IO Unit := do
@@ -64,6 +66,21 @@ private def checkRuntimeBundleHelpers : IO Unit := do
     (paths.plugin.toString.startsWith (workspace / ".lake" / "build" / "lib").toString)
   require "state directory should remain the public .beam path"
     (Beam.Cli.runAtStateDir (System.FilePath.mk "/tmp/project") == System.FilePath.mk "/tmp/project" / ".beam")
+
+  let metadata := Beam.Cli.bundleMetadataJson
+    "leanprover/lean4:v4.30.0"
+    "source-a"
+    workspace
+    "2026-06-05T00:00:00Z"
+  let schemaVersion ← IO.ofExcept <| metadata.getObjValAs? Nat "schemaVersion"
+  let toolchain ← IO.ofExcept <| metadata.getObjValAs? String "toolchain"
+  let sourceHash ← IO.ofExcept <| metadata.getObjValAs? String "sourceHash"
+  let metadataWorkspace ← IO.ofExcept <| metadata.getObjValAs? String "workspace"
+  require "bundle metadata schema version should remain explicit"
+    (schemaVersion == Beam.Cli.bundleMetadataSchemaVersion)
+  require "bundle metadata should include toolchain" (toolchain == "leanprover/lean4:v4.30.0")
+  require "bundle metadata should include source hash" (sourceHash == "source-a")
+  require "bundle metadata should include workspace" (metadataWorkspace == workspace.toString)
 
 def main : IO Unit := do
   checkStartupRetryPolicy
