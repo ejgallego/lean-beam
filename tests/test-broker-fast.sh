@@ -20,11 +20,13 @@ lake build \
   beam-daemon-save-stream-test \
   beam-daemon-request-stream-test \
   beam-daemon-startup-handshake-test \
+  beam-cli-daemon-test \
   beam-mcp-projection-test \
   beam-mcp-protocol-test \
   > /dev/null
 
 .lake/build/bin/beam-broker-protocol-test > /dev/null
+.lake/build/bin/beam-cli-daemon-test > /dev/null
 .lake/build/bin/beam-mcp-projection-test > /dev/null
 .lake/build/bin/beam-mcp-protocol-test > /dev/null
 .lake/build/bin/beam-daemon-smoke-test > /dev/null

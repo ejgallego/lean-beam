@@ -8,6 +8,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# shellcheck source=tests/lib/ci-steps.sh
+. tests/lib/ci-steps.sh
+
+BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-mcp-conformance}"
+
 if ! command -v npx >/dev/null 2>&1; then
   echo "error: npx is required to run MCP conformance tests" >&2
   exit 1
@@ -17,6 +22,7 @@ tmp_dir="$(mktemp -d /tmp/lean-beam-mcp-conformance-XXXXXX)"
 npm_cache="${MCP_CONFORMANCE_NPM_CACHE:-$tmp_dir/npm-cache}"
 conformance_package="${MCP_CONFORMANCE_PACKAGE:-@modelcontextprotocol/conformance@0.1.16}"
 bridge_pid=""
+bridge_url=""
 
 cleanup() {
   if [ -n "$bridge_pid" ] && kill -0 "$bridge_pid" >/dev/null 2>&1; then
@@ -84,6 +90,7 @@ stop_bridge() {
     wait "$bridge_pid" >/dev/null 2>&1 || true
   fi
   bridge_pid=""
+  bridge_url=""
 }
 
 start_bridge() {
@@ -92,8 +99,8 @@ start_bridge() {
   scenario_dir="$tmp_dir/$scenario"
   project_root="$scenario_dir/project"
   ready_file="$scenario_dir/ready.json"
-  mkdir -p "$scenario_dir"
-  cp -R tests/save_olean_project "$project_root"
+  mkdir -p "$scenario_dir" || return
+  cp -R tests/save_olean_project "$project_root" || return
   python3 tests/mcp_http_bridge.py \
     --root "$project_root" \
     --server .lake/build/bin/lean-beam-mcp \
@@ -103,24 +110,38 @@ start_bridge() {
     > "$scenario_dir/bridge.stdout" \
     2> "$scenario_dir/bridge.stderr" &
   bridge_pid="$!"
-  wait_for_ready_url "$ready_file"
+  bridge_url="$(wait_for_ready_url "$ready_file")" || return
 }
 
-lake build RunAt:shared lean-beam-mcp > /dev/null
+run_step "build MCP server" lake build RunAt:shared lean-beam-mcp
 mkdir -p "$npm_cache"
 
 scenarios="${MCP_CONFORMANCE_SCENARIOS:-server-initialize ping tools-list}"
-extra_args=()
-if [ -n "${MCP_CONFORMANCE_EXPECTED_FAILURES:-}" ]; then
-  extra_args+=(--expected-failures "$MCP_CONFORMANCE_EXPECTED_FAILURES")
-fi
-for scenario in $scenarios; do
-  url="$(start_bridge "$scenario")"
-  echo "running MCP conformance scenario: $scenario" >&2
-  npm_config_cache="$npm_cache" npm_config_update_notifier=false \
-    npx -y "$conformance_package" server \
-    --url "$url" \
-    --scenario "$scenario" \
-    "${extra_args[@]}"
+run_conformance_scenario() {
+  local scenario="$1"
+  local url
+  local rc=0
+  if ! start_bridge "$scenario"; then
+    stop_bridge
+    return 1
+  fi
+  url="$bridge_url"
+  if [ -n "${MCP_CONFORMANCE_EXPECTED_FAILURES:-}" ]; then
+    npm_config_cache="$npm_cache" npm_config_update_notifier=false \
+      npx -y "$conformance_package" server \
+      --url "$url" \
+      --scenario "$scenario" \
+      --expected-failures "$MCP_CONFORMANCE_EXPECTED_FAILURES" || rc=$?
+  else
+    npm_config_cache="$npm_cache" npm_config_update_notifier=false \
+      npx -y "$conformance_package" server \
+      --url "$url" \
+      --scenario "$scenario" || rc=$?
+  fi
   stop_bridge
+  return "$rc"
+}
+
+for scenario in $scenarios; do
+  run_step "scenario: $scenario" run_conformance_scenario "$scenario"
 done

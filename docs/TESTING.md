@@ -69,6 +69,9 @@ Beam daemon integration.
   [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh), including
   `lean-beam ensure --hold`, stale same-namespace wrapper lease cleanup, endpoint collisions with
   another Beam root, stale registries that point at another root, and non-Beam busy-port rejection
+- shared wrapper shell helpers in
+  [tests/lib/beam-wrapper-common.sh](../tests/lib/beam-wrapper-common.sh), used by both the broad
+  wrapper workflow and focused daemon lifecycle test
 - experimental Lean broker `request_at` coverage through
   [RunAtTest/Broker/SmokeTest.lean](../RunAtTest/Broker/SmokeTest.lean) and
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), including whitelisted request
@@ -184,10 +187,11 @@ Current MCP gates are layered:
 point. It starts a fresh local HTTP bridge per scenario and runs selected server scenarios from the
 pinned `@modelcontextprotocol/conformance@0.1.16` package. The default scenarios are
 `server-initialize`, `ping`, and `tools-list`, and CI runs that default set on Ubuntu and macOS.
-Keep the scenario list explicit with `MCP_CONFORMANCE_SCENARIOS`; if a broader local run needs a
-temporary baseline, pass it through `MCP_CONFORMANCE_EXPECTED_FAILURES` so stale baselines fail
-loudly. Use `MCP_CONFORMANCE_PACKAGE` only for deliberate package upgrade experiments, and
-`MCP_CONFORMANCE_NPM_CACHE` when the default npm cache is not writable.
+Each scenario is grouped and timed in CI. Keep the scenario list explicit with
+`MCP_CONFORMANCE_SCENARIOS`; if a broader local run needs a temporary baseline, pass it through
+`MCP_CONFORMANCE_EXPECTED_FAILURES` so stale baselines fail loudly. Use `MCP_CONFORMANCE_PACKAGE`
+only for deliberate package upgrade experiments, and `MCP_CONFORMANCE_NPM_CACHE` when the default
+npm cache is not writable.
 
 Some official conformance scenarios are fixture-specific. For example, `json-schema-2020-12` checks
 for a special tool named `json_schema_2020_12_tool`; it does not merely validate that every real

@@ -87,6 +87,9 @@ def endpointOccupancyError
 def endpointInUseError (endpoint : Transport.Endpoint) : String :=
   s!"selected endpoint {endpointSummary endpoint} is already in use"
 
+def shouldRetryAutomaticStartup (usesAutomaticEndpoint : Bool) (tries : Nat) (endpointOccupied : Bool) : Bool :=
+  usesAutomaticEndpoint && tries > 0 && endpointOccupied
+
 def daemonServesRoot (endpoint : Transport.Endpoint) (root : System.FilePath) : IO Bool := do
   match ← daemonRoot? endpoint with
   | some daemonRoot => pure (daemonRoot == root.toString)
