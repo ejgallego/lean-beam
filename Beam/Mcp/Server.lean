@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Beam.Broker.Server
 import Beam.Mcp.Protocol
 import Beam.Mcp.Runtime
+import Beam.Mcp.Roots
 import Beam.Mcp.SelfCheck
 
 open Lean
@@ -88,60 +89,6 @@ private def invalidRequestId (json : Json) : Json :=
 private def brokerClientRequestId (req : Request) : String :=
   s!"mcp:{requestIdLabel req.id}"
 
-private def rootsUnsupportedMessage : String :=
-  "MCP client did not advertise roots; start lean-beam-mcp with --root PATH or enable the client's roots capability"
-
-private def selectClientRoot (roots : Array ClientRoot) : Except String System.FilePath := do
-  if roots.size == 0 then
-    throw "MCP client returned no roots; start lean-beam-mcp with --root PATH or configure exactly one project root"
-  else if roots.size > 1 then
-    throw "MCP client returned multiple roots; start lean-beam-mcp with --root PATH until multi-root selection is supported"
-  else
-    let root := roots[0]!
-    match System.Uri.fileUriToPath? root.uri with
-    | some path => pure path
-    | none => throw s!"MCP client root URI must be a file:// URI, got {root.uri}"
-
-private partial def requestClientRoot (stdin : IO.FS.Stream) : IO (Except String System.FilePath) := do
-  try
-    writeJsonLine rootsListRequest
-    let rec waitForResponse : IO (Except String System.FilePath) := do
-      let line := stripLineEnding (← stdin.getLine)
-      if line.isEmpty then
-        pure <| .error "MCP client closed stdin before answering roots/list"
-      else
-        match Json.parse line with
-        | .error err =>
-            pure <| .error s!"MCP client roots/list response is not valid JSON: {err}"
-        | .ok json =>
-            match json.getObjVal? "method" with
-            | .ok _ =>
-                match Incoming.fromJson? json with
-                | .ok (.request req) =>
-                    writeJsonLine <|
-                      errorResponse req.id <|
-                        RpcError.invalidRequest "cannot process client request while waiting for roots/list response"
-                    waitForResponse
-                | .ok (.notification notification) =>
-                    if notification.method == "exit" then
-                      pure <| .error "MCP client exited before answering roots/list"
-                    else
-                      waitForResponse
-                | .error err =>
-                    pure <| .error err
-            | .error _ =>
-                match parseRootsListResponse json with
-                | .error err => pure <| .error err
-                | .ok result =>
-                    match selectClientRoot result.roots with
-                    | .error err => pure <| .error err
-                    | .ok root =>
-                        let root ← IO.FS.realPath root
-                        pure <| .ok root
-    waitForResponse
-  catch e =>
-    pure <| .error e.toString
-
 private def ensureRoot
     (state : IO.Ref ProtocolState)
     (stdin : IO.FS.Stream) : IO (Except RpcError System.FilePath) := do
@@ -155,9 +102,9 @@ private def ensureRoot
       | none =>
           let root? ←
             if currentState.clientSupportsRoots then
-              requestClientRoot stdin
+              Roots.requestClientRoot stdin writeJsonLine
             else
-              pure <| .error rootsUnsupportedMessage
+              pure <| .error Roots.unsupportedMessage
           match root? with
           | .error err =>
               state.modify fun state => { state with rootError? := some err }

@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Cli.Daemon
+import Beam.Cli.Lock
 
 namespace RunAtTest.Broker.CliDaemonTest
 
@@ -22,8 +23,30 @@ private def checkStartupRetryPolicy : IO Unit := do
   require "explicit endpoint should not retry"
     (!Beam.Cli.shouldRetryAutomaticStartup false 1 true)
 
+private def checkLockLifecycle : IO Unit := do
+  let root := System.FilePath.mk s!"/tmp/beam-cli-lock-test-{← IO.monoNanosNow}"
+  let lockDir := root / "lock"
+  try
+    Beam.Cli.withLock lockDir do
+      require "lock directory should exist while lock is held" (← lockDir.pathExists)
+      require "lock pid file should exist while lock is held" (← (lockDir / "pid").pathExists)
+    require "lock directory should be removed after release" (!(← lockDir.pathExists))
+
+    IO.FS.createDirAll lockDir
+    IO.FS.writeFile (lockDir / "pid") "999999999\n"
+    Beam.Cli.withLock lockDir do
+      let pidText := (← IO.FS.readFile (lockDir / "pid")).trimAscii.toString
+      require "stale lock should be replaced with this process lock" (pidText != "999999999")
+  finally
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
 def main : IO Unit := do
   checkStartupRetryPolicy
+  checkLockLifecycle
 
 end RunAtTest.Broker.CliDaemonTest
 
