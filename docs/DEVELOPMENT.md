@@ -89,6 +89,13 @@ The executable MCP path is split into importable runtime modules and tiny entry-
 Keep executable `main` declarations out of importable runtime modules. Otherwise test and adapter
 modules that import a runtime accidentally inherit the wrong root-level `main`.
 
+The installed `bin/lean-beam-mcp` wrapper is the public setup path. It pairs the MCP executable with
+the same installed `beam-cli` and passes `--beam-cli`; `Beam/Mcp/Server.lean` then asks
+`beam-cli --root <root> mcp-config` for the project-specific Lean command and runAt plugin after
+root selection. Keep this resolver as a narrow CLI/MCP setup boundary. Do not duplicate bundle
+selection logic in the MCP server, and do not make MCP clients pass raw plugin paths in normal
+installed use.
+
 When adding an MCP-facing operation:
 
 - add or reuse a `Beam.Lean.Operation` first

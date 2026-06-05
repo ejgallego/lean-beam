@@ -6,6 +6,11 @@ Quick Start
   printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" 10 2 --stdin
   BEAM_DEBUG_TEXT=1 lean-beam run-at "Foo.lean" 10 2 "exact trivial"
 
+Codex MCP
+  codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
+  If your MCP client does not provide workspace roots, add:
+  codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
+
 After Saving A Real Edit
   lean-beam sync "Foo.lean"
   lean-beam save "MyPkg/Sub/Module.lean"
