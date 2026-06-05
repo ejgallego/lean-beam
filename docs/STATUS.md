@@ -20,6 +20,8 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - installed experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set through
   MCP `initialize`, `tools/list`, and `tools/call`, backed directly by the broker runtime rather
   than a second daemon/client connection
+- `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, root
+  discovery through `roots/list`, and a real `lean_sync` tool call
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
 - `lean-beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with

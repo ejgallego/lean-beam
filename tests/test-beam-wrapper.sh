@@ -307,6 +307,130 @@ if ! kill -0 "$pid1" 2>/dev/null; then
 fi
 
 (
+  cd "$tmp3"
+  collision_out="$(mktemp /tmp/beam-wrapper-port-collision-out-XXXXXX)"
+  collision_err="$(mktemp /tmp/beam-wrapper-port-collision-err-XXXXXX)"
+  if "$beam_script" --port "$port1" ensure lean >"$collision_out" 2>"$collision_err"; then
+    echo "expected wrapper ensure to reject a port already serving another Beam root" >&2
+    cat "$collision_out" >&2
+    cat "$collision_err" >&2
+    rm -f "$collision_out" "$collision_err"
+    exit 1
+  fi
+  if ! grep -q 'already serves Beam root' "$collision_err"; then
+    echo "expected port collision failure to name the existing Beam root" >&2
+    cat "$collision_out" >&2
+    cat "$collision_err" >&2
+    rm -f "$collision_out" "$collision_err"
+    exit 1
+  fi
+  if [ -f "$tmp3/.beam/beam-daemon.json" ]; then
+    echo "expected port collision failure not to write a registry for the wrong endpoint" >&2
+    cat "$tmp3/.beam/beam-daemon.json" >&2
+    rm -f "$collision_out" "$collision_err"
+    exit 1
+  fi
+  rm -f "$collision_out" "$collision_err"
+)
+
+stale_registry="$tmp3/.beam/beam-daemon.json"
+REGISTRY_TEMPLATE="$reg1" STALE_REGISTRY="$stale_registry" STALE_ROOT="$tmp3" python3 - <<'PY'
+import json
+import os
+
+with open(os.environ["REGISTRY_TEMPLATE"]) as f:
+    data = json.load(f)
+data["root"] = os.path.realpath(os.environ["STALE_ROOT"])
+data["configHash"] = "stale-registry-test"
+with open(os.environ["STALE_REGISTRY"], "w") as f:
+    json.dump(data, f)
+    f.write("\n")
+PY
+
+(
+  cd "$tmp3"
+  doctor_out="$("$beam_script" doctor lean)"
+  if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: stale'; then
+    echo "expected wrapper doctor to reject a stale registry whose endpoint serves another root" >&2
+    printf '%s\n' "$doctor_out" >&2
+    exit 1
+  fi
+  "$beam_script" shutdown > /dev/null
+  if [ -f "$stale_registry" ]; then
+    echo "expected wrapper shutdown to remove the stale registry" >&2
+    cat "$stale_registry" >&2
+    exit 1
+  fi
+)
+if ! kill -0 "$pid1" 2>/dev/null; then
+  echo "expected stale registry shutdown not to kill the real Beam daemon for tmp1" >&2
+  exit 1
+fi
+
+busy_port_file="$(mktemp /tmp/beam-wrapper-busy-port-XXXXXX)"
+python3 - "$busy_port_file" <<'PY' &
+import http.server
+import socketserver
+import sys
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
+with socketserver.TCPServer(("127.0.0.1", 0), Handler) as server:
+    with open(sys.argv[1], "w") as f:
+        print(server.server_address[1], file=f, flush=True)
+    server.serve_forever()
+PY
+busy_pid=$!
+for _ in $(seq 1 100); do
+  if [ -s "$busy_port_file" ]; then
+    break
+  fi
+  if ! kill -0 "$busy_pid" 2>/dev/null; then
+    echo "expected temporary busy-port server to stay alive" >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+if [ ! -s "$busy_port_file" ]; then
+  echo "timed out waiting for temporary busy-port server" >&2
+  exit 1
+fi
+busy_port="$(cat "$busy_port_file")"
+
+(
+  cd "$tmp3"
+  busy_out="$(mktemp /tmp/beam-wrapper-busy-port-out-XXXXXX)"
+  busy_err="$(mktemp /tmp/beam-wrapper-busy-port-err-XXXXXX)"
+  if "$beam_script" --port "$busy_port" ensure lean >"$busy_out" 2>"$busy_err"; then
+    echo "expected wrapper ensure to reject a port already used by a non-Beam process" >&2
+    cat "$busy_out" >&2
+    cat "$busy_err" >&2
+    rm -f "$busy_out" "$busy_err"
+    exit 1
+  fi
+  if ! grep -q 'already in use' "$busy_err"; then
+    echo "expected non-Beam port collision failure to report the occupied endpoint" >&2
+    cat "$busy_out" >&2
+    cat "$busy_err" >&2
+    rm -f "$busy_out" "$busy_err"
+    exit 1
+  fi
+  if [ -f "$tmp3/.beam/beam-daemon.json" ]; then
+    echo "expected non-Beam port collision failure not to write a registry" >&2
+    cat "$tmp3/.beam/beam-daemon.json" >&2
+    rm -f "$busy_out" "$busy_err"
+    exit 1
+  fi
+  rm -f "$busy_out" "$busy_err"
+)
+kill "$busy_pid" > /dev/null 2>&1 || true
+wait "$busy_pid" 2>/dev/null || true
+busy_pid=""
+rm -f "$busy_port_file"
+
+(
   cd "$tmp1"
   "$beam_script" ensure lean > /dev/null
   cmd_err="$(mktemp /tmp/beam-wrapper-progress-XXXXXX)"

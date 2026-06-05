@@ -818,10 +818,40 @@ private def endpointFromEntry (entry : RegistryEntry) : IO Transport.Endpoint :=
 private def endpointSummary (endpoint : Transport.Endpoint) : String :=
   Transport.endpointDescription endpoint
 
-private def daemonResponds (endpoint : Transport.Endpoint) : IO Bool := do
+private def statsRoot? (resp : Response) : Option String := do
+  let result ← resp.result?
+  match result.getObjVal? "root" with
+  | .ok (.str root) => some root
+  | _ => none
+
+private def daemonRoot? (endpoint : Transport.Endpoint) : IO (Option String) := do
   try
     let resp ← sendRequest endpoint { op := .stats }
-    pure resp.ok
+    if resp.ok then
+      pure (statsRoot? resp)
+    else
+      pure none
+  catch _ =>
+    pure none
+
+private def endpointOccupancyError
+    (endpoint : Transport.Endpoint)
+    (daemonRoot requestedRoot : System.FilePath) : String :=
+  s!"selected endpoint {endpointSummary endpoint} already serves Beam root {daemonRoot}, not {requestedRoot}"
+
+private def endpointInUseError (endpoint : Transport.Endpoint) : String :=
+  s!"selected endpoint {endpointSummary endpoint} is already in use"
+
+private def daemonServesRoot (endpoint : Transport.Endpoint) (root : System.FilePath) : IO Bool := do
+  match ← daemonRoot? endpoint with
+  | some daemonRoot => pure (daemonRoot == root.toString)
+  | none => pure false
+
+private def endpointAcceptsConnection (endpoint : Transport.Endpoint) : IO Bool := do
+  try
+    let conn ← Transport.connect endpoint
+    Transport.closeConnection conn
+    pure true
   catch _ =>
     pure false
 
@@ -842,13 +872,25 @@ private partial def waitForPidGone (pid : Nat) (tries : Nat := 20) : IO Unit := 
     pure ()
 
 private def stopDaemonEntry (entry : RegistryEntry) : IO Unit := do
-  if let some endpoint := registryEndpoint? entry then
-    if ← daemonResponds endpoint then
-      try
-        let _ ← sendRequest endpoint { op := .shutdown }
-      catch _ =>
-        pure ()
-  if entry.pid > 0 && (← pidAlive entry.pid) then
+  let mayKillPid ←
+    match registryEndpoint? entry with
+    | some endpoint =>
+        match ← daemonRoot? endpoint with
+        | some daemonRoot =>
+            if daemonRoot == entry.root then
+              try
+                let _ ← sendRequest endpoint { op := .shutdown }
+                pure ()
+              catch _ =>
+                pure ()
+              pure true
+            else
+              pure false
+        | none =>
+            pure true
+    | none =>
+        pure true
+  if mayKillPid && entry.pid > 0 && (← pidAlive entry.pid) then
     killPid entry.pid
     waitForPidGone entry.pid
 
@@ -883,6 +925,30 @@ private def selectEndpoint (opts : CliOptions) : IO Transport.Endpoint := do
   match opts.requestedSocket? with
   | some socketPath => pure <| .unix socketPath
   | none => pure <| .tcp (← selectPort opts)
+
+private def usesAutomaticTcpEndpoint (opts : CliOptions) : Bool :=
+  opts.requestedSocket?.isNone && opts.requestedPort?.isNone
+
+private partial def selectUnoccupiedEndpoint
+    (desired : DesiredConfig)
+    (opts : CliOptions)
+    (tries : Nat := 10) : IO Transport.Endpoint := do
+  let endpoint ← selectEndpoint opts
+  match ← daemonRoot? endpoint with
+  | none =>
+      pure ()
+  | some daemonRoot =>
+      if usesAutomaticTcpEndpoint opts && tries > 0 then
+        return ← selectUnoccupiedEndpoint desired opts (tries - 1)
+      else
+        throw <| IO.userError (endpointOccupancyError endpoint (System.FilePath.mk daemonRoot) desired.root)
+  if ← endpointAcceptsConnection endpoint then
+    if usesAutomaticTcpEndpoint opts && tries > 0 then
+      return ← selectUnoccupiedEndpoint desired opts (tries - 1)
+    else
+      throw <| IO.userError (endpointInUseError endpoint)
+  else
+    pure endpoint
 
 private def daemonStartupLogPath (root : System.FilePath) : IO System.FilePath := do
   pure ((← controlDir root) / "beam-daemon-startup.log")
@@ -952,17 +1018,26 @@ private def startDaemon (desired : DesiredConfig) (endpoint : Transport.Endpoint
   let pid := child.pid.toNat
   pure pid
 
-private partial def waitForDaemon (pid : Nat) (endpoint : Transport.Endpoint) (logPath : System.FilePath)
+private partial def waitForDaemon
+    (pid : Nat)
+    (endpoint : Transport.Endpoint)
+    (logPath : System.FilePath)
+    (root : System.FilePath)
     (tries : Nat := 300) : IO Unit := do
-  if ← daemonResponds endpoint then
-    pure ()
-  else if !(← pidAlive pid) then
-    throw <| IO.userError (← startupFailureMessage endpoint logPath "Beam daemon process exited before responding")
-  else if tries == 0 then
-    throw <| IO.userError (← startupFailureMessage endpoint logPath "Beam daemon did not become ready before timeout")
-  else
-    IO.sleep 100
-    waitForDaemon pid endpoint logPath (tries - 1)
+  match ← daemonRoot? endpoint with
+  | some daemonRoot =>
+      if daemonRoot == root.toString then
+        pure ()
+      else
+        throw <| IO.userError (endpointOccupancyError endpoint (System.FilePath.mk daemonRoot) root)
+  | none =>
+      if !(← pidAlive pid) then
+        throw <| IO.userError (← startupFailureMessage endpoint logPath "Beam daemon process exited before responding")
+      else if tries == 0 then
+        throw <| IO.userError (← startupFailureMessage endpoint logPath "Beam daemon did not become ready before timeout")
+      else
+        IO.sleep 100
+        waitForDaemon pid endpoint logPath root (tries - 1)
 
 private def currentPidNamespace? : IO (Option String) := do
   try
@@ -997,11 +1072,11 @@ private def registryEntryFor (desired : DesiredConfig) (pid : Nat) (endpoint : T
   }
 
 private def startDaemonEntry (desired : DesiredConfig) (opts : CliOptions) : IO (Transport.Endpoint × RegistryEntry) := do
-  let endpoint ← selectEndpoint opts
+  let endpoint ← selectUnoccupiedEndpoint desired opts
   let logPath ← daemonStartupLogPath desired.root
   let pid ← startDaemon desired endpoint logPath
   try
-    waitForDaemon pid endpoint logPath
+    waitForDaemon pid endpoint logPath desired.root
   catch err =>
     if pid > 0 && (← pidAlive pid) then
       killPid pid
@@ -1071,8 +1146,8 @@ private def registryLiveFor (root : System.FilePath) (expectedHash? : Option Str
         pure none
       else if let some endpoint := registryEndpoint? entry then
         -- In PID-isolated sandboxes, the recorded daemon pid can be meaningless outside
-        -- the namespace that started it. Prefer the answering endpoint over pid probes.
-        if ← daemonResponds endpoint then
+        -- the namespace that started it. Prefer a root-matching endpoint over pid probes.
+        if ← daemonServesRoot endpoint root then
           pure (some entry)
         else if entry.pid == 0 || !(← pidAlive entry.pid) then
           pure none

@@ -601,6 +601,18 @@ fi
 remove_tmp_file "$mcp_smoke_out"
 remove_tmp_file "$mcp_smoke_err"
 
+mcp_self_check_out="$("$installed_mcp" --root "$project_root" --self-check PositionEmptyLine.lean)"
+if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'Lean Beam MCP self-check passed'; then
+  echo "expected installed MCP self-check to report success" >&2
+  printf '%s\n' "$mcp_self_check_out" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'root discovery: roots/list'; then
+  echo "expected installed MCP self-check to exercise roots/list discovery" >&2
+  printf '%s\n' "$mcp_self_check_out" >&2
+  exit 1
+fi
+
 unsupported_project_root="$tmp_root/external-project-unsupported"
 rsync -a tests/save_olean_project/ "$unsupported_project_root"/
 printf 'leanprover/lean4:v4.26.0\n' > "$unsupported_project_root/lean-toolchain"
