@@ -51,10 +51,12 @@ runtime_payload_spec=(
   "copy|runtimePaths|.lake/build/bin/beam-cli|libexec/beam-cli"
   "copy|runtimePaths|.lake/build/bin/beam-daemon|libexec/beam-daemon"
   "copy|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"
+  "copy|runtimePaths|.lake/build/bin/lean-beam-mcp|libexec/lean-beam-mcp"
   "copy|runtimePaths|.lake/build/lib/$runat_plugin_shared_lib|libexec/$runat_plugin_shared_lib"
   "copy|runtimePaths|.lake/packages|.lake/packages"
   "copy|wrapperPaths|scripts/lean-beam|bin/lean-beam"
   "copy|wrapperPaths|scripts/lean-beam-search|bin/lean-beam-search"
+  "copy|wrapperPaths|scripts/lean-beam-mcp|bin/lean-beam-mcp"
 )
 
 usage() {
@@ -68,6 +70,7 @@ Installs the local beam command wrappers and self-contained runtime under:
 With no flags, this installs:
   - $bin_home/lean-beam
   - $bin_home/lean-beam-search
+  - $bin_home/lean-beam-mcp
   - one prebuilt toolchain build for the repo-pinned Lean toolchain
 
 With no agent flags, this does not install Codex or Claude Code skills.
@@ -235,6 +238,7 @@ verify_publish_targets() {
   ensure_replaceable_path "$current_root" "$install_root" "current link"
   ensure_replaceable_path "$bin_home/lean-beam" "$bin_home" "lean-beam wrapper link"
   ensure_replaceable_path "$bin_home/lean-beam-search" "$bin_home" "lean-beam-search link"
+  ensure_replaceable_path "$bin_home/lean-beam-mcp" "$bin_home" "lean-beam-mcp link"
 }
 
 parse_args() {
@@ -376,13 +380,14 @@ ensure_runtime_artifacts() {
   if [ -x "$beam_cli" ] \
     && [ -x "$repo_root/.lake/build/bin/beam-daemon" ] \
     && [ -x "$repo_root/.lake/build/bin/beam-client" ] \
+    && [ -x "$repo_root/.lake/build/bin/lean-beam-mcp" ] \
     && [ -f "$repo_root/.lake/build/lib/$runat_plugin_shared_lib" ]; then
     return 0
   fi
   echo "building beam runtime artifacts" >&2
   (
     cd "$repo_root"
-    lake build RunAt:shared beam-cli beam-daemon beam-client
+    lake build RunAt:shared beam-cli beam-daemon beam-client lean-beam-mcp
   )
 }
 
@@ -531,6 +536,7 @@ publish_runtime() {
   replace_symlink_atomically "$version_root" "$current_root" "$install_root" "current link"
   replace_symlink_atomically "$current_root/bin/lean-beam" "$bin_home/lean-beam" "$bin_home" "lean-beam wrapper link"
   replace_symlink_atomically "$current_root/bin/lean-beam-search" "$bin_home/lean-beam-search" "$bin_home" "lean-beam-search link"
+  replace_symlink_atomically "$current_root/bin/lean-beam-mcp" "$bin_home/lean-beam-mcp" "$bin_home" "lean-beam-mcp link"
 }
 
 install_requested_skills() {
@@ -552,7 +558,7 @@ print_install_summary() {
   local path_status="$bin_home is not on PATH yet"
 
   if path_contains_dir "$bin_home"; then
-    path_status="ready for direct \`lean-beam\` use in this shell"
+    path_status="ready for direct \`lean-beam\` and \`lean-beam-mcp\` use in this shell"
   fi
   if [ -n "${installed_skill_targets[*]-}" ]; then
     for toolchain in "${installed_skill_targets[@]}"; do
@@ -570,6 +576,7 @@ print_install_summary() {
   print_section "$style_green" "Install Complete"
   print_field "lean-beam" "$bin_home/lean-beam"
   print_field "lean search helper" "$bin_home/lean-beam-search"
+  print_field "MCP server" "$bin_home/lean-beam-mcp"
   print_field "active install" "$current_root"
   print_field "versioned install" "$version_root"
   print_field "Lean toolchain store" "$install_bundles_root"

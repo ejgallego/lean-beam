@@ -123,10 +123,12 @@ assert_runtime_layout() {
   assert_file "$runtime_root/libexec/beam-cli"
   assert_file "$runtime_root/libexec/beam-daemon"
   assert_file "$runtime_root/libexec/beam-client"
+  assert_file "$runtime_root/libexec/lean-beam-mcp"
   assert_file "$runtime_root/libexec/$runat_plugin_shared_lib"
   assert_not_exists "$runtime_root/.lake/build"
   assert_file "$runtime_root/bin/lean-beam"
   assert_file "$runtime_root/bin/lean-beam-search"
+  assert_file "$runtime_root/bin/lean-beam-mcp"
   assert_not_exists "$runtime_root/bin/beam"
   assert_not_exists "$runtime_root/bin/beam-lean-search"
 }
@@ -340,6 +342,7 @@ install_layout_json="$(cd "$source_checkout" && ./.lake/build/bin/beam-cli insta
 
 installed_lean_beam="$HOME/.local/bin/lean-beam"
 installed_helper="$HOME/.local/bin/lean-beam-search"
+installed_mcp="$HOME/.local/bin/lean-beam-mcp"
 installed_runtime_root="$BEAM_INSTALL_ROOT/current"
 
 if [ ! -L "$installed_lean_beam" ]; then
@@ -352,8 +355,14 @@ if [ ! -L "$installed_helper" ]; then
   exit 1
 fi
 
+if [ ! -L "$installed_mcp" ]; then
+  echo "expected installed lean-beam-mcp symlink at $installed_mcp" >&2
+  exit 1
+fi
+
 assert_symlink_target "$installed_lean_beam" "$installed_runtime_root/bin/lean-beam"
 assert_symlink_target "$installed_helper" "$installed_runtime_root/bin/lean-beam-search"
+assert_symlink_target "$installed_mcp" "$installed_runtime_root/bin/lean-beam-mcp"
 assert_not_exists "$HOME/.local/bin/beam"
 assert_not_exists "$HOME/.local/bin/beam-lean-search"
 assert_runtime_layout "$installed_runtime_root"
@@ -417,6 +426,7 @@ if [ ! -d "$blocked_lean_beam_dir" ]; then
   exit 1
 fi
 assert_not_exists "$blocked_home/.local/bin/lean-beam-search"
+assert_not_exists "$blocked_home/.local/bin/lean-beam-mcp"
 assert_not_exists "$blocked_home/.local/bin/beam"
 assert_not_exists "$blocked_home/.local/bin/beam-lean-search"
 assert_not_exists "$blocked_install_root/current"
@@ -471,6 +481,125 @@ if ! printf '%s\n' "$doctor_out" | grep -q 'bundle ready: true'; then
   printf '%s\n' "$doctor_out" >&2
   exit 1
 fi
+
+mcp_config_json="$(BEAM_HOME="$installed_runtime_root" "$installed_runtime_root/libexec/beam-cli" --root "$project_root" mcp-config)"
+MCP_CONFIG_JSON="$mcp_config_json" EXPECTED_TOOLCHAIN="$toolchain" python3 - <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+payload = json.loads(os.environ["MCP_CONFIG_JSON"])
+expected_toolchain = os.environ["EXPECTED_TOOLCHAIN"]
+lean_cmd = payload.get("lean_cmd")
+lean_plugin = payload.get("lean_plugin")
+if not isinstance(lean_cmd, str) or not lean_cmd:
+    print(f"mcp-config did not return a lean_cmd: {payload}", file=sys.stderr)
+    sys.exit(1)
+if not isinstance(lean_plugin, str) or not Path(lean_plugin).is_file():
+    print(f"mcp-config did not return an existing lean_plugin: {payload}", file=sys.stderr)
+    sys.exit(1)
+if payload.get("toolchain") != expected_toolchain:
+    print(f"mcp-config returned unexpected toolchain: {payload}", file=sys.stderr)
+    sys.exit(1)
+if not isinstance(payload.get("bundle_id"), str) or not payload["bundle_id"]:
+    print(f"mcp-config did not return a bundle_id: {payload}", file=sys.stderr)
+    sys.exit(1)
+PY
+
+mcp_smoke_out="$(mktemp "$tmp_root/install-mcp-smoke-out-XXXXXX")"
+mcp_smoke_err="$(mktemp "$tmp_root/install-mcp-smoke-err-XXXXXX")"
+if ! python3 - "$installed_mcp" "$project_root" >"$mcp_smoke_out" 2>"$mcp_smoke_err" <<'PY'
+import json
+import select
+import subprocess
+import sys
+import time
+
+server, project_root = sys.argv[1:]
+proc = subprocess.Popen(
+    [server, "--root", project_root],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    encoding="utf-8",
+    bufsize=1,
+)
+
+def send(message):
+    proc.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
+    proc.stdin.flush()
+
+def recv(expected_id):
+    deadline = time.monotonic() + 25
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(f"timed out waiting for MCP response id {expected_id}")
+        if proc.poll() is not None:
+            raise RuntimeError(f"lean-beam-mcp exited early with {proc.returncode}: {proc.stderr.read()}")
+        ready, _, _ = select.select([proc.stdout], [], [], remaining)
+        if not ready:
+            continue
+        line = proc.stdout.readline()
+        if line == "":
+            raise RuntimeError(f"lean-beam-mcp closed stdout before response id {expected_id}")
+        response = json.loads(line)
+        if response.get("id") != expected_id:
+            raise RuntimeError(f"expected response id {expected_id}, got {response}")
+        return response
+
+send({
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "clientInfo": {"name": "lean-beam-install-test", "version": "0"},
+    },
+})
+init = recv(1)
+if init.get("result", {}).get("protocolVersion") != "2025-11-25":
+    raise RuntimeError(f"unexpected initialize response: {init}")
+
+send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+send({
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+})
+sync = recv(2)
+result = sync.get("result")
+if not isinstance(result, dict) or result.get("isError") is True:
+    raise RuntimeError(f"expected lean_sync to succeed through installed MCP wrapper: {sync}")
+structured = result.get("structuredContent")
+if not isinstance(structured, dict) or not isinstance(structured.get("file_progress"), dict):
+    raise RuntimeError(f"lean_sync result missing structured file_progress: {sync}")
+
+send({"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
+shutdown = recv(3)
+if shutdown.get("result") != {}:
+    raise RuntimeError(f"unexpected shutdown response: {shutdown}")
+proc.stdin.close()
+proc.wait(timeout=5)
+stderr = proc.stderr.read()
+if stderr.strip():
+    raise RuntimeError(f"lean-beam-mcp wrote stderr: {stderr}")
+print(json.dumps({"ok": True, "progress": structured["file_progress"]}, sort_keys=True))
+PY
+then
+  echo "expected installed MCP wrapper smoke to succeed" >&2
+  cat "$mcp_smoke_out" >&2
+  cat "$mcp_smoke_err" >&2
+  remove_tmp_file "$mcp_smoke_out"
+  remove_tmp_file "$mcp_smoke_err"
+  exit 1
+fi
+remove_tmp_file "$mcp_smoke_out"
+remove_tmp_file "$mcp_smoke_err"
 
 unsupported_project_root="$tmp_root/external-project-unsupported"
 rsync -a tests/save_olean_project/ "$unsupported_project_root"/

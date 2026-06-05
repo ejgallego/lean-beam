@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+# Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
+# Author: Emilio J. Gallego Arias
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF' >&2
+usage:
+  lean-beam-mcp [--root PATH]
+
+Runs the experimental Lean Beam MCP stdio server.
+
+The installed wrapper resolves the matching beam-cli automatically. Project roots
+come from --root or from the MCP client's roots/list support.
+EOF
+}
+
+resolve_script_path() {
+  local source="${BASH_SOURCE[0]}"
+  local dir=""
+  while [ -L "$source" ]; do
+    dir="$(cd -P "$(dirname "$source")" && pwd)"
+    source="$(readlink "$source")"
+    case "$source" in
+      /*)
+        ;;
+      *)
+        source="$dir/$source"
+        ;;
+    esac
+  done
+  dir="$(cd -P "$(dirname "$source")" && pwd)"
+  printf '%s/%s\n' "$dir" "$(basename "$source")"
+}
+
+script_path="$(resolve_script_path)"
+script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+beam_home_explicit=0
+if [ -n "${BEAM_HOME:-}" ]; then
+  beam_home="$BEAM_HOME"
+  beam_home_explicit=1
+else
+  beam_home="$(cd -P "$script_dir/.." && pwd)"
+fi
+
+beam_cli=""
+mcp_bin=""
+if [ "$beam_home_explicit" -eq 1 ]; then
+  if [ -x "$beam_home/libexec/beam-cli" ]; then
+    beam_cli="$beam_home/libexec/beam-cli"
+  elif [ -x "$beam_home/.lake/build/bin/beam-cli" ]; then
+    beam_cli="$beam_home/.lake/build/bin/beam-cli"
+  fi
+  if [ -x "$beam_home/libexec/lean-beam-mcp" ]; then
+    mcp_bin="$beam_home/libexec/lean-beam-mcp"
+  elif [ -x "$beam_home/.lake/build/bin/lean-beam-mcp" ]; then
+    mcp_bin="$beam_home/.lake/build/bin/lean-beam-mcp"
+  fi
+else
+  if [ -x "$beam_home/.lake/build/bin/beam-cli" ]; then
+    beam_cli="$beam_home/.lake/build/bin/beam-cli"
+  elif [ -x "$beam_home/libexec/beam-cli" ]; then
+    beam_cli="$beam_home/libexec/beam-cli"
+  fi
+  if [ -x "$beam_home/.lake/build/bin/lean-beam-mcp" ]; then
+    mcp_bin="$beam_home/.lake/build/bin/lean-beam-mcp"
+  elif [ -x "$beam_home/libexec/lean-beam-mcp" ]; then
+    mcp_bin="$beam_home/libexec/lean-beam-mcp"
+  fi
+fi
+
+if [ -z "$beam_cli" ] || [ ! -x "$beam_cli" ]; then
+  echo "missing beam-cli executable under $beam_home" >&2
+  exit 1
+fi
+
+if [ -z "$mcp_bin" ] || [ ! -x "$mcp_bin" ]; then
+  echo "missing lean-beam-mcp executable under $beam_home" >&2
+  exit 1
+fi
+
+if [ -z "${BEAM_INSTALL_BUNDLE_DIR:-}" ]; then
+  case "$beam_home" in
+    */versions/*)
+      install_root="$(cd -P "$beam_home/../.." && pwd)"
+      default_install_bundle_dir="$install_root/state/install-bundles"
+      if [ -d "$default_install_bundle_dir" ]; then
+        export BEAM_INSTALL_BUNDLE_DIR="$default_install_bundle_dir"
+      fi
+      ;;
+  esac
+fi
+export BEAM_HOME="$beam_home"
+
+case "${1:-}" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+esac
+
+exec "$mcp_bin" --beam-cli "$beam_cli" "$@"

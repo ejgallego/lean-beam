@@ -170,6 +170,8 @@ Current MCP gates are layered:
 - `tests/test-broker-fast.sh` for one quick Lean-backed MCP stdio path, one HTTP bridge smoke, and a
   cheap protocol-only smoke
 - `tests/test-broker-slow.sh` for repeated MCP server restarts and repeated real tool calls
+- `tests/test-install.sh` for installed runtime layout and a real installed `lean-beam-mcp` wrapper
+  tool call that resolves its Lean command and plugin through `beam-cli mcp-config`
 - the `mcp-conformance` CI job for official external protocol/lifecycle coverage over a local
   Streamable HTTP bridge on Ubuntu and macOS
 

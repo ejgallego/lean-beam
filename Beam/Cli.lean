@@ -424,10 +424,10 @@ private def bundleSourceHashInputLabels : List String :=
 
 private def installRuntimePaths : List String :=
   ["libexec/beam-cli", "libexec/beam-daemon", "libexec/beam-client",
-    s!"libexec/{RunAt.Lib.pluginSharedLibName}", ".lake/packages"]
+    "libexec/lean-beam-mcp", s!"libexec/{RunAt.Lib.pluginSharedLibName}", ".lake/packages"]
 
 private def installWrapperPaths : List String :=
-  ["bin/lean-beam", "bin/lean-beam-search"]
+  ["bin/lean-beam", "bin/lean-beam-search", "bin/lean-beam-mcp"]
 
 private def installLayout : InstallLayout :=
   {
@@ -1823,6 +1823,21 @@ private def printInstallManifest (payloadHash : String) (sourceCommitArg : Strin
       some sourceCommitArg
   printJsonLine (installManifestJson payloadHash sourceCommit? toolchains)
 
+private def printMcpConfig (home : System.FilePath) (opts : CliOptions) : IO Unit := do
+  let root ← projectRoot opts .lean
+  let desired ← desiredConfig home root .lean
+  let some leanCmd := desired.leanCmd?
+    | throw <| IO.userError s!"could not resolve Lean command for MCP project root {root}"
+  let some plugin := desired.plugin?
+    | throw <| IO.userError s!"could not resolve runAt plugin for MCP project root {root}"
+  printJsonLine <| Json.mkObj [
+    ("root", toJson root.toString),
+    ("lean_cmd", toJson leanCmd),
+    ("lean_plugin", toJson plugin.toString),
+    ("toolchain", toJson desired.toolchain?),
+    ("bundle_id", toJson desired.bundleId)
+  ]
+
 private def shutdownProjectDaemon (opts : CliOptions) : IO Unit := do
   let root ← projectRootAny opts
   let lockDir ← controlDir root
@@ -1897,6 +1912,8 @@ private def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit :=
       printInstallLayout
   | "install-manifest" :: payloadHash :: sourceCommitArg :: toolchains =>
       printInstallManifest payloadHash sourceCommitArg toolchains
+  | "mcp-config" :: [] =>
+      printMcpConfig home opts
   | "ensure" :: [] =>
       ensureBackend home opts .lean
   | "ensure" :: "--hold" :: [] =>

@@ -26,13 +26,15 @@ structure Options where
   root? : Option String := none
   leanCmd? : Option String := none
   leanPlugin? : Option String := none
+  beamCli? : Option String := none
 
 private def usage : String :=
   String.intercalate "\n" [
-    "usage: lean-beam-mcp [--root PATH] [--lean-cmd CMD] [--lean-plugin PATH]",
+    "usage: lean-beam-mcp [--root PATH] [--beam-cli PATH] [--lean-cmd CMD] [--lean-plugin PATH]",
     "",
     "Runs the experimental Lean Beam MCP server over newline-delimited JSON-RPC on stdio.",
     "When --root is omitted, the server discovers exactly one project root via MCP roots/list.",
+    "The installed wrapper passes --beam-cli automatically so project-specific Lean bundles resolve on demand.",
     "Only curated Lean tools are exposed; raw LSP and broker escape hatches are intentionally absent."
   ]
 
@@ -44,19 +46,88 @@ private partial def parseOptions (opts : Options) : List String → Except Strin
       parseOptions { opts with leanCmd? := some leanCmd } rest
   | "--lean-plugin" :: leanPlugin :: rest =>
       parseOptions { opts with leanPlugin? := some leanPlugin } rest
+  | "--beam-cli" :: beamCli :: rest =>
+      parseOptions { opts with beamCli? := some beamCli } rest
   | "-h" :: _ | "--help" :: _ =>
       throw usage
   | arg :: _ =>
       throw s!"unexpected lean-beam-mcp argument '{arg}'\n\n{usage}"
 
-private def mkBrokerConfig (opts : Options) (root : System.FilePath) : IO Beam.Broker.BrokerConfig := do
-  let root ← IO.FS.realPath root
-  let leanPlugin? ← opts.leanPlugin?.mapM (fun path => IO.FS.realPath <| System.FilePath.mk path)
-  pure {
-    root := root
-    leanCmd? := opts.leanCmd?
-    leanPlugin? := leanPlugin?
+private structure LeanRuntimeConfig where
+  leanCmd : String
+  leanPlugin : System.FilePath
+
+private def setupError (message : String) : RpcError :=
+  RpcError.invalidRequest s!"could not set up Lean Beam MCP runtime: {message}"
+
+private def processOutputSummary (stdout stderr : String) : String :=
+  let stderr := stderr.trimAscii.toString
+  let stdout := stdout.trimAscii.toString
+  if !stderr.isEmpty then
+    stderr
+  else if !stdout.isEmpty then
+    stdout
+  else
+    "(no output)"
+
+private def parseCliMcpConfig (text : String) : Except String LeanRuntimeConfig := do
+  let json ← Json.parse text
+  let leanCmd ← json.getObjValAs? String "lean_cmd"
+  let leanPluginText ← json.getObjValAs? String "lean_plugin"
+  pure { leanCmd, leanPlugin := System.FilePath.mk leanPluginText }
+
+private def resolveFromBeamCli (beamCli : String) (root : System.FilePath) : IO (Except String LeanRuntimeConfig) := do
+  let out ← IO.Process.output {
+    cmd := beamCli
+    args := #["--root", root.toString, "mcp-config"]
   }
+  if out.exitCode != 0 then
+    pure <| .error s!"{beamCli} --root {root} mcp-config failed: {processOutputSummary out.stdout out.stderr}"
+  else
+    match parseCliMcpConfig out.stdout with
+    | .error err => pure <| .error s!"{beamCli} mcp-config returned invalid JSON: {err}"
+    | .ok config => do
+        let plugin ← IO.FS.realPath config.leanPlugin
+        pure <| .ok { config with leanPlugin := plugin }
+
+private def resolveLeanRuntime (opts : Options) (root : System.FilePath) : IO (Except RpcError LeanRuntimeConfig) := do
+  let explicitPlugin? ←
+    try
+      opts.leanPlugin?.mapM (fun path => IO.FS.realPath <| System.FilePath.mk path)
+    catch e =>
+      return .error <| setupError s!"--lean-plugin does not resolve to a file: {e}"
+  match opts.leanCmd?, explicitPlugin? with
+  | some leanCmd, some leanPlugin =>
+      pure <| .ok { leanCmd, leanPlugin }
+  | _, _ =>
+      match opts.beamCli? with
+      | none =>
+          pure <| .error <| setupError
+            "use the installed lean-beam-mcp wrapper, pass --beam-cli PATH, or pass both --lean-cmd CMD and --lean-plugin PATH"
+      | some beamCli =>
+          match ← resolveFromBeamCli beamCli root with
+          | .error err => pure <| .error <| setupError err
+          | .ok resolved =>
+              pure <| .ok {
+                leanCmd := opts.leanCmd?.getD resolved.leanCmd
+                leanPlugin := explicitPlugin?.getD resolved.leanPlugin
+              }
+
+private def mkBrokerConfig (opts : Options) (root : System.FilePath) : IO (Except RpcError Beam.Broker.BrokerConfig) := do
+  let root ←
+    try
+      IO.FS.realPath root
+    catch e =>
+      return .error <| setupError s!"project root does not resolve: {e}"
+  let runtime ← resolveLeanRuntime opts root
+  match runtime with
+  | .error err => pure <| .error err
+  | .ok runtime =>
+      pure <| .ok {
+        root := root
+        leanCmd? := some runtime.leanCmd
+        leanPlugin? := some runtime.leanPlugin
+      }
 
 def stripLineEnding (line : String) : String :=
   let line :=
@@ -137,6 +208,30 @@ private partial def requestClientRoot (stdin : IO.FS.Stream) : IO (Except String
   catch e =>
     pure <| .error e.toString
 
+private def ensureRoot
+    (state : IO.Ref ProtocolState)
+    (stdin : IO.FS.Stream) : IO (Except RpcError System.FilePath) := do
+  let currentState ← state.get
+  match currentState.rootError? with
+  | some err =>
+      pure <| .error <| RpcError.invalidRequest err
+  | none =>
+      match currentState.root? with
+      | some root => pure <| .ok root
+      | none =>
+          let root? ←
+            if currentState.clientSupportsRoots then
+              requestClientRoot stdin
+            else
+              pure <| .error rootsUnsupportedMessage
+          match root? with
+          | .error err =>
+              state.modify fun state => { state with rootError? := some err }
+              pure <| .error <| RpcError.invalidRequest err
+          | .ok root =>
+              state.modify fun state => { state with root? := some root }
+              pure <| .ok root
+
 private def ensureRuntime
     (state : IO.Ref ProtocolState)
     (opts : Options)
@@ -146,27 +241,22 @@ private def ensureRuntime
   | some runtime, some root =>
       pure <| .ok (runtime, root)
   | _, _ =>
-      match currentState.rootError? with
-      | some err =>
-          pure <| .error <| RpcError.invalidRequest err
-      | none =>
-          let root? ←
-            match currentState.root? with
-            | some root => pure <| .ok root
-            | none =>
-                if currentState.clientSupportsRoots then
-                  requestClientRoot stdin
-                else
-                  pure <| .error rootsUnsupportedMessage
-          match root? with
+      match ← ensureRoot state stdin with
+      | .error err => pure <| .error err
+      | .ok root =>
+          match ← mkBrokerConfig opts root with
           | .error err =>
-              state.modify fun state => { state with rootError? := some err }
-              pure <| .error <| RpcError.invalidRequest err
-          | .ok root =>
-              let config ← mkBrokerConfig opts root
-              let runtime ← Beam.Broker.ServerRuntime.create config
-              state.modify fun state => { state with root? := some config.root, runtime? := some runtime }
-              pure <| .ok (runtime, config.root)
+              state.modify fun state => { state with rootError? := some err.message }
+              pure <| .error err
+          | .ok config =>
+              try
+                let runtime ← Beam.Broker.ServerRuntime.create config
+                state.modify fun state => { state with root? := some config.root, runtime? := some runtime }
+                pure <| .ok (runtime, config.root)
+              catch e =>
+                let err := setupError e.toString
+                state.modify fun state => { state with rootError? := some err.message }
+                pure <| .error err
 
 private def brokerRequestForTool
     (root : System.FilePath)
@@ -184,14 +274,18 @@ private def handleToolCall
     match parseCallToolParams req.params? with
     | .ok params => pure params
     | .error err => return .error <| RpcError.invalidParams err
-  let (runtime, root) ←
-    match ← ensureRuntime state opts stdin with
-    | .ok runtimeAndRoot => pure runtimeAndRoot
+  let root ←
+    match ← ensureRoot state stdin with
+    | .ok root => pure root
     | .error err => return .error err
   let brokerReq ←
     match brokerRequestForTool root params (brokerClientRequestId req) with
     | .ok brokerReq => pure brokerReq
     | .error err => return .ok <| callToolErrorResult <| ToolError.invalidInput err
+  let (runtime, _root) ←
+    match ← ensureRuntime state opts stdin with
+    | .ok runtimeAndRoot => pure runtimeAndRoot
+    | .error err => return .error err
   let (brokerResp, _) ← runtime.dispatchRequest brokerReq
   match normalizeBrokerResponse params.name brokerResp with
   | .ok result =>

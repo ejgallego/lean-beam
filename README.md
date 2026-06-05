@@ -27,7 +27,7 @@ Run the installer from the repo root:
 
 That installs:
 
-- `lean-beam` and `lean-beam-search` into `~/.local/bin`
+- `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` into `~/.local/bin`
 - an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
 - a prebuilt bundle for the repo-pinned supported Lean toolchain
 
@@ -45,6 +45,27 @@ Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional valida
 ./scripts/install-beam.sh --toolchain leanprover/lean4:v4.30.0
 ./scripts/install-beam.sh --all-supported
 ```
+
+## MCP Setup
+
+The installer includes the experimental stdio MCP server as `lean-beam-mcp`. For Codex, register it
+globally with an absolute path so Codex can launch it even if `~/.local/bin` is not on its PATH:
+
+```bash
+codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
+```
+
+MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
+root through `roots/list`. If a client does not provide roots, configure the command with an
+explicit project root:
+
+```bash
+codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
+```
+
+The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt plugin for each
+project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
+`--lean-plugin` explicitly.
 
 ## Supported Toolchains
 

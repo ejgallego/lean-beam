@@ -17,9 +17,9 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows
 - explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers,
   while still accepting older inferred-`ok` envelopes on input
-- experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set through MCP
-  `initialize`, `tools/list`, and `tools/call`, backed directly by the broker runtime rather than a
-  second daemon/client connection
+- installed experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set through
+  MCP `initialize`, `tools/list`, and `tools/call`, backed directly by the broker runtime rather
+  than a second daemon/client connection
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
 - `lean-beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with
@@ -125,12 +125,13 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   usually an environment restriction, not a bundle-resolution mismatch.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
 - The Beam daemon is single-root and keeps a conservative single active session per backend.
-- `lean-beam-mcp` is currently an experimental developer entry point. `--root PATH` is supported as
-  an explicit override; when it is omitted, the server discovers exactly one `file://` project root
-  through the MCP `roots/list` request. Multiple roots are rejected for now, so clients should pass
-  `--root` when they expose more than one workspace root. Real Lean tool calls still require a
-  caller or wrapper to provide the Lean command and plugin path through `--lean-cmd` and
-  `--lean-plugin`.
+- `lean-beam-mcp` is currently an experimental stdio entry point. The installed wrapper is the
+  preferred local setup path because it passes the matching `beam-cli` resolver automatically.
+  `--root PATH` is supported as an explicit override; when it is omitted, the server discovers
+  exactly one `file://` project root through the MCP `roots/list` request. Multiple roots are
+  rejected for now, so clients should pass `--root` when they expose more than one workspace root.
+  Direct developer runs of `.lake/build/bin/lean-beam-mcp` can still pass `--lean-cmd` and
+  `--lean-plugin` explicitly.
 - `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are
   not advertised or tested.
 - `lean-beam-mcp` follows the `2025-11-25` tool-call error split: malformed or unknown tools are
