@@ -82,6 +82,7 @@ selected broker results.
 The executable MCP path is split into importable runtime modules and tiny entry-point modules:
 
 - [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean): MCP JSON-RPC and tool-result helpers
+- [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): project-root to broker-runtime setup
 - [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check driver
 - [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): broker-backed stdio MCP server logic
 - [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): `lean-beam-mcp` executable entry point
@@ -91,7 +92,7 @@ Keep executable `main` declarations out of importable runtime modules. Otherwise
 modules that import a runtime accidentally inherit the wrong root-level `main`.
 
 The installed `bin/lean-beam-mcp` wrapper is the public setup path. It pairs the MCP executable with
-the same installed `beam-cli` and passes `--beam-cli`; `Beam/Mcp/Server.lean` then asks
+the same installed `beam-cli` and passes `--beam-cli`; `Beam/Mcp/Runtime.lean` then asks
 `beam-cli --root <root> mcp-config` for the project-specific Lean command and runAt plugin after
 root selection. Keep this resolver as a narrow CLI/MCP setup boundary. Do not duplicate bundle
 selection logic in the MCP server, and do not make MCP clients pass raw plugin paths in normal

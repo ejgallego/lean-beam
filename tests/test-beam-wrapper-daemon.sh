@@ -8,121 +8,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# shellcheck source=tests/lib/beam-wrapper-common.sh
+. tests/lib/beam-wrapper-common.sh
+
 beam_script="$PWD/scripts/lean-beam"
 
 if [ ! -x "$beam_script" ]; then
   echo "missing lean-beam wrapper at $beam_script" >&2
   exit 1
 fi
-
-read_json_field() {
-  python3 - "$1" "$2" <<'PY'
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-value = data
-for part in sys.argv[2].split("."):
-    if isinstance(value, list):
-        value = value[int(part)]
-    else:
-        value = value[part]
-if isinstance(value, bool):
-    print("true" if value else "false")
-elif value is None:
-    print("")
-else:
-    print(value)
-PY
-}
-
-read_json_text_field() {
-  python3 - "$1" <<'PY'
-import json, os, sys
-payload = json.loads(os.environ["RUNAT_JSON_PAYLOAD"])
-path = sys.argv[1]
-if path == "ok" and "ok" not in payload:
-    print("false" if payload.get("error") is not None else "true")
-    raise SystemExit(0)
-value = payload
-try:
-    for part in path.split("."):
-        if isinstance(value, list):
-            value = value[int(part)]
-        else:
-            value = value[part]
-except (KeyError, IndexError, ValueError, TypeError):
-    print("")
-    raise SystemExit(0)
-if isinstance(value, bool):
-    print("true" if value else "false")
-elif value is None:
-    print("")
-else:
-    print(value)
-PY
-}
-
-expect_file() {
-  if [ ! -f "$1" ]; then
-    echo "missing expected file: $1" >&2
-    exit 1
-  fi
-}
-
-expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/beam-wrapper-daemon-*|/tmp/runat-validate-*/tmp/beam-wrapper-daemon-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
-}
-
-expect_path_within_tmp_dir() {
-  local path="$1"
-  local root="$2"
-  expect_owned_tmp_dir "$root"
-  case "$path" in
-    "$root"|"$root"/*)
-      ;;
-    *)
-      echo "refusing to touch path outside temp root $root: $path" >&2
-      exit 1
-      ;;
-  esac
-}
-
-remove_owned_tmp_tree() {
-  local path="$1"
-  expect_owned_tmp_dir "$path"
-  rm -rf -- "$path"
-}
-
-remove_tmp_tree_within() {
-  local path="$1"
-  local root="$2"
-  expect_path_within_tmp_dir "$path" "$root"
-  rm -rf -- "$path"
-}
-
-wait_for_exit() {
-  local pid="$1"
-  local label="$2"
-  local tries="${3:-60}"
-  local delay="${4:-0.5}"
-  local remaining="$tries"
-  while [ "$remaining" -gt 0 ]; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      return 0
-    fi
-    sleep "$delay"
-    remaining=$((remaining - 1))
-  done
-  echo "timed out waiting for $label (pid $pid) to exit" >&2
-  return 1
-}
 
 stop_hold_process() {
   if [ -n "$hold_pid" ]; then

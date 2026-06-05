@@ -8,6 +8,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 . scripts/shared-lib.sh
+# shellcheck source=tests/lib/ci-steps.sh
+. tests/lib/ci-steps.sh
+
+BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-install}"
 
 tmp_root="$(mktemp -d /tmp/runat-install-XXXXXX)"
 
@@ -263,6 +267,13 @@ assert_bundle_layout() {
   done
 }
 
+run_install_from_source() {
+  (
+    cd "$source_checkout"
+    bash scripts/install-beam.sh "$@" > /dev/null
+  )
+}
+
 rsync -a --exclude='.git' ./ "$source_checkout"/
 path_no_elan="$(path_without_elan)"
 if PATH="$path_no_elan" command -v elan >/dev/null 2>&1; then
@@ -333,10 +344,7 @@ assert_not_exists "$BEAM_INSTALL_ROOT/current"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 0
 assert_not_exists "$BEAM_INSTALL_ROOT/state"
 
-(
-  cd "$source_checkout"
-  bash scripts/install-beam.sh > /dev/null
-)
+run_step "install default runtime" run_install_from_source
 expected_source_commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
 install_layout_json="$(cd "$source_checkout" && ./.lake/build/bin/beam-cli install-layout)"
 
@@ -376,19 +384,13 @@ assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"
 assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" "$toolchain"
 
-(
-  cd "$source_checkout"
-  bash scripts/install-beam.sh --all-supported > /dev/null
-)
+run_step "prebuild all supported bundles" run_install_from_source --all-supported
 
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
 assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" "${supported_toolchains[@]}"
 
-(
-  cd "$source_checkout"
-  bash scripts/install-beam.sh --toolchain "$toolchain" --all-skills > /dev/null
-)
+run_step "install skills" run_install_from_source --toolchain "$toolchain" --all-skills
 
 for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-beam/SKILL.md"

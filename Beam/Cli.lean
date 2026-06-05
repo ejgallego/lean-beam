@@ -999,7 +999,7 @@ private partial def startDaemonEntry
     if pid > 0 && (← pidAlive pid) then
       killPid pid
       waitForPidGone pid
-    if usesAutomaticTcpEndpoint opts && tries > 0 && (← endpointAcceptsConnection endpoint) then
+    if shouldRetryAutomaticStartup (usesAutomaticTcpEndpoint opts) tries (← endpointAcceptsConnection endpoint) then
       return ← startDaemonEntry desired opts (tries - 1)
     throw err
   let entry ← registryEntryFor desired pid endpoint opts
