@@ -139,7 +139,7 @@ private def ensureRuntime
                 state.modify fun state => { state with root? := some config.root, runtime? := some runtime }
                 pure <| .ok (runtime, config.root)
               catch e =>
-                let err := Runtime.setupError e.toString
+                let err := runtimeSetupError e.toString
                 state.modify fun state => { state with rootError? := some err.message }
                 pure <| .error err
 

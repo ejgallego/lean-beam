@@ -203,7 +203,7 @@ private def checkRuntimeSetupErrors : IO Unit := do
   | .error err =>
       require "missing MCP root should be an invalidRequest error" (err.code == -32600)
       require "missing MCP root setup error should name the setup boundary"
-        (err.message.startsWith "could not set up Lean Beam MCP runtime:")
+        (err.message.startsWith s!"{Beam.Mcp.runtimeSetupErrorPrefix}:")
       require "missing MCP root setup error should mention project root"
         (err.message.contains "project root does not resolve")
 
@@ -216,7 +216,7 @@ private def checkRuntimeSetupErrors : IO Unit := do
     | .error err =>
         require "missing MCP runtime should be an invalidRequest error" (err.code == -32600)
         require "missing MCP runtime setup error should explain usable setup paths"
-          (err.message.contains "--beam-cli PATH")
+          (err.message.contains Beam.Mcp.runtimeSetupGuidance)
   finally
     try
       if ← root.pathExists then

@@ -29,6 +29,9 @@ Beam daemon integration.
   [RunAtTest/Broker/ProtocolTest.lean](../RunAtTest/Broker/ProtocolTest.lean), including explicit
   `ok` fields on produced responses, legacy inferred-`ok` decoding, and rejection of inconsistent
   error/result envelopes
+- CLI daemon helper coverage in
+  [RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean), including startup
+  retry policy, lock lifecycle, and deterministic runtime bundle helper path / identity behavior
 - MCP projection boundary coverage in
   [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean), including
   supported Lean tool names, rejection of raw LSP method names and expert raw request escape
@@ -64,6 +67,8 @@ Beam daemon integration.
 - GitHub Actions MCP conformance coverage on both Ubuntu and macOS through the matrixed
   `mcp-conformance` job, which runs the pinned external conformance package against the local
   Streamable HTTP bridge
+- CI workflow actions use Node 24-compatible first-party action majors; the `mcp-conformance`
+  `node-version` setting is the JavaScript test runtime, not the GitHub Action runtime
 - slower wrapper/install coverage in [tests/test-broker-slow.sh](../tests/test-broker-slow.sh)
 - focused wrapper daemon lifecycle coverage in
   [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh), including

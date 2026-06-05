@@ -159,8 +159,10 @@ What the fix does:
 The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Keep wrapper
 and daemon lifecycle code in `Beam/Cli.lean`, but put reusable lock behavior there so it can stay
 unit-tested without importing the full CLI command surface. Install and bundle layout metadata lives
-in [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean); heavier bundle cache/build
-resolution still belongs to `Beam/Cli.lean` until it has a stable typed boundary worth extracting.
+in [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle cache roots,
+source hashing, fallback bundle builds, and daemon/client/plugin helper resolution live in
+[Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean). Keep `Beam/Cli.lean` focused on
+command parsing, daemon lifecycle, wrapper leases, and user-facing output.
 
 What this does not promise:
 
@@ -176,6 +178,10 @@ What this does not promise:
 - shell changes: `bash scripts/lint-shell.sh`
 
 Use `bash tests/test-broker.sh` when you want the aggregate broker signal.
+
+CI uses Node 24-compatible first-party GitHub Actions majors for checkout, setup-node, and cache.
+The MCP conformance job's `node-version` is the JavaScript test runtime and may stay pinned
+separately from the action runtime.
 
 ## Lean 4.28 Compatibility Shims
 

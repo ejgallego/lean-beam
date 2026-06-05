@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Broker.Config
 import Beam.Mcp.Protocol
+import Beam.Mcp.SetupError
 
 open Lean
 
@@ -20,9 +21,6 @@ structure Options where
 private structure LeanRuntimeConfig where
   leanCmd : String
   leanPlugin : System.FilePath
-
-def setupError (message : String) : RpcError :=
-  RpcError.invalidRequest s!"could not set up Lean Beam MCP runtime: {message}"
 
 private def processOutputSummary (stdout stderr : String) : String :=
   let stderr := stderr.trimAscii.toString
@@ -59,18 +57,17 @@ private def resolveLeanRuntime (opts : Options) (root : System.FilePath) : IO (E
     try
       opts.leanPlugin?.mapM (fun path => IO.FS.realPath <| System.FilePath.mk path)
     catch e =>
-      return .error <| setupError s!"--lean-plugin does not resolve to a file: {e}"
+      return .error <| runtimeSetupError <| leanPluginSetupError e.toString
   match opts.leanCmd?, explicitPlugin? with
   | some leanCmd, some leanPlugin =>
       pure <| .ok { leanCmd, leanPlugin }
   | _, _ =>
       match opts.beamCli? with
       | none =>
-          pure <| .error <| setupError
-            "use the installed lean-beam-mcp wrapper, pass --beam-cli PATH, or pass both --lean-cmd CMD and --lean-plugin PATH"
+          pure <| .error <| runtimeSetupError runtimeSetupGuidance
       | some beamCli =>
           match ← resolveFromBeamCli beamCli root with
-          | .error err => pure <| .error <| setupError err
+          | .error err => pure <| .error <| runtimeSetupError err
           | .ok resolved =>
               pure <| .ok {
                 leanCmd := opts.leanCmd?.getD resolved.leanCmd
@@ -82,7 +79,7 @@ def mkBrokerConfig (opts : Options) (root : System.FilePath) : IO (Except RpcErr
     try
       IO.FS.realPath root
     catch e =>
-      return .error <| setupError s!"project root does not resolve: {e}"
+      return .error <| runtimeSetupError <| projectRootSetupError e.toString
   let runtime ← resolveLeanRuntime opts root
   match runtime with
   | .error err => pure <| .error err

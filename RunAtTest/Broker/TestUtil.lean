@@ -163,6 +163,25 @@ def spawnLeanBroker
     (leanCmd : String := "lean") : IO (IO.Process.Child nullBrokerStdio) := do
   spawnLeanBrokerWithPlugin endpoint root (← RunAtTest.TestHarness.pluginPath) leanCmd
 
+def spawnRocqBroker
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath)
+    (rocqCmd : String := "coq-lsp") : IO (IO.Process.Child nullBrokerStdio) := do
+  let port ←
+    match endpoint with
+    | .tcp port => pure port
+    | .unix _ => throw <| IO.userError "test Rocq broker helpers only support tcp endpoints"
+  IO.Process.spawn {
+    toStdioConfig := nullBrokerStdio
+    cmd := (← daemonExe).toString
+    args := #[
+      "--port", toString port.toNat,
+      "--root", root.toString,
+      "--rocq-cmd", rocqCmd
+    ]
+    setsid := true
+  }
+
 partial def waitForBrokerReady
     (endpoint : Beam.Broker.Endpoint)
     (tries : Nat := 50) : IO Unit := do
