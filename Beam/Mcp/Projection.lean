@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Lean.Operation
+import Beam.Mcp.Json
 import RunAt.Protocol
 
 open Lean
@@ -131,15 +132,6 @@ abbrev RunWithInput := Beam.Lean.RunWithInput
 abbrev ReleaseInput := Beam.Lean.ReleaseInput
 abbrev PathInput := Beam.Lean.PathInput
 abbrev SyncInput := Beam.Lean.SyncInput
-
-private def optionalField? [FromJson α] (j : Json) (field : String) : Except String (Option α) := do
-  match j.getObjVal? field with
-  | .ok value =>
-      match fromJson? value with
-      | .ok decoded => pure (some decoded)
-      | .error err => throw s!"invalid '{field}': {err}"
-  | .error _ =>
-      pure none
 
 private def optionJson (value? : Option α) [ToJson α] : Json :=
   match value? with

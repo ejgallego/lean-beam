@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Beam.Mcp.Protocol
+import Beam.Mcp.Stdio
 
 open Lean
 
@@ -25,24 +26,13 @@ def selectClientRoot (roots : Array ClientRoot) : Except String System.FilePath 
     | some path => pure path
     | none => throw s!"MCP client root URI must be a file:// URI, got {root.uri}"
 
-private def stripLineEnding (line : String) : String :=
-  let line :=
-    if !line.isEmpty && line.back == '\n' then
-      line.dropEnd 1 |>.copy
-    else
-      line
-  if !line.isEmpty && line.back == '\r' then
-    line.dropEnd 1 |>.copy
-  else
-    line
-
 partial def requestClientRoot
     (stdin : IO.FS.Stream)
     (writeJsonLine : Json → IO Unit) : IO (Except String System.FilePath) := do
   try
     writeJsonLine rootsListRequest
     let rec waitForResponse : IO (Except String System.FilePath) := do
-      let line := stripLineEnding (← stdin.getLine)
+      let line := Beam.Mcp.Stdio.stripLineEnding (← stdin.getLine)
       if line.isEmpty then
         pure <| .error "MCP client closed stdin before answering roots/list"
       else

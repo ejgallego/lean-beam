@@ -5,48 +5,33 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Mcp.Server
+import RunAtTest.Broker.JsonAssert
 
 open Lean
+open RunAtTest.Broker.JsonAssert
 
 namespace RunAtTest.Broker.McpProtocolTest
 
-private def require (label : String) (cond : Bool) : IO Unit := do
-  unless cond do
-    throw <| IO.userError label
+private def checkJsonHelpers : IO Unit := do
+  require "strip LF" (Beam.Mcp.Stdio.stripLineEnding "json\n" == "json")
+  require "strip CRLF" (Beam.Mcp.Stdio.stripLineEnding "json\r\n" == "json")
+  require "strip CR" (Beam.Mcp.Stdio.stripLineEnding "json\r" == "json")
+  require "leave interior CR" (Beam.Mcp.Stdio.stripLineEnding "j\rson" == "j\rson")
 
-private def requireObjVal (label field : String) (json : Json) : IO Json := do
-  match json.getObjVal? field with
-  | .ok value => pure value
-  | .error err => throw <| IO.userError s!"{label}: missing field {field}: {err}\n{json.compress}"
+  let withField := Json.mkObj [("name", toJson "fixture")]
+  let decodedName ← expectOk "optional string field" <|
+    Beam.Mcp.optionalField? (α := String) withField "name"
+  require "optional string field decoded" (decodedName == some "fixture")
 
-private def requireJsonString (label field expected : String) (json : Json) : IO Unit := do
-  match json.getObjValAs? String field with
-  | .ok actual =>
-      if actual != expected then
-        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
+  let missingName ← expectOk "missing optional string field" <|
+    Beam.Mcp.optionalField? (α := String) withField "missing"
+  require "missing optional string field decodes as none" missingName.isNone
+
+  match Beam.Mcp.optionalField? (α := String) (Json.mkObj [("name", toJson (1 : Nat))]) "name" with
+  | .ok value =>
+      throw <| IO.userError s!"invalid optional field decoded unexpectedly: {repr value}"
   | .error err =>
-      throw <| IO.userError s!"{label}: invalid string field {field}: {err}\n{json.compress}"
-
-private def requireJsonInt (label field : String) (expected : Int) (json : Json) : IO Unit := do
-  match json.getObjValAs? Int field with
-  | .ok actual =>
-      if actual != expected then
-        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
-  | .error err =>
-      throw <| IO.userError s!"{label}: invalid int field {field}: {err}\n{json.compress}"
-
-private def requireJsonBool (label field : String) (expected : Bool) (json : Json) : IO Unit := do
-  match json.getObjValAs? Bool field with
-  | .ok actual =>
-      if actual != expected then
-        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
-  | .error err =>
-      throw <| IO.userError s!"{label}: invalid bool field {field}: {err}\n{json.compress}"
-
-private def expectOk (label : String) (result : Except String α) : IO α := do
-  match result with
-  | .ok value => pure value
-  | .error err => throw <| IO.userError s!"{label}: {err}"
+      require "invalid optional field names the field" (err.contains "name")
 
 private def checkIncoming : IO Unit := do
   let reqJson := Json.mkObj [
@@ -323,6 +308,7 @@ private def checkServerBasics : IO Unit := do
   requireJsonString "bad args structured error" "code" "invalidInput" badArgsStructured
 
 def main : IO Unit := do
+  checkJsonHelpers
   checkIncoming
   checkToolsListShape
   checkRootsProtocol

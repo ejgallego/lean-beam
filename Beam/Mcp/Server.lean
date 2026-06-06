@@ -10,6 +10,7 @@ import Beam.Mcp.Protocol
 import Beam.Mcp.Runtime
 import Beam.Mcp.Roots
 import Beam.Mcp.SelfCheck
+import Beam.Mcp.Stdio
 
 open Lean
 
@@ -28,24 +29,8 @@ def ProtocolState.create (root? : Option System.FilePath := none) : IO (IO.Ref P
 
 abbrev Options := Beam.Mcp.Options
 
-def stripLineEnding (line : String) : String :=
-  let line :=
-    if !line.isEmpty && line.back == '\n' then
-      line.dropEnd 1 |>.copy
-    else
-      line
-  if !line.isEmpty && line.back == '\r' then
-    line.dropEnd 1 |>.copy
-  else
-    line
-
-private def writeJsonLineTo (stream : IO.FS.Stream) (json : Json) : IO Unit := do
-  stream.putStr (json.compress ++ "\n")
-  stream.flush
-
 private def writeJsonLine (json : Json) : IO Unit := do
-  let stdout ← IO.getStdout
-  writeJsonLineTo stdout json
+  Beam.Mcp.Stdio.writeStdoutJsonLine json
 
 private def invalidRequestId (json : Json) : Json :=
   match json.getObjVal? "id" with
@@ -145,6 +130,21 @@ private def handleToolCall
   | .error err =>
       pure <| .ok <| callToolErrorResult err
 
+private def handleReadyOperationRequest
+    (state : IO.Ref ProtocolState)
+    (opts : Options)
+    (stdin : IO.FS.Stream)
+    (req : Request) : IO (Json × Bool) := do
+  match req.method with
+  | "tools/list" =>
+      pure (successResponse req.id toolsListResult, false)
+  | "tools/call" =>
+      match ← handleToolCall state opts stdin req with
+      | .ok result => pure (successResponse req.id result, false)
+      | .error err => pure (errorResponse req.id err, false)
+  | method =>
+      pure (errorResponse req.id (RpcError.methodNotFound method), false)
+
 def handleRequest
     (state : IO.Ref ProtocolState)
     (opts : Options)
@@ -181,15 +181,7 @@ def handleRequest
       else if !currentState.initializedNotificationSeen then
         pure (errorResponse req.id (RpcError.invalidRequest "notifications/initialized is required before MCP operation requests"), false)
       else
-        match req.method with
-        | "tools/list" =>
-            pure (successResponse req.id toolsListResult, false)
-        | "tools/call" =>
-            match ← handleToolCall state opts stdin req with
-            | .ok result => pure (successResponse req.id result, false)
-            | .error err => pure (errorResponse req.id err, false)
-        | _ =>
-            unreachable!
+        handleReadyOperationRequest state opts stdin req
   | method =>
       if !currentState.initializeComplete then
         pure (errorResponse req.id (RpcError.invalidRequest "initialize must be the first MCP operation"), false)
@@ -227,7 +219,7 @@ partial def runStdio (opts : Options) (root? : Option System.FilePath) : IO Unit
   let stdin ← IO.getStdin
   let state ← ProtocolState.create root?
   let rec loop : IO Unit := do
-    let line := stripLineEnding (← stdin.getLine)
+    let line := Beam.Mcp.Stdio.stripLineEnding (← stdin.getLine)
     if line.isEmpty then
       pure ()
     else

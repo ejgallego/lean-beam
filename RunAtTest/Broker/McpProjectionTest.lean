@@ -5,50 +5,12 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Mcp.Projection
+import RunAtTest.Broker.JsonAssert
 
 open Lean
+open RunAtTest.Broker.JsonAssert
 
 namespace RunAtTest.Broker.McpProjectionTest
-
-private def require (label : String) (cond : Bool) : IO Unit := do
-  unless cond do
-    throw <| IO.userError label
-
-private def requireFieldAbsent (label field : String) (json : Json) : IO Unit := do
-  match json.getObjVal? field with
-  | .ok _ => throw <| IO.userError s!"{label}: unexpected field {field}: {json.compress}"
-  | .error _ => pure ()
-
-private def requireObjVal (label field : String) (json : Json) : IO Json := do
-  match json.getObjVal? field with
-  | .ok value => pure value
-  | .error err => throw <| IO.userError s!"{label}: missing field {field}: {err}\n{json.compress}"
-
-private def requireJsonBool (label field : String) (expected : Bool) (json : Json) : IO Unit := do
-  match json.getObjValAs? Bool field with
-  | .ok actual =>
-      if actual != expected then
-        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
-  | .error err =>
-      throw <| IO.userError s!"{label}: invalid bool field {field}: {err}\n{json.compress}"
-
-private def requireJsonString (label field expected : String) (json : Json) : IO Unit := do
-  match json.getObjValAs? String field with
-  | .ok actual =>
-      if actual != expected then
-        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
-  | .error err =>
-      throw <| IO.userError s!"{label}: invalid string field {field}: {err}\n{json.compress}"
-
-private def requireJsonNull (label field : String) (json : Json) : IO Unit := do
-  match ← requireObjVal label field json with
-  | Json.null => pure ()
-  | value => throw <| IO.userError s!"{label}: expected {field}=null, got {value.compress}"
-
-private def expectOk (label : String) (result : Except ε α) [ToString ε] : IO α := do
-  match result with
-  | .ok value => pure value
-  | .error err => throw <| IO.userError s!"{label}: {err}"
 
 private def expectToolOk (label : String) (result : Except Beam.Mcp.ToolError Json) : IO Json := do
   match result with
