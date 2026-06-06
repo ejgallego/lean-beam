@@ -422,59 +422,34 @@ def syncFile (session : Session) (path : System.FilePath) : IO Session := do
   let textTraceHash := Lake.Hash.ofText text
   let textMTime ← Lake.getFileMTime path
   let moduleName? := DocumentState.trackedModuleName? session.root path session.backend
-  match session.docs.get? uri with
-  | none =>
+  let decision := DocumentState.syncFileDecision session.docs uri {
+    textHash
+    textTraceHash
+    textMTime
+    moduleName?
+  }
+  let session ←
+    match decision.action with
+    | .open =>
       let param := toJson ({
         textDocument := {
           uri := uri
           languageId := match session.backend with | .lean => "lean" | .rocq => "rocq"
-          version := 1
+          version := decision.version
           text := text
         } : DidOpenTextDocumentParams
       })
-      let session ← sendNotificationJson session "textDocument/didOpen" param
-      pure {
-        session with
-        docs := session.docs.insert uri {
-          version := 1
-          textHash
-          textTraceHash
-          textMTime
-          moduleName?
-        }
-      }
-  | some docState =>
-      if docState.textHash == textHash then
-        pure {
-          session with
-          docs := session.docs.insert uri {
-            docState with
-            textTraceHash
-            textMTime
-            moduleName?
-          }
-        }
-      else
-        let newVersion := docState.version + 1
+      sendNotificationJson session "textDocument/didOpen" param
+    | .change =>
         let param := toJson ({
-          textDocument := { uri := uri, version? := some newVersion }
+          textDocument := { uri := uri, version? := some decision.version }
           contentChanges := #[TextDocumentContentChangeEvent.fullChange text]
           : DidChangeTextDocumentParams
         })
-        let session ← sendNotificationJson session "textDocument/didChange" param
-        pure {
-          session with
-          docs := session.docs.insert uri {
-            docState with
-            version := newVersion
-            textHash
-            textTraceHash
-            textMTime
-            moduleName?
-            savedOleanVersion? := none
-            fileProgress? := none
-          }
-        }
+        sendNotificationJson session "textDocument/didChange" param
+    | .unchanged =>
+        pure session
+  pure { session with docs := decision.docs }
 
 def requireDocState (session : Session) (uri : String) : IO DocState := do
   DocumentState.requireDocState session.docs uri
