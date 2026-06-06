@@ -17,6 +17,7 @@ import Beam.Broker.Config
 import Beam.Broker.Errors
 import Beam.Broker.Metrics
 import Beam.Broker.Protocol
+import Beam.Broker.RequestArgs
 import Beam.Broker.Transport
 import Beam.Broker.Lean
 import Beam.Broker.Deps
@@ -1089,9 +1090,9 @@ def updateSession (session : Session) : M Unit := do
 
 def handleDepsOp (req : Request) : M (Response × Bool) := do
   let path ←
-    match req.requirePath with
+    match req.pathArg with
     | .ok path => pure path
-    | .error err => return (reqError "invalidParams" err, false)
+    | .error resp => return (resp, false)
   let root := (← get).config.root
   let resolvedPath ← resolvePath root path
   let uri := sessionUri resolvedPath
@@ -1268,9 +1269,9 @@ private def requestStop (server : ServerRuntime) : IO Unit := do
 
 private def validateRequestRoot (server : ServerRuntime) (req : Request) : IO (Except Response Unit) := do
   let requestedRoot ←
-    match req.requireRoot with
+    match req.rootArg with
     | .ok root => pure root
-    | .error err => return .error (reqError "invalidParams" err)
+    | .error resp => return .error resp
   let requestedRoot ←
     try
       resolveRoot requestedRoot
@@ -1359,9 +1360,9 @@ private def startTrackedDiagnosticsBarrierIO
 
 private def handleCloseWithoutSessionIO (req : Request) : IO (Response × Bool) := do
   let path ←
-    match req.requirePath with
+    match req.pathArg with
     | .ok path => pure path
-    | .error err => return (reqError "invalidParams" err, false)
+    | .error resp => return (resp, false)
   if req.saveArtifacts?.getD false then
     let backendName := match req.backend with | .lean => "lean" | .rocq => "rocq"
     return (reqError "internalError" s!"cannot save artifacts without a live {backendName} session for {path}", false)
@@ -1554,9 +1555,9 @@ private def handleSyncFileOpIO
     IO (Response × Bool) := do
   try
     let path ←
-      match req.requirePath with
+      match req.pathArg with
       | .ok path => pure path
-      | .error err => return (reqError "invalidParams" err, false)
+      | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
     let path ← resolvePath ((← server.withState do pure (← get).config.root)) path
     let started ← startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
@@ -1595,9 +1596,9 @@ private def handleCloseOpIO
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO (Response × Bool) := do
   let path ←
-    match req.requirePath with
+    match req.pathArg with
     | .ok path => pure path
-    | .error err => return (reqError "invalidParams" err, false)
+    | .error resp => return (resp, false)
   if req.saveArtifacts?.getD false then
     try
       let saved ← saveOleanIO server req path cancelRef? emitProgress? emitDiagnostic?
@@ -1622,42 +1623,26 @@ private def handleRunAtOpIO
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     IO (Response × Bool) := do
   try
-    let path ←
-      match req.requirePath with
-      | .ok path => pure path
-      | .error err => return (reqError "invalidParams" err, false)
-    let line ←
-      match req.requireLine with
-      | .ok line => pure line
-      | .error err => return (reqError "invalidParams" err, false)
-    let character ←
-      match req.requireCharacter with
-      | .ok character => pure character
-      | .error err => return (reqError "invalidParams" err, false)
-    let text ←
-      match req.requireText with
-      | .ok text => pure text
-      | .error err => return (reqError "invalidParams" err, false)
-    let method ←
-      match runAtMethod req.backend with
-      | .ok method => pure method
-      | .error err => return (reqError "invalidParams" err, false)
+    let args ←
+      match req.runAtArgs with
+      | .ok args => pure args
+      | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
     let (session, uri, promise) ← server.withState do
       let session ← ensureSession req.backend
-      let session ← syncFile session path
-      let uri := sessionUri (← resolvePath session.root path)
+      let session ← syncFile session args.path
+      let uri := sessionUri (← resolvePath session.root args.path)
       let docState ← requireDocState session uri
       let params := Json.mkObj <|
         [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
-        , ("position", toJson ({ line := line, character := character : Lsp.Position }))
-        , ("text", toJson text)
+        , ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
+        , ("text", toJson args.text)
         ] ++
         match req.storeHandle? with
         | some b => [("storeHandle", toJson b)]
         | none => []
       let (session, promise) ←
-        startRequestJsonTrackedDetailed session method params
+        startRequestJsonTrackedDetailed session args.method params
           (clientRequestId? := req.clientRequestId?)
           (tracked := some (uri, docState.version))
           (initialProgress? := docState.fileProgress?)
@@ -1678,47 +1663,27 @@ private def handleRequestAtOpIO
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     IO (Response × Bool) := do
   try
-    let path ←
-      match req.requirePath with
-      | .ok path => pure path
-      | .error err => return (reqError "invalidParams" err, false)
-    let line ←
-      match req.requireLine with
-      | .ok line => pure line
-      | .error err => return (reqError "invalidParams" err, false)
-    let character ←
-      match req.requireCharacter with
-      | .ok character => pure character
-      | .error err => return (reqError "invalidParams" err, false)
-    let requestedMethod ←
-      match req.requireMethod with
-      | .ok method => pure method
-      | .error err => return (reqError "invalidParams" err, false)
-    let method ←
-      match requestAtMethod req.backend requestedMethod with
-      | .ok method => pure method
-      | .error err => return (reqError "invalidParams" err, false)
-    let extraParams ←
-      match req.requireParamsObject with
-      | .ok params => pure params
-      | .error err => return (reqError "invalidParams" err, false)
+    let args ←
+      match req.requestAtArgs with
+      | .ok args => pure args
+      | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
     let (session, uri, tracked, promise) ← server.withState do
       let session ← ensureSession req.backend
-      let session ← syncFile session path
-      let uri := sessionUri (← resolvePath session.root path)
+      let session ← syncFile session args.path
+      let uri := sessionUri (← resolvePath session.root args.path)
       let docState ← requireDocState session uri
       let tracked :=
         if session.backend == .lean then
           some (uri, docState.version)
         else
           none
-      let params := Json.mergeObj extraParams <| Json.mkObj [
+      let params := Json.mergeObj args.extraParams <| Json.mkObj [
         ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
-        ("position", toJson ({ line := line, character := character : Lsp.Position }))
+        ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
       ]
       let (session, promise) ←
-        startRequestJsonTrackedDetailed session method params
+        startRequestJsonTrackedDetailed session args.method params
           (clientRequestId? := req.clientRequestId?)
           (tracked := tracked)
           (initialProgress? := docState.fileProgress?)
@@ -1741,9 +1706,9 @@ private def handleSaveOleanOpIO
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO (Response × Bool) := do
   let path ←
-    match req.requirePath with
+    match req.pathArg with
     | .ok path => pure path
-    | .error err => return (reqError "invalidParams" err, false)
+    | .error resp => return (resp, false)
   try
     let saved ← saveOleanIO server req path cancelRef? emitProgress? emitDiagnostic?
     finalizeSavedDoc server saved.session saved.uri saved.version saved.spec false
@@ -1758,31 +1723,19 @@ private def handleGoalsOpIO
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     IO (Response × Bool) := do
   try
-    let path ←
-      match req.requirePath with
-      | .ok path => pure path
-      | .error err => return (reqError "invalidParams" err, false)
-    let line ←
-      match req.requireLine with
-      | .ok line => pure line
-      | .error err => return (reqError "invalidParams" err, false)
-    let character ←
-      match req.requireCharacter with
-      | .ok character => pure character
-      | .error err => return (reqError "invalidParams" err, false)
-    let method ←
-      match goalsMethod req.backend req.mode? with
-      | .ok method => pure method
-      | .error err => return (reqError "invalidParams" err, false)
+    let args ←
+      match req.goalsArgs with
+      | .ok args => pure args
+      | .error resp => return (resp, false)
     if req.backend == .lean && req.text?.isSome then
       return (reqError "invalidParams" "lean goals does not accept speculative text; use lean-run-at for execution", false)
     ensureRequestNotCancelled cancelRef?
     let (session, uri, tracked, promise) ← server.withState do
       let session ← ensureSession req.backend
-      let session ← syncFile session path
-      let uri := sessionUri (← resolvePath session.root path)
+      let session ← syncFile session args.path
+      let uri := sessionUri (← resolvePath session.root args.path)
       let docState ← requireDocState session uri
-      let position : Lsp.Position := { line := line, character := character }
+      let position : Lsp.Position := { line := args.line, character := args.character }
       let params :=
         match req.backend with
         | .lean =>
@@ -1809,7 +1762,7 @@ private def handleGoalsOpIO
         else
           none
       let (session, promise) ←
-        startRequestJsonTrackedDetailed session method params
+        startRequestJsonTrackedDetailed session args.method params
           (clientRequestId? := req.clientRequestId?)
           (tracked := tracked)
           (initialProgress? := docState.fileProgress?)
@@ -1831,36 +1784,24 @@ private def handleRunWithOpIO
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     IO (Response × Bool) := do
   try
-    let path ←
-      match req.requirePath with
-      | .ok path => pure path
-      | .error err => return (reqError "invalidParams" err, false)
-    let handle ←
-      match req.requireHandle with
-      | .ok handle => pure handle
-      | .error err => return (reqError "invalidParams" err, false)
-    let text ←
-      match req.requireText with
-      | .ok text => pure text
-      | .error err => return (reqError "invalidParams" err, false)
-    let method ←
-      match runWithMethod req.backend with
-      | .ok method => pure method
-      | .error err => return (reqError "invalidParams" err, false)
+    let args ←
+      match req.runWithArgs with
+      | .ok args => pure args
+      | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
     let (session, uri, promise) ← server.withState do
       let session ← ensureSession req.backend
       let rawHandle ←
-        match unwrapHandle session handle with
+        match unwrapHandle session args.handle with
         | .ok raw => pure raw
         | .error err => throwBrokerFailure { code := .contentModified, message := err }
-      let session ← syncFile session path
-      let uri := sessionUri (← resolvePath session.root path)
+      let session ← syncFile session args.path
+      let uri := sessionUri (← resolvePath session.root args.path)
       let docState ← requireDocState session uri
       let params := Json.mkObj <|
         [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
         , ("handle", rawHandle)
-        , ("text", toJson text)
+        , ("text", toJson args.text)
         ] ++ (match req.storeHandle? with
         | some b => [("storeHandle", toJson b)]
         | none => []) ++
@@ -1868,7 +1809,7 @@ private def handleRunWithOpIO
         | some b => [("linear", toJson b)]
         | none => [])
       let (session, promise) ←
-        startRequestJsonTrackedDetailed session method params
+        startRequestJsonTrackedDetailed session args.method params
           (clientRequestId? := req.clientRequestId?)
           (tracked := some (uri, docState.version))
           (initialProgress? := docState.fileProgress?)
@@ -1889,34 +1830,26 @@ private def handleReleaseOpIO
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     IO (Response × Bool) := do
   try
-    let path ←
-      match req.requirePath with
-      | .ok path => pure path
-      | .error err => return (reqError "invalidParams" err, false)
-    let handle ←
-      match req.requireHandle with
-      | .ok handle => pure handle
-      | .error err => return (reqError "invalidParams" err, false)
-    let method ←
-      match releaseMethod req.backend with
-      | .ok method => pure method
-      | .error err => return (reqError "invalidParams" err, false)
+    let args ←
+      match req.releaseArgs with
+      | .ok args => pure args
+      | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
     let (session, uri, promise) ← server.withState do
       let session ← ensureSession req.backend
       let rawHandle ←
-        match unwrapHandle session handle with
+        match unwrapHandle session args.handle with
         | .ok raw => pure raw
         | .error err => throwBrokerFailure { code := .contentModified, message := err }
-      let session ← syncFile session path
-      let uri := sessionUri (← resolvePath session.root path)
+      let session ← syncFile session args.path
+      let uri := sessionUri (← resolvePath session.root args.path)
       let docState ← requireDocState session uri
       let params := Json.mkObj [
         ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
         ("handle", rawHandle)
       ]
       let (session, promise) ←
-        startRequestJsonTrackedDetailed session method params
+        startRequestJsonTrackedDetailed session args.method params
           (clientRequestId? := req.clientRequestId?)
           (tracked := some (uri, docState.version))
           (initialProgress? := docState.fileProgress?)
@@ -1977,9 +1910,9 @@ private def handleRequestIO
               pure (resp, false)
           | .cancel =>
               let targetClientRequestId ←
-                match req.requireCancelRequestId with
+                match req.cancelRequestIdArg with
                 | .ok targetClientRequestId => pure targetClientRequestId
-                | .error err => return (reqError "invalidParams" err, false)
+                | .error resp => return (resp, false)
               let cancelled ← cancelActiveRequest server targetClientRequestId
               pure (Response.success (Json.mkObj [("cancelled", toJson cancelled)]), false)
           | .syncFile => handleSyncFileOpIO server req cancelRef? emitProgress? emitDiagnostic?
