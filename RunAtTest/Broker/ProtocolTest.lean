@@ -7,32 +7,14 @@ Author: Emilio J. Gallego Arias
 import Beam.Broker.Errors
 import Beam.Broker.Protocol
 import Beam.Broker.RequestArgs
+import RunAtTest.Broker.JsonAssert
 import Lean
 
 open Lean
 open Beam.Broker
+open RunAtTest.Broker.JsonAssert
 
 namespace RunAtTest.Broker.ProtocolTest
-
-private def requireJsonBool (label field : String) (expected : Bool) (json : Json) : IO Unit := do
-  match json.getObjValAs? Bool field with
-  | .ok actual =>
-      if actual != expected then
-        throw <| IO.userError s!"{label}: expected {field}={expected}, got {json.compress}"
-  | .error err =>
-      throw <| IO.userError s!"{label}: missing or invalid {field}: {err}\n{json.compress}"
-
-private def requireFieldPresent (label field : String) (json : Json) : IO Unit := do
-  match json.getObjVal? field with
-  | .ok _ => pure ()
-  | .error _ =>
-      throw <| IO.userError s!"{label}: expected field {field}, got {json.compress}"
-
-private def requireFieldAbsent (label field : String) (json : Json) : IO Unit := do
-  match json.getObjVal? field with
-  | .ok _ =>
-      throw <| IO.userError s!"{label}: unexpected field {field}, got {json.compress}"
-  | .error _ => pure ()
 
 private def decodeResponse (label : String) (json : Json) : IO Response := do
   match fromJson? json with

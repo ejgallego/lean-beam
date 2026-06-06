@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Beam.Mcp.Protocol
+import Beam.Mcp.Stdio
 
 open Lean
 
@@ -24,21 +25,6 @@ private abbrev stdio : IO.Process.StdioConfig where
 
 private def timeoutMs : Nat :=
   30000
-
-private def stripLineEnding (line : String) : String :=
-  let line :=
-    if !line.isEmpty && line.back == '\n' then
-      line.dropEnd 1 |>.copy
-    else
-      line
-  if !line.isEmpty && line.back == '\r' then
-    line.dropEnd 1 |>.copy
-  else
-    line
-
-private def writeJsonLineToHandle (handle : IO.FS.Handle) (json : Json) : IO Unit := do
-  handle.putStr (json.compress ++ "\n")
-  handle.flush
 
 private partial def waitForTaskWithTimeout
     (task : Task α)
@@ -82,7 +68,7 @@ private def resolveFile (root : System.FilePath) (pathText : String) : IO System
 private def readLine (stdout : IO.FS.Handle) : IO String := do
   let task ← IO.asTask stdout.getLine
   match ← waitForTaskWithTimeout task timeoutMs with
-  | some line => pure <| stripLineEnding (← IO.ofExcept line)
+  | some line => pure <| Beam.Mcp.Stdio.stripLineEnding (← IO.ofExcept line)
   | none => throw <| IO.userError "timed out waiting for lean-beam-mcp self-check response"
 
 private def throwJsonFieldError (label field : String) (json : Json) (err : String) : IO α :=
@@ -115,7 +101,7 @@ private def childExitedMessage (child : IO.Process.Child stdio) : IO String := d
 
 private def respondToRootsList (stdin : IO.FS.Handle) (request : Json) (root : System.FilePath) : IO Unit := do
   let requestId ← requireObjVal "roots/list request" "id" request
-  writeJsonLineToHandle stdin <| Json.mkObj [
+  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
     ("id", requestId),
     ("result", Json.mkObj [
@@ -156,7 +142,7 @@ private partial def readResponse
         throw <| IO.userError s!"expected self-check response id {expectedId.compress}, got {json.compress}"
 
 private def sendInitialize (stdin : IO.FS.Handle) : IO Unit := do
-  writeJsonLineToHandle stdin <| Json.mkObj [
+  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
     ("id", toJson (1 : Nat)),
     ("method", toJson "initialize"),
@@ -175,13 +161,13 @@ private def sendInitialize (stdin : IO.FS.Handle) : IO Unit := do
   ]
 
 private def sendInitialized (stdin : IO.FS.Handle) : IO Unit := do
-  writeJsonLineToHandle stdin <| Json.mkObj [
+  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
     ("method", toJson "notifications/initialized")
   ]
 
 private def sendSync (stdin : IO.FS.Handle) (pathText : String) : IO Unit := do
-  writeJsonLineToHandle stdin <| Json.mkObj [
+  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
     ("id", toJson (2 : Nat)),
     ("method", toJson "tools/call"),
@@ -194,7 +180,7 @@ private def sendSync (stdin : IO.FS.Handle) (pathText : String) : IO Unit := do
   ]
 
 private def sendShutdown (stdin : IO.FS.Handle) : IO Unit := do
-  writeJsonLineToHandle stdin <| Json.mkObj [
+  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
     ("id", toJson (3 : Nat)),
     ("method", toJson "shutdown")

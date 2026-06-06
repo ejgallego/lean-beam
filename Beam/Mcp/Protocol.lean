@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Mcp.Json
 import Beam.Mcp.Projection
 
 open Lean
@@ -49,15 +50,6 @@ def internalError (message : String) : RpcError :=
   { code := -32603, message }
 
 end RpcError
-
-private def optionalField? [FromJson α] (j : Json) (field : String) : Except String (Option α) := do
-  match j.getObjVal? field with
-  | .ok value =>
-      match fromJson? value with
-      | .ok decoded => pure (some decoded)
-      | .error err => throw s!"invalid '{field}': {err}"
-  | .error _ =>
-      pure none
 
 def validRequestId : Json → Bool
   | .str _ => true
