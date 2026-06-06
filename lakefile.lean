@@ -94,6 +94,9 @@ lean_exe "beam-daemon-startup-handshake-test" where
 lean_exe "beam-broker-protocol-test" where
   root := `RunAtTest.Broker.ProtocolTest
 
+lean_exe "beam-broker-pending-test" where
+  root := `RunAtTest.Broker.PendingTest
+
 lean_exe "beam-cli-daemon-test" where
   root := `RunAtTest.Broker.CliDaemonTest
 

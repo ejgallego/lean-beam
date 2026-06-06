@@ -16,6 +16,7 @@ import RunAt.Internal.SaveSupport
 import Beam.Broker.Config
 import Beam.Broker.Errors
 import Beam.Broker.Metrics
+import Beam.Broker.Pending
 import Beam.Broker.Protocol
 import Beam.Broker.RequestArgs
 import Beam.Broker.Transport
@@ -55,22 +56,6 @@ structure ModuleHistory where
   lastSyncSeq : Nat := 0
   lastSaveSeq : Nat := 0
 
-structure PendingResult where
-  result : Json
-  progress? : Option SyncFileProgress := none
-  diagnostics : Array Diagnostic := #[]
-
-structure PendingRequest where
-  clientRequestId? : Option String := none
-  promise : IO.Promise (Except String PendingResult)
-  tracked? : Option (DocumentUri × Nat) := none
-  progressRef : IO.Ref (Option SyncFileProgress)
-  diagnosticsRef : IO.Ref (Array Diagnostic)
-  emitProgress? : Option (SyncFileProgress → IO Unit) := none
-  fullDiagnostics : Bool := false
-  seenDiagnosticKeysRef : IO.Ref (Std.TreeSet String compare)
-  emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none
-
 structure Session where
   backend : Backend
   root : System.FilePath
@@ -79,7 +64,7 @@ structure Session where
   proc : IO.Process.Child brokerStdio
   stdin : IO.FS.Stream
   stdout : IO.FS.Stream
-  pending : Std.Mutex (Std.TreeMap RequestID PendingRequest)
+  pending : PendingRequestStore
   nextId : Nat := 1
   nextEventSeq : Nat := 1
   moduleHistory : Std.TreeMap String ModuleHistory := {}
@@ -251,209 +236,29 @@ def nextRequestId (session : Session) : Session × RequestID :=
   let id : RequestID := session.nextId
   ({ session with nextId := session.nextId + 1 }, id)
 
-private def normalizePublishDiagnostics (params : PublishDiagnosticsParams) :
-    PublishDiagnosticsParams := {
-  params with
-  diagnostics :=
-    let sorted := params.diagnostics.toList.mergeSort fun d1 d2 =>
-      compare d1.fullRange d2.fullRange |>.then (compare d1.message d2.message) |>.isLE
-    sorted.toArray
-}
-
-private def updateSyncFileProgress (progress : SyncFileProgress) (params : LeanFileProgressParams) :
-    SyncFileProgress :=
-  let processing := params.processing.size
-  {
-    updates := progress.updates + 1
-    done := processing == 0
-  }
-
-private def matchesSyncFileProgress
-    (uri : DocumentUri)
-    (version : Nat)
-    (params : LeanFileProgressParams) : Bool :=
-  let matchesUri := params.textDocument.uri == uri
-  let matchesVersion := params.textDocument.version?.map (fun progressVersion =>
-    decide (version <= progressVersion)) |>.getD true
-  matchesUri && matchesVersion
-
-private def observeSyncFileProgress
-    [ToJson α]
-    (tracked : Option (DocumentUri × Nat))
-    (progress? : Option SyncFileProgress)
-    (param : α) : Option SyncFileProgress :=
-  match tracked, progress?, fromJson? (toJson param) with
-  | some (uri, version), some progress, .ok (progressParam : LeanFileProgressParams) =>
-      if matchesSyncFileProgress uri version progressParam then
-        some <| updateSyncFileProgress progress progressParam
-      else
-        some progress
-  | _, _, _ =>
-      progress?
-
-private def trackedPublishDiagnostics?
-    [ToJson α]
-    (trackedUri? : Option DocumentUri)
-    (param : α) : Option PublishDiagnosticsParams :=
-  match trackedUri?, fromJson? (toJson param) with
-  | some uri, .ok (diagnosticParam : PublishDiagnosticsParams) =>
-      let diagnosticParam := normalizePublishDiagnostics diagnosticParam
-      if diagnosticParam.uri == uri then
-        some diagnosticParam
-      else
-        none
-  | _, _ =>
-      none
-
-private def diagnosticDisplayPath (root : System.FilePath) (uri : DocumentUri) : String :=
-  match System.Uri.fileUriToPath? uri with
-  | some path =>
-      let rootStr := root.toString
-      let pathStr := path.toString
-      let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-      if pathStr.startsWith rootPrefix then
-        (pathStr.drop rootPrefix.length).toString
-      else if pathStr == rootStr then
-        "."
-      else
-        pathStr
-  | none =>
-      uri
-
-private def diagnosticStreamKey (diagnostic : Diagnostic) : String :=
-  (toJson diagnostic).compress
-
-private def emitNewTrackedDiagnostics
-    (root : System.FilePath)
-    (seen : Std.TreeSet String compare)
-    (diagnosticParam : PublishDiagnosticsParams)
-    (fullDiagnostics : Bool)
-    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
-    IO (Std.TreeSet String compare) := do
-  let mut seen := seen
-  let path := diagnosticDisplayPath root diagnosticParam.uri
-  let diagnostics := filterSyncDiagnostics fullDiagnostics diagnosticParam.diagnostics
-  for diagnostic in diagnostics do
-    let key := diagnosticStreamKey diagnostic
-    if !seen.contains key then
-      seen := seen.insert key
-      match emitDiagnostic? with
-      | some emitDiagnostic =>
-          emitDiagnostic {
-            path
-            uri := diagnosticParam.uri
-            version? := diagnosticParam.version?
-            severity? := effectiveSyncDiagnosticSeverity diagnostic
-            range := diagnostic.fullRange
-            message := diagnostic.message
-          }
-      | none =>
-          pure ()
-  pure seen
-
-private def removePendingRequest (session : Session) (id : RequestID) : IO (Option PendingRequest) := do
-  session.pending.atomically do
-    let pending? := (← get).get? id
-    modify (·.erase id)
-    pure pending?
-
-private def snapshotPendingRequests (session : Session) : IO (Array PendingRequest) := do
-  session.pending.atomically do
-    pure <| (← get).toList.map Prod.snd |>.toArray
-
-private def snapshotPendingEntries (session : Session) : IO (Array (RequestID × PendingRequest)) := do
-  session.pending.atomically do
-    pure <| (← get).toList.toArray
-
-private def resolvePendingResponse (pending : PendingRequest) (result : Json) : IO Unit := do
-  let progress? ← pending.progressRef.get
-  let diagnostics ← pending.diagnosticsRef.get
-  try
-    pending.promise.resolve (.ok { result, progress?, diagnostics })
-  catch _ =>
-    pure ()
-
-private def resolvePendingError
-    (pending : PendingRequest)
-    (code : ErrorCode)
-    (message : String)
-    (data? : Option Json := none) : IO Unit := do
-  let errJson := Json.mkObj <|
-    [("code", toJson code), ("message", toJson message)] ++
-    match data? with
-    | some data => [("data", data)]
-    | none => []
-  try
-    pending.promise.resolve (.error s!"jsonrpcerr:{errJson.compress}")
-  catch _ =>
-    pure ()
-
-private def failAllPendingRequests (session : Session) (message : String) : IO Unit := do
-  let pending ← session.pending.atomically do
-    let pending := (← get).toList.map Prod.snd |>.toArray
-    set ({} : Std.TreeMap RequestID PendingRequest)
-    pure pending
-  for req in pending do
-    try
-      req.promise.resolve (.error message)
-    catch _ =>
-      pure ()
-
-private def observePendingProgress
-    [ToJson α]
-    (pending : PendingRequest)
-    (param : α) : IO Unit := do
-  let progress? ← pending.progressRef.get
-  let nextProgress? := observeSyncFileProgress pending.tracked? progress? param
-  if nextProgress? != progress? then
-    pending.progressRef.set nextProgress?
-    match pending.emitProgress?, nextProgress? with
-    | some emitProgress, some progress =>
-        try
-          emitProgress progress
-        catch _ =>
-          pure ()
-    | _, _ =>
-        pure ()
-
-private def observePendingDiagnostics
-    [ToJson α]
-    (root : System.FilePath)
-    (pending : PendingRequest)
-    (param : α) : IO Unit := do
-  match trackedPublishDiagnostics? (pending.tracked?.map Prod.fst) param with
-  | none =>
-      pure ()
-  | some diagnosticParam =>
-      pending.diagnosticsRef.set diagnosticParam.diagnostics
-      let seen ← pending.seenDiagnosticKeysRef.get
-      let seen ←
-        emitNewTrackedDiagnostics root seen diagnosticParam pending.fullDiagnostics pending.emitDiagnostic?
-      pending.seenDiagnosticKeysRef.set seen
-
 partial def sessionReaderLoop (session : Session) : IO Unit := do
   try
     let msg ← session.stdout.readLspMessage
     match msg with
     | .response id result =>
-        if let some pending ← removePendingRequest session id then
-          resolvePendingResponse pending result
+        if let some pending ← PendingRequestStore.remove session.pending id then
+          PendingRequest.resolveResponse pending result
     | .responseError id code message data? =>
-        if let some pending ← removePendingRequest session id then
-          resolvePendingError pending code message data?
+        if let some pending ← PendingRequestStore.remove session.pending id then
+          PendingRequest.resolveError pending code message data?
     | .notification "$/lean/fileProgress" (some param) =>
-        let pending ← snapshotPendingRequests session
+        let pending ← PendingRequestStore.snapshot session.pending
         for req in pending do
-          observePendingProgress req param
+          PendingRequest.observeProgress req param
     | .notification "textDocument/publishDiagnostics" (some param) =>
-        let pending ← snapshotPendingRequests session
+        let pending ← PendingRequestStore.snapshot session.pending
         for req in pending do
-          observePendingDiagnostics session.root req param
+          PendingRequest.observeDiagnostics session.root req param
     | _ =>
         pure ()
     sessionReaderLoop session
   catch e =>
-    failAllPendingRequests session <| brokerFailureMessage {
+    PendingRequestStore.failAll session.pending <| brokerFailureMessage {
       code := .workerExited
       message := e.toString
     }
@@ -465,21 +270,6 @@ partial def sessionReaderLoop (session : Session) : IO Unit := do
       discard <| session.proc.tryWait
     catch _ =>
       pure ()
-
-private def awaitPendingResult
-    (promise : IO.Promise (Except String PendingResult)) : IO PendingResult := do
-  let some result ← IO.wait promise.result?
-    | throw <| IO.userError "pending broker request promise dropped"
-  match result with
-  | .ok result => pure result
-  | .error err => throw <| IO.userError err
-
-private def sendCancelNotification (session : Session) (id : RequestID) : IO Unit := do
-  writeLspNotification session.stdin ({
-    method := "$/cancelRequest"
-    param := toJson ({ id } : CancelParams)
-    : Lean.JsonRpc.Notification Json
-  })
 
 private def startRequestJsonTrackedDetailed
     (session : Session)
@@ -497,8 +287,7 @@ private def startRequestJsonTrackedDetailed
   let diagnosticsRef ← IO.mkRef #[]
   let seenDiagnosticKeysRef ← IO.mkRef ({} : Std.TreeSet String compare)
   let promise ← IO.Promise.new
-  session.pending.atomically do
-    modify (·.insert id {
+  PendingRequestStore.insert session.pending id {
       clientRequestId? := clientRequestId?
       promise := promise
       tracked? := tracked
@@ -509,12 +298,12 @@ private def startRequestJsonTrackedDetailed
       seenDiagnosticKeysRef := seenDiagnosticKeysRef
       emitDiagnostic? := emitDiagnostic?
       : PendingRequest
-    })
+    }
   try
     writeLspRequest session.stdin ({ id, method, param : Lean.JsonRpc.Request Json })
     pure (session, promise)
   catch e =>
-    discard <| removePendingRequest session id
+    discard <| PendingRequestStore.remove session.pending id
     try
       promise.resolve (.error e.toString)
     catch _ =>
@@ -535,7 +324,7 @@ def sendRequestJsonTrackedDetailed
   let (session, promise) ←
     startRequestJsonTrackedDetailed session method param clientRequestId? tracked initialProgress?
       emitProgress? fullDiagnostics emitDiagnostic?
-  let pending ← awaitPendingResult promise
+  let pending ← PendingRequest.awaitResult promise
   pure (session, pending.result, pending.progress?, pending.diagnostics)
 
 def sendRequestJsonTracked
@@ -610,7 +399,7 @@ def ensureSession (backend : Backend) : M Session := do
       }
       let stdin := IO.FS.Stream.ofHandle proc.stdin
       let stdout := IO.FS.Stream.ofHandle proc.stdout
-      let pending ← Std.Mutex.new ({} : Std.TreeMap RequestID PendingRequest)
+      let pending ← PendingRequestStore.create
       let sessionToken ← mkSessionToken
       let mut session : Session := {
         backend
@@ -1149,7 +938,7 @@ structure ServerRuntime where
   state : Std.Mutex State
   endpoint : Transport.Endpoint
   stop : IO.Ref Bool
-  activeRequests : Std.Mutex (Std.TreeMap String (IO.Ref Bool))
+  activeRequests : ActiveRequestRegistry
 
 def ServerRuntime.withState (server : ServerRuntime) (act : M α) : IO α := do
   server.state.atomically do
@@ -1166,36 +955,12 @@ def ServerRuntime.create
     state := ← Std.Mutex.new { config := config, startMonoNanos := startMonoNanos }
     endpoint := endpoint
     stop := ← IO.mkRef false
-    activeRequests := ← Std.Mutex.new ({} : Std.TreeMap String (IO.Ref Bool))
+    activeRequests := ← ActiveRequestRegistry.create
   }
 
 private def requestTracksActiveRequest : Op → Bool
   | .cancel | .stats | .resetStats | .shutdown | .openDocs => false
   | _ => true
-
-private def registerActiveRequest
-    (server : ServerRuntime)
-    (clientRequestId? : Option String) : IO (Except Response (Option (String × IO.Ref Bool))) := do
-  match clientRequestId? with
-  | none =>
-      pure (.ok none)
-  | some clientRequestId =>
-      let cancelRef ← IO.mkRef false
-      server.activeRequests.atomically do
-        if (← get).contains clientRequestId then
-          pure <| .error <| reqError "invalidParams" s!"clientRequestId '{clientRequestId}' is already active"
-        else
-          modify (·.insert clientRequestId cancelRef)
-          pure <| .ok <| some (clientRequestId, cancelRef)
-
-private def unregisterActiveRequest
-    (server : ServerRuntime)
-    (active? : Option (String × IO.Ref Bool)) : IO Unit := do
-  match active? with
-  | none => pure ()
-  | some (clientRequestId, _) =>
-      server.activeRequests.atomically do
-        modify (·.erase clientRequestId)
 
 private def recordDispatchMetrics
     (server : ServerRuntime)
@@ -1208,56 +973,25 @@ private def recordDispatchMetrics
     server.withState do
       recordRequestMetrics req.backend req.op.key resp.ok (resp.error?.map (·.code)) latencyMs
 
-private def ensureRequestNotCancelled
-    (cancelRef? : Option (IO.Ref Bool)) : IO Unit := do
-  match cancelRef? with
-  | none => pure ()
-  | some cancelRef =>
-      if ← cancelRef.get then
-        throwBrokerFailure {
-          code := .requestCancelled
-          message := "client requested cancellation"
-        }
-
-private def cancelMatchingPendingRequests
-    (session : Session)
-    (clientRequestId : String) : IO Nat := do
-  let entries ← snapshotPendingEntries session
-  let mut cancelled := 0
-  for (requestId, pending) in entries do
-    if pending.clientRequestId? == some clientRequestId then
-      sendCancelNotification session requestId
-      cancelled := cancelled + 1
-  pure cancelled
-
 private def cancelActiveRequest
     (server : ServerRuntime)
     (clientRequestId : String) : IO Bool := do
-  let cancelRef? ← server.activeRequests.atomically do
-    pure <| (← get).get? clientRequestId
-  match cancelRef? with
-  | none =>
-      pure false
-  | some cancelRef =>
-      cancelRef.set true
-      let sessions ← server.withState do
-        let state ← get
-        pure [state.lean.session?, state.rocq.session?]
-      for session? in sessions do
-        if let some session := session? then
-          discard <| cancelMatchingPendingRequests session clientRequestId
-      pure true
+  if ← ActiveRequestRegistry.markCancelled server.activeRequests clientRequestId then
+    let sessions ← server.withState do
+      let state ← get
+      pure [state.lean.session?, state.rocq.session?]
+    for session? in sessions do
+      if let some session := session? then
+        discard <| PendingRequestStore.cancelMatching session.pending session.stdin clientRequestId
+    pure true
+  else
+    pure false
 
 private def propagatePendingCancellation
     (session : Session)
     (clientRequestId? : Option String)
     (cancelRef? : Option (IO.Ref Bool)) : IO Unit := do
-  match clientRequestId?, cancelRef? with
-  | some clientRequestId, some cancelRef =>
-      if ← cancelRef.get then
-        discard <| cancelMatchingPendingRequests session clientRequestId
-  | _, _ =>
-      pure ()
+  PendingRequestStore.propagateCancellation session.pending session.stdin clientRequestId? cancelRef?
 
 private def requestStop (server : ServerRuntime) : IO Unit := do
   server.stop.set true
@@ -1506,7 +1240,7 @@ private def saveOleanIO
     let docState ← requireDocState started.session started.uri
     pure (docState.textHash, docState.textTraceHash, docState.textMTime, (← get).config.leanCmd?)
   propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-  let barrier ← awaitPendingResult started.promise
+  let barrier ← PendingRequest.awaitResult started.promise
   let barrierProgress? := effectiveSyncBarrierProgress started.priorProgress? barrier.progress? barrier.diagnostics
   let (_ : WaitForDiagnostics) ← decodeResponseAs barrier.result
   mergeFileProgressIfCurrent server started.session started.uri barrierProgress?
@@ -1528,7 +1262,7 @@ private def saveOleanIO
     updateSession current
     pure (current, savePromise)
   propagatePendingCancellation session req.clientRequestId? cancelRef?
-  let savePending ← awaitPendingResult savePromise
+  let savePending ← PendingRequest.awaitResult savePromise
   let saveResult : RunAt.Internal.SaveArtifactsResult ← decodeResponseAs savePending.result
   if saveResult.version != started.version then
     throw <| IO.userError
@@ -1562,7 +1296,7 @@ private def handleSyncFileOpIO
     let path ← resolvePath ((← server.withState do pure (← get).config.root)) path
     let started ← startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
     propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-    let pending ← awaitPendingResult started.promise
+    let pending ← PendingRequest.awaitResult started.promise
     let fileProgress? := effectiveSyncBarrierProgress started.priorProgress? pending.progress? pending.diagnostics
     mergeFileProgressIfCurrent server started.session started.uri fileProgress?
     if syncBarrierIncomplete? fileProgress? pending.diagnostics then
@@ -1650,7 +1384,7 @@ private def handleRunAtOpIO
       updateSession session
       pure (session, uri, promise)
     propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← awaitPendingResult promise
+    let pending ← PendingRequest.awaitResult promise
     mergeFileProgressIfCurrent server session uri pending.progress?
     pure (withFileProgress (sessionResult session (wrapResultHandle session pending.result)) pending.progress?, false)
   catch e =>
@@ -1691,7 +1425,7 @@ private def handleRequestAtOpIO
       updateSession session
       pure (session, uri, tracked, promise)
     propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← awaitPendingResult promise
+    let pending ← PendingRequest.awaitResult promise
     if tracked.isSome then
       mergeFileProgressIfCurrent server session uri pending.progress?
     pure (withFileProgress (sessionResult session pending.result) pending.progress?, false)
@@ -1770,7 +1504,7 @@ private def handleGoalsOpIO
       updateSession session
       pure (session, uri, tracked, promise)
     propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← awaitPendingResult promise
+    let pending ← PendingRequest.awaitResult promise
     if tracked.isSome then
       mergeFileProgressIfCurrent server session uri pending.progress?
     pure (withFileProgress (sessionResult session pending.result) pending.progress?, false)
@@ -1817,7 +1551,7 @@ private def handleRunWithOpIO
       updateSession session
       pure (session, uri, promise)
     propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← awaitPendingResult promise
+    let pending ← PendingRequest.awaitResult promise
     mergeFileProgressIfCurrent server session uri pending.progress?
     pure (withFileProgress (sessionResult session (wrapResultHandle session pending.result)) pending.progress?, false)
   catch e =>
@@ -1857,7 +1591,7 @@ private def handleReleaseOpIO
       updateSession session
       pure (session, uri, promise)
     propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← awaitPendingResult promise
+    let pending ← PendingRequest.awaitResult promise
     mergeFileProgressIfCurrent server session uri pending.progress?
     pure (withFileProgress (sessionResult session pending.result) pending.progress?, false)
   catch e =>
@@ -1936,9 +1670,10 @@ def ServerRuntime.dispatchRequest
   try
     let active? ←
       if requestTracksActiveRequest req.op then
-        match ← registerActiveRequest server req.clientRequestId? with
+        match ← ActiveRequestRegistry.register server.activeRequests req.clientRequestId? with
         | .ok active? => pure active?
-        | .error resp =>
+        | .error err =>
+            let resp := reqError "invalidParams" err
             let resp := resp.withClientRequestId req.clientRequestId?
             recordDispatchMetrics server req resp startedAt
             return (resp, false)
@@ -1946,12 +1681,12 @@ def ServerRuntime.dispatchRequest
         pure none
     try
       let (resp, shouldStop) ←
-        handleRequestIO server req (active?.map Prod.snd) emitProgress? emitDiagnostic?
+        handleRequestIO server req (active?.map (·.cancelRef)) emitProgress? emitDiagnostic?
       let resp := resp.withClientRequestId req.clientRequestId?
       recordDispatchMetrics server req resp startedAt
       pure (resp, shouldStop)
     finally
-      unregisterActiveRequest server active?
+      ActiveRequestRegistry.unregister server.activeRequests active?
   catch e =>
     let resp := (Response.error "internalError" e.toString).withClientRequestId req.clientRequestId?
     recordDispatchMetrics server req resp startedAt
@@ -2056,7 +1791,7 @@ def main (args : List String) : IO Unit := do
     state := ← Std.Mutex.new { config := config, startMonoNanos := startMonoNanos }
     endpoint := opts.endpoint
     stop := ← IO.mkRef false
-    activeRequests := ← Std.Mutex.new ({} : Std.TreeMap String (IO.Ref Bool))
+    activeRequests := ← ActiveRequestRegistry.create
   }
   try
     acceptLoop runtime listener
