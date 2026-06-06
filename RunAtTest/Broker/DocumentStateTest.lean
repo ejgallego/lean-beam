@@ -42,6 +42,70 @@ private def checkRecordFileProgress : IO Unit := do
   let docs := DocumentState.recordFileProgress docs "file:///workspace/Missing.lean" (some {})
   require "recordFileProgress ignores unknown docs" (docs.toList.length == 1)
 
+private def mkSnapshot
+    (textHash : UInt64)
+    (moduleName? : Option String := some "Foo") : DocumentState.FileSnapshot := {
+  textHash
+  textTraceHash := default
+  textMTime := default
+  moduleName?
+}
+
+private def checkSyncFileDecisionOpen : IO Unit := do
+  let uri := "file:///workspace/Foo.lean"
+  let decision := DocumentState.syncFileDecision {} uri (mkSnapshot 10)
+  require "syncFileDecision opens unknown doc" (decision.action == .open)
+  require "syncFileDecision open starts at version 1" (decision.version == 1)
+  let some doc := decision.docs.get? uri
+    | throw <| IO.userError "syncFileDecision open did not insert doc"
+  require "syncFileDecision open records hash" (doc.textHash == 10)
+  require "syncFileDecision open records module" (doc.moduleName? == some "Foo")
+
+private def checkSyncFileDecisionUnchanged : IO Unit := do
+  let uri := "file:///workspace/Foo.lean"
+  let docs : DocumentState.Docs :=
+    Std.TreeMap.empty.insert uri {
+      (mkDoc 5 (some "OldFoo")) with
+      textHash := 10
+      savedOleanVersion? := some 5
+      fileProgress? := some { updates := 2, done := true }
+      lastSyncSeq := 8
+      lastSaveSeq := 7
+    }
+  let decision := DocumentState.syncFileDecision docs uri (mkSnapshot 10 (some "Foo"))
+  require "syncFileDecision unchanged has no LSP action" (decision.action == .unchanged)
+  require "syncFileDecision unchanged preserves version" (decision.version == 5)
+  let some doc := decision.docs.get? uri
+    | throw <| IO.userError "syncFileDecision unchanged erased doc"
+  require "syncFileDecision unchanged preserves saved olean" (doc.savedOleanVersion? == some 5)
+  require "syncFileDecision unchanged preserves progress" (doc.fileProgress? == some { updates := 2, done := true })
+  require "syncFileDecision unchanged refreshes module" (doc.moduleName? == some "Foo")
+  require "syncFileDecision unchanged preserves sync seq" (doc.lastSyncSeq == 8)
+  require "syncFileDecision unchanged preserves save seq" (doc.lastSaveSeq == 7)
+
+private def checkSyncFileDecisionChange : IO Unit := do
+  let uri := "file:///workspace/Foo.lean"
+  let docs : DocumentState.Docs :=
+    Std.TreeMap.empty.insert uri {
+      (mkDoc 5 (some "OldFoo")) with
+      textHash := 10
+      savedOleanVersion? := some 5
+      fileProgress? := some { updates := 2, done := true }
+      lastSyncSeq := 8
+      lastSaveSeq := 7
+    }
+  let decision := DocumentState.syncFileDecision docs uri (mkSnapshot 11 (some "Foo"))
+  require "syncFileDecision changed emits change action" (decision.action == .change)
+  require "syncFileDecision changed bumps version" (decision.version == 6)
+  let some doc := decision.docs.get? uri
+    | throw <| IO.userError "syncFileDecision changed erased doc"
+  require "syncFileDecision changed records hash" (doc.textHash == 11)
+  require "syncFileDecision changed records module" (doc.moduleName? == some "Foo")
+  require "syncFileDecision changed clears saved olean" (doc.savedOleanVersion?.isNone)
+  require "syncFileDecision changed clears progress" (doc.fileProgress?.isNone)
+  require "syncFileDecision changed preserves sync seq" (doc.lastSyncSeq == 8)
+  require "syncFileDecision changed preserves save seq" (doc.lastSaveSeq == 7)
+
 private def checkMarkSyncedVersion : IO Unit := do
   let uri := "file:///workspace/Foo.lean"
   let docs : DocumentState.Docs := Std.TreeMap.empty.insert uri (mkDoc 3 (some "Foo"))
@@ -99,6 +163,9 @@ private def checkModuleHistorySnapshots : IO Unit := do
 def main : IO Unit := do
   checkTrackedModuleName
   checkRecordFileProgress
+  checkSyncFileDecisionOpen
+  checkSyncFileDecisionUnchanged
+  checkSyncFileDecisionChange
   checkMarkSyncedVersion
   checkMarkSavedVersion
   checkModuleHistorySnapshots

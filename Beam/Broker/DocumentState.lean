@@ -41,6 +41,23 @@ structure ModuleHistorySnapshot where
   lastSaveSeq : Nat := 0
   deriving Inhabited
 
+structure FileSnapshot where
+  textHash : UInt64
+  textTraceHash : Lake.Hash
+  textMTime : Lake.MTime
+  moduleName? : Option String := none
+
+inductive SyncFileAction where
+  | open
+  | change
+  | unchanged
+  deriving Inhabited, BEq, Repr
+
+structure SyncFileDecision where
+  action : SyncFileAction
+  version : Nat
+  docs : Docs
+
 structure VersionMarkResult where
   docs : Docs
   moduleHistory : ModuleHistories
@@ -79,6 +96,52 @@ def recordFileProgress
       docs.insert uri { docState with fileProgress? := fileProgress? }
   | none =>
       docs
+
+private def docStateOfSnapshot (version : Nat) (snapshot : FileSnapshot) : DocState := {
+  version
+  textHash := snapshot.textHash
+  textTraceHash := snapshot.textTraceHash
+  textMTime := snapshot.textMTime
+  moduleName? := snapshot.moduleName?
+}
+
+def syncFileDecision
+    (docs : Docs)
+    (uri : DocumentUri)
+    (snapshot : FileSnapshot) : SyncFileDecision :=
+  match docs.get? uri with
+  | none =>
+      let version := 1
+      {
+        action := .open
+        version
+        docs := docs.insert uri (docStateOfSnapshot version snapshot)
+      }
+  | some docState =>
+      if docState.textHash == snapshot.textHash then
+        {
+          action := .unchanged
+          version := docState.version
+          docs := docs.insert uri {
+            docState with
+            textTraceHash := snapshot.textTraceHash
+            textMTime := snapshot.textMTime
+            moduleName? := snapshot.moduleName?
+          }
+        }
+      else
+        let version := docState.version + 1
+        {
+          action := .change
+          version
+          docs := docs.insert uri {
+            (docStateOfSnapshot version snapshot) with
+            savedOleanVersion? := none
+            fileProgress? := none
+            lastSyncSeq := docState.lastSyncSeq
+            lastSaveSeq := docState.lastSaveSeq
+          }
+        }
 
 def updateModuleHistorySync
     (moduleHistory : ModuleHistories)
