@@ -14,8 +14,10 @@ import RunAt.Protocol
 import RunAt.Internal.DirectImports
 import RunAt.Internal.SaveSupport
 import Beam.Broker.Config
+import Beam.Broker.DocumentState
 import Beam.Broker.Errors
 import Beam.Broker.Metrics
+import Beam.Broker.OpenDocs
 import Beam.Broker.Pending
 import Beam.Broker.Protocol
 import Beam.Broker.RequestArgs
@@ -39,22 +41,6 @@ abbrev brokerStdio : IO.Process.StdioConfig where
   stdin := .piped
   stdout := .piped
   stderr := .inherit
-
-structure DocState where
-  version : Nat
-  textHash : UInt64
-  textTraceHash : Lake.Hash
-  textMTime : Lake.MTime
-  moduleName? : Option String := none
-  savedOleanVersion? : Option Nat := none
-  fileProgress? : Option SyncFileProgress := none
-  lastSyncSeq : Nat := 0
-  lastSaveSeq : Nat := 0
-
-structure ModuleHistory where
-  path : String
-  lastSyncSeq : Nat := 0
-  lastSaveSeq : Nat := 0
 
 structure Session where
   backend : Backend
@@ -428,25 +414,6 @@ def sendNotificationJson (session : Session) (method : String) (param : Json) : 
   writeLspNotification session.stdin ({ method, param : Lean.JsonRpc.Notification Json })
   pure session
 
-private def trackedModuleName? (root path : System.FilePath) (backend : Backend) : Option String := do
-  guard (backend == .lean)
-  let rootStr := root.toString
-  let pathStr := path.toString
-  let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-  let relPath? :=
-    if pathStr.startsWith rootPrefix then
-      some <| (pathStr.drop rootPrefix.length).toString
-    else if pathStr == rootStr then
-      some "."
-    else
-      none
-  let relPath ← relPath?
-  guard (relPath.endsWith ".lean")
-  let relFile := System.FilePath.mk relPath
-  let stem ← relFile.fileStem
-  let parts := relFile.components.dropLast
-  some <| String.intercalate "." (parts ++ [stem])
-
 def syncFile (session : Session) (path : System.FilePath) : IO Session := do
   let path ← resolvePath session.root path
   let text ← IO.FS.readFile path
@@ -454,7 +421,7 @@ def syncFile (session : Session) (path : System.FilePath) : IO Session := do
   let textHash := hash text
   let textTraceHash := Lake.Hash.ofText text
   let textMTime ← Lake.getFileMTime path
-  let moduleName? := trackedModuleName? session.root path session.backend
+  let moduleName? := DocumentState.trackedModuleName? session.root path session.backend
   match session.docs.get? uri with
   | none =>
       let param := toJson ({
@@ -510,9 +477,7 @@ def syncFile (session : Session) (path : System.FilePath) : IO Session := do
         }
 
 def requireDocState (session : Session) (uri : String) : IO DocState := do
-  match session.docs.get? uri with
-  | some docState => pure docState
-  | none => throw <| IO.userError s!"missing synced document state for {uri}"
+  DocumentState.requireDocState session.docs uri
 
 def closeFile (session : Session) (path : System.FilePath) : IO Session := do
   let path ← resolvePath session.root path
@@ -526,11 +491,7 @@ def closeFile (session : Session) (path : System.FilePath) : IO Session := do
 
 def recordFileProgress (session : Session) (uri : DocumentUri)
     (fileProgress? : Option SyncFileProgress) : Session :=
-  match session.docs.get? uri with
-  | some docState =>
-      { session with docs := session.docs.insert uri { docState with fileProgress? := fileProgress? } }
-  | none =>
-      session
+  { session with docs := DocumentState.recordFileProgress session.docs uri fileProgress? }
 
 def decodeResponseAs [FromJson α] (json : Json) : IO α := do
   match fromJson? json with
@@ -609,73 +570,29 @@ private def trackedPathLabel (root : System.FilePath) (uri : DocumentUri) : Stri
   | some path => path
   | none => uri
 
-private def nextEventSeq (session : Session) : Session × Nat :=
-  ({ session with nextEventSeq := session.nextEventSeq + 1 }, session.nextEventSeq)
-
-private def updateModuleHistorySync (session : Session) (moduleName path : String) (seq : Nat) : Session :=
-  let history := (session.moduleHistory.get? moduleName).getD { path }
-  { session with
-    moduleHistory := session.moduleHistory.insert moduleName {
-      history with
-      path
-      lastSyncSeq := seq
+private def applyVersionMarkResult
+    (session : Session)
+    (result : DocumentState.VersionMarkResult) : Session :=
+  if result.applied then
+    { session with
+      nextEventSeq := session.nextEventSeq + 1
+      docs := result.docs
+      moduleHistory := result.moduleHistory
     }
-  }
-
-private def updateModuleHistorySave (session : Session) (moduleName path : String) (seq : Nat) : Session :=
-  let history := (session.moduleHistory.get? moduleName).getD { path }
-  { session with
-    moduleHistory := session.moduleHistory.insert moduleName {
-      history with
-      path
-      lastSyncSeq := seq
-      lastSaveSeq := seq
-    }
-  }
+  else
+    session
 
 private def markDocSyncedVersion (session : Session) (uri : DocumentUri) (version : Nat) : Session :=
-  match session.docs.get? uri with
-  | some docState =>
-      if docState.version == version then
-        let (session, seq) := nextEventSeq session
-        let path := trackedPathLabel session.root uri
-        let session :=
-          match docState.moduleName? with
-          | some moduleName => updateModuleHistorySync session moduleName path seq
-          | none => session
-        { session with
-          docs := session.docs.insert uri {
-            docState with
-            lastSyncSeq := seq
-          }
-        }
-      else
-        session
-  | none =>
-      session
+  let result := DocumentState.markSyncedVersion
+    session.docs session.moduleHistory uri version
+    (trackedPathLabel session.root uri) session.nextEventSeq
+  applyVersionMarkResult session result
 
 private def markDocSavedVersion (session : Session) (uri : DocumentUri) (version : Nat) : Session :=
-  match session.docs.get? uri with
-  | some docState =>
-      if docState.version == version then
-        let (session, seq) := nextEventSeq session
-        let path := trackedPathLabel session.root uri
-        let session :=
-          match docState.moduleName? with
-          | some moduleName => updateModuleHistorySave session moduleName path seq
-          | none => session
-        { session with
-          docs := session.docs.insert uri {
-            docState with
-            savedOleanVersion? := some version
-            lastSyncSeq := seq
-            lastSaveSeq := seq
-          }
-        }
-      else
-        session
-  | none =>
-      session
+  let result := DocumentState.markSavedVersion
+    session.docs session.moduleHistory uri version
+    (trackedPathLabel session.root uri) session.nextEventSeq
+  applyVersionMarkResult session result
 
 def saveOlean
     (leanCmd? : Option String)
@@ -734,118 +651,17 @@ def saveOlean
   }))
   pure (markDocSavedVersion session uri docState.version, leanSavePayload spec docState.version docState.textTraceHash, fileProgress?)
 
-private def docSyncStatus (path : System.FilePath) (docState : DocState) : IO String := do
-  if !(← path.pathExists) then
-    pure "missing"
-  else
-    let text ← IO.FS.readFile path
-    pure <| if hash text == docState.textHash then "saved" else "notSaved"
-
-private def docDepsJson? (root : System.FilePath) (path : System.FilePath) (uri : DocumentUri) :
-    IO (Option Json) := do
-  let some module := normalizeModuleForPath root path uri none
-    | pure none
-  try
-    let state ← mkDepsQueryState root
-    let imports ← requireDirectImports state module.name
-    pure <| some <| Json.arr <| imports.map (importJson root)
-  catch _ =>
-    pure none
-
-private def docSaveFields
-    (root : System.FilePath)
-    (backend : Backend)
-    (path? : Option System.FilePath)
-    (leanCmd? : Option String) : IO (List (String × Json)) := do
-  match backend, path? with
-  | .lean, some path =>
-      match ← checkLeanSaveTarget root path leanCmd? with
-      | .eligible moduleName =>
-          pure [
-            ("saveEligible", toJson true),
-            ("saveReason", toJson "ok"),
-            ("saveModule", toJson moduleName.toString)
-          ]
-      | .notModule =>
-          pure [
-            ("saveEligible", toJson false),
-            ("saveReason", toJson saveTargetNotModuleCode)
-          ]
-      | .workspaceLoadFailed msg =>
-          pure [
-            ("saveEligible", toJson false),
-            ("saveReason", toJson "workspaceLoadFailed"),
-            ("saveDetail", toJson msg)
-          ]
-  | _, _ =>
-      pure []
-
-private def docStateJson
-    (root : System.FilePath)
-    (backend : Backend)
-    (leanCmd? : Option String)
-    (uri : DocumentUri)
-    (docState : DocState) : IO Json := do
-  let path? := System.Uri.fileUriToPath? uri
-  let relPath? := workspacePath? root uri
-  let status ←
-    match path? with
-    | some path => docSyncStatus path docState
-    | none => pure "unknown"
-  let saved := status == "saved"
-  let savedOlean := saved && docState.savedOleanVersion? == some docState.version
-  let depsFields ←
-    match backend, path? with
-    | .lean, some path =>
-        match ← docDepsJson? root path uri with
-        | some deps => pure [("deps", deps)]
-        | none => pure []
-    | _, _ => pure []
-  let fileProgressFields :=
-    match docState.fileProgress? with
-    | some fileProgress => [("fileProgress", toJson fileProgress)]
-    | none => []
-  let saveFields ← docSaveFields root backend path? leanCmd?
-  pure <| Json.mkObj <|
-    [
-      ("uri", toJson uri),
-      ("version", toJson docState.version),
-      ("status", toJson status),
-      ("saved", toJson saved),
-      ("savedOlean", toJson savedOlean)
-    ] ++
-    (match relPath?, path? with
-    | some relPath, _ => [("path", toJson relPath)]
-    | none, some path => [("path", toJson path.toString)]
-    | none, none => []) ++
-    depsFields ++
-    saveFields ++
-    fileProgressFields
-
-private def sessionOpenDocsJson (leanCmd? : Option String) (session? : Option Session) : IO Json := do
-  match session? with
-  | none =>
-      pure <| Json.mkObj [
-        ("active", toJson false),
-        ("files", Json.arr #[])
-      ]
-  | some session =>
-      let files ← session.docs.toList.mapM fun (uri, docState) =>
-        docStateJson session.root session.backend leanCmd? uri docState
-      pure <| Json.mkObj [
-        ("active", toJson true),
-        ("files", Json.arr files.toArray)
-      ]
+private def openDocsSessionView (session : Session) : OpenDocs.SessionView := {
+  backend := session.backend
+  root := session.root
+  docs := session.docs
+}
 
 def openDocsPayload : M Json := do
   let state ← get
-  pure <| Json.mkObj [
-    ("root", toJson state.config.root.toString),
-    ("sessions", Json.mkObj [
-      ("lean", ← sessionOpenDocsJson state.config.leanCmd? state.lean.session?),
-      ("rocq", ← sessionOpenDocsJson state.config.leanCmd? state.rocq.session?)
-    ])
-  ]
+  OpenDocs.payload state.config.root state.config.leanCmd?
+    (state.lean.session?.map openDocsSessionView)
+    (state.rocq.session?.map openDocsSessionView)
 
 def wrapHandle (session : Session) (raw : Json) : Json :=
   toJson ({ backend := session.backend, epoch := session.epoch, session := session.sessionToken, raw : Handle })
@@ -1215,14 +1031,7 @@ private def collectStaleDirectDepHintsIO
         match current.docs.get? uri with
         | some docState => docState.lastSyncSeq
         | none => 0
-      let history :=
-        current.moduleHistory.foldl (init := {}) fun acc moduleName moduleHistory =>
-          acc.insert moduleName {
-            path := moduleHistory.path
-            lastSyncSeq := moduleHistory.lastSyncSeq
-            lastSaveSeq := moduleHistory.lastSaveSeq
-            : ModuleHistorySnapshot
-          }
+      let history := DocumentState.moduleHistorySnapshots current.moduleHistory
       pure <| collectStaleDirectDepHints importsResult version targetLastSyncSeq history
 
 private def saveOleanIO

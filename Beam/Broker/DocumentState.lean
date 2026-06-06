@@ -1,0 +1,176 @@
+/-
+Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Author: Emilio J. Gallego Arias
+-/
+
+import Lake
+import Lean
+import Beam.Broker.Protocol
+
+open Lean
+open Lean.Lsp
+
+namespace Beam.Broker
+
+structure DocState where
+  version : Nat
+  textHash : UInt64
+  textTraceHash : Lake.Hash
+  textMTime : Lake.MTime
+  moduleName? : Option String := none
+  savedOleanVersion? : Option Nat := none
+  fileProgress? : Option SyncFileProgress := none
+  lastSyncSeq : Nat := 0
+  lastSaveSeq : Nat := 0
+
+structure ModuleHistory where
+  path : String
+  lastSyncSeq : Nat := 0
+  lastSaveSeq : Nat := 0
+
+namespace DocumentState
+
+abbrev Docs := Std.TreeMap String DocState
+
+abbrev ModuleHistories := Std.TreeMap String ModuleHistory
+
+structure ModuleHistorySnapshot where
+  path : String
+  lastSyncSeq : Nat := 0
+  lastSaveSeq : Nat := 0
+  deriving Inhabited
+
+structure VersionMarkResult where
+  docs : Docs
+  moduleHistory : ModuleHistories
+  applied : Bool := false
+
+def trackedModuleName? (root path : System.FilePath) (backend : Backend) : Option String := do
+  guard (backend == .lean)
+  let rootStr := root.toString
+  let pathStr := path.toString
+  let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
+  let relPath? :=
+    if pathStr.startsWith rootPrefix then
+      some <| (pathStr.drop rootPrefix.length).toString
+    else if pathStr == rootStr then
+      some "."
+    else
+      none
+  let relPath ← relPath?
+  guard (relPath.endsWith ".lean")
+  let relFile := System.FilePath.mk relPath
+  let stem ← relFile.fileStem
+  let parts := relFile.components.dropLast
+  some <| String.intercalate "." (parts ++ [stem])
+
+def requireDocState (docs : Docs) (uri : String) : IO DocState := do
+  match docs.get? uri with
+  | some docState => pure docState
+  | none => throw <| IO.userError s!"missing synced document state for {uri}"
+
+def recordFileProgress
+    (docs : Docs)
+    (uri : DocumentUri)
+    (fileProgress? : Option SyncFileProgress) : Docs :=
+  match docs.get? uri with
+  | some docState =>
+      docs.insert uri { docState with fileProgress? := fileProgress? }
+  | none =>
+      docs
+
+def updateModuleHistorySync
+    (moduleHistory : ModuleHistories)
+    (moduleName path : String)
+    (seq : Nat) : ModuleHistories :=
+  let history := (moduleHistory.get? moduleName).getD { path }
+  moduleHistory.insert moduleName {
+    history with
+    path
+    lastSyncSeq := seq
+  }
+
+def updateModuleHistorySave
+    (moduleHistory : ModuleHistories)
+    (moduleName path : String)
+    (seq : Nat) : ModuleHistories :=
+  let history := (moduleHistory.get? moduleName).getD { path }
+  moduleHistory.insert moduleName {
+    history with
+    path
+    lastSyncSeq := seq
+    lastSaveSeq := seq
+  }
+
+def moduleHistorySnapshot (moduleHistory : ModuleHistory) : ModuleHistorySnapshot := {
+  path := moduleHistory.path
+  lastSyncSeq := moduleHistory.lastSyncSeq
+  lastSaveSeq := moduleHistory.lastSaveSeq
+}
+
+def moduleHistorySnapshots
+    (moduleHistory : ModuleHistories) :
+    Std.TreeMap String ModuleHistorySnapshot :=
+  moduleHistory.foldl (init := {}) fun snapshots moduleName moduleHistory =>
+    snapshots.insert moduleName (moduleHistorySnapshot moduleHistory)
+
+def markSyncedVersion
+    (docs : Docs)
+    (moduleHistory : ModuleHistories)
+    (uri : DocumentUri)
+    (version : Nat)
+    (path : String)
+    (seq : Nat) : VersionMarkResult :=
+  match docs.get? uri with
+  | some docState =>
+      if docState.version == version then
+        let moduleHistory :=
+          match docState.moduleName? with
+          | some moduleName => updateModuleHistorySync moduleHistory moduleName path seq
+          | none => moduleHistory
+        {
+          docs := docs.insert uri {
+            docState with
+            lastSyncSeq := seq
+          }
+          moduleHistory
+          applied := true
+        }
+      else
+        { docs, moduleHistory }
+  | none =>
+      { docs, moduleHistory }
+
+def markSavedVersion
+    (docs : Docs)
+    (moduleHistory : ModuleHistories)
+    (uri : DocumentUri)
+    (version : Nat)
+    (path : String)
+    (seq : Nat) : VersionMarkResult :=
+  match docs.get? uri with
+  | some docState =>
+      if docState.version == version then
+        let moduleHistory :=
+          match docState.moduleName? with
+          | some moduleName => updateModuleHistorySave moduleHistory moduleName path seq
+          | none => moduleHistory
+        {
+          docs := docs.insert uri {
+            docState with
+            savedOleanVersion? := some version
+            lastSyncSeq := seq
+            lastSaveSeq := seq
+          }
+          moduleHistory
+          applied := true
+        }
+      else
+        { docs, moduleHistory }
+  | none =>
+      { docs, moduleHistory }
+
+end DocumentState
+
+end Beam.Broker

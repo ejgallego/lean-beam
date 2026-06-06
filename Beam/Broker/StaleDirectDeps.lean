@@ -5,6 +5,7 @@
  -/
 
  import Lean
+ import Beam.Broker.DocumentState
 
  open Lean
 
@@ -23,11 +24,7 @@
    imports : Array String := #[]
    deriving Inhabited
 
- structure ModuleHistorySnapshot where
-   path : String
-   lastSyncSeq : Nat := 0
-   lastSaveSeq : Nat := 0
-   deriving Inhabited
+ abbrev ModuleHistorySnapshot := DocumentState.ModuleHistorySnapshot
 
  structure StaleDirectDepHint where
    module : String
