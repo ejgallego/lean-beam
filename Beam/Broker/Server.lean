@@ -14,6 +14,7 @@ import RunAt.Protocol
 import RunAt.Internal.DirectImports
 import RunAt.Internal.SaveSupport
 import Beam.Broker.Config
+import Beam.Broker.DocumentState
 import Beam.Broker.Errors
 import Beam.Broker.Metrics
 import Beam.Broker.Pending
@@ -39,22 +40,6 @@ abbrev brokerStdio : IO.Process.StdioConfig where
   stdin := .piped
   stdout := .piped
   stderr := .inherit
-
-structure DocState where
-  version : Nat
-  textHash : UInt64
-  textTraceHash : Lake.Hash
-  textMTime : Lake.MTime
-  moduleName? : Option String := none
-  savedOleanVersion? : Option Nat := none
-  fileProgress? : Option SyncFileProgress := none
-  lastSyncSeq : Nat := 0
-  lastSaveSeq : Nat := 0
-
-structure ModuleHistory where
-  path : String
-  lastSyncSeq : Nat := 0
-  lastSaveSeq : Nat := 0
 
 structure Session where
   backend : Backend
@@ -428,25 +413,6 @@ def sendNotificationJson (session : Session) (method : String) (param : Json) : 
   writeLspNotification session.stdin ({ method, param : Lean.JsonRpc.Notification Json })
   pure session
 
-private def trackedModuleName? (root path : System.FilePath) (backend : Backend) : Option String := do
-  guard (backend == .lean)
-  let rootStr := root.toString
-  let pathStr := path.toString
-  let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-  let relPath? :=
-    if pathStr.startsWith rootPrefix then
-      some <| (pathStr.drop rootPrefix.length).toString
-    else if pathStr == rootStr then
-      some "."
-    else
-      none
-  let relPath ← relPath?
-  guard (relPath.endsWith ".lean")
-  let relFile := System.FilePath.mk relPath
-  let stem ← relFile.fileStem
-  let parts := relFile.components.dropLast
-  some <| String.intercalate "." (parts ++ [stem])
-
 def syncFile (session : Session) (path : System.FilePath) : IO Session := do
   let path ← resolvePath session.root path
   let text ← IO.FS.readFile path
@@ -454,7 +420,7 @@ def syncFile (session : Session) (path : System.FilePath) : IO Session := do
   let textHash := hash text
   let textTraceHash := Lake.Hash.ofText text
   let textMTime ← Lake.getFileMTime path
-  let moduleName? := trackedModuleName? session.root path session.backend
+  let moduleName? := DocumentState.trackedModuleName? session.root path session.backend
   match session.docs.get? uri with
   | none =>
       let param := toJson ({
@@ -510,9 +476,7 @@ def syncFile (session : Session) (path : System.FilePath) : IO Session := do
         }
 
 def requireDocState (session : Session) (uri : String) : IO DocState := do
-  match session.docs.get? uri with
-  | some docState => pure docState
-  | none => throw <| IO.userError s!"missing synced document state for {uri}"
+  DocumentState.requireDocState session.docs uri
 
 def closeFile (session : Session) (path : System.FilePath) : IO Session := do
   let path ← resolvePath session.root path
@@ -526,11 +490,7 @@ def closeFile (session : Session) (path : System.FilePath) : IO Session := do
 
 def recordFileProgress (session : Session) (uri : DocumentUri)
     (fileProgress? : Option SyncFileProgress) : Session :=
-  match session.docs.get? uri with
-  | some docState =>
-      { session with docs := session.docs.insert uri { docState with fileProgress? := fileProgress? } }
-  | none =>
-      session
+  { session with docs := DocumentState.recordFileProgress session.docs uri fileProgress? }
 
 def decodeResponseAs [FromJson α] (json : Json) : IO α := do
   match fromJson? json with
@@ -609,73 +569,29 @@ private def trackedPathLabel (root : System.FilePath) (uri : DocumentUri) : Stri
   | some path => path
   | none => uri
 
-private def nextEventSeq (session : Session) : Session × Nat :=
-  ({ session with nextEventSeq := session.nextEventSeq + 1 }, session.nextEventSeq)
-
-private def updateModuleHistorySync (session : Session) (moduleName path : String) (seq : Nat) : Session :=
-  let history := (session.moduleHistory.get? moduleName).getD { path }
-  { session with
-    moduleHistory := session.moduleHistory.insert moduleName {
-      history with
-      path
-      lastSyncSeq := seq
+private def applyVersionMarkResult
+    (session : Session)
+    (result : DocumentState.VersionMarkResult) : Session :=
+  if result.applied then
+    { session with
+      nextEventSeq := session.nextEventSeq + 1
+      docs := result.docs
+      moduleHistory := result.moduleHistory
     }
-  }
-
-private def updateModuleHistorySave (session : Session) (moduleName path : String) (seq : Nat) : Session :=
-  let history := (session.moduleHistory.get? moduleName).getD { path }
-  { session with
-    moduleHistory := session.moduleHistory.insert moduleName {
-      history with
-      path
-      lastSyncSeq := seq
-      lastSaveSeq := seq
-    }
-  }
+  else
+    session
 
 private def markDocSyncedVersion (session : Session) (uri : DocumentUri) (version : Nat) : Session :=
-  match session.docs.get? uri with
-  | some docState =>
-      if docState.version == version then
-        let (session, seq) := nextEventSeq session
-        let path := trackedPathLabel session.root uri
-        let session :=
-          match docState.moduleName? with
-          | some moduleName => updateModuleHistorySync session moduleName path seq
-          | none => session
-        { session with
-          docs := session.docs.insert uri {
-            docState with
-            lastSyncSeq := seq
-          }
-        }
-      else
-        session
-  | none =>
-      session
+  let result := DocumentState.markSyncedVersion
+    session.docs session.moduleHistory uri version
+    (trackedPathLabel session.root uri) session.nextEventSeq
+  applyVersionMarkResult session result
 
 private def markDocSavedVersion (session : Session) (uri : DocumentUri) (version : Nat) : Session :=
-  match session.docs.get? uri with
-  | some docState =>
-      if docState.version == version then
-        let (session, seq) := nextEventSeq session
-        let path := trackedPathLabel session.root uri
-        let session :=
-          match docState.moduleName? with
-          | some moduleName => updateModuleHistorySave session moduleName path seq
-          | none => session
-        { session with
-          docs := session.docs.insert uri {
-            docState with
-            savedOleanVersion? := some version
-            lastSyncSeq := seq
-            lastSaveSeq := seq
-          }
-        }
-      else
-        session
-  | none =>
-      session
+  let result := DocumentState.markSavedVersion
+    session.docs session.moduleHistory uri version
+    (trackedPathLabel session.root uri) session.nextEventSeq
+  applyVersionMarkResult session result
 
 def saveOlean
     (leanCmd? : Option String)
