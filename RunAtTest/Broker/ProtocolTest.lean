@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Broker.Errors
 import Beam.Broker.Protocol
+import Beam.Broker.RequestArgs
 import Lean
 
 open Lean
@@ -61,6 +62,16 @@ private def requireError
       pure err
   | none =>
       throw <| IO.userError s!"{label}: expected error payload, got {(toJson resp).compress}"
+
+private def expectRequestArgError
+    (label : String)
+    (expectedMessage : String)
+    (result : Except Response α) : IO Unit := do
+  match result with
+  | .ok _ =>
+      throw <| IO.userError s!"{label}: expected invalidParams response"
+  | .error resp =>
+      discard <| requireError label "invalidParams" expectedMessage resp
 
 private def checkResponseJsonShape : IO Unit := do
   let successJson := toJson <| Response.success (Json.mkObj [("value", toJson (1 : Nat))])
@@ -157,12 +168,48 @@ private def checkJsonRpcErrorMapping : IO Unit := do
     (responseForExceptionMessage
       "Cannot read LSP message: JSON '{\"error\":{\"code\":-32803,\"message\":\"focused goal error\"}}' did not have the format of a JSON-RPC message.")
 
+private def checkRequestArgsBoundary : IO Unit := do
+  let runAtMissingText : Request := {
+    op := .runAt
+    path? := some "Demo.lean"
+    line? := some 1
+    character? := some 2
+  }
+  expectRequestArgError "run_at args missing text" "missing 'text'" runAtMissingText.runAtArgs
+
+  let runAtRocqUnsupported : Request := {
+    op := .runAt
+    backend := .rocq
+    path? := some "Demo.v"
+    line? := some 1
+    character? := some 2
+    text? := some "Check nat."
+  }
+  expectRequestArgError
+    "rocq run_at args"
+    "rocq backend does not support run_at yet"
+    runAtRocqUnsupported.runAtArgs
+
+  let requestAtBadPositionParam : Request := {
+    op := .requestAt
+    path? := some "Demo.lean"
+    line? := some 1
+    character? := some 2
+    method? := some "textDocument/hover"
+    params? := some <| Json.mkObj [("position", Json.null)]
+  }
+  expectRequestArgError
+    "request_at args position override"
+    "'params' must not include 'position'; request_at injects it from <line>/<character>"
+    requestAtBadPositionParam.requestAtArgs
+
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
   checkBrokerFailureRoundTrip
   checkExceptionErrorMapping
   checkJsonRpcErrorMapping
+  checkRequestArgsBoundary
 
 end RunAtTest.Broker.ProtocolTest
 
