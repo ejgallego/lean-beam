@@ -100,6 +100,9 @@ lean_exe "beam-broker-pending-test" where
 lean_exe "beam-broker-document-state-test" where
   root := `RunAtTest.Broker.DocumentStateTest
 
+lean_exe "beam-broker-open-docs-test" where
+  root := `RunAtTest.Broker.OpenDocsTest
+
 lean_exe "beam-cli-daemon-test" where
   root := `RunAtTest.Broker.CliDaemonTest
 

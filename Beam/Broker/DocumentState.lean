@@ -35,6 +35,12 @@ abbrev Docs := Std.TreeMap String DocState
 
 abbrev ModuleHistories := Std.TreeMap String ModuleHistory
 
+structure ModuleHistorySnapshot where
+  path : String
+  lastSyncSeq : Nat := 0
+  lastSaveSeq : Nat := 0
+  deriving Inhabited
+
 structure VersionMarkResult where
   docs : Docs
   moduleHistory : ModuleHistories
@@ -96,6 +102,18 @@ def updateModuleHistorySave
     lastSyncSeq := seq
     lastSaveSeq := seq
   }
+
+def moduleHistorySnapshot (moduleHistory : ModuleHistory) : ModuleHistorySnapshot := {
+  path := moduleHistory.path
+  lastSyncSeq := moduleHistory.lastSyncSeq
+  lastSaveSeq := moduleHistory.lastSaveSeq
+}
+
+def moduleHistorySnapshots
+    (moduleHistory : ModuleHistories) :
+    Std.TreeMap String ModuleHistorySnapshot :=
+  moduleHistory.foldl (init := {}) fun snapshots moduleName moduleHistory =>
+    snapshots.insert moduleName (moduleHistorySnapshot moduleHistory)
 
 def markSyncedVersion
     (docs : Docs)

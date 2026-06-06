@@ -17,6 +17,7 @@ import Beam.Broker.Config
 import Beam.Broker.DocumentState
 import Beam.Broker.Errors
 import Beam.Broker.Metrics
+import Beam.Broker.OpenDocs
 import Beam.Broker.Pending
 import Beam.Broker.Protocol
 import Beam.Broker.RequestArgs
@@ -650,118 +651,17 @@ def saveOlean
   }))
   pure (markDocSavedVersion session uri docState.version, leanSavePayload spec docState.version docState.textTraceHash, fileProgress?)
 
-private def docSyncStatus (path : System.FilePath) (docState : DocState) : IO String := do
-  if !(← path.pathExists) then
-    pure "missing"
-  else
-    let text ← IO.FS.readFile path
-    pure <| if hash text == docState.textHash then "saved" else "notSaved"
-
-private def docDepsJson? (root : System.FilePath) (path : System.FilePath) (uri : DocumentUri) :
-    IO (Option Json) := do
-  let some module := normalizeModuleForPath root path uri none
-    | pure none
-  try
-    let state ← mkDepsQueryState root
-    let imports ← requireDirectImports state module.name
-    pure <| some <| Json.arr <| imports.map (importJson root)
-  catch _ =>
-    pure none
-
-private def docSaveFields
-    (root : System.FilePath)
-    (backend : Backend)
-    (path? : Option System.FilePath)
-    (leanCmd? : Option String) : IO (List (String × Json)) := do
-  match backend, path? with
-  | .lean, some path =>
-      match ← checkLeanSaveTarget root path leanCmd? with
-      | .eligible moduleName =>
-          pure [
-            ("saveEligible", toJson true),
-            ("saveReason", toJson "ok"),
-            ("saveModule", toJson moduleName.toString)
-          ]
-      | .notModule =>
-          pure [
-            ("saveEligible", toJson false),
-            ("saveReason", toJson saveTargetNotModuleCode)
-          ]
-      | .workspaceLoadFailed msg =>
-          pure [
-            ("saveEligible", toJson false),
-            ("saveReason", toJson "workspaceLoadFailed"),
-            ("saveDetail", toJson msg)
-          ]
-  | _, _ =>
-      pure []
-
-private def docStateJson
-    (root : System.FilePath)
-    (backend : Backend)
-    (leanCmd? : Option String)
-    (uri : DocumentUri)
-    (docState : DocState) : IO Json := do
-  let path? := System.Uri.fileUriToPath? uri
-  let relPath? := workspacePath? root uri
-  let status ←
-    match path? with
-    | some path => docSyncStatus path docState
-    | none => pure "unknown"
-  let saved := status == "saved"
-  let savedOlean := saved && docState.savedOleanVersion? == some docState.version
-  let depsFields ←
-    match backend, path? with
-    | .lean, some path =>
-        match ← docDepsJson? root path uri with
-        | some deps => pure [("deps", deps)]
-        | none => pure []
-    | _, _ => pure []
-  let fileProgressFields :=
-    match docState.fileProgress? with
-    | some fileProgress => [("fileProgress", toJson fileProgress)]
-    | none => []
-  let saveFields ← docSaveFields root backend path? leanCmd?
-  pure <| Json.mkObj <|
-    [
-      ("uri", toJson uri),
-      ("version", toJson docState.version),
-      ("status", toJson status),
-      ("saved", toJson saved),
-      ("savedOlean", toJson savedOlean)
-    ] ++
-    (match relPath?, path? with
-    | some relPath, _ => [("path", toJson relPath)]
-    | none, some path => [("path", toJson path.toString)]
-    | none, none => []) ++
-    depsFields ++
-    saveFields ++
-    fileProgressFields
-
-private def sessionOpenDocsJson (leanCmd? : Option String) (session? : Option Session) : IO Json := do
-  match session? with
-  | none =>
-      pure <| Json.mkObj [
-        ("active", toJson false),
-        ("files", Json.arr #[])
-      ]
-  | some session =>
-      let files ← session.docs.toList.mapM fun (uri, docState) =>
-        docStateJson session.root session.backend leanCmd? uri docState
-      pure <| Json.mkObj [
-        ("active", toJson true),
-        ("files", Json.arr files.toArray)
-      ]
+private def openDocsSessionView (session : Session) : OpenDocs.SessionView := {
+  backend := session.backend
+  root := session.root
+  docs := session.docs
+}
 
 def openDocsPayload : M Json := do
   let state ← get
-  pure <| Json.mkObj [
-    ("root", toJson state.config.root.toString),
-    ("sessions", Json.mkObj [
-      ("lean", ← sessionOpenDocsJson state.config.leanCmd? state.lean.session?),
-      ("rocq", ← sessionOpenDocsJson state.config.leanCmd? state.rocq.session?)
-    ])
-  ]
+  OpenDocs.payload state.config.root state.config.leanCmd?
+    (state.lean.session?.map openDocsSessionView)
+    (state.rocq.session?.map openDocsSessionView)
 
 def wrapHandle (session : Session) (raw : Json) : Json :=
   toJson ({ backend := session.backend, epoch := session.epoch, session := session.sessionToken, raw : Handle })
@@ -1131,14 +1031,7 @@ private def collectStaleDirectDepHintsIO
         match current.docs.get? uri with
         | some docState => docState.lastSyncSeq
         | none => 0
-      let history :=
-        current.moduleHistory.foldl (init := {}) fun acc moduleName moduleHistory =>
-          acc.insert moduleName {
-            path := moduleHistory.path
-            lastSyncSeq := moduleHistory.lastSyncSeq
-            lastSaveSeq := moduleHistory.lastSaveSeq
-            : ModuleHistorySnapshot
-          }
+      let history := DocumentState.moduleHistorySnapshots current.moduleHistory
       pure <| collectStaleDirectDepHints importsResult version targetLastSyncSeq history
 
 private def saveOleanIO

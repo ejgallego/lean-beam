@@ -82,11 +82,26 @@ private def checkMarkSavedVersion : IO Unit := do
     | throw <| IO.userError "stale markSavedVersion erased existing doc"
   require "stale markSavedVersion keeps save seq" (staleDoc.lastSaveSeq == 9)
 
+private def checkModuleHistorySnapshots : IO Unit := do
+  let history : DocumentState.ModuleHistories :=
+    Std.TreeMap.empty.insert "Foo" {
+      path := "Foo.lean"
+      lastSyncSeq := 11
+      lastSaveSeq := 10
+    }
+  let snapshots := DocumentState.moduleHistorySnapshots history
+  let some snapshot := snapshots.get? "Foo"
+    | throw <| IO.userError "moduleHistorySnapshots dropped module"
+  require "moduleHistorySnapshots preserves path" (snapshot.path == "Foo.lean")
+  require "moduleHistorySnapshots preserves sync seq" (snapshot.lastSyncSeq == 11)
+  require "moduleHistorySnapshots preserves save seq" (snapshot.lastSaveSeq == 10)
+
 def main : IO Unit := do
   checkTrackedModuleName
   checkRecordFileProgress
   checkMarkSyncedVersion
   checkMarkSavedVersion
+  checkModuleHistorySnapshots
 
 end RunAtTest.Broker.DocumentStateTest
 
