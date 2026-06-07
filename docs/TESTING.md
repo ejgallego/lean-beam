@@ -184,7 +184,8 @@ Current MCP gates are layered:
   server
 - `tests/test-broker-fast.sh` for one quick Lean-backed MCP stdio path, one HTTP bridge smoke, and a
   cheap protocol-only smoke; it also runs the public `lean-beam-mcp --self-check` path against the
-  fixture project and negative setup checks for missing roots/files
+  fixture project, negative setup checks for missing roots/files, and a forced timeout check that
+  verifies self-check failures identify the stalled phase
 - `tests/test-broker-slow.sh` for repeated MCP server restarts and repeated real tool calls
 - `tests/test-install.sh` for installed runtime layout and a real installed `lean-beam-mcp` wrapper
   tool call that resolves its Lean command and plugin through `beam-cli mcp-config`; it also checks
