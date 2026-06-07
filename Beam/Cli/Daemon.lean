@@ -90,6 +90,8 @@ def endpointInUseError (endpoint : Transport.Endpoint) : String :=
 def shouldRetryAutomaticStartup (usesAutomaticEndpoint : Bool) (tries : Nat) (endpointOccupied : Bool) : Bool :=
   usesAutomaticEndpoint && tries > 0 && endpointOccupied
 
+-- A listening TCP port is not enough evidence that it belongs to this project:
+-- random auto-port selection can collide with an unrelated Beam daemon.
 def daemonServesRoot (endpoint : Transport.Endpoint) (root : System.FilePath) : IO Bool := do
   match ← daemonRoot? endpoint with
   | some daemonRoot => pure (daemonRoot == root.toString)

@@ -1568,6 +1568,32 @@ fi
 rm -f "$cross_req"
 rm -f "$cross_err"
 
+collision_out="$(mktemp /tmp/beam-wrapper-port-collision-out-XXXXXX)"
+collision_err="$(mktemp /tmp/beam-wrapper-port-collision-err-XXXXXX)"
+if "$beam_script" --root "$tmp7" --port "$port1" ensure lean >"$collision_out" 2>"$collision_err"; then
+  echo "expected ensure on another root with an occupied requested port to fail" >&2
+  cat "$collision_out" >&2
+  cat "$collision_err" >&2
+  rm -f "$collision_out" "$collision_err"
+  exit 1
+fi
+if [ -f "$tmp7/.beam/beam-daemon.json" ]; then
+  echo "expected occupied requested-port failure not to write a bogus registry for another root" >&2
+  cat "$tmp7/.beam/beam-daemon.json" >&2
+  rm -f "$collision_out" "$collision_err"
+  exit 1
+fi
+stats1="$("$beam_script" --root "$tmp1" stats)"
+if [ "$(RUNAT_JSON_PAYLOAD="$stats1" read_json_text_field ok)" != "true" ]; then
+  echo "expected original root daemon to keep serving stats after requested-port collision" >&2
+  printf '%s\n' "$stats1" >&2
+  cat "$collision_out" >&2
+  cat "$collision_err" >&2
+  rm -f "$collision_out" "$collision_err"
+  exit 1
+fi
+rm -f "$collision_out" "$collision_err"
+
 (
   cd "$tmp5"
   "$beam_script" ensure lean > /dev/null

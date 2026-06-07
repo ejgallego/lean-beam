@@ -13,6 +13,10 @@ cd "$(dirname "$0")/.."
 
 BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-broker-slow}"
 
+if [ -z "${ELAN_HOME:-}" ] && [ -d "$HOME/.elan" ]; then
+  export ELAN_HOME="$HOME/.elan"
+fi
+
 tmp_bundle_dir="$(mktemp -d /tmp/beam-daemon-bundles-XXXXXX)"
 tmp_env_root="$(mktemp -d /tmp/beam-daemon-env-XXXXXX)"
 

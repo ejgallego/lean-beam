@@ -205,6 +205,39 @@ def main : IO Unit := do
     let staleCloseResp ← requireFinalStreamResponse "stale close-save" staleCloseMessages
     expectErrorCode "stale close-save" Beam.Broker.syncBarrierIncompleteCode staleCloseResp
 
+    IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := 1\n"
+    buildLakeTarget root "SaveSmoke/A.lean"
+    discard <| expectOk <| ← runClient endpoint {
+      op := .close
+      root? := some root.toString
+      path? := some "SaveSmoke/A.lean"
+    }
+    let staleTraceSyncResp ← runClient endpoint {
+      op := .syncFile
+      root? := some root.toString
+      path? := some "SaveSmoke/A.lean"
+    }
+    discard <| expectOk staleTraceSyncResp
+    for path in #[
+      root / ".lake" / "build" / "lib" / "lean" / "SaveSmoke" / "B.olean",
+      root / ".lake" / "build" / "lib" / "lean" / "SaveSmoke" / "B.ilean",
+      root / ".lake" / "build" / "lib" / "lean" / "SaveSmoke" / "B.trace"
+    ] do
+      try
+        IO.FS.removeFile path
+      catch _ =>
+        pure ()
+
+    let staleTraceSaveMessages ← requireFailedStream "stale trace save_olean" <| ← runRequestStream port {
+      op := .saveOlean
+      root? := some root.toString
+      path? := some "SaveSmoke/A.lean"
+    }
+    expectStreamKindsOnly "stale trace save_olean" staleTraceSaveMessages
+    let staleTraceSaveResp ← requireFinalStreamResponse "stale trace save_olean" staleTraceSaveMessages
+    expectErrorCode "stale trace save_olean" Beam.Broker.saveTraceStaleCode staleTraceSaveResp
+    discard <| expectOk (← runClient endpoint { op := .stats })
+
     discard <| expectOk (← runClient endpoint { op := .shutdown })
   finally
     try

@@ -91,28 +91,29 @@ private partial def waitForPidGone (pid : Nat) (tries : Nat := 20) : IO Unit := 
   else
     pure ()
 
-private def stopDaemonEntry (entry : RegistryEntry) : IO Unit := do
-  let mayKillPid ←
-    match registryEndpoint? entry with
-    | some endpoint =>
-        match ← daemonRoot? endpoint with
-        | some daemonRoot =>
-            if daemonRoot == entry.root then
-              try
-                let _ ← sendRequest endpoint { op := .shutdown }
-                pure ()
-              catch _ =>
-                pure ()
-              pure true
-            else
-              pure false
-        | none =>
-            pure true
-    | none =>
-        pure true
-  if mayKillPid && entry.pid > 0 && (← pidAlive entry.pid) then
+private def killRegistryPid (entry : RegistryEntry) : IO Unit := do
+  if entry.pid > 0 && (← pidAlive entry.pid) then
     killPid entry.pid
     waitForPidGone entry.pid
+
+private def stopDaemonEntry (entry : RegistryEntry) : IO Unit := do
+  match registryEndpoint? entry with
+  | some endpoint =>
+      match ← daemonRoot? endpoint with
+      | some daemonRoot =>
+          if daemonRoot == entry.root then
+            try
+              let _ ← sendRequest endpoint { op := .shutdown }
+            catch _ =>
+              pure ()
+            killRegistryPid entry
+          else
+            -- The endpoint is live but belongs to another root; leave it alone.
+            pure ()
+      | none =>
+          killRegistryPid entry
+  | none =>
+      killRegistryPid entry
 
 private def stopRegisteredDaemon (root : System.FilePath) : IO Unit := do
   match ← readRegistry? root with

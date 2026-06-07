@@ -63,6 +63,7 @@ structure BackendState where
 structure State where
   config : BrokerConfig
   startMonoNanos : Nat := 0
+  nextFileSnapshotSeq : Nat := 1
   lean : BackendState := {}
   rocq : BackendState := {}
   leanMetrics : BackendMetrics := {}
@@ -414,36 +415,59 @@ private def sendNotificationJson (session : Session) (method : String) (param : 
   writeLspNotification session.stdin ({ method, param : Lean.JsonRpc.Notification Json })
   pure session
 
-private def syncFile (session : Session) (path : System.FilePath) : IO Session := do
-  let path ← resolvePath session.root path
+/--
+An immutable view of a source file used to synchronize the LSP session.
+
+The file contents and metadata are computed before the broker state mutex is
+held. This keeps potentially slow filesystem work out of the critical section.
+For request handlers that can race with each other, `readSeq` is reserved while
+holding the mutex and is later used by `DocumentState.syncFileDecision` to
+ignore stale snapshots that completed after a newer read was already applied.
+-/
+private structure FileSyncSnapshot where
+  path : System.FilePath
+  uri : DocumentUri
+  text : String
+  file : DocumentState.FileSnapshot
+
+private def readFileSyncSnapshot
+    (root path : System.FilePath)
+    (backend : Backend)
+    (readSeq : Nat := 0) : IO FileSyncSnapshot := do
+  let path ← resolvePath root path
   let text ← IO.FS.readFile path
-  let uri := sessionUri path
-  let textHash := hash text
-  let textTraceHash := Lake.Hash.ofText text
   let textMTime ← Lake.getFileMTime path
-  let moduleName? := DocumentState.trackedModuleName? session.root path session.backend
-  let decision := DocumentState.syncFileDecision session.docs uri {
-    textHash
-    textTraceHash
-    textMTime
-    moduleName?
+  pure {
+    path
+    uri := sessionUri path
+    text
+    file := {
+      textHash := hash text
+      textTraceHash := Lake.Hash.ofText text
+      textMTime
+      readSeq
+      moduleName? := DocumentState.trackedModuleName? root path backend
+    }
   }
+
+private def syncFileSnapshot (session : Session) (snapshot : FileSyncSnapshot) : IO Session := do
+  let decision := DocumentState.syncFileDecision session.docs snapshot.uri snapshot.file
   let session ←
     match decision.action with
     | .open =>
       let param := toJson ({
         textDocument := {
-          uri := uri
+          uri := snapshot.uri
           languageId := match session.backend with | .lean => "lean" | .rocq => "rocq"
           version := decision.version
-          text := text
+          text := snapshot.text
         } : DidOpenTextDocumentParams
       })
       sendNotificationJson session "textDocument/didOpen" param
     | .change =>
         let param := toJson ({
-          textDocument := { uri := uri, version? := some decision.version }
-          contentChanges := #[TextDocumentContentChangeEvent.fullChange text]
+          textDocument := { uri := snapshot.uri, version? := some decision.version }
+          contentChanges := #[TextDocumentContentChangeEvent.fullChange snapshot.text]
           : DidChangeTextDocumentParams
         })
         sendNotificationJson session "textDocument/didChange" param
@@ -753,7 +777,7 @@ private def trackedLeanDocumentVersion
 
 private def startSyncedDocumentRequest
     (session : Session)
-    (path : System.FilePath)
+    (snapshot : FileSyncSnapshot)
     (method : String)
     (mkParams : DocumentUri → DocState → Json)
     (trackedFor : DocumentUri → DocState → Option (DocumentUri × Nat))
@@ -762,8 +786,8 @@ private def startSyncedDocumentRequest
     (fullDiagnostics : Bool := false)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     M StartedSyncedRequest := do
-  let session ← syncFile session path
-  let uri := sessionUri (← resolvePath session.root path)
+  let session ← syncFileSnapshot session snapshot
+  let uri := snapshot.uri
   let docState ← requireDocState session uri
   let tracked := trackedFor uri docState
   let params := mkParams uri docState
@@ -796,6 +820,18 @@ private def awaitSyncedDocumentRequestIO
     mergeFileProgressIfCurrent server started.session started.uri pending.progress?
   pure pending
 
+private def readRequestSyncSnapshot
+    (server : ServerRuntime)
+    (req : Request)
+    (path : System.FilePath) : IO FileSyncSnapshot := do
+  let (root, readSeq) ← server.withState do
+    let state ← get
+    set { state with nextFileSnapshotSeq := state.nextFileSnapshotSeq + 1 }
+    pure (state.config.root, state.nextFileSnapshotSeq)
+  -- Reserve the ordering token under the mutex, then do the slow file IO
+  -- outside it.
+  readFileSyncSnapshot root path req.backend (readSeq := readSeq)
+
 private structure StartedTrackedBarrier where
   session : Session
   uri : DocumentUri
@@ -810,10 +846,11 @@ private def startTrackedDiagnosticsBarrierIO
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO StartedTrackedBarrier := do
+  let snapshot ← readRequestSyncSnapshot server req path
   server.withState do
     let session ← ensureSession req.backend
     let started ←
-      startSyncedDocumentRequest session path "textDocument/waitForDiagnostics"
+      startSyncedDocumentRequest session snapshot "textDocument/waitForDiagnostics"
         (fun uri docState => toJson (WaitForDiagnosticsParams.mk uri docState.version))
         trackedDocumentVersion
         (clientRequestId? := req.clientRequestId?)
@@ -1081,9 +1118,10 @@ private def handleRunAtOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
+    let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do
       let session ← ensureSession req.backend
-      startSyncedDocumentRequest session args.path args.method
+      startSyncedDocumentRequest session snapshot args.method
         (fun uri _ => Json.mkObj <|
           [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
           , ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
@@ -1116,9 +1154,10 @@ private def handleRequestAtOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
+    let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do
       let session ← ensureSession req.backend
-      startSyncedDocumentRequest session args.path args.method
+      startSyncedDocumentRequest session snapshot args.method
         (fun uri _ => Json.mergeObj args.extraParams <| Json.mkObj [
           ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
           ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
@@ -1163,10 +1202,11 @@ private def handleGoalsOpIO
     if req.backend == .lean && req.text?.isSome then
       return (reqError "invalidParams" "lean goals does not accept speculative text; use lean-run-at for execution", false)
     ensureRequestNotCancelled cancelRef?
+    let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do
       let session ← ensureSession req.backend
       let position : Lsp.Position := { line := args.line, character := args.character }
-      startSyncedDocumentRequest session args.path args.method
+      startSyncedDocumentRequest session snapshot args.method
         (fun uri docState =>
           match req.backend with
           | .lean =>
@@ -1207,13 +1247,14 @@ private def handleRunWithOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
+    let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do
       let session ← ensureSession req.backend
       let rawHandle ←
         match unwrapHandle session args.handle with
         | .ok raw => pure raw
         | .error err => throwBrokerFailure { code := .contentModified, message := err }
-      startSyncedDocumentRequest session args.path args.method
+      startSyncedDocumentRequest session snapshot args.method
         (fun uri _ => Json.mkObj <|
           [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
           , ("handle", rawHandle)
@@ -1248,13 +1289,14 @@ private def handleReleaseOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
+    let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do
       let session ← ensureSession req.backend
       let rawHandle ←
         match unwrapHandle session args.handle with
         | .ok raw => pure raw
         | .error err => throwBrokerFailure { code := .contentModified, message := err }
-      startSyncedDocumentRequest session args.path args.method
+      startSyncedDocumentRequest session snapshot args.method
         (fun uri _ => Json.mkObj [
           ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
           ("handle", rawHandle)

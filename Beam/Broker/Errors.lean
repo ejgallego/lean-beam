@@ -17,6 +17,7 @@ inductive BrokerFailureCode where
   | contentModified
   | workerExited
   | syncBarrierIncomplete
+  | saveTraceStale
   | saveTargetNotModule
   | internalError
   deriving Inhabited, BEq, Repr
@@ -27,6 +28,7 @@ def BrokerFailureCode.name : BrokerFailureCode → String
   | .contentModified => "contentModified"
   | .workerExited => "workerExited"
   | .syncBarrierIncomplete => syncBarrierIncompleteCode
+  | .saveTraceStale => saveTraceStaleCode
   | .saveTargetNotModule => saveTargetNotModuleCode
   | .internalError => "internalError"
 
@@ -43,6 +45,8 @@ instance : FromJson BrokerFailureCode where
     | .str s =>
         if s == syncBarrierIncompleteCode then
           .ok .syncBarrierIncomplete
+        else if s == saveTraceStaleCode then
+          .ok .saveTraceStale
         else if s == saveTargetNotModuleCode then
           .ok .saveTargetNotModule
         else if s == "internalError" then
@@ -146,6 +150,9 @@ private def isSyncBarrierIncompleteMessage (msg : String) : Bool :=
 private def isSaveTargetNotModuleMessage (msg : String) : Bool :=
   msg.startsWith "could not resolve a Lake module for "
 
+private def isSaveTraceStaleMessage (msg : String) : Bool :=
+  msg.startsWith "Lake save trace is stale for "
+
 private def isRequestCancelledMessage (msg : String) : Bool :=
   msg.startsWith "requestCancelled:"
 
@@ -166,6 +173,8 @@ def responseForExceptionMessage (msg : String) : Response :=
     reqError "workerExited" msg
   else if isSyncBarrierIncompleteMessage msg then
     reqError syncBarrierIncompleteCode msg
+  else if isSaveTraceStaleMessage msg then
+    reqError saveTraceStaleCode msg
   else if isSaveTargetNotModuleMessage msg then
     reqError saveTargetNotModuleCode msg
   else if let some resp := decodeJsonRpcError msg then

@@ -125,7 +125,7 @@ rewrite_tmp_template() {
     "\$validation_root"|"\$validation_root"/*)
       printf '%s\n' "\$1"
       ;;
-    /tmp/runat-*|/tmp/tmp.*)
+    /tmp/runat-*|/tmp/beam-*|/tmp/tmp.*)
       printf '%s/%s\n' "\$validation_root/tmp" "\$(basename "\$1")"
       ;;
     *)
@@ -278,6 +278,10 @@ mkdir -p "$guard_bin" "$fake_home" "$fake_codex_home" "$fake_claude_home" "$fake
 write_guard_wrapper rm "$(command -v rm)"
 write_guard_wrapper mv "$(command -v mv)"
 write_guard_wrapper mktemp "$(command -v mktemp)"
+
+if [ -z "${ELAN_HOME:-}" ] && [ -d "$HOME/.elan" ]; then
+  export ELAN_HOME="$HOME/.elan"
+fi
 
 export HOME="$fake_home"
 export CODEX_HOME="$fake_codex_home"
