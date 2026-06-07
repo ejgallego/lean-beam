@@ -846,6 +846,53 @@ private def sendCurrentSessionRequestDecode [FromJson α]
     updateSession current
     decodeResponseAs payload
 
+private structure StartedSyncedRequest where
+  session : Session
+  uri : DocumentUri
+  tracked : Option (DocumentUri × Nat) := none
+  promise : IO.Promise (Except String PendingResult)
+
+private def trackedDocumentVersion (uri : DocumentUri) (docState : DocState) :
+    Option (DocumentUri × Nat) :=
+  some (uri, docState.version)
+
+private def trackedLeanDocumentVersion
+    (backend : Backend)
+    (uri : DocumentUri)
+    (docState : DocState) : Option (DocumentUri × Nat) :=
+  if backend == .lean then
+    trackedDocumentVersion uri docState
+  else
+    none
+
+private def startSyncedDocumentRequest
+    (session : Session)
+    (path : System.FilePath)
+    (method : String)
+    (mkParams : DocumentUri → DocState → Json)
+    (trackedFor : DocumentUri → DocState → Option (DocumentUri × Nat))
+    (clientRequestId? : Option String := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    M StartedSyncedRequest := do
+  let session ← syncFile session path
+  let uri := sessionUri (← resolvePath session.root path)
+  let docState ← requireDocState session uri
+  let tracked := trackedFor uri docState
+  let params := mkParams uri docState
+  let (session, promise) ←
+    startRequestJsonTrackedDetailed session method params
+      (clientRequestId? := clientRequestId?)
+      (tracked := tracked)
+      (initialProgress? := docState.fileProgress?)
+      (emitProgress? := emitProgress?)
+  updateSession session
+  pure {
+    session
+    uri
+    tracked
+    promise
+  }
+
 private structure StartedTrackedBarrier where
   session : Session
   uri : DocumentUri
@@ -1146,31 +1193,28 @@ private def handleRunAtOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
-    let (session, uri, promise) ← server.withState do
+    let started ← server.withState do
       let session ← ensureSession req.backend
-      let session ← syncFile session args.path
-      let uri := sessionUri (← resolvePath session.root args.path)
-      let docState ← requireDocState session uri
-      let params := Json.mkObj <|
-        [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
-        , ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
-        , ("text", toJson args.text)
-        ] ++
-        match req.storeHandle? with
-        | some b => [("storeHandle", toJson b)]
-        | none => []
-      let (session, promise) ←
-        startRequestJsonTrackedDetailed session args.method params
-          (clientRequestId? := req.clientRequestId?)
-          (tracked := some (uri, docState.version))
-          (initialProgress? := docState.fileProgress?)
-          (emitProgress? := emitProgress?)
-      updateSession session
-      pure (session, uri, promise)
-    propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult promise
-    mergeFileProgressIfCurrent server session uri pending.progress?
-    pure (withFileProgress (sessionResult session (wrapResultHandle session pending.result)) pending.progress?, false)
+      startSyncedDocumentRequest session args.path args.method
+        (fun uri _ => Json.mkObj <|
+          [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
+          , ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
+          , ("text", toJson args.text)
+          ] ++
+          match req.storeHandle? with
+          | some b => [("storeHandle", toJson b)]
+          | none => [])
+        trackedDocumentVersion
+        (clientRequestId? := req.clientRequestId?)
+        (emitProgress? := emitProgress?)
+    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+    let pending ← PendingRequest.awaitResult started.promise
+    mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    pure (
+      withFileProgress
+        (sessionResult started.session (wrapResultHandle started.session pending.result))
+        pending.progress?,
+      false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1186,33 +1230,21 @@ private def handleRequestAtOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
-    let (session, uri, tracked, promise) ← server.withState do
+    let started ← server.withState do
       let session ← ensureSession req.backend
-      let session ← syncFile session args.path
-      let uri := sessionUri (← resolvePath session.root args.path)
-      let docState ← requireDocState session uri
-      let tracked :=
-        if session.backend == .lean then
-          some (uri, docState.version)
-        else
-          none
-      let params := Json.mergeObj args.extraParams <| Json.mkObj [
-        ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
-        ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
-      ]
-      let (session, promise) ←
-        startRequestJsonTrackedDetailed session args.method params
-          (clientRequestId? := req.clientRequestId?)
-          (tracked := tracked)
-          (initialProgress? := docState.fileProgress?)
-          (emitProgress? := emitProgress?)
-      updateSession session
-      pure (session, uri, tracked, promise)
-    propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult promise
-    if tracked.isSome then
-      mergeFileProgressIfCurrent server session uri pending.progress?
-    pure (withFileProgress (sessionResult session pending.result) pending.progress?, false)
+      startSyncedDocumentRequest session args.path args.method
+        (fun uri _ => Json.mergeObj args.extraParams <| Json.mkObj [
+          ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
+          ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
+        ])
+        (trackedLeanDocumentVersion req.backend)
+        (clientRequestId? := req.clientRequestId?)
+        (emitProgress? := emitProgress?)
+    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+    let pending ← PendingRequest.awaitResult started.promise
+    if started.tracked.isSome then
+      mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1248,50 +1280,38 @@ private def handleGoalsOpIO
     if req.backend == .lean && req.text?.isSome then
       return (reqError "invalidParams" "lean goals does not accept speculative text; use lean-run-at for execution", false)
     ensureRequestNotCancelled cancelRef?
-    let (session, uri, tracked, promise) ← server.withState do
+    let started ← server.withState do
       let session ← ensureSession req.backend
-      let session ← syncFile session args.path
-      let uri := sessionUri (← resolvePath session.root args.path)
-      let docState ← requireDocState session uri
       let position : Lsp.Position := { line := args.line, character := args.character }
-      let params :=
-        match req.backend with
-        | .lean =>
-            Json.mkObj [
-              ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
-              ("position", toJson position)
-            ]
-        | .rocq =>
-            let fields :=
-              [
-                ("textDocument", toJson ({ uri := uri, version? := some docState.version : VersionedTextDocumentIdentifier })),
-                ("position", toJson position),
-                ("mode", toJson (goalModeValue req.mode?)),
-                ("compact", toJson (req.compact?.getD false)),
-                ("pp_format", toJson (goalPpFormatValue req.ppFormat?))
-              ] ++
-              match req.text? with
-              | some text => [("command", toJson text)]
-              | none => []
-            Json.mkObj fields
-      let tracked :=
-        if session.backend == .lean then
-          some (uri, docState.version)
-        else
-          none
-      let (session, promise) ←
-        startRequestJsonTrackedDetailed session args.method params
-          (clientRequestId? := req.clientRequestId?)
-          (tracked := tracked)
-          (initialProgress? := docState.fileProgress?)
-          (emitProgress? := emitProgress?)
-      updateSession session
-      pure (session, uri, tracked, promise)
-    propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult promise
-    if tracked.isSome then
-      mergeFileProgressIfCurrent server session uri pending.progress?
-    pure (withFileProgress (sessionResult session pending.result) pending.progress?, false)
+      startSyncedDocumentRequest session args.path args.method
+        (fun uri docState =>
+          match req.backend with
+          | .lean =>
+              Json.mkObj [
+                ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
+                ("position", toJson position)
+              ]
+          | .rocq =>
+              let fields :=
+                [
+                  ("textDocument", toJson ({ uri := uri, version? := some docState.version : VersionedTextDocumentIdentifier })),
+                  ("position", toJson position),
+                  ("mode", toJson (goalModeValue req.mode?)),
+                  ("compact", toJson (req.compact?.getD false)),
+                  ("pp_format", toJson (goalPpFormatValue req.ppFormat?))
+                ] ++
+                match req.text? with
+                | some text => [("command", toJson text)]
+                | none => []
+              Json.mkObj fields)
+        (trackedLeanDocumentVersion req.backend)
+        (clientRequestId? := req.clientRequestId?)
+        (emitProgress? := emitProgress?)
+    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+    let pending ← PendingRequest.awaitResult started.promise
+    if started.tracked.isSome then
+      mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1307,37 +1327,34 @@ private def handleRunWithOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
-    let (session, uri, promise) ← server.withState do
+    let started ← server.withState do
       let session ← ensureSession req.backend
       let rawHandle ←
         match unwrapHandle session args.handle with
         | .ok raw => pure raw
         | .error err => throwBrokerFailure { code := .contentModified, message := err }
-      let session ← syncFile session args.path
-      let uri := sessionUri (← resolvePath session.root args.path)
-      let docState ← requireDocState session uri
-      let params := Json.mkObj <|
-        [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
-        , ("handle", rawHandle)
-        , ("text", toJson args.text)
-        ] ++ (match req.storeHandle? with
-        | some b => [("storeHandle", toJson b)]
-        | none => []) ++
-        (match req.linear? with
-        | some b => [("linear", toJson b)]
-        | none => [])
-      let (session, promise) ←
-        startRequestJsonTrackedDetailed session args.method params
-          (clientRequestId? := req.clientRequestId?)
-          (tracked := some (uri, docState.version))
-          (initialProgress? := docState.fileProgress?)
-          (emitProgress? := emitProgress?)
-      updateSession session
-      pure (session, uri, promise)
-    propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult promise
-    mergeFileProgressIfCurrent server session uri pending.progress?
-    pure (withFileProgress (sessionResult session (wrapResultHandle session pending.result)) pending.progress?, false)
+      startSyncedDocumentRequest session args.path args.method
+        (fun uri _ => Json.mkObj <|
+          [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
+          , ("handle", rawHandle)
+          , ("text", toJson args.text)
+          ] ++ (match req.storeHandle? with
+          | some b => [("storeHandle", toJson b)]
+          | none => []) ++
+          (match req.linear? with
+          | some b => [("linear", toJson b)]
+          | none => []))
+        trackedDocumentVersion
+        (clientRequestId? := req.clientRequestId?)
+        (emitProgress? := emitProgress?)
+    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+    let pending ← PendingRequest.awaitResult started.promise
+    mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    pure (
+      withFileProgress
+        (sessionResult started.session (wrapResultHandle started.session pending.result))
+        pending.progress?,
+      false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1353,31 +1370,24 @@ private def handleReleaseOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     ensureRequestNotCancelled cancelRef?
-    let (session, uri, promise) ← server.withState do
+    let started ← server.withState do
       let session ← ensureSession req.backend
       let rawHandle ←
         match unwrapHandle session args.handle with
         | .ok raw => pure raw
         | .error err => throwBrokerFailure { code := .contentModified, message := err }
-      let session ← syncFile session args.path
-      let uri := sessionUri (← resolvePath session.root args.path)
-      let docState ← requireDocState session uri
-      let params := Json.mkObj [
-        ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
-        ("handle", rawHandle)
-      ]
-      let (session, promise) ←
-        startRequestJsonTrackedDetailed session args.method params
-          (clientRequestId? := req.clientRequestId?)
-          (tracked := some (uri, docState.version))
-          (initialProgress? := docState.fileProgress?)
-          (emitProgress? := emitProgress?)
-      updateSession session
-      pure (session, uri, promise)
-    propagatePendingCancellation session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult promise
-    mergeFileProgressIfCurrent server session uri pending.progress?
-    pure (withFileProgress (sessionResult session pending.result) pending.progress?, false)
+      startSyncedDocumentRequest session args.path args.method
+        (fun uri _ => Json.mkObj [
+          ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier })),
+          ("handle", rawHandle)
+        ])
+        trackedDocumentVersion
+        (clientRequestId? := req.clientRequestId?)
+        (emitProgress? := emitProgress?)
+    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+    let pending ← PendingRequest.awaitResult started.promise
+    mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
