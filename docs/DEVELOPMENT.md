@@ -27,6 +27,17 @@ Current maintainer priorities are:
 If the question is "how do I use the product?", do not start here.
 If the question is "how do I work on the repo safely and efficiently?", start here.
 
+## Code Organization
+
+- `RunAt`: Lean LSP server plugin providing the `$/lean/runAt` request for speculative execution at
+  arbitrary document points.
+- `Beam`: shared broker, CLI, and MCP layer over Lean LSP plus Beam-specific extensions.
+- `skills`: installed Claude/Codex workflow guidance built around `lean-beam`.
+- Rocq support: a narrow auxiliary goal-probe surface through the same `lean-beam` wrapper, useful
+  when porting from Rocq to Lean.
+- `tests`: scenario-DSL coverage for LSP-level behavior, concurrent stress coverage, broker and
+  wrapper regression suites, and install/runtime validation.
+
 ## Local Workflow
 
 Start from the repo root and prefer dedicated worktrees for new tasks:
@@ -89,42 +100,20 @@ exit-capable Lean/Lake API is introduced.
 
 ## MCP Projection Changes
 
+Current MCP architecture, runtime setup, protocol versioning, and conformance notes live in
+[docs/MCP.md](MCP.md). Keep this section as the maintainer checklist for implementation changes.
+
 MCP work should go through the shared Lean operation layer in
 [Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) and the typed MCP projection boundary in
-[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean).
-`Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
-owns the tool input schemas. `Beam/Mcp/Projection.lean` names the public MCP tools and normalizes
-selected broker results.
-
-The executable MCP path is split into importable runtime modules and tiny entry-point modules:
-
-- [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean): MCP JSON-RPC and tool-result helpers
-- [Beam/Mcp/Options.lean](../Beam/Mcp/Options.lean): executable option parsing and usage text
-- [Beam/Mcp/Roots.lean](../Beam/Mcp/Roots.lean): MCP `roots/list` negotiation and root selection
-- [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): project-root to broker-runtime setup
-- [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check driver
-- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): broker-backed stdio MCP server logic
-- [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): `lean-beam-mcp` executable entry point
-- [Beam/Broker/ServerMain.lean](../Beam/Broker/ServerMain.lean): `beam-daemon` executable entry point
-
-Keep executable `main` declarations out of importable runtime modules. Otherwise test and adapter
-modules that import a runtime accidentally inherit the wrong root-level `main`.
-
-The installed `bin/lean-beam-mcp` wrapper is the public setup path. It pairs the MCP executable with
-the same installed `beam-cli` and passes `--beam-cli`; `Beam/Mcp/Runtime.lean` then asks
-`beam-cli --root <root> mcp-config` for the project-specific Lean command and runAt plugin after
-root selection. Keep this resolver as a narrow CLI/MCP setup boundary. Do not duplicate bundle
-selection logic in the MCP server, and do not make MCP clients pass raw plugin paths in normal
-installed use.
+[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean). The MCP server is another projection over
+the Beam operation set, not a raw LSP proxy.
 
 When adding an MCP-facing operation:
 
 - add or reuse a `Beam.Lean.Operation` first
 - add a `ToolName` only if it is meant to be a public agent tool
-- keep raw LSP methods and params out of the MCP input types
-- keep the project root in server/session context, not in each MCP tool input; root negotiation
-  belongs in `Beam/Mcp/Roots.lean`, either through the explicit `--root` override or exactly one
-  MCP `roots/list` result
+- keep raw LSP methods and params out of MCP input types
+- keep the project root in server/session context, not in each MCP tool input
 - map to broker operations through the shared operation helpers instead of constructing ad hoc JSON
 - normalize MCP output field names in the projection, for example `next_handle` and `proof_state`
 - do not expose expert/raw escape hatches such as `lean-request-at` as MCP tools
@@ -132,22 +121,13 @@ When adding an MCP-facing operation:
   and [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), then run
   `bash tests/test-broker-fast.sh`
 
-`Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
-add support for another revision, only with a protocol audit: check the upstream MCP
-schema/changelog, update local protocol tests, run the Lean-backed stdio harness, update
-[docs/STATUS.md](STATUS.md), and run [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh)
-against the revised conformance baseline.
+Keep executable `main` declarations out of importable runtime modules. Otherwise test and adapter
+modules that import a runtime accidentally inherit the wrong root-level `main`.
 
-The local Streamable HTTP bridge under [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) is a
-test/conformance adapter over the stdio executable, not a separate product transport. Keep it thin:
-it should translate HTTP status/header rules to the stdio server without adding a second MCP tool
-implementation.
-
-The default conformance gate uses the pinned `@modelcontextprotocol/conformance@0.1.16` package and
-the explicit scenario set in [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh).
-Changing the package version or scenario baseline is a protocol change: update
-[docs/TESTING.md](TESTING.md), run the local conformance script, and check the workflow with
-`actionlint`.
+Treat `Beam.Mcp.protocolVersion`, the external conformance baseline, and the advertised tool schema
+as protocol surface. Changing any of them requires the audit and conformance steps in
+[docs/MCP.md](MCP.md#protocol-and-errors) and
+[docs/MCP.md](MCP.md#testing-and-conformance).
 
 ## Broker Server Boundaries
 

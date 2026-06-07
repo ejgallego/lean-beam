@@ -25,10 +25,11 @@ From the `lean-beam` repo root:
 Use `--claude` instead when installing for Claude Code, or `--all-skills` when you want both agent
 skill sets.
 
-The installer puts `lean-beam` in `~/.local/bin`, stages the self-contained runtime under
-`BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on `PATH`, prebuilds the
-pinned `lean-toolchain` bundle under `BEAM_INSTALL_ROOT/state/install-bundles`, and installs the
-Lean and Rocq bundled skills only for the agent flags you request.
+The installer puts the Lean Beam wrappers in `~/.local/bin`, including `lean-beam`, stages the
+self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on
+`PATH`, prebuilds the pinned `lean-toolchain` bundle under
+`BEAM_INSTALL_ROOT/state/install-bundles`, and installs the Lean and Rocq bundled skills only for the
+agent flags you request.
 
 Restart Codex or Claude Code after installation.
 

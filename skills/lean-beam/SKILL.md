@@ -22,16 +22,18 @@ From the `lean-beam` repo root:
 Use `--claude` instead when installing for Claude Code, or `--all-skills` when you want both agent
 skill sets.
 
-The installer puts `lean-beam` and `lean-beam-search` in `~/.local/bin`, stages the self-contained
-runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on `PATH`,
-prebuilds the pinned `lean-toolchain` bundle under `BEAM_INSTALL_ROOT/state/install-bundles` by
-default, supports `--toolchain <toolchain>` and `--all-supported` for explicit supported bundle
-selection, and installs the bundled skills only for the agent flags you request.
+The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `~/.local/bin`, stages
+the self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires
+`elan` on `PATH`, prebuilds the pinned `lean-toolchain` bundle under
+`BEAM_INSTALL_ROOT/state/install-bundles` by default, supports `--toolchain <toolchain>` and
+`--all-supported` for explicit supported bundle selection, and installs the bundled skills only for
+the agent flags you request.
 
 Restart Codex or Claude Code after installation.
 
-For the authoritative install and bundle-resolution order, see the `Installation And Resolution`
-section in the repo [README](../../README.md).
+For the authoritative install and bundle-resolution order, see the repo
+[docs/SETUP.md](../../docs/SETUP.md) and [Supported Toolchains](../../docs/SETUP.md#supported-toolchains-and-bundles)
+sections.
 
 ## Skill Surface
 
