@@ -44,6 +44,48 @@ python3 tests/test-mcp-stdio.py --iterations 1 --restart-cycles 1 > /dev/null
 python3 tests/test-mcp-http-bridge.py > /dev/null
 scripts/lean-beam-mcp --root tests/save_olean_project --self-check PositionEmptyLine.lean > /dev/null
 
+self_check_timeout_dir="$(mktemp -d /tmp/lean-beam-mcp-self-check-timeout-XXXXXX)"
+self_check_timeout_err="$(mktemp /tmp/lean-beam-mcp-self-check-timeout-err-XXXXXX)"
+self_check_fake_cli="$self_check_timeout_dir/beam-cli"
+self_check_fake_cli_pid="$self_check_timeout_dir/beam-cli.pid"
+# shellcheck disable=SC2016 # Keep fake-script variables unexpanded until the fake CLI runs.
+printf '%s\n' \
+  '#!/usr/bin/env sh' \
+  'printf "%s\n" "$$" > "$LEAN_BEAM_FAKE_CLI_PID"' \
+  'sleep 30' \
+  > "$self_check_fake_cli"
+chmod +x "$self_check_fake_cli"
+if LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=10000 \
+    LEAN_BEAM_FAKE_CLI_PID="$self_check_fake_cli_pid" \
+    .lake/build/bin/lean-beam-mcp --root tests/save_olean_project \
+      --beam-cli "$self_check_fake_cli" --self-check PositionEmptyLine.lean \
+    > /dev/null 2>"$self_check_timeout_err"; then
+  echo "expected MCP self-check to time out while waiting for lean_sync" >&2
+  if [ -s "$self_check_fake_cli_pid" ]; then
+    kill "$(cat "$self_check_fake_cli_pid")" 2> /dev/null || true
+  fi
+  rm -rf -- "$self_check_timeout_dir"
+  rm -f "$self_check_timeout_err"
+  exit 1
+fi
+if ! grep -Fq \
+    'timed out after 10000 ms waiting for lean-beam-mcp self-check lean_sync response' \
+    "$self_check_timeout_err"; then
+  echo "expected MCP self-check timeout to identify the lean_sync phase" >&2
+  cat "$self_check_timeout_err" >&2
+  if [ -s "$self_check_fake_cli_pid" ]; then
+    kill "$(cat "$self_check_fake_cli_pid")" 2> /dev/null || true
+  fi
+  rm -rf -- "$self_check_timeout_dir"
+  rm -f "$self_check_timeout_err"
+  exit 1
+fi
+if [ -s "$self_check_fake_cli_pid" ]; then
+  kill "$(cat "$self_check_fake_cli_pid")" 2> /dev/null || true
+fi
+rm -rf -- "$self_check_timeout_dir"
+rm -f "$self_check_timeout_err"
+
 self_check_missing_file_err="$(mktemp /tmp/lean-beam-mcp-self-check-missing-file-XXXXXX)"
 if scripts/lean-beam-mcp --root tests/save_olean_project --self-check DoesNotExist.lean \
     > /dev/null 2>"$self_check_missing_file_err"; then
