@@ -72,15 +72,15 @@ structure State where
 
 abbrev M := StateRefT State IO
 
-def mkSessionToken : IO String := do
+private def mkSessionToken : IO String := do
   let pid ← IO.Process.getPID
   let now ← IO.monoNanosNow
   pure s!"{pid}-{now}"
 
-def resolveRoot (root : System.FilePath) : IO System.FilePath :=
+private def resolveRoot (root : System.FilePath) : IO System.FilePath :=
   IO.FS.realPath root
 
-def resolvePath (root : System.FilePath) (path : System.FilePath) : IO System.FilePath := do
+private def resolvePath (root : System.FilePath) (path : System.FilePath) : IO System.FilePath := do
   let path := if path.isAbsolute then path else root / path
   IO.FS.realPath path
 
@@ -103,7 +103,7 @@ private partial def waitForTaskWithTimeout
 private def sessionShutdownReplyTimeoutMs : Nat :=
   1000
 
-def shutdownSession (session : Session) : IO Unit := do
+private def shutdownSession (session : Session) : IO Unit := do
   try
     writeLspRequest session.stdin ({ id := 0, method := "shutdown", param := Json.null : Lean.JsonRpc.Request Json })
     let task ← IO.asTask session.stdout.readLspMessage
@@ -124,33 +124,33 @@ def shutdownSession (session : Session) : IO Unit := do
   catch _ =>
     pure ()
 
-def sessionExited (session : Session) : IO Bool := do
+private def sessionExited (session : Session) : IO Bool := do
   try
     pure (← session.proc.tryWait).isSome
   catch _ =>
     pure true
 
-def getBackendState (state : State) (backend : Backend) : BackendState :=
+private def getBackendState (state : State) (backend : Backend) : BackendState :=
   match backend with
   | .lean => state.lean
   | .rocq => state.rocq
 
-def setBackendState (state : State) (backend : Backend) (backendState : BackendState) : State :=
+private def setBackendState (state : State) (backend : Backend) (backendState : BackendState) : State :=
   match backend with
   | .lean => { state with lean := backendState }
   | .rocq => { state with rocq := backendState }
 
-def getBackendMetrics (state : State) (backend : Backend) : BackendMetrics :=
+private def getBackendMetrics (state : State) (backend : Backend) : BackendMetrics :=
   match backend with
   | .lean => state.leanMetrics
   | .rocq => state.rocqMetrics
 
-def setBackendMetrics (state : State) (backend : Backend) (metrics : BackendMetrics) : State :=
+private def setBackendMetrics (state : State) (backend : Backend) (metrics : BackendMetrics) : State :=
   match backend with
   | .lean => { state with leanMetrics := metrics }
   | .rocq => { state with rocqMetrics := metrics }
 
-def recordSessionSpawn (backend : Backend) (restart : Bool) : M Unit := do
+private def recordSessionSpawn (backend : Backend) (restart : Bool) : M Unit := do
   modify fun state =>
     let metrics := getBackendMetrics state backend
     let metrics := {
@@ -160,7 +160,7 @@ def recordSessionSpawn (backend : Backend) (restart : Bool) : M Unit := do
     }
     setBackendMetrics state backend metrics
 
-def recordRequestMetrics
+private def recordRequestMetrics
     (backend : Backend)
     (op : String)
     (ok : Bool)
@@ -182,7 +182,7 @@ def recordRequestMetrics
     }
     setBackendMetrics state backend metrics
 
-def sessionSnapshotJson (session? : Option Session) : Json :=
+private def sessionSnapshotJson (session? : Option Session) : Json :=
   match session? with
   | none => Json.mkObj [("active", toJson false)]
   | some session =>
@@ -193,7 +193,7 @@ def sessionSnapshotJson (session? : Option Session) : Json :=
         ("openDocCount", toJson session.docs.toList.length)
       ]
 
-def statsPayload : M Json := do
+private def statsPayload : M Json := do
   let state ← get
   let now ← IO.monoNanosNow
   let uptimeMs := (now - state.startMonoNanos) / 1000000
@@ -210,7 +210,7 @@ def statsPayload : M Json := do
     ])
   ]
 
-def resetMetrics (startMonoNanos : Nat) : M Unit := do
+private def resetMetrics (startMonoNanos : Nat) : M Unit := do
   modify fun state => {
     state with
     leanMetrics := {}
@@ -218,7 +218,7 @@ def resetMetrics (startMonoNanos : Nat) : M Unit := do
     startMonoNanos := startMonoNanos
   }
 
-def nextRequestId (session : Session) : Session × RequestID :=
+private def nextRequestId (session : Session) : Session × RequestID :=
   let id : RequestID := session.nextId
   ({ session with nextId := session.nextId + 1 }, id)
 
@@ -313,7 +313,7 @@ def sendRequestJsonTrackedDetailed
   let pending ← PendingRequest.awaitResult promise
   pure (session, pending.result, pending.progress?, pending.diagnostics)
 
-def sendRequestJsonTracked
+private def sendRequestJsonTracked
     (session : Session)
     (method : String)
     (param : Json)
@@ -326,7 +326,7 @@ def sendRequestJsonTracked
     sendRequestJsonTrackedDetailed session method param clientRequestId? tracked initialProgress? emitProgress?
   pure (session, result, progress?)
 
-def sendRequestJson (session : Session) (method : String) (param : Json) : IO (Session × Json) := do
+private def sendRequestJson (session : Session) (method : String) (param : Json) : IO (Session × Json) := do
   let (session, result, _) ← sendRequestJsonTracked session method param
   pure (session, result)
 
@@ -357,7 +357,7 @@ private partial def awaitInitializeResponse (stdout : IO.FS.Stream) : IO Unit :=
         message := "unexpected server request before initialize completed"
       }
 
-def ensureSession (backend : Backend) : M Session := do
+private def ensureSession (backend : Backend) : M Session := do
   let state ← get
   let config := state.config
   let root := config.root
@@ -410,11 +410,11 @@ def ensureSession (backend : Backend) : M Session := do
       modify fun st => setBackendState st backend backendState
       pure session
 
-def sendNotificationJson (session : Session) (method : String) (param : Json) : IO Session := do
+private def sendNotificationJson (session : Session) (method : String) (param : Json) : IO Session := do
   writeLspNotification session.stdin ({ method, param : Lean.JsonRpc.Notification Json })
   pure session
 
-def syncFile (session : Session) (path : System.FilePath) : IO Session := do
+private def syncFile (session : Session) (path : System.FilePath) : IO Session := do
   let path ← resolvePath session.root path
   let text ← IO.FS.readFile path
   let uri := sessionUri path
@@ -451,10 +451,10 @@ def syncFile (session : Session) (path : System.FilePath) : IO Session := do
         pure session
   pure { session with docs := decision.docs }
 
-def requireDocState (session : Session) (uri : String) : IO DocState := do
+private def requireDocState (session : Session) (uri : String) : IO DocState := do
   DocumentState.requireDocState session.docs uri
 
-def closeFile (session : Session) (path : System.FilePath) : IO Session := do
+private def closeFile (session : Session) (path : System.FilePath) : IO Session := do
   let path ← resolvePath session.root path
   let uri := sessionUri path
   if session.docs.get? uri |>.isNone then
@@ -464,29 +464,14 @@ def closeFile (session : Session) (path : System.FilePath) : IO Session := do
     let session ← sendNotificationJson session "textDocument/didClose" param
     pure { session with docs := session.docs.erase uri }
 
-def recordFileProgress (session : Session) (uri : DocumentUri)
+private def recordFileProgress (session : Session) (uri : DocumentUri)
     (fileProgress? : Option SyncFileProgress) : Session :=
   { session with docs := DocumentState.recordFileProgress session.docs uri fileProgress? }
 
-def decodeResponseAs [FromJson α] (json : Json) : IO α := do
+private def decodeResponseAs [FromJson α] (json : Json) : IO α := do
   match fromJson? json with
   | .ok value => pure value
   | .error err => throw <| IO.userError s!"invalid backend response payload: {err}\n{json.compress}"
-
-private def fetchSyncSaveReadiness
-    (session : Session)
-    (uri : DocumentUri) : IO (Session × SyncSaveReadiness) := do
-  if session.backend != .lean then
-    pure (session, {})
-  else
-    let method ← IO.ofExcept <| saveReadinessMethod session.backend
-    let params := toJson ({
-      textDocument := ({ uri := uri : TextDocumentIdentifier })
-      : RunAt.Internal.SaveReadinessParams
-    })
-    let (session, result) ← sendRequestJson session method params
-    let readiness : RunAt.Internal.SaveReadinessResult ← decodeResponseAs result
-    pure (session, syncSaveReadinessOfResult readiness)
 
 private def ensureSyncBarrierComplete
     (uri : DocumentUri)
@@ -498,47 +483,6 @@ private def ensureSyncBarrierComplete
       code := .syncBarrierIncomplete
       message := syncBarrierIncompleteMessage uri version progress?
     }
-
-def waitForDiagnostics (session : Session) (uri : DocumentUri) (version : Nat) : IO Session := do
-  let params := toJson (WaitForDiagnosticsParams.mk uri version)
-  let (session, result) ← sendRequestJson session "textDocument/waitForDiagnostics" params
-  let (_ : WaitForDiagnostics) ← decodeResponseAs result
-  pure session
-
-partial def waitForSyncBarrierWithDiagnostics
-    (session : Session)
-    (uri : DocumentUri)
-    (version : Nat)
-    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
-    (fullDiagnostics : Bool := false)
-    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
-    IO (Session × Option SyncFileProgress × Array Diagnostic) := do
-  if session.backend != .lean then
-    pure (session, none, #[])
-  else
-    let params := toJson (WaitForDiagnosticsParams.mk uri version)
-    let (session, result, progress?, diagnostics) ←
-      sendRequestJsonTrackedDetailed session "textDocument/waitForDiagnostics" params
-        (tracked := some (uri, version))
-        (emitProgress? := emitProgress?)
-        (fullDiagnostics := fullDiagnostics)
-        (emitDiagnostic? := emitDiagnostic?)
-    let (_ : WaitForDiagnostics) ← decodeResponseAs result
-    ensureSyncBarrierComplete uri version progress?
-    pure (session, progress?, diagnostics)
-
-partial def waitForSyncBarrierWith
-    (session : Session)
-    (uri : DocumentUri)
-    (version : Nat)
-    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
-    IO (Session × Option SyncFileProgress) := do
-  let (session, progress?, _) ← waitForSyncBarrierWithDiagnostics session uri version emitProgress?
-  pure (session, progress?)
-
-partial def waitForSyncBarrier (session : Session) (uri : DocumentUri) (version : Nat) :
-    IO (Session × Option SyncFileProgress) := do
-  waitForSyncBarrierWith session uri version
 
 private def trackedPathLabel (root : System.FilePath) (uri : DocumentUri) : String :=
   match workspacePath? root uri with
@@ -569,106 +513,46 @@ private def markDocSavedVersion (session : Session) (uri : DocumentUri) (version
     (trackedPathLabel session.root uri) session.nextEventSeq
   applyVersionMarkResult session result
 
-def saveOlean
-    (leanCmd? : Option String)
-    (session : Session)
-    (path : System.FilePath)
-    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
-    (fullDiagnostics : Bool := false)
-    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
-    IO (Session × Json × Option SyncFileProgress) := do
-  if session.backend != .lean then
-    throw <| IO.userError "save_olean is only supported for the lean backend"
-  let path ← resolvePath session.root path
-  let session ← syncFile session path
-  let uri := sessionUri path
-  let docState ← requireDocState session uri
-  let (session, fileProgress?, _) ←
-    waitForSyncBarrierWithDiagnostics session uri docState.version emitProgress? fullDiagnostics emitDiagnostic?
-  let spec ← mkLeanSaveSpec session.root path
-    {
-      hash := docState.textTraceHash
-      mtime := docState.textMTime
-    }
-    leanCmd?
-  let method ← IO.ofExcept <| saveArtifactsMethod session.backend
-  let params := toJson ({
-    textDocument := ({ uri := uri : TextDocumentIdentifier })
-    oleanFile := spec.oleanPath.toString
-    ileanFile := spec.ileanPath.toString
-    cFile := spec.cPath.toString
-    bcFile? := spec.bcPath?.map (·.toString)
-    : RunAt.Internal.SaveArtifactsParams
-  })
-  let (session, result) ← sendRequestJson session method params
-  let saveResult : RunAt.Internal.SaveArtifactsResult ← decodeResponseAs result
-  if saveResult.version != docState.version then
-    throw <| IO.userError
-      s!"save_olean saved version {saveResult.version}, expected synced version {docState.version}"
-  if saveResult.textHash != docState.textHash then
-    throw <| IO.userError
-      s!"save_olean saved text hash {saveResult.textHash}, expected synced hash {docState.textHash}"
-  writeLeanSaveTrace spec
-  let session ←
-    if session.docs.contains uri then
-      sendNotificationJson session "textDocument/didSave" (toJson ({
-        textDocument := ({ uri := uri : TextDocumentIdentifier })
-        text? := none
-        : DidSaveTextDocumentParams
-      }))
-    else
-      pure session
-  let session ← sendNotificationJson session "workspace/didChangeWatchedFiles" (toJson ({
-    changes := #[
-      { uri := (System.Uri.pathToUri spec.ileanPath : String), type := FileChangeType.Changed }
-    ]
-    : DidChangeWatchedFilesParams
-  }))
-  pure (markDocSavedVersion session uri docState.version, leanSavePayload spec docState.version docState.textTraceHash, fileProgress?)
-
 private def openDocsSessionView (session : Session) : OpenDocs.SessionView := {
   backend := session.backend
   root := session.root
   docs := session.docs
 }
 
-def openDocsPayload : M Json := do
+private def openDocsPayload : M Json := do
   let state ← get
   OpenDocs.payload state.config.root state.config.leanCmd?
     (state.lean.session?.map openDocsSessionView)
     (state.rocq.session?.map openDocsSessionView)
 
-def wrapHandle (session : Session) (raw : Json) : Json :=
+private def wrapHandle (session : Session) (raw : Json) : Json :=
   toJson ({ backend := session.backend, epoch := session.epoch, session := session.sessionToken, raw : Handle })
 
-def unwrapHandle (session : Session) (handle : Handle) : Except String Json := do
+private def unwrapHandle (session : Session) (handle : Handle) : Except String Json := do
   if handle.backend != session.backend then
     throw "handle belongs to a different backend"
   if handle.epoch != session.epoch || handle.session != session.sessionToken then
     throw "handle belongs to a stale backend session"
   pure handle.raw
 
-def wrapResultHandle (session : Session) (result : Json) : Json :=
+private def wrapResultHandle (session : Session) (result : Json) : Json :=
   match result.getObjVal? "handle" with
   | .ok raw =>
       result.setObjVal! "handle" (wrapHandle session raw)
   | .error _ =>
       result
 
-def sessionResult (_session : Session) (payload : Json := Json.null) : Response :=
-  Response.success payload
-
-def withFileProgress (resp : Response) (fileProgress? : Option SyncFileProgress) : Response :=
+private def withFileProgress (resp : Response) (fileProgress? : Option SyncFileProgress) : Response :=
   match fileProgress? with
   | some progress => { resp with fileProgress? := some progress }
   | none => resp
 
-def updateSession (session : Session) : M Unit := do
+private def updateSession (session : Session) : M Unit := do
   modify fun state =>
     let backendState := getBackendState state session.backend
     setBackendState state session.backend { backendState with session? := some session }
 
-def handleDepsOp (req : Request) : M (Response × Bool) := do
+private def handleDepsOp (req : Request) : M (Response × Bool) := do
   let path ←
     match req.pathArg with
     | .ok path => pure path
@@ -692,7 +576,7 @@ def handleDepsOp (req : Request) : M (Response × Bool) := do
     else
       pure (reqError "internalError" msg, false)
 
-def currentSession? (backend : Backend) : M (Option Session) := do
+private def currentSession? (backend : Backend) : M (Option Session) := do
   let state ← get
   match (getBackendState state backend).session? with
   | none =>
@@ -1003,7 +887,7 @@ private def saveCompletedResponse
       Json.mkObj [("closed", toJson true), ("saved", saved.payload)]
     else
       saved.payload
-  withFileProgress (sessionResult saved.session payload) saved.fileProgress?
+  withFileProgress (Response.success payload) saved.fileProgress?
 
 private def fetchSyncSaveReadinessIO
     (server : ServerRuntime)
@@ -1153,7 +1037,7 @@ private def handleSyncFileOpIO
       saveReadyReason := saveReadiness.saveReadyReason
       : SyncFileResult
     })
-    pure (withFileProgress (sessionResult started.session payload) fileProgress?, false)
+    pure (withFileProgress (Response.success payload) fileProgress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1214,7 +1098,7 @@ private def handleRunAtOpIO
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (
       withFileProgress
-        (sessionResult started.session (wrapResultHandle started.session pending.result))
+        (Response.success (wrapResultHandle started.session pending.result))
         pending.progress?,
       false)
   catch e =>
@@ -1243,7 +1127,7 @@ private def handleRequestAtOpIO
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
-    pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
+    pure (withFileProgress (Response.success pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1307,7 +1191,7 @@ private def handleGoalsOpIO
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
-    pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
+    pure (withFileProgress (Response.success pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1346,7 +1230,7 @@ private def handleRunWithOpIO
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (
       withFileProgress
-        (sessionResult started.session (wrapResultHandle started.session pending.result))
+        (Response.success (wrapResultHandle started.session pending.result))
         pending.progress?,
       false)
   catch e =>
@@ -1379,7 +1263,7 @@ private def handleReleaseOpIO
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
-    pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
+    pure (withFileProgress (Response.success pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1424,7 +1308,7 @@ private def handleRequestIO
                       ("root", toJson session.root.toString),
                       ("epoch", toJson session.epoch)
                     ]
-                    pure <| sessionResult session payload
+                    pure <| Response.success payload
                 catch e =>
                   pure <| reqError "internalError" e.toString
               pure (resp, false)
@@ -1478,7 +1362,7 @@ def ServerRuntime.dispatchRequest
     recordDispatchMetrics server req resp startedAt
     pure (resp, false)
 
-def handleClient (server : ServerRuntime) (client : Transport.Connection) : IO Unit := do
+private def handleClient (server : ServerRuntime) (client : Transport.Connection) : IO Unit := do
   let clientRequestIdRef ← IO.mkRef (none : Option String)
   try
     let msg ← Transport.recvMsg client
@@ -1507,7 +1391,7 @@ def handleClient (server : ServerRuntime) (client : Transport.Connection) : IO U
   finally
     Transport.closeConnection client
 
-partial def acceptLoop (server : ServerRuntime) (listener : Transport.Listener) : IO Unit := do
+private partial def acceptLoop (server : ServerRuntime) (listener : Transport.Listener) : IO Unit := do
   if ← server.stop.get then
     pure ()
   else
