@@ -944,16 +944,6 @@ private def startTrackedDiagnosticsBarrierIO
       promise := started.promise
     }
 
-private def handleCloseWithoutSessionIO (req : Request) : IO (Response × Bool) := do
-  let path ←
-    match req.pathArg with
-    | .ok path => pure path
-    | .error resp => return (resp, false)
-  if req.saveArtifacts?.getD false then
-    let backendName := match req.backend with | .lean => "lean" | .rocq => "rocq"
-    return (reqError "internalError" s!"cannot save artifacts without a live {backendName} session for {path}", false)
-  pure (Response.success (Json.mkObj [("closed", toJson true)]), false)
-
 private def finalizeSavedDoc
     (server : ServerRuntime)
     (session : Session)
@@ -1178,22 +1168,22 @@ private def handleCloseOpIO
     match req.pathArg with
     | .ok path => pure path
     | .error resp => return (resp, false)
-  if req.saveArtifacts?.getD false then
-    try
+  try
+    if req.saveArtifacts?.getD false then
       let saved ← saveOleanIO server req path cancelRef? emitProgress? emitDiagnostic?
       finalizeSavedDoc server saved.session saved.uri saved.version saved.spec true
       pure (saveCompletedResponse saved true, false)
-    catch e =>
-      pure (responseForExceptionMessage e.toString, false)
-  else
-    server.withState do
-      match ← currentSession? req.backend with
-      | some session =>
-          let session ← closeFile session path
-          updateSession session
-          pure (Response.success (Json.mkObj [("closed", toJson true)]), false)
-      | none =>
-          pure (Response.success (Json.mkObj [("closed", toJson true)]), false)
+    else
+      server.withState do
+        match ← currentSession? req.backend with
+        | some session =>
+            let session ← closeFile session path
+            updateSession session
+            pure (Response.success (Json.mkObj [("closed", toJson true)]), false)
+        | none =>
+            pure (Response.success (Json.mkObj [("closed", toJson true)]), false)
+  catch e =>
+    pure (responseForExceptionMessage e.toString, false)
 
 private def handleRunAtOpIO
     (server : ServerRuntime)
