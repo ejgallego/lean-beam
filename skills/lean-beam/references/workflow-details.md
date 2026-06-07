@@ -254,6 +254,11 @@ Beam is designed for the opposite loop. Once the per-root daemon and target docu
 `run-at`, `hover`, `signature-help`, `definition`, `references`, `document-symbols`, and `goals`
 are cheap local questions against the saved source snapshot. The intended agent style is therefore
 small, source-position probes, not large detached experiments.
+High-bandwidth clients do not need to wait for a batch API to exploit this shape: they can keep many
+independent `run-at` probes or handle-rooted search sequences in flight concurrently. Future
+batching can reduce per-call overhead and simplify client code, but it is a minor gain compared with
+parallelizing independent probes against a warm daemon. Coordinate only the cases that truly share
+state, such as a linear handle that is consumed by its next step.
 
 Write the on-disk document as `prefix ++ E ++ suffix`.
 
@@ -262,6 +267,9 @@ Write the on-disk document as `prefix ++ E ++ suffix`.
 - the wrapper is cheap only after the per-root daemon and matching bundle already exist
 - `lean-beam run-at`, `lean-beam run-at-handle`, `lean-beam run-with`, and `lean-beam release` do not edit the file;
   they are speculative checks on one current snapshot, so their cost is not a workspace rebuild cost
+- independent speculative checks can be launched in parallel by the client; batching is an
+  ergonomics and per-call-overhead improvement, not the main scaling mechanism for clients that can
+  already keep requests in flight
 - `lean-beam sync` always transmits the full current file text to Lean, so the wire/update cost is
   `O(N)`, not `O(C)`, even when `C << N`
 - `lake build Foo.lean` is also at least `O(N)` in the target file length for that file

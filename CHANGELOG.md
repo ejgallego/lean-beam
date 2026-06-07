@@ -1,24 +1,35 @@
 # Changelog
 
+This project keeps a lightweight, reverse-chronological changelog. Dates use `YYYY-MM-DD`.
+Until the first tagged release, release-facing changes stay under `Unreleased`.
+
 ## Unreleased
 
-Current milestone summary:
+Preparing the first public Lean Beam alpha release.
 
-- add isolated `$/lean/runAt` execution with internal proof-first, command-fallback basis selection
-- keep the public request minimal: `textDocument`, `position`, `text`
-- keep the public success payload typed: `success`, `messages`, `traces`, optional `proofState`
-- route request-level failures through transport errors instead of the success payload
-- validate out-of-document positions as `invalidParams`
-- cover stale edit, close, cancellation, and multi-document ordering with repo-local scenario tests
-- add optional follow-up handles with wrong-document and stale-worker invalidation coverage
-- move most handle coverage into the text scenario DSL, keeping only the successor-handle-on-failure assertion in the Lean API test
-- propagate cooperative Lean cancel tokens into isolated command/proof execution and document the non-preemptive model
-- add a thin broker/client pair for local agent-driven `runAt` and optional Rocq goal workflows without speaking raw LSP directly
-- add minimal optional Rocq broker support through `coq-lsp` only, using `proof/goals` over full-text LSP sync
-- expose Rocq `proof/goals.command` through broker `goals.text` for intermediate-state probing of tactic prefixes such as `a` in `a; b`
-- add `lean-save` / `lean-close-save` as a zero-build save path: serialize current worker artifacts directly and write the Lake module trace without shelling out to `lake build`
-- make `lean-sync` a real diagnostics barrier and return a compact Lean `fileProgress` summary for the synced version
-- add in-memory broker stats with per-backend/per-op counts and latency summaries
-- add a small evaluation helper script and document additional upstream Rocq petanque capabilities such as notation analysis
-- document conservative multi-file Lean rebuild discipline until stale-dependency integration improves
-- add CI running `lake build` and the LSP test surface
+### Added
+
+- Isolated `$/lean/runAt` execution with internal proof-first, command-fallback basis selection.
+- Minimal typed request and response surface for speculative Lean probes.
+- Optional follow-up handles through `$/lean/runWith` and `$/lean/releaseHandle`.
+- Version-bound `lean-beam update`, `sync`, `save`, and `close-save` workflows.
+- Semantic navigation wrappers for hover, signature help, definitions, references, symbols, goals,
+  and todo-style actionable items.
+- Local Beam broker/client and `lean-beam` wrapper for saved-file Lean workflows.
+- Experimental `lean-beam-mcp` stdio server over the shared Beam operation layer.
+- Installed skills for supported agent clients and an optional Rocq goal-probe surface.
+- Runtime identity and diagnostic surfaces such as `lean-beam --version`, `beam_version`,
+  `open-files`, and broker stats.
+
+### Testing
+
+- Repo-local coverage for isolation, stale edits, cancellation, invalid positions, handle
+  invalidation, sync/save readiness, MCP protocol behavior, installer behavior, and supported Lean
+  toolchain compatibility.
+
+### Documentation
+
+- Human-facing README, setup, compatibility, status, testing, MCP, and skill workflow docs for the
+  public alpha surface.
+- Conservative release posture: keep the public API small, document known limitations, and defer
+  broader dependency/readiness redesigns until Lean or Lake expose stronger primitives.
