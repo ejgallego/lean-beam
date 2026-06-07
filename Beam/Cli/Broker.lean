@@ -196,6 +196,21 @@ def leanGoalsWaitSpec (path : String) (line character : Nat) (mode : GoalMode) :
     failureBoundary := "before goal inspection completed"
   }
 
+def leanTodoWaitSpec
+    (path : String)
+    (startLine startCharacter endLine endCharacter : Nat) : BrokerWaitSpec :=
+  let pos := s!"{path}:{startLine}:{startCharacter}-{endLine}:{endCharacter}"
+  {
+    action := "lean-todo"
+    startMsg := s!"beam: querying lean-todo for {pos} and waiting for Lean diagnostics"
+    progressMsg := fun progress => s!"beam: todo progress for {pos}{syncFileProgressSuffix (some progress)}"
+    stillWaitingMsg := fun seconds =>
+      s!"beam: still waiting for lean-todo on {pos} ({seconds}s)"
+    completeMsg := fun resp =>
+      s!"beam: lean-todo complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+    failureBoundary := "before todo inspection completed"
+  }
+
 def leanRequestAtWaitSpec (path : String) (line character : Nat) (method : String) : BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
   {

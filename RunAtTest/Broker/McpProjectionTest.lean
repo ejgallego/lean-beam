@@ -45,6 +45,9 @@ private def checkToolNames : IO Unit := do
   let hover ← expectOk "decode lean_hover" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_hover")
   require "decode lean_hover: wrong tool" (hover == .leanHover)
 
+  let todo ← expectOk "decode lean_todo" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_todo")
+  require "decode lean_todo: wrong tool" (todo == .leanTodo)
+
   match fromJson? (α := Beam.Mcp.ToolName) (Json.str RunAt.method) with
   | .ok tool =>
       throw <| IO.userError s!"raw LSP method decoded as MCP tool: {repr tool}"
@@ -74,6 +77,9 @@ private def checkToolDescriptors : IO Unit := do
   require "goals-after descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanGoalsAfter && desc.kind == .leanOperation .goalsAfter))
+  require "todo descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanTodo && desc.kind == .leanOperation .todo))
 
 private def checkBrokerRequestAdapters : IO Unit := do
   let root := "/repo"
@@ -130,6 +136,32 @@ private def checkBrokerRequestAdapters : IO Unit := do
     Beam.Mcp.ToolName.leanGoalsPrev.toBrokerRequest root (toJson positionInput)
   require "goals-prev op" (goalsPrevReq.op == .goals)
   require "goals-prev mode" (goalsPrevReq.mode? == some .prev)
+
+  let todoInput : Beam.Mcp.TodoInput := {
+    path := "Demo.lean"
+    startLine := 1
+    startCharacter := 0
+    endLine := 8
+    endCharacter := 3
+    kinds? := some #[.sorry, .incompleteProof]
+    suggest? := some .basic
+  }
+  let todoReq ← expectOk "todo tool request" <|
+    Beam.Mcp.ToolName.leanTodo.toBrokerRequest root (toJson todoInput)
+  require "todo op" (todoReq.op == .todo)
+  require "todo backend" (todoReq.backend == .lean)
+  require "todo start line" (todoReq.line? == some 1)
+  require "todo start character" (todoReq.character? == some 0)
+  require "todo end line" (todoReq.endLine? == some 8)
+  require "todo end character" (todoReq.endCharacter? == some 3)
+  require "todo kinds" (todoReq.kinds? == some #[.sorry, .incompleteProof])
+  require "todo suggest" (todoReq.suggest? == some .basic)
+  require "todo hides raw LSP method" todoReq.method?.isNone
+  require "todo hides raw LSP params" todoReq.params?.isNone
+  let todoJson := toJson todoInput
+  requireJsonString "todo input json" "path" "Demo.lean" todoJson
+  requireFieldAbsent "todo input json" "startLine" todoJson
+  requireFieldAbsent "todo input json" "root" todoJson
 
   let runWithInput : Beam.Mcp.RunWithInput := {
     path := "Demo.lean"
@@ -214,6 +246,58 @@ private def checkTransportErrorNormalization : IO Unit := do
     }
   require "transport error message" (err.message == "bad position")
 
+private def checkTodoNormalization : IO Unit := do
+  let rawTodo := Json.mkObj [
+    ("version", toJson (1 : Nat)),
+    ("range", toJson ({ start := { line := 0, character := 0 }, «end» := { line := 2, character := 0 } } : Lean.Lsp.Range)),
+    ("items", Json.arr #[
+      Json.mkObj [
+        ("kind", toJson RunAt.TodoKind.incompleteProof),
+        ("range", toJson ({ start := { line := 1, character := 2 }, «end» := { line := 1, character := 7 } } : Lean.Lsp.Range)),
+        ("runAtPosition", toJson ({ line := 1, character := 7 } : Lean.Lsp.Position)),
+        ("runAtText", toJson ("exact ?_" : String)),
+        ("proofState", toJson ({ goals := #[] } : RunAt.ProofState))
+      ],
+      Json.mkObj [
+        ("kind", toJson RunAt.TodoKind.codeAction),
+        ("range", toJson ({ start := { line := 1, character := 10 }, «end» := { line := 1, character := 11 } } : Lean.Lsp.Range)),
+        ("runAtPosition", toJson ({ line := 1, character := 10 } : Lean.Lsp.Position)),
+        ("codeAction", Json.mkObj [
+          ("title", toJson ("Replace fixture hole with zero" : String)),
+          ("kind", toJson ("quickfix" : String))
+        ])
+      ]
+    ])
+  ]
+  let normalized ← expectToolOk "normalize todo result" <|
+    Beam.Mcp.normalizeBrokerResponse .leanTodo {
+      ok := true
+      result? := some rawTodo
+    }
+  let items ← requireObjVal "todo result" "items" normalized
+  let item ←
+    match items with
+    | Json.arr items =>
+        match items[0]? with
+        | some item => pure item
+        | none => throw <| IO.userError "todo result: expected first item"
+    | _ => throw <| IO.userError s!"todo result: expected items array, got {items.compress}"
+  discard <| requireObjVal "todo item" "run_at_position" item
+  requireJsonString "todo item" "run_at_text" "exact ?_" item
+  discard <| requireObjVal "todo item" "proof_state" item
+  requireFieldAbsent "todo item" "runAtPosition" item
+  requireFieldAbsent "todo item" "runAtText" item
+  requireFieldAbsent "todo item" "proofState" item
+  let codeActionItem ←
+    match items with
+    | Json.arr items =>
+        match items[1]? with
+        | some item => pure item
+        | none => throw <| IO.userError "todo result: expected second item"
+    | _ => throw <| IO.userError s!"todo result: expected items array, got {items.compress}"
+  discard <| requireObjVal "todo code action item" "code_action" codeActionItem
+  requireFieldAbsent "todo code action item" "codeAction" codeActionItem
+
 private def checkInvalidEnvelopeRejection : IO Unit := do
   discard <| expectToolError "missing error envelope" "invalidEnvelope" <|
     Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := false }
@@ -230,6 +314,7 @@ def main : IO Unit := do
   checkBrokerRequestAdapters
   checkRunAtNormalization
   checkTransportErrorNormalization
+  checkTodoNormalization
   checkInvalidEnvelopeRejection
 
 end RunAtTest.Broker.McpProjectionTest

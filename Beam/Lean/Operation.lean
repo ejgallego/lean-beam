@@ -23,6 +23,7 @@ inductive Operation where
   | hover
   | goalsAfter
   | goalsPrev
+  | todo
   | runWith
   | runWithLinear
   | release
@@ -38,6 +39,7 @@ def Operation.all : Array Operation := #[
   .hover,
   .goalsAfter,
   .goalsPrev,
+  .todo,
   .runWith,
   .runWithLinear,
   .release,
@@ -53,6 +55,7 @@ def Operation.key : Operation → String
   | .hover => "hover"
   | .goalsAfter => "goals_after"
   | .goalsPrev => "goals_prev"
+  | .todo => "todo"
   | .runWith => "run_with"
   | .runWithLinear => "run_with_linear"
   | .release => "release"
@@ -68,6 +71,7 @@ def Operation.brokerOp : Operation → Beam.Broker.Op
   | .runAt | .runAtHandle => .runAt
   | .hover => .requestAt
   | .goalsAfter | .goalsPrev => .goals
+  | .todo => .todo
   | .runWith | .runWithLinear => .runWith
   | .release => .release
   | .sync => .syncFile
@@ -81,6 +85,7 @@ def Operation.description : Operation → String
   | .hover => "Inspect Lean hover information at a file position."
   | .goalsAfter => "Inspect Lean goals after a file position."
   | .goalsPrev => "Inspect Lean goals before a file position."
+  | .todo => "Inspect agent-actionable Lean todo items in a file range."
   | .runWith => "Run Lean text from a stored handle without consuming the parent handle."
   | .runWithLinear => "Run Lean text from a stored handle and consume that handle on success or failure."
   | .release => "Release a stored Lean follow-up handle."
@@ -104,6 +109,18 @@ def Operation.inputSchema : Operation → Json
         ("line", natural "Zero-based LSP line."),
         ("character", natural "Zero-based UTF-16 LSP character.")
       ] #["path", "line", "character"]
+  | .todo =>
+      inputObject [
+        ("path", string "Lean file path, relative to the server root unless absolute."),
+        ("start_line", natural "Zero-based LSP start line."),
+        ("start_character", natural "Zero-based UTF-16 LSP start character."),
+        ("end_line", natural "Zero-based LSP end line."),
+        ("end_character", natural "Zero-based UTF-16 LSP end character."),
+        ("kinds", enumStringArray "Todo kinds to include. Omit or pass [] for all kinds."
+          RunAt.TodoKind.allKeys),
+        ("suggest", enumString "Suggestion mode for optional run_at_text hints."
+          RunAt.TodoSuggestMode.allKeys)
+      ] #["path", "start_line", "start_character", "end_line", "end_character"]
   | .runWith | .runWithLinear =>
       inputObject [
         ("path", string "Lean file path, relative to the server root unless absolute."),
@@ -144,6 +161,52 @@ structure PositionInput where
   character : Nat
   deriving FromJson, ToJson
 
+private def optionalField? [FromJson α] (j : Json) (field : String) : Except String (Option α) := do
+  match j.getObjVal? field with
+  | .ok value =>
+      match fromJson? value with
+      | .ok decoded => pure (some decoded)
+      | .error err => throw s!"invalid '{field}': {err}"
+  | .error _ =>
+      pure none
+
+/-- Input for range-based Lean todo inspection operations. -/
+structure TodoInput where
+  path : String
+  startLine : Nat
+  startCharacter : Nat
+  endLine : Nat
+  endCharacter : Nat
+  kinds? : Option (Array RunAt.TodoKind) := none
+  suggest? : Option RunAt.TodoSuggestMode := none
+
+instance : ToJson TodoInput where
+  toJson input :=
+    Json.mkObj <|
+      [ ("path", toJson input.path)
+      , ("start_line", toJson input.startLine)
+      , ("start_character", toJson input.startCharacter)
+      , ("end_line", toJson input.endLine)
+      , ("end_character", toJson input.endCharacter)
+      ] ++
+      (match input.kinds? with
+      | some kinds => [("kinds", toJson kinds)]
+      | none => []) ++
+      (match input.suggest? with
+      | some suggest => [("suggest", toJson suggest)]
+      | none => [])
+
+instance : FromJson TodoInput where
+  fromJson? j := do
+    let path ← j.getObjValAs? String "path"
+    let startLine ← j.getObjValAs? Nat "start_line"
+    let startCharacter ← j.getObjValAs? Nat "start_character"
+    let endLine ← j.getObjValAs? Nat "end_line"
+    let endCharacter ← j.getObjValAs? Nat "end_character"
+    let kinds? ← optionalField? (α := Array RunAt.TodoKind) j "kinds"
+    let suggest? ← optionalField? (α := RunAt.TodoSuggestMode) j "suggest"
+    pure { path, startLine, startCharacter, endLine, endCharacter, kinds?, suggest? }
+
 /-- Input for handle-based Lean execution. -/
 structure RunWithInput where
   path : String
@@ -161,15 +224,6 @@ structure ReleaseInput where
 structure PathInput where
   path : String
   deriving FromJson, ToJson
-
-private def optionalField? [FromJson α] (j : Json) (field : String) : Except String (Option α) := do
-  match j.getObjVal? field with
-  | .ok value =>
-      match fromJson? value with
-      | .ok decoded => pure (some decoded)
-      | .error err => throw s!"invalid '{field}': {err}"
-  | .error _ =>
-      pure none
 
 /-- Input for sync/save operations that may request full diagnostics. -/
 structure SyncInput where
@@ -225,6 +279,19 @@ def PositionInput.toGoalsBrokerRequest
   line? := some input.line
   character? := some input.character
   mode? := some mode
+}
+
+def TodoInput.toBrokerRequest (input : TodoInput) (root : String) : Beam.Broker.Request := {
+  op := .todo
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  line? := some input.startLine
+  character? := some input.startCharacter
+  endLine? := some input.endLine
+  endCharacter? := some input.endCharacter
+  kinds? := input.kinds?
+  suggest? := input.suggest?
 }
 
 def RunWithInput.toBrokerRequest
@@ -294,6 +361,8 @@ def Operation.toBrokerRequest
       pure <| (← fromJson? (α := PositionInput) input).toGoalsBrokerRequest root .after
   | .goalsPrev =>
       pure <| (← fromJson? (α := PositionInput) input).toGoalsBrokerRequest root .prev
+  | .todo =>
+      pure <| (← fromJson? (α := TodoInput) input).toBrokerRequest root
   | .runWith =>
       pure <| (← fromJson? (α := RunWithInput) input).toBrokerRequest root
   | .runWithLinear =>

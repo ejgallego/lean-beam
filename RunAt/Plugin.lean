@@ -11,6 +11,7 @@ import RunAt.Requests.DirectImports
 import RunAt.Requests.Goals
 import RunAt.Requests.RunAt
 import RunAt.Requests.Save
+import RunAt.Requests.Todo
 
 open Lean
 open Lean.Server
@@ -31,6 +32,7 @@ initialize
     (fun p => RunAt.Requests.handleGoalsAt p true)
   registerLspRequestHandler goalsPrevMethod GoalsParams ProofState
     (fun p => RunAt.Requests.handleGoalsAt p false)
+  registerLspRequestHandler todoMethod TodoParams TodoResult RunAt.Requests.handleTodo
   registerLspRequestHandler runWithMethod RunWithParams Result RunAt.Requests.handleRunWith
   registerLspRequestHandler releaseHandleMethod ReleaseHandleParams Json
     RunAt.Requests.handleReleaseHandle

@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import RunAt.Protocol
 
 open Lean
 
@@ -21,6 +22,7 @@ inductive Op where
   | deps
   | saveOlean
   | goals
+  | todo
   | runWith
   | release
   | stats
@@ -39,6 +41,7 @@ def Op.key : Op → String
   | .deps => "deps"
   | .saveOlean => "save_olean"
   | .goals => "goals"
+  | .todo => "todo"
   | .runWith => "run_with"
   | .release => "release"
   | .stats => "stats"
@@ -60,6 +63,7 @@ instance : FromJson Op where
     | .str "deps" => .ok .deps
     | .str "save_olean" => .ok .saveOlean
     | .str "goals" => .ok .goals
+    | .str "todo" => .ok .todo
     | .str "run_with" => .ok .runWith
     | .str "release" => .ok .release
     | .str "stats" => .ok .stats
@@ -138,9 +142,13 @@ structure Request where
   path? : Option String := none
   line? : Option Nat := none
   character? : Option Nat := none
+  endLine? : Option Nat := none
+  endCharacter? : Option Nat := none
   method? : Option String := none
   params? : Option Json := none
   text? : Option String := none
+  kinds? : Option (Array RunAt.TodoKind) := none
+  suggest? : Option RunAt.TodoSuggestMode := none
   storeHandle? : Option Bool := none
   linear? : Option Bool := none
   mode? : Option GoalMode := none
@@ -173,9 +181,13 @@ instance : FromJson Request where
     let path? ← optionalField? (α := String) j "path"
     let line? ← optionalField? (α := Nat) j "line"
     let character? ← optionalField? (α := Nat) j "character"
+    let endLine? ← optionalField? (α := Nat) j "endLine"
+    let endCharacter? ← optionalField? (α := Nat) j "endCharacter"
     let method? ← optionalField? (α := String) j "method"
     let params? ← optionalField? (α := Json) j "params"
     let text? ← optionalField? (α := String) j "text"
+    let kinds? ← optionalField? (α := Array RunAt.TodoKind) j "kinds"
+    let suggest? ← optionalField? (α := RunAt.TodoSuggestMode) j "suggest"
     let storeHandle? ← optionalField? (α := Bool) j "storeHandle"
     let linear? ← optionalField? (α := Bool) j "linear"
     let mode? ← optionalField? (α := GoalMode) j "mode"
@@ -186,7 +198,8 @@ instance : FromJson Request where
     let handle? ← optionalField? (α := Handle) j "handle"
     pure {
       op, backend, clientRequestId?, cancelRequestId?,
-      root?, path?, line?, character?, method?, params?, text?, storeHandle?,
+      root?, path?, line?, character?, endLine?, endCharacter?,
+      method?, params?, text?, kinds?, suggest?, storeHandle?,
       linear?, mode?, compact?, ppFormat?, fullDiagnostics?, saveArtifacts?, handle?
     }
 
@@ -344,6 +357,16 @@ def Request.requireLine (req : Request) : Except String Nat := do
 def Request.requireCharacter (req : Request) : Except String Nat := do
   let some character := req.character?
     | throw "missing 'character'"
+  pure character
+
+def Request.requireEndLine (req : Request) : Except String Nat := do
+  let some line := req.endLine?
+    | throw "missing 'endLine'"
+  pure line
+
+def Request.requireEndCharacter (req : Request) : Except String Nat := do
+  let some character := req.endCharacter?
+    | throw "missing 'endCharacter'"
   pure character
 
 def Request.requireMethod (req : Request) : Except String String := do
