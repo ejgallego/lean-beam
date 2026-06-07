@@ -849,6 +849,8 @@ private def sendCurrentSessionRequestDecode [FromJson α]
 private structure StartedSyncedRequest where
   session : Session
   uri : DocumentUri
+  version : Nat
+  priorProgress? : Option SyncFileProgress := none
   tracked : Option (DocumentUri × Nat) := none
   promise : IO.Promise (Except String PendingResult)
 
@@ -872,7 +874,9 @@ private def startSyncedDocumentRequest
     (mkParams : DocumentUri → DocState → Json)
     (trackedFor : DocumentUri → DocState → Option (DocumentUri × Nat))
     (clientRequestId? : Option String := none)
-    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
+    (fullDiagnostics : Bool := false)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     M StartedSyncedRequest := do
   let session ← syncFile session path
   let uri := sessionUri (← resolvePath session.root path)
@@ -885,13 +889,28 @@ private def startSyncedDocumentRequest
       (tracked := tracked)
       (initialProgress? := docState.fileProgress?)
       (emitProgress? := emitProgress?)
+      (fullDiagnostics := fullDiagnostics)
+      (emitDiagnostic? := emitDiagnostic?)
   updateSession session
   pure {
     session
     uri
+    version := docState.version
+    priorProgress? := docState.fileProgress?
     tracked
     promise
   }
+
+private def awaitSyncedDocumentRequestIO
+    (server : ServerRuntime)
+    (req : Request)
+    (started : StartedSyncedRequest)
+    (cancelRef? : Option (IO.Ref Bool) := none) : IO PendingResult := do
+  propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+  let pending ← PendingRequest.awaitResult started.promise
+  if started.tracked.isSome then
+    mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+  pure pending
 
 private structure StartedTrackedBarrier where
   session : Session
@@ -909,25 +928,20 @@ private def startTrackedDiagnosticsBarrierIO
     IO StartedTrackedBarrier := do
   server.withState do
     let session ← ensureSession req.backend
-    let session ← syncFile session path
-    let uri := sessionUri (← resolvePath session.root path)
-    let docState ← requireDocState session uri
-    let params := toJson (WaitForDiagnosticsParams.mk uri docState.version)
-    let (session, promise) ←
-      startRequestJsonTrackedDetailed session "textDocument/waitForDiagnostics" params
+    let started ←
+      startSyncedDocumentRequest session path "textDocument/waitForDiagnostics"
+        (fun uri docState => toJson (WaitForDiagnosticsParams.mk uri docState.version))
+        trackedDocumentVersion
         (clientRequestId? := req.clientRequestId?)
-        (tracked := some (uri, docState.version))
-        (initialProgress? := docState.fileProgress?)
         (emitProgress? := emitProgress?)
         (fullDiagnostics := req.fullDiagnostics?.getD false)
         (emitDiagnostic? := emitDiagnostic?)
-    updateSession session
     pure {
-      session
-      uri
-      version := docState.version
-      priorProgress? := docState.fileProgress?
-      promise
+      session := started.session
+      uri := started.uri
+      version := started.version
+      priorProgress? := started.priorProgress?
+      promise := started.promise
     }
 
 private def handleCloseWithoutSessionIO (req : Request) : IO (Response × Bool) := do
@@ -1207,9 +1221,7 @@ private def handleRunAtOpIO
         trackedDocumentVersion
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
-    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult started.promise
-    mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (
       withFileProgress
         (sessionResult started.session (wrapResultHandle started.session pending.result))
@@ -1240,10 +1252,7 @@ private def handleRequestAtOpIO
         (trackedLeanDocumentVersion req.backend)
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
-    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult started.promise
-    if started.tracked.isSome then
-      mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
@@ -1307,10 +1316,7 @@ private def handleGoalsOpIO
         (trackedLeanDocumentVersion req.backend)
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
-    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult started.promise
-    if started.tracked.isSome then
-      mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
@@ -1347,9 +1353,7 @@ private def handleRunWithOpIO
         trackedDocumentVersion
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
-    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult started.promise
-    mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (
       withFileProgress
         (sessionResult started.session (wrapResultHandle started.session pending.result))
@@ -1384,9 +1388,7 @@ private def handleReleaseOpIO
         trackedDocumentVersion
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
-    propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult started.promise
-    mergeFileProgressIfCurrent server started.session started.uri pending.progress?
+    let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (withFileProgress (sessionResult started.session pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
