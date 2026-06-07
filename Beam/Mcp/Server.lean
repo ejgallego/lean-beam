@@ -234,7 +234,13 @@ partial def runStdio (opts : Options) (root? : Option System.FilePath) : IO Unit
           | none => pure ()
           unless stop do
             loop
-  loop
+  try
+    loop
+  catch e =>
+    if Beam.Mcp.Stdio.isBrokenPipeError e then
+      pure ()
+    else
+      throw e
 
 def main (args : List String) : IO Unit := do
   let opts ←

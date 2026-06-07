@@ -301,7 +301,25 @@ hash_tool() {
 }
 
 read_supported_toolchains() {
-  "$beam_cli" supported-toolchains lean
+  local registry="$repo_root/supported-lean-toolchains"
+  if [ -f "$registry" ]; then
+    awk '
+      {
+        sub(/\r$/, "")
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
+        sub(/[[:space:]]+$/, "", line)
+        if (line != "" && substr(line, 1, 1) != "#") {
+          print line
+        }
+      }
+    ' "$registry"
+  else
+    if [ ! -x "$beam_cli" ]; then
+      die "missing supported Lean toolchain registry at $registry"
+    fi
+    "$beam_cli" supported-toolchains lean
+  fi
 }
 
 array_contains() {
@@ -483,8 +501,8 @@ prepare_install_environment() {
   require_elan
   prepared_repo_toolchain="$(awk 'NR==1 {print $1}' "$repo_root/lean-toolchain")"
   require_repo_toolchain "$prepared_repo_toolchain"
-  ensure_runtime_artifacts
   resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
+  ensure_runtime_artifacts
   prepared_selected_toolchains=()
   if [ -n "$resolved_toolchains" ]; then
     while IFS= read -r toolchain; do
