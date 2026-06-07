@@ -643,6 +643,37 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
                 client.close()
 
 
+def run_closed_stdout_regression(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-closed-stdout-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(repo_root, project_root, timeout)
+        stderr = ""
+        try:
+            client.proc.stdout.close()
+            client.send_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "closed-stdout",
+                    "method": "initialize",
+                    "params": initialize_params(),
+                }
+            )
+            client.proc.stdin.close()
+            try:
+                client.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                client.proc.kill()
+                fail("lean-beam-mcp did not exit after stdout was closed")
+            stderr = client.proc.stderr.read()
+            require(client.proc.returncode == 0, f"lean-beam-mcp exited with {client.proc.returncode}\n{stderr}")
+            require(stderr.strip() == "", f"lean-beam-mcp wrote unexpected stderr after closed stdout:\n{stderr}")
+        finally:
+            if client.proc.poll() is None:
+                client.proc.kill()
+                client.proc.wait(timeout=5)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Exercise lean-beam-mcp over stdio.")
     parser.add_argument("--iterations", type=int, default=1)
@@ -666,6 +697,7 @@ def main():
         )
     run_root_setup_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)
+    run_closed_stdout_regression(repo_root, fixture_root, args.timeout)
 
 
 if __name__ == "__main__":

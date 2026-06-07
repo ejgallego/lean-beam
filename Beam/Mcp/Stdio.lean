@@ -10,6 +10,10 @@ open Lean
 
 namespace Beam.Mcp.Stdio
 
+def isBrokenPipeError (err : IO.Error) : Bool :=
+  let msg := err.toString
+  msg.contains "broken pipe" || msg.contains "Broken pipe" || msg.contains "EPIPE"
+
 def stripLineEnding (line : String) : String :=
   let line :=
     if !line.isEmpty && line.back == '\n' then

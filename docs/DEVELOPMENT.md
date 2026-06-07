@@ -220,13 +220,19 @@ What the fix does:
 The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Reusable CLI
 argument parsing lives in [Beam/Cli/Args.lean](../Beam/Cli/Args.lean). Project-root inference,
 Lean toolchain lookup, and Rocq command discovery live in [Beam/Cli/Project.lean](../Beam/Cli/Project.lean).
-Keep wrapper and daemon lifecycle code in `Beam/Cli.lean`, but put reusable lock behavior there so
-it can stay unit-tested without importing the full CLI command surface. Install and bundle layout
-metadata lives in [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle
-cache roots, source hashing, fallback bundle builds, versioned metadata payloads, metadata
-acceptance checks, and daemon/client/plugin helper resolution live in
-[Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean). Keep `Beam/Cli.lean` focused on
-command dispatch, daemon lifecycle, wrapper leases, and user-facing output.
+Daemon registry management, daemon startup/reuse, endpoint selection, and wrapper leases live in
+[Beam/Cli/DaemonManager.lean](../Beam/Cli/DaemonManager.lean). Broker request plumbing, progress
+messages, cancellation-on-interrupt, and response failure notes live in
+[Beam/Cli/Broker.lean](../Beam/Cli/Broker.lean). User-facing stdout/stderr formatting helpers live
+in [Beam/Cli/Output.lean](../Beam/Cli/Output.lean). Doctor, supported-toolchain, install-manifest,
+and MCP config reporting live in [Beam/Cli/Info.lean](../Beam/Cli/Info.lean). The command dispatch
+table lives in [Beam/Cli/Commands.lean](../Beam/Cli/Commands.lean), and [Beam/Cli/Usage.lean](../Beam/Cli/Usage.lean)
+owns the help text. Install and bundle layout metadata lives in
+[Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle cache roots, source
+hashing, fallback bundle builds, versioned metadata payloads, metadata acceptance checks, and
+daemon/client/plugin helper resolution live in [Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean).
+Keep [Beam/Cli.lean](../Beam/Cli.lean) as the executable entry point: parse top-level options,
+resolve `BEAM_HOME`, and delegate to `runCommand`.
 
 What this does not promise:
 
