@@ -13,7 +13,7 @@ open Lean
 namespace Beam.Mcp.Roots
 
 def unsupportedMessage : String :=
-  "MCP client did not advertise roots; start lean-beam-mcp with --root PATH or enable the client's roots capability"
+  "MCP client did not advertise roots; call lean_init_workspace with {\"root\":\"/path/to/lean/project\"}, start lean-beam-mcp with --root PATH, or enable the client's roots capability"
 
 def selectClientRoot (roots : Array ClientRoot) : Except String System.FilePath := do
   if roots.size == 0 then

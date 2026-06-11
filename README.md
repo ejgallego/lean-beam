@@ -56,8 +56,17 @@ codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
 ```
 
 MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
-root through `roots/list`. If a client does not provide roots, configure the command with an
-explicit project root:
+root through `roots/list`. If a client does not provide roots, initialize one absolute Lean/Lake
+project root per MCP server session with the `lean_init_workspace` tool before calling Lean tools:
+
+```json
+{"root":"/path/to/lean/project"}
+```
+
+The optional `mode` field defaults to `"set"`. Use `"verify"` to check the active root without
+changing it, and `"reset"` only before any Lean tool has opened files in that server session.
+
+Direct developer runs and single-project MCP registrations may still pass an explicit project root:
 
 ```bash
 codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project

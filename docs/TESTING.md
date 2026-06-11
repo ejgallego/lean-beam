@@ -35,22 +35,25 @@ Beam daemon integration.
   runtime bundle metadata schema versioning / acceptance rules
 - MCP projection boundary coverage in
   [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean), including
-  supported Lean tool names, rejection of raw LSP method names and expert raw request escape
-  hatches, shared typed operation-to-broker adapters, root-free MCP inputs, and normalized
-  `next_handle` / `proof_state` output for runAt-style results
+  supported Lean and setup tool names, rejection of raw LSP method names and expert raw request
+  escape hatches, shared typed operation-to-broker adapters, root-free MCP inputs, explicit
+  non-broker setup tools, and normalized `next_handle` / `proof_state` output for runAt-style results
 - MCP protocol/server coverage in
   [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), including
   JSON-RPC request/notification decoding, initialize/tools-list response shape, generated tool
-  schemas, initialize / initialized lifecycle gating, raw LSP rejection, malformed-tool protocol
-  errors, known-tool input validation as MCP tool execution errors, roots capability detection, and
+  schemas, `lean_init_workspace` schema and shared `Beam.Workspace` setup-mode policy validation,
+  initialize / initialized lifecycle gating, raw LSP rejection, malformed-tool protocol errors,
+  known-tool input validation as MCP tool execution errors, roots capability detection, and
   `roots/list` response decoding
 - Lean-backed `lean-beam-mcp` stdio coverage in
   [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py), which runs initialize, initialized
   notification, tools/list, raw-tool rejection, sync, runAt semantic success/failure, handle
   mint/continue/linear/release, goals, close, shutdown, a table-driven lifecycle matrix,
-  explicit-root startup, MCP `roots/list` project-root discovery, root setup error cases, stdout
-  JSON parsing, and stderr hygiene assertions against a copied Lean fixture project. Stderr hygiene
-  is a local regression check, not an MCP requirement; the `2025-11-25` stdio transport explicitly
+  explicit-root startup, `lean_init_workspace` startup for clients without roots, recovery after a
+  missing-roots tool error, MCP `roots/list` project-root discovery, absolute-root and Lean/Lake
+  workspace validation, idempotent `set`/`verify`/`reset` mode behavior, active-root diagnostics,
+  root setup error cases, stdout JSON parsing, and stderr hygiene assertions against a copied Lean fixture project. Stderr hygiene is
+  a local regression check, not an MCP requirement; the `2025-11-25` stdio transport explicitly
   permits server logging on stderr.
 - local Streamable HTTP bridge coverage in
   [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py), which starts
@@ -174,18 +177,19 @@ harness and external conformance coverage.
 
 Current MCP gates are layered:
 
-- protocol unit tests for JSON-RPC shapes, tool schemas, lifecycle gating, malformed-tool protocol
-  errors, roots negotiation helpers, runtime setup errors, and known-tool input validation as tool
-  execution errors
+- protocol unit tests for JSON-RPC shapes, tool schemas, shared workspace init policy, lifecycle
+  gating, malformed-tool protocol errors, roots negotiation helpers, runtime setup errors, and
+  known-tool input validation as tool execution errors
 - projection tests for the shared Beam operation substrate and agent-facing field names
 - `tests/test-mcp-stdio.py` for real stdio process behavior over a copied Lean project, including
-  table-driven lifecycle/root setup cases, explicit `--root`, and client-advertised MCP roots
+  table-driven lifecycle/root setup cases, explicit `--root`, `lean_init_workspace`, recovery after
+  missing-roots setup errors, and client-advertised MCP roots
 - `tests/test-mcp-http-bridge.py` for local Streamable HTTP transport behavior over the same stdio
   server
 - `tests/test-broker-fast.sh` for one quick Lean-backed MCP stdio path, one HTTP bridge smoke, and a
   cheap protocol-only smoke; it also runs the public `lean-beam-mcp --self-check` path against the
-  fixture project, negative setup checks for missing roots/files, and a forced timeout check that
-  verifies self-check failures identify the stalled phase
+  fixture project, negative setup checks for missing roots/files and non-workspace CLI roots, and a
+  forced timeout check that verifies self-check failures identify the stalled phase
 - `tests/test-broker-slow.sh` for repeated MCP server restarts and repeated real tool calls
 - `tests/test-install.sh` for installed runtime layout and a real installed `lean-beam-mcp` wrapper
   tool call that resolves its Lean command and plugin through `beam-cli mcp-config`; it also checks

@@ -94,7 +94,12 @@ MCP work should go through the shared Lean operation layer in
 [Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean).
 `Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
 owns the tool input schemas. `Beam/Mcp/Projection.lean` names the public MCP tools and normalizes
-selected broker results.
+selected broker results. Workspace/session setup is a shared Beam surface in
+[Beam/Workspace.lean](../Beam/Workspace.lean); MCP tools such as `lean_init_workspace` should
+project that contract instead of inventing MCP-only root policy or pretending setup is a raw Lean
+operation. Lean/Lake root recognition belongs in
+[Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean), not in the generic workspace state
+machine.
 
 The executable MCP path is split into importable runtime modules and tiny entry-point modules:
 
@@ -104,6 +109,10 @@ The executable MCP path is split into importable runtime modules and tiny entry-
 - [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): project-root to broker-runtime setup
 - [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check driver
 - [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): broker-backed stdio MCP server logic
+- [Beam/Workspace.lean](../Beam/Workspace.lean): shared workspace init input, result shape,
+  active-root metadata, and session binding policy
+- [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean): Lean/Lake project-root validation for
+  CLI and MCP setup paths
 - [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): `lean-beam-mcp` executable entry point
 - [Beam/Broker/ServerMain.lean](../Beam/Broker/ServerMain.lean): `beam-daemon` executable entry point
 
@@ -121,10 +130,15 @@ When adding an MCP-facing operation:
 
 - add or reuse a `Beam.Lean.Operation` first
 - add a `ToolName` only if it is meant to be a public agent tool
+- for setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,
+  put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary
+  explicit in tests
 - keep raw LSP methods and params out of the MCP input types
-- keep the project root in server/session context, not in each MCP tool input; root negotiation
-  belongs in `Beam/Mcp/Roots.lean`, either through the explicit `--root` override or exactly one
-  MCP `roots/list` result
+- keep the project root in server/session context, not in each Lean operation input; root
+  negotiation belongs in server setup, either through `lean_init_workspace`, the explicit `--root`
+  override, or exactly one MCP `roots/list` result. The `lean_init_workspace` setup tool is the
+  exception that accepts a root, and it should project the shared `Beam.Workspace` contract:
+  explicit, absolute, idempotent, and guarded against root resets after Lean tools have run.
 - map to broker operations through the shared operation helpers instead of constructing ad hoc JSON
 - normalize MCP output field names in the projection, for example `next_handle` and `proof_state`
 - do not expose expert/raw escape hatches such as `lean-request-at` as MCP tools

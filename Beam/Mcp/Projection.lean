@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Lean.Operation
 import Beam.Mcp.Json
+import Beam.Workspace
 import RunAt.Protocol
 
 open Lean
@@ -19,6 +20,7 @@ This is intentionally smaller than the broker and LSP surfaces. In particular, r
 such as `$/lean/runAt` are not accepted here.
 -/
 inductive ToolName where
+  | leanInitWorkspace
   | leanRunAt
   | leanRunAtHandle
   | leanHover
@@ -34,6 +36,7 @@ inductive ToolName where
   deriving BEq, Repr
 
 def ToolName.key : ToolName → String
+  | .leanInitWorkspace => "lean_init_workspace"
   | .leanRunAt => "lean_run_at"
   | .leanRunAtHandle => "lean_run_at_handle"
   | .leanHover => "lean_hover"
@@ -52,6 +55,7 @@ instance : ToJson ToolName where
 
 instance : FromJson ToolName where
   fromJson?
+    | .str "lean_init_workspace" => .ok .leanInitWorkspace
     | .str "lean_run_at" => .ok .leanRunAt
     | .str "lean_run_at_handle" => .ok .leanRunAtHandle
     | .str "lean_hover" => .ok .leanHover
@@ -66,39 +70,83 @@ instance : FromJson ToolName where
     | .str "lean_close" => .ok .leanClose
     | j => .error s!"expected Lean MCP tool name, got {j.compress}"
 
-def ToolName.operation : ToolName → Beam.Lean.Operation
-  | .leanRunAt => .runAt
-  | .leanRunAtHandle => .runAtHandle
-  | .leanHover => .hover
-  | .leanGoalsAfter => .goalsAfter
-  | .leanGoalsPrev => .goalsPrev
-  | .leanRunWith => .runWith
-  | .leanRunWithLinear => .runWithLinear
-  | .leanRelease => .release
-  | .leanSync => .sync
-  | .leanDeps => .deps
-  | .leanSave => .save
-  | .leanClose => .close
+/-- MCP tool categories after projecting the shared Beam operation surface. -/
+inductive ToolKind where
+  | workspaceInit
+  | leanOperation (operation : Beam.Lean.Operation)
+  deriving BEq, Repr
+
+def ToolName.kind : ToolName → ToolKind
+  | .leanInitWorkspace => .workspaceInit
+  | .leanRunAt => .leanOperation .runAt
+  | .leanRunAtHandle => .leanOperation .runAtHandle
+  | .leanHover => .leanOperation .hover
+  | .leanGoalsAfter => .leanOperation .goalsAfter
+  | .leanGoalsPrev => .leanOperation .goalsPrev
+  | .leanRunWith => .leanOperation .runWith
+  | .leanRunWithLinear => .leanOperation .runWithLinear
+  | .leanRelease => .leanOperation .release
+  | .leanSync => .leanOperation .sync
+  | .leanDeps => .leanOperation .deps
+  | .leanSave => .leanOperation .save
+  | .leanClose => .leanOperation .close
 
 def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
-  tool.operation.expectsRunAtResult
+  match tool.kind with
+  | .leanOperation operation => operation.expectsRunAtResult
+  | .workspaceInit => false
 
 def ToolName.toBrokerRequest
     (tool : ToolName)
     (root : String)
     (input : Json) : Except String Beam.Broker.Request :=
-  tool.operation.toBrokerRequest root input
+  match tool.kind with
+  | .leanOperation operation => operation.toBrokerRequest root input
+  | .workspaceInit => throw s!"{tool.key} initializes MCP server state and does not map to a broker request"
+
+private def stringSchema (description : String) : Json :=
+  Json.mkObj [
+    ("type", toJson "string"),
+    ("description", toJson description)
+  ]
+
+private def enumStringSchema (description : String) (values : Array String) : Json :=
+  Json.mkObj [
+    ("type", toJson "string"),
+    ("description", toJson description),
+    ("enum", toJson values)
+  ]
+
+private def jsonSchemaDialect : String :=
+  "https://json-schema.org/draft/2020-12/schema"
+
+private def mkInputSchema (properties : List (String × Json)) (required : Array String) : Json :=
+  Json.mkObj [
+    ("$schema", toJson jsonSchemaDialect),
+    ("type", toJson "object"),
+    ("properties", Json.mkObj properties),
+    ("required", toJson required),
+    ("additionalProperties", toJson false)
+  ]
+
+def initWorkspaceDescription : String :=
+  "Initialize the Lean workspace root for MCP clients that cannot advertise roots/list."
+
+def initWorkspaceInputSchema : Json :=
+  mkInputSchema [
+    ("root", stringSchema "Absolute Lean/Lake project root path."),
+    ("mode", enumStringSchema "Workspace init mode. Defaults to set." Beam.Workspace.initModeKeys)
+  ] #["root"]
 
 /-- Minimal descriptor for the planned MCP tool list. -/
 structure ToolDescriptor where
   name : ToolName
-  operation : Beam.Lean.Operation
-  brokerOp : Beam.Broker.Op
+  kind : ToolKind
   description : String
   inputSchema : Json
-  deriving ToJson
 
 def toolNames : Array ToolName := #[
+  .leanInitWorkspace,
   .leanRunAt,
   .leanRunAtHandle,
   .leanHover,
@@ -114,14 +162,21 @@ def toolNames : Array ToolName := #[
 ]
 
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
-  let op := tool.operation
-  {
-    name := tool
-    operation := op
-    brokerOp := op.brokerOp
-    description := op.description
-    inputSchema := op.inputSchema
-  }
+  match tool.kind with
+  | .leanOperation op =>
+      {
+        name := tool
+        kind := .leanOperation op
+        description := op.description
+        inputSchema := op.inputSchema
+      }
+  | .workspaceInit =>
+      {
+        name := tool
+        kind := .workspaceInit
+        description := initWorkspaceDescription
+        inputSchema := initWorkspaceInputSchema
+      }
 
 def toolDescriptors : Array ToolDescriptor :=
   toolNames.map ToolName.descriptor
@@ -132,6 +187,8 @@ abbrev RunWithInput := Beam.Lean.RunWithInput
 abbrev ReleaseInput := Beam.Lean.ReleaseInput
 abbrev PathInput := Beam.Lean.PathInput
 abbrev SyncInput := Beam.Lean.SyncInput
+abbrev InitWorkspaceMode := Beam.Workspace.InitMode
+abbrev InitWorkspaceInput := Beam.Workspace.InitInput
 
 private def optionJson (value? : Option α) [ToJson α] : Json :=
   match value? with
@@ -178,6 +235,9 @@ def ToolError.invalidResult (message : String) : ToolError :=
 
 def ToolError.invalidInput (message : String) : ToolError :=
   { code := "invalidInput", message }
+
+def ToolError.runtimeSetup (message : String) : ToolError :=
+  { code := "runtimeSetup", message }
 
 /--
 Normalize a broker-level `runAt` result into the planned agent-facing field names.

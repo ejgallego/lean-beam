@@ -5,12 +5,14 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Broker.Server
+import Beam.Lean.Workspace
 import Beam.Mcp.Options
 import Beam.Mcp.Protocol
 import Beam.Mcp.Runtime
 import Beam.Mcp.Roots
 import Beam.Mcp.SelfCheck
 import Beam.Mcp.Stdio
+import Beam.Workspace
 
 open Lean
 
@@ -23,9 +25,16 @@ structure ProtocolState where
   root? : Option System.FilePath := none
   rootError? : Option String := none
   runtime? : Option Beam.Broker.ServerRuntime := none
+  workspaceUsed : Bool := false
 
 def ProtocolState.create (root? : Option System.FilePath := none) : IO (IO.Ref ProtocolState) :=
   IO.mkRef { root? }
+
+private def ProtocolState.initState (state : ProtocolState) : Beam.Workspace.InitState := {
+  root? := state.root?
+  runtimeReady := state.runtime?.isSome
+  workspaceUsed := state.workspaceUsed
+}
 
 abbrev Options := Beam.Mcp.Options
 
@@ -40,6 +49,26 @@ private def invalidRequestId (json : Json) : Json :=
 
 private def brokerClientRequestId (req : Request) : String :=
   s!"mcp:{requestIdLabel req.id}"
+
+private def runtimeOptions (opts : Options) : Runtime.Options := {
+  leanCmd? := opts.leanCmd?
+  leanPlugin? := opts.leanPlugin?
+  beamCli? := opts.beamCli?
+}
+
+private def createRuntimeForRoot
+    (opts : Options)
+    (root : System.FilePath) :
+    IO (Except RpcError (Beam.Broker.ServerRuntime × System.FilePath)) := do
+  match ← Runtime.mkBrokerConfig (runtimeOptions opts) root with
+  | .error err =>
+      pure <| .error err
+  | .ok config =>
+      try
+        let runtime ← Beam.Broker.ServerRuntime.create config
+        pure <| .ok (runtime, config.root)
+      catch e =>
+        pure <| .error <| runtimeSetupError e.toString
 
 private def ensureRoot
     (state : IO.Ref ProtocolState)
@@ -77,23 +106,67 @@ private def ensureRuntime
       match ← ensureRoot state stdin with
       | .error err => pure <| .error err
       | .ok root =>
-          match ← Runtime.mkBrokerConfig {
-            leanCmd? := opts.leanCmd?
-            leanPlugin? := opts.leanPlugin?
-            beamCli? := opts.beamCli?
-          } root with
+          match ← createRuntimeForRoot opts root with
           | .error err =>
               state.modify fun state => { state with rootError? := some err.message }
               pure <| .error err
-          | .ok config =>
-              try
-                let runtime ← Beam.Broker.ServerRuntime.create config
-                state.modify fun state => { state with root? := some config.root, runtime? := some runtime }
-                pure <| .ok (runtime, config.root)
-              catch e =>
-                let err := runtimeSetupError e.toString
-                state.modify fun state => { state with rootError? := some err.message }
-                pure <| .error err
+          | .ok (runtime, root) =>
+              state.modify fun state => { state with root? := some root, runtime? := some runtime }
+              pure <| .ok (runtime, root)
+
+private def workspaceErrorToToolError (err : Beam.Workspace.InitError) : ToolError :=
+  let data? := err.activeRoot?.map fun activeRoot =>
+    Json.mkObj [("active_root", toJson activeRoot.toString)]
+  { ToolError.invalidInput err.message with data? }
+
+private def shutdownRuntimeForReset (runtime : Beam.Broker.ServerRuntime) : IO (Except ToolError Unit) := do
+  let (brokerResp, _) ← runtime.dispatchRequest { op := .shutdown }
+  if brokerResp.ok then
+    pure <| .ok ()
+  else
+    let message := (brokerResp.error?.map (·.message)).getD "Beam broker shutdown failed"
+    pure <| .error <| ToolError.runtimeSetup s!"failed to reset MCP workspace: {message}"
+
+private def handleInitWorkspace
+    (state : IO.Ref ProtocolState)
+    (opts : Options)
+    (arguments : Json) : IO Json := do
+  let input ←
+    match fromJson? (α := InitWorkspaceInput) arguments with
+    | .ok input => pure input
+    | .error err => return callToolErrorResult <| ToolError.invalidInput err
+  let requestedRoot ←
+    match ← Beam.Lean.Workspace.resolveRoot input.root with
+    | .ok root => pure root
+    | .error err => return callToolErrorResult <| workspaceErrorToToolError err
+  let mode := input.mode
+  let currentState ← state.get
+  let plan ←
+    match Beam.Workspace.planInit currentState.initState requestedRoot mode with
+    | .ok plan => pure plan
+    | .error err => return callToolErrorResult <| workspaceErrorToToolError err
+  if plan.resetCurrent then
+    match currentState.runtime? with
+    | some runtime =>
+        match ← shutdownRuntimeForReset runtime with
+        | .ok () => pure ()
+        | .error err => return callToolErrorResult err
+    | none =>
+        pure ()
+  if !plan.createRuntime then
+    return callToolResult <| toJson <| Beam.Workspace.initResult plan
+  match ← createRuntimeForRoot opts requestedRoot with
+  | .error err =>
+      return callToolErrorResult <| ToolError.runtimeSetup err.message
+  | .ok (runtime, root) =>
+      state.set {
+        currentState with
+          root? := some root
+          rootError? := none
+          runtime? := some runtime
+          workspaceUsed := false
+      }
+      pure <| callToolResult <| toJson <| Beam.Workspace.initResult plan root
 
 private def brokerRequestForTool
     (root : System.FilePath)
@@ -111,6 +184,8 @@ private def handleToolCall
     match parseCallToolParams req.params? with
     | .ok params => pure params
     | .error err => return .error <| RpcError.invalidParams err
+  if params.name == .leanInitWorkspace then
+    return .ok (← handleInitWorkspace state opts params.arguments)
   let root ←
     match ← ensureRoot state stdin with
     | .ok root => pure root
@@ -123,10 +198,11 @@ private def handleToolCall
     match ← ensureRuntime state opts stdin with
     | .ok runtimeAndRoot => pure runtimeAndRoot
     | .error err => return .error err
+  state.modify fun state => { state with workspaceUsed := true }
   let (brokerResp, _) ← runtime.dispatchRequest brokerReq
   match normalizeBrokerResponse params.name brokerResp with
   | .ok result =>
-      pure <| .ok <| callToolResult result
+      pure <| .ok <| callToolResult <| Beam.Workspace.addActiveRoot root result
   | .error err =>
       pure <| .ok <| callToolErrorResult err
 
