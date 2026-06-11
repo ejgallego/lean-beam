@@ -79,9 +79,13 @@ separate transport/tool errors from normal Lean semantic failures such as `resul
 `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` and intentionally does not
 advertise older revisions. Version support should stay narrow, so every advertised revision has
 explicit protocol, schema, error-shape, and external conformance tests.
-The server accepts `--root` as an explicit single-root override; otherwise it asks the client for
-MCP roots and starts the broker only after receiving exactly one `file://` root. That keeps project
-root selection in MCP session setup rather than in individual tool inputs.
+The server accepts `--root` as an explicit single-root override. Without `--root`, clients can either
+call `lean_init_workspace` with an absolute Lean/Lake project root or let the server ask for exactly
+one `file://` root through MCP `roots/list`. That keeps project root selection in MCP session setup
+rather than in individual Lean operation inputs. The init input, result shape, active-root metadata,
+and reset policy live in the shared `Beam.Workspace` layer; Lean/Lake root validation lives in
+`Beam.Lean.Workspace`. CLI and MCP project those shared pieces instead of carrying separate
+workspace/session contracts.
 
 ## Proposed Architecture
 
@@ -194,9 +198,11 @@ set. New agent-facing Lean operations should be added to `Beam/Lean/Operation.le
 projected to MCP with an explicit `ToolName` only when they are meant to be public MCP tools. The
 raw `lean-request-at` escape hatch should stay out of the MCP surface.
 
-MCP tool inputs should not carry `root`; the MCP server session supplies the project root from
-either the explicit `--root` override or a single MCP `roots/list` result. That keeps tool calls
-compact and avoids teaching agents to manage per-call broker session state.
+Lean operation tool inputs should not carry `root`; the MCP server session supplies the project root
+from `lean_init_workspace`, the explicit `--root` override, or a single MCP `roots/list` result.
+That keeps normal tool calls compact and avoids teaching agents to manage per-call broker session
+state. `lean_init_workspace` itself is a projection of the shared Beam workspace/session setup
+operation, not a Lean semantic operation and not a raw broker/LSP escape hatch.
 
 Possible second phase:
 

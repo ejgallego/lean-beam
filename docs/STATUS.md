@@ -20,6 +20,10 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - installed experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set through
   MCP `initialize`, `tools/list`, and `tools/call`, backed directly by the broker runtime rather
   than a second daemon/client connection
+- MCP `lean_init_workspace` setup tool for clients that can register only a generic global server
+  command and do not advertise MCP roots. It requires an absolute Lean/Lake project root, is
+  idempotent for the active root, supports `mode` values `set`, `verify`, and `reset`, and rejects
+  root resets after Lean tools have run in the session.
 - `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, root
   discovery through `roots/list`, and a real `lean_sync` tool call
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
@@ -129,9 +133,10 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
 - The Beam daemon is single-root and keeps a conservative single active session per backend.
 - `lean-beam-mcp` is currently an experimental stdio entry point. The installed wrapper is the
   preferred local setup path because it passes the matching `beam-cli` resolver automatically.
-  `--root PATH` is supported as an explicit override; when it is omitted, the server discovers
-  exactly one `file://` project root through the MCP `roots/list` request. Multiple roots are
-  rejected for now, so clients should pass `--root` when they expose more than one workspace root.
+  `--root PATH` is supported as an explicit override. When it is omitted, clients should either call
+  `lean_init_workspace` with one absolute Lean/Lake project root before other Lean tools, or
+  advertise exactly one `file://` project root through MCP `roots/list`. Multiple roots are rejected
+  for now.
   Direct developer runs of `.lake/build/bin/lean-beam-mcp` can still pass `--lean-cmd` and
   `--lean-plugin` explicitly.
 - `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are

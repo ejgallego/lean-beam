@@ -35,6 +35,10 @@ private def sampleBrokerHandle : Beam.Broker.Handle := {
 }
 
 private def checkToolNames : IO Unit := do
+  let initWorkspace ← expectOk "decode lean_init_workspace" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_init_workspace")
+  require "decode lean_init_workspace: wrong tool" (initWorkspace == .leanInitWorkspace)
+
   let decoded ← expectOk "decode lean_run_at" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_run_at")
   require "decode lean_run_at: wrong tool" (decoded == .leanRunAt)
 
@@ -56,15 +60,32 @@ private def checkToolNames : IO Unit := do
 private def checkToolDescriptors : IO Unit := do
   require "tool descriptor count tracks tool name count"
     (Beam.Mcp.toolDescriptors.size == Beam.Mcp.toolNames.size)
+  require "init workspace descriptor is exposed as setup tool"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanInitWorkspace && desc.kind == .workspaceInit))
+  let some initDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanInitWorkspace)
+    | throw <| IO.userError "init workspace descriptor is missing"
+  let schemaProperties ← requireObjVal "init workspace schema" "properties" initDesc.inputSchema
+  discard <| requireObjVal "init workspace schema properties" "root" schemaProperties
+  discard <| requireObjVal "init workspace schema properties" "mode" schemaProperties
   require "hover descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanHover && desc.operation == .hover && desc.brokerOp == .requestAt))
+      desc.name == .leanHover && desc.kind == .leanOperation .hover))
   require "goals-after descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanGoalsAfter && desc.operation == .goalsAfter && desc.brokerOp == .goals))
+      desc.name == .leanGoalsAfter && desc.kind == .leanOperation .goalsAfter))
 
 private def checkBrokerRequestAdapters : IO Unit := do
   let root := "/repo"
+  match Beam.Mcp.ToolName.leanInitWorkspace.toBrokerRequest root (toJson ({ root := root } : Beam.Mcp.InitWorkspaceInput)) with
+  | .ok req =>
+      throw <| IO.userError s!"init workspace produced broker request unexpectedly: {repr req.op}"
+  | .error err =>
+      require "init workspace broker adapter error names setup behavior" (err.contains "does not map")
+
+  let resetInitJson := toJson ({ root := root, mode? := some .reset } : Beam.Mcp.InitWorkspaceInput)
+  requireJsonString "init workspace mode json" "mode" "reset" resetInitJson
+
   let runAtInput : Beam.Mcp.RunAtInput := {
     path := "Demo.lean"
     line := 4

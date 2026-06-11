@@ -19,7 +19,7 @@ def usage : String :=
     "       lean-beam-mcp [--root PATH] [--beam-cli PATH] --self-check <lean-file>",
     "",
     "Runs the experimental Lean Beam MCP server over newline-delimited JSON-RPC on stdio.",
-    "When --root is omitted, the server discovers exactly one project root via MCP roots/list.",
+    "When --root is omitted, call lean_init_workspace with an absolute Lean project root or let the server discover one project root via MCP roots/list.",
     "--self-check starts a child MCP server, supplies the root through roots/list, and calls lean_sync.",
     "The installed wrapper passes --beam-cli automatically so project-specific Lean bundles resolve on demand.",
     "Only curated Lean tools are exposed; raw LSP and broker escape hatches are intentionally absent."

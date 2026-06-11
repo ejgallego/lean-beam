@@ -71,6 +71,23 @@ private def checkToolsListShape : IO Unit := do
   let Json.arr tools := tools
     | throw <| IO.userError s!"tools/list tools is not an array: {tools.compress}"
   require "tools/list is non-empty" (!tools.isEmpty)
+  let some initTool := tools.find? fun tool =>
+    (tool.getObjValAs? String "name").toOption == some "lean_init_workspace"
+    | throw <| IO.userError s!"tools/list does not expose lean_init_workspace: {tools}"
+  let initSchema ← requireObjVal "lean_init_workspace tool" "inputSchema" initTool
+  requireJsonString
+    "lean_init_workspace input schema"
+    "$schema"
+    "https://json-schema.org/draft/2020-12/schema"
+    initSchema
+  let initRequired ← requireObjVal "lean_init_workspace input schema" "required" initSchema
+  require "lean_init_workspace should require root"
+    (initRequired == toJson (#["root"] : Array String))
+  let initProperties ← requireObjVal "lean_init_workspace input schema" "properties" initSchema
+  let modeSchema ← requireObjVal "lean_init_workspace properties" "mode" initProperties
+  let modeEnum ← requireObjVal "lean_init_workspace mode schema" "enum" modeSchema
+  require "lean_init_workspace mode enum should expose set/verify/reset"
+    (modeEnum == toJson (#["set", "verify", "reset"] : Array String))
   let some runAtTool := tools.find? fun tool =>
     (tool.getObjValAs? String "name").toOption == some "lean_run_at"
     | throw <| IO.userError s!"tools/list does not expose lean_run_at: {tools}"
@@ -209,6 +226,55 @@ private def checkRuntimeSetupErrors : IO Unit := do
     catch _ =>
       pure ()
 
+private def expectWorkspacePlan
+    (label : String)
+    (state : Beam.Workspace.InitState)
+    (root : System.FilePath)
+    (mode : Beam.Workspace.InitMode) : IO Beam.Workspace.InitPlan := do
+  match Beam.Workspace.planInit state root mode with
+  | .ok plan => pure plan
+  | .error err => throw <| IO.userError s!"{label}: {err.message}"
+
+private def expectWorkspacePlanError
+    (label needle : String)
+    (state : Beam.Workspace.InitState)
+    (root : System.FilePath)
+    (mode : Beam.Workspace.InitMode) : IO Beam.Workspace.InitError := do
+  match Beam.Workspace.planInit state root mode with
+  | .ok plan => throw <| IO.userError s!"{label}: expected error, got plan for {plan.root}"
+  | .error err =>
+      require label (err.message.contains needle)
+      pure err
+
+private def checkWorkspaceInitPolicy : IO Unit := do
+  let root := System.FilePath.mk "/workspace"
+  let other := System.FilePath.mk "/other-workspace"
+
+  let setPlan ← expectWorkspacePlan "set unbound workspace" {} root .set
+  require "set unbound should create runtime" setPlan.createRuntime
+  require "set unbound should not reset runtime" (!setPlan.resetCurrent)
+  require "set unbound should not be already initialized" (!setPlan.alreadyInitialized)
+
+  discard <| expectWorkspacePlanError "verify unbound workspace" "not initialized" {} root .verify
+
+  let readyState : Beam.Workspace.InitState := {
+    root? := some root
+    runtimeReady := true
+    workspaceUsed := false
+  }
+  let samePlan ← expectWorkspacePlan "set same workspace" readyState root .set
+  require "same workspace should be idempotent" samePlan.alreadyInitialized
+  require "same workspace should not recreate runtime" (!samePlan.createRuntime)
+
+  let resetPlan ← expectWorkspacePlan "reset before use" readyState other .reset
+  require "reset before use should create runtime" resetPlan.createRuntime
+  require "reset before use should shut down current runtime" resetPlan.resetCurrent
+  require "reset before use should target requested root" (resetPlan.root == other)
+
+  let usedState := { readyState with workspaceUsed := true }
+  let resetErr ← expectWorkspacePlanError "reset after use" "cannot reset" usedState other .reset
+  require "reset after use should report active root" (resetErr.activeRoot? == some root)
+
 private def expectResponse (label : String) (value : Option Json × Bool) : IO Json := do
   match value with
   | (some json, _stop) => pure json
@@ -288,6 +354,40 @@ private def checkServerBasics : IO Unit := do
   let rawToolError ← requireObjVal "raw tool response" "error" rawToolResp
   requireJsonInt "raw tool error" "code" (-32602) rawToolError
 
+  let badInitResp ← expectResponse "bad init workspace input" =<<
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
+      ("jsonrpc", toJson "2.0"),
+      ("id", toJson (31 : Nat)),
+      ("method", toJson "tools/call"),
+      ("params", Json.mkObj [
+        ("name", toJson "lean_init_workspace"),
+        ("arguments", Json.mkObj [])
+      ])
+    ])
+  let badInitResult ← requireObjVal "bad init workspace response" "result" badInitResp
+  requireJsonBool "bad init workspace result" "isError" true badInitResult
+  let badInitStructured ← requireObjVal "bad init workspace result" "structuredContent" badInitResult
+  requireJsonString "bad init workspace structured error" "code" "invalidInput" badInitStructured
+
+  let relativeInitResp ← expectResponse "relative init workspace input" =<<
+    Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
+      ("jsonrpc", toJson "2.0"),
+      ("id", toJson (32 : Nat)),
+      ("method", toJson "tools/call"),
+      ("params", Json.mkObj [
+        ("name", toJson "lean_init_workspace"),
+        ("arguments", Json.mkObj [
+          ("root", toJson "relative/project")
+        ])
+      ])
+    ])
+  let relativeInitResult ← requireObjVal "relative init workspace response" "result" relativeInitResp
+  requireJsonBool "relative init workspace result" "isError" true relativeInitResult
+  let relativeInitStructured ← requireObjVal "relative init workspace result" "structuredContent" relativeInitResult
+  requireJsonString "relative init workspace structured error" "code" "invalidInput" relativeInitStructured
+  let relativeMessage ← IO.ofExcept <| relativeInitStructured.getObjValAs? String "message"
+  require "relative init workspace error should require absolute path" (relativeMessage.contains "absolute")
+
   let badArgsResp ← expectResponse "bad args rejection" =<<
     Beam.Mcp.Server.handleJson state opts stdin (Json.mkObj [
       ("jsonrpc", toJson "2.0"),
@@ -313,6 +413,7 @@ def main : IO Unit := do
   checkToolsListShape
   checkRootsProtocol
   checkRuntimeSetupErrors
+  checkWorkspaceInitPolicy
   checkServerBasics
 
 end RunAtTest.Broker.McpProtocolTest

@@ -255,6 +255,7 @@ def expect_tool_error_code(response, code):
     structured = result.get("structuredContent")
     require(isinstance(structured, dict), f"tool error missing structuredContent: {response}")
     require(structured.get("code") == code, f"expected tool error code {code}, got {response}")
+    return structured
 
 
 def require_roots_requests(client, expected, label):
@@ -280,8 +281,34 @@ def require_failure(label, structured):
     require(structured.get("success") is False, f"{label} should fail semantically: {structured}")
 
 
+def init_workspace(client, root, *, mode=None):
+    args = {"root": str(root)}
+    if mode is not None:
+        args["mode"] = mode
+    structured = client.call_tool("lean_init_workspace", args)
+    require(structured.get("initialized") is True, f"init workspace did not initialize: {structured}")
+    require(
+        Path(structured.get("root")).resolve() == Path(root).resolve(),
+        f"init workspace returned wrong root for {root}: {structured}",
+    )
+    require(
+        Path(structured.get("active_root")).resolve() == Path(root).resolve(),
+        f"init workspace returned wrong active_root for {root}: {structured}",
+    )
+    expected_mode = mode or "set"
+    require(
+        structured.get("mode") == expected_mode,
+        f"init workspace returned wrong mode {expected_mode!r}: {structured}",
+    )
+    return structured
+
+
 def run_iteration(client, suffix):
     sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+    require(
+        Path(sync.get("active_root")).resolve() == client.project_root.resolve(),
+        f"sync returned wrong active_root: {sync}",
+    )
     progress = sync.get("file_progress")
     require(isinstance(progress, dict), f"sync did not return file_progress: {sync}")
 
@@ -414,6 +441,7 @@ def run_cycle(
 
             tools = expect_result(client.request("tools/list")).get("tools")
             names = {tool.get("name") for tool in tools}
+            require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
             require("lean_request_at" not in names, f"tools/list exposed raw request escape hatch: {tools}")
@@ -440,6 +468,23 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
             "advertise_roots": False,
             "expected_roots_requests": 0,
             "error_needle": "did not advertise roots",
+        },
+        {
+            "name": "init_tool_without_roots_capability",
+            "use_root_arg": False,
+            "advertise_roots": False,
+            "expected_roots_requests": 0,
+            "init_workspace": True,
+            "expect_success": True,
+        },
+        {
+            "name": "init_tool_recovers_after_missing_roots_error",
+            "use_root_arg": False,
+            "advertise_roots": False,
+            "expected_roots_requests": 0,
+            "pre_init_sync_error": True,
+            "init_workspace": True,
+            "expect_success": True,
         },
         {
             "name": "empty_roots",
@@ -506,6 +551,30 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
                 client.initialize()
                 tools = expect_result(client.request("tools/list")).get("tools")
                 require(isinstance(tools, list) and tools, f"{case['name']}: tools/list should not require root setup: {tools}")
+                if case.get("pre_init_sync_error"):
+                    response = client.request(
+                        "tools/call",
+                        {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                    )
+                    expect_error_message_contains(response, -32600, "did not advertise roots")
+                if case.get("init_workspace"):
+                    first_init = init_workspace(client, project_root)
+                    require(
+                        first_init.get("already_initialized") is False,
+                        f"{case['name']}: first init should create the workspace: {first_init}",
+                    )
+                    second_init = init_workspace(client, project_root)
+                    require(
+                        second_init.get("already_initialized") is True,
+                        f"{case['name']}: second init should be idempotent: {second_init}",
+                    )
+                    other_root = Path(tmp) / "other-project"
+                    shutil.copytree(fixture_root, other_root)
+                    changed_root = client.request(
+                        "tools/call",
+                        {"name": "lean_init_workspace", "arguments": {"root": str(other_root)}},
+                    )
+                    expect_tool_error_code(changed_root, "invalidInput")
                 response = client.request(
                     "tools/call",
                     {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
@@ -520,6 +589,106 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
                     expect_extra_error_code(client, case["extra_error_id"], -32600, case["name"])
             finally:
                 client.close()
+
+
+def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-relative-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        try:
+            client.initialize()
+            response = client.request(
+                "tools/call",
+                {"name": "lean_init_workspace", "arguments": {"root": "relative/project"}},
+            )
+            error = expect_tool_error_code(response, "invalidInput")
+            require("absolute" in error.get("message", ""), f"relative root error should mention absolute: {error}")
+        finally:
+            client.close()
+
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-non-workspace-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        empty_root = Path(tmp) / "empty"
+        empty_root.mkdir()
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        try:
+            client.initialize()
+            response = client.request(
+                "tools/call",
+                {"name": "lean_init_workspace", "arguments": {"root": str(empty_root)}},
+            )
+            error = expect_tool_error_code(response, "invalidInput")
+            require("Lean/Lake project" in error.get("message", ""), f"non-workspace error should mention Lean/Lake: {error}")
+        finally:
+            client.close()
+
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-verify-empty-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        try:
+            client.initialize()
+            response = client.request(
+                "tools/call",
+                {"name": "lean_init_workspace", "arguments": {"root": str(project_root), "mode": "verify"}},
+            )
+            error = expect_tool_error_code(response, "invalidInput")
+            require("not initialized" in error.get("message", ""), f"verify-before-set error should mention state: {error}")
+        finally:
+            client.close()
+
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-verify-reset-") as tmp:
+        project_root = Path(tmp) / "project"
+        other_root = Path(tmp) / "other-project"
+        shutil.copytree(fixture_root, project_root)
+        shutil.copytree(fixture_root, other_root)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        try:
+            client.initialize()
+            first_init = init_workspace(client, project_root)
+            require(first_init.get("already_initialized") is False, f"first init should create runtime: {first_init}")
+            verify = init_workspace(client, project_root, mode="verify")
+            require(verify.get("already_initialized") is True, f"verify should be idempotent: {verify}")
+            verify_other = client.request(
+                "tools/call",
+                {"name": "lean_init_workspace", "arguments": {"root": str(other_root), "mode": "verify"}},
+            )
+            expect_tool_error_code(verify_other, "invalidInput")
+
+            reset = init_workspace(client, other_root, mode="reset")
+            require(reset.get("already_initialized") is False, f"reset should create new runtime: {reset}")
+            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                Path(sync.get("active_root")).resolve() == other_root.resolve(),
+                f"sync after reset returned wrong active_root: {sync}",
+            )
+        finally:
+            client.close()
+
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-reset-after-use-") as tmp:
+        project_root = Path(tmp) / "project"
+        other_root = Path(tmp) / "other-project"
+        shutil.copytree(fixture_root, project_root)
+        shutil.copytree(fixture_root, other_root)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        try:
+            client.initialize()
+            init_workspace(client, project_root)
+            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(Path(sync.get("active_root")).resolve() == project_root.resolve(), f"bad active_root before reset: {sync}")
+            response = client.request(
+                "tools/call",
+                {"name": "lean_init_workspace", "arguments": {"root": str(other_root), "mode": "reset"}},
+            )
+            error = expect_tool_error_code(response, "invalidInput")
+            require("cannot reset" in error.get("message", ""), f"reset-after-use error should explain reset guard: {error}")
+            data = error.get("data")
+            require(isinstance(data, dict), f"reset-after-use error should include data: {error}")
+            require(Path(data.get("active_root")).resolve() == project_root.resolve(), f"reset error active_root mismatch: {error}")
+        finally:
+            client.close()
 
 
 def initialize_params(capabilities=None):
@@ -696,6 +865,7 @@ def main():
             expected_roots_requests=1,
         )
     run_root_setup_matrix(repo_root, fixture_root, args.timeout)
+    run_init_workspace_mode_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)
     run_closed_stdout_regression(repo_root, fixture_root, args.timeout)
 

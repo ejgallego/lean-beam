@@ -8,6 +8,8 @@ import Lean
 import Beam.Broker.Protocol
 import Beam.Cli.Args
 import Beam.Cli.RuntimeBundle
+import Beam.Lean.Workspace
+import Beam.Project
 
 open Lean
 
@@ -28,14 +30,14 @@ def runAtHome : IO System.FilePath := do
       let app ← IO.appPath
       IO.FS.realPath <| climbParents app 4
 
-def hasLeanProject (root : System.FilePath) : IO Bool := do
-  return (← (root / "lean-toolchain").pathExists) ||
-    (← (root / "lakefile.toml").pathExists) ||
-    (← (root / "lakefile.lean").pathExists)
+abbrev hasLeanProject := Beam.Project.hasLeanProject
 
-def hasRocqProject (root : System.FilePath) : IO Bool := do
-  return (← (root / "_RocqProject").pathExists) ||
-    (← (root / "_CoqProject").pathExists)
+abbrev hasRocqProject := Beam.Project.hasRocqProject
+
+def requireLeanProjectRoot (root : System.FilePath) : IO System.FilePath := do
+  match ← Beam.Lean.Workspace.resolveRoot root.toString with
+  | .ok root => pure root
+  | .error err => throw <| IO.userError err.message
 
 partial def findRootUpwards (start : System.FilePath) (backend : Backend) : IO (Option System.FilePath) := do
   let dir ← IO.FS.realPath start
@@ -54,10 +56,16 @@ partial def findRootUpwards (start : System.FilePath) (backend : Backend) : IO (
 
 def projectRoot (opts : CliOptions) (backend : Backend) : IO System.FilePath := do
   match opts.explicitRoot? with
-  | some root => pure root
+  | some root =>
+      match backend with
+      | .lean => requireLeanProjectRoot root
+      | .rocq => pure root
   | none =>
       match ← findRootUpwards (System.FilePath.mk ".") backend with
-      | some root => pure root
+      | some root =>
+          match backend with
+          | .lean => requireLeanProjectRoot root
+          | .rocq => pure root
       | none =>
           let backendName := match backend with | .lean => "lean" | .rocq => "rocq"
           throw <| IO.userError s!"could not infer {backendName} project root; use --root PATH"

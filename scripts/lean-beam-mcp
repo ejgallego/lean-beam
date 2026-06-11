@@ -15,7 +15,8 @@ usage:
 Runs the experimental Lean Beam MCP stdio server.
 
 The installed wrapper resolves the matching beam-cli automatically. Project roots
-come from --root or from the MCP client's roots/list support.
+come from --root, lean_init_workspace with an absolute Lean/Lake root, or the
+MCP client's roots/list support.
 
 --self-check starts a child MCP server, supplies the root through roots/list, and
 calls lean_sync on <lean-file>.

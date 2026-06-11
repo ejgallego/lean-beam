@@ -120,6 +120,25 @@ if ! grep -Eiq 'No such file|failed to canonicalize|does not exist' "$self_check
 fi
 rm -f "$self_check_missing_root_err"
 
+cli_non_workspace_root="$(mktemp -d /tmp/beam-cli-non-workspace-root-XXXXXX)"
+cli_non_workspace_err="$(mktemp /tmp/beam-cli-non-workspace-root-err-XXXXXX)"
+if .lake/build/bin/beam-cli --root "$cli_non_workspace_root" doctor lean \
+    > /dev/null 2>"$cli_non_workspace_err"; then
+  echo "expected beam-cli Lean root validation to reject a non-workspace root" >&2
+  rm -rf -- "$cli_non_workspace_root"
+  rm -f "$cli_non_workspace_err"
+  exit 1
+fi
+if ! grep -Fq 'workspace root is not a Lean/Lake project' "$cli_non_workspace_err"; then
+  echo "expected non-workspace CLI root failure to use the shared workspace error" >&2
+  cat "$cli_non_workspace_err" >&2
+  rm -rf -- "$cli_non_workspace_root"
+  rm -f "$cli_non_workspace_err"
+  exit 1
+fi
+rm -rf -- "$cli_non_workspace_root"
+rm -f "$cli_non_workspace_err"
+
 mcp_smoke_out="$(
   printf '%s\n' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}' \
