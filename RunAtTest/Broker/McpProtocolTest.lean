@@ -78,8 +78,9 @@ private def checkToolsListShape : IO Unit := do
   requireJsonString
     "lean_init_workspace input schema"
     "$schema"
-    "https://json-schema.org/draft/2020-12/schema"
+    Beam.JsonSchema.dialect
     initSchema
+  requireJsonBool "lean_init_workspace input schema" "additionalProperties" false initSchema
   let initRequired ← requireObjVal "lean_init_workspace input schema" "required" initSchema
   require "lean_init_workspace should require root"
     (initRequired == toJson (#["root"] : Array String))
@@ -95,8 +96,9 @@ private def checkToolsListShape : IO Unit := do
   requireJsonString
     "lean_run_at input schema"
     "$schema"
-    "https://json-schema.org/draft/2020-12/schema"
+    Beam.JsonSchema.dialect
     runAtSchema
+  requireJsonBool "lean_run_at input schema" "additionalProperties" false runAtSchema
   let rawExposed := tools.any fun tool =>
     (tool.getObjValAs? String "name").toOption == some RunAt.method ||
       (tool.getObjValAs? String "name").toOption == some "lean_request_at"
