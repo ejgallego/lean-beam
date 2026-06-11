@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Lean.Operation
+import Beam.JsonSchema
 import Beam.Mcp.Json
 import Beam.Workspace
 import RunAt.Protocol
@@ -104,38 +105,14 @@ def ToolName.toBrokerRequest
   | .leanOperation operation => operation.toBrokerRequest root input
   | .workspaceInit => throw s!"{tool.key} initializes MCP server state and does not map to a broker request"
 
-private def stringSchema (description : String) : Json :=
-  Json.mkObj [
-    ("type", toJson "string"),
-    ("description", toJson description)
-  ]
-
-private def enumStringSchema (description : String) (values : Array String) : Json :=
-  Json.mkObj [
-    ("type", toJson "string"),
-    ("description", toJson description),
-    ("enum", toJson values)
-  ]
-
-private def jsonSchemaDialect : String :=
-  "https://json-schema.org/draft/2020-12/schema"
-
-private def mkInputSchema (properties : List (String × Json)) (required : Array String) : Json :=
-  Json.mkObj [
-    ("$schema", toJson jsonSchemaDialect),
-    ("type", toJson "object"),
-    ("properties", Json.mkObj properties),
-    ("required", toJson required),
-    ("additionalProperties", toJson false)
-  ]
-
 def initWorkspaceDescription : String :=
   "Initialize the Lean workspace root for MCP clients that cannot advertise roots/list."
 
+open Beam.JsonSchema in
 def initWorkspaceInputSchema : Json :=
-  mkInputSchema [
-    ("root", stringSchema "Absolute Lean/Lake project root path."),
-    ("mode", enumStringSchema "Workspace init mode. Defaults to set." Beam.Workspace.initModeKeys)
+  inputObject [
+    ("root", string "Absolute Lean/Lake project root path."),
+    ("mode", enumString "Workspace init mode. Defaults to set." Beam.Workspace.initModeKeys)
   ] #["root"]
 
 /-- Minimal descriptor for the planned MCP tool list. -/
