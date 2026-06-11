@@ -21,6 +21,17 @@ if [ -z "$lake_cmd" ]; then
   exit 1
 fi
 
+lake_build() {
+  # This test distinguishes local rebuilds from broker-written trace replay. Lake's artifact cache
+  # can otherwise satisfy edited fixture content and hide that distinction on warmed machines.
+  LAKE_ARTIFACT_CACHE=false "$lake_cmd" --no-cache build "$@"
+}
+
+beam() {
+  # Keep the daemon-side Lake checks under the same cache policy as direct Lake probes in this test.
+  LAKE_ARTIFACT_CACHE=false "$beam_script" "$@"
+}
+
 expect_owned_tmp_path() {
   case "$1" in
     /tmp/runat-save-olean-*|/tmp/tmp.*|/tmp/runat-validate-*/tmp/runat-save-olean-*|/tmp/runat-validate-*/tmp/tmp.*)
@@ -125,9 +136,9 @@ mkproj "$tmp4"
 mkproj "$tmp5"
 mkproj "$tmp6"
 
-(cd "$tmp1" && lake build > /dev/null)
+(cd "$tmp1" && lake_build > /dev/null)
 edit_b "$tmp1"
-if ! (cd "$tmp1" && lake build >"$log1" 2>&1); then
+if ! (cd "$tmp1" && lake_build >"$log1" 2>&1); then
   :
 fi
 if ! grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log1"; then
@@ -136,12 +147,12 @@ if ! grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log1"; then
   exit 1
 fi
 
-(cd "$tmp2" && lake build > /dev/null)
+(cd "$tmp2" && lake_build > /dev/null)
 edit_b "$tmp2"
 (
   cd "$tmp2"
-  "$beam_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
-  save_json="$("$beam_script" --root "$tmp2" lean-close-save SaveSmoke/B.lean)"
+  beam --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  save_json="$(beam --root "$tmp2" lean-close-save SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$save_json" python3 - <<'PY'
 import json, os
 print(json.loads(os.environ["RUNAT_JSON_PAYLOAD"])["result"]["saved"]["version"])
@@ -160,12 +171,12 @@ PY
     printf '%s\n' "$save_json" >&2
     exit 1
   fi
-  "$beam_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
-  "$lake_cmd" build -v SaveSmoke/B.lean >"$log4" 2>&1
+  beam --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  lake_build -v SaveSmoke/B.lean >"$log4" 2>&1
   rm -f .lake/build/lib/lean/SaveSmoke/A.olean .lake/build/lib/lean/SaveSmoke/A.ilean .lake/build/lib/lean/SaveSmoke/A.trace .lake/build/ir/SaveSmoke/A.c
-  "$lake_cmd" build -v SaveSmoke/A.lean >"$log5" 2>&1
-  "$lake_cmd" build >"$log2" 2>&1
-  "$beam_script" --root "$tmp2" shutdown > /dev/null 2>&1 || true
+  lake_build -v SaveSmoke/A.lean >"$log5" 2>&1
+  lake_build >"$log2" 2>&1
+  beam --root "$tmp2" shutdown > /dev/null 2>&1 || true
 )
 if ! grep -Eq "Replayed SaveSmoke\\.B" "$log4"; then
   echo "expected exact-target lake build to replay SaveSmoke.B after broker save" >&2
@@ -193,11 +204,11 @@ if grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log2"; then
   exit 1
 fi
 
-(cd "$tmp3" && lake build > /dev/null)
+(cd "$tmp3" && lake_build > /dev/null)
 (
   cd "$tmp3"
-  "$beam_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
-  "$beam_script" --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
+  beam --root "$tmp3" shutdown > /dev/null 2>&1 || true
+  beam --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
 )
 edit_b_slow "$tmp3"
 (
@@ -207,10 +218,10 @@ edit_b_slow "$tmp3"
     edit_b_final "$tmp3"
   ) &
   racer_pid="$!"
-  "$beam_script" --root "$tmp3" lean-close-save SaveSmoke/B.lean > /dev/null
+  beam --root "$tmp3" lean-close-save SaveSmoke/B.lean > /dev/null
   wait "$racer_pid"
-  "$lake_cmd" build -v SaveSmoke/A.lean >"$log3" 2>&1
-  "$beam_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
+  lake_build -v SaveSmoke/A.lean >"$log3" 2>&1
+  beam --root "$tmp3" shutdown > /dev/null 2>&1 || true
 )
 if ! grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log3"; then
   echo "expected save_olean race to leave SaveSmoke.B stale for downstream builds" >&2
@@ -218,19 +229,19 @@ if ! grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log3"; then
   exit 1
 fi
 
-(cd "$tmp4" && lake build > /dev/null)
+(cd "$tmp4" && lake_build > /dev/null)
 edit_b_slow "$tmp4"
 (
   cd "$tmp4"
-  "$beam_script" --root "$tmp4" shutdown > /dev/null 2>&1 || true
-  "$beam_script" --root "$tmp4" ensure lean > /dev/null
+  beam --root "$tmp4" shutdown > /dev/null 2>&1 || true
+  beam --root "$tmp4" ensure lean > /dev/null
   close_out="$(mktemp /tmp/runat-close-save-cancel-out-XXXXXX)"
   close_err="$(mktemp /tmp/runat-close-save-cancel-err-XXXXXX)"
   BEAM_REQUEST_ID=cancel-close-save \
-    "$beam_script" --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
+    beam --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
   close_pid=$!
   sleep 0.5
-  cancel_json="$("$beam_script" --root "$tmp4" cancel cancel-close-save)"
+  cancel_json="$(beam --root "$tmp4" cancel cancel-close-save)"
   if ! printf '%s\n' "$cancel_json" | grep -q '"cancelled": true'; then
     echo "expected explicit cancel to report cancelled=true for lean-close-save" >&2
     printf '%s\n' "$cancel_json" >&2
@@ -253,23 +264,20 @@ edit_b_slow "$tmp4"
     rm -f "$close_out" "$close_err"
     exit 1
   fi
-  "$beam_script" --root "$tmp4" stats > /dev/null
+  beam --root "$tmp4" stats > /dev/null
   rm -f "$close_out" "$close_err"
 )
 
-(cd "$tmp6" && lake build SaveSmoke/A.lean > /dev/null)
+(cd "$tmp6" && lake_build SaveSmoke/A.lean > /dev/null)
 (
   cd "$tmp6"
-  "$beam_script" --root "$tmp6" shutdown > /dev/null 2>&1 || true
-  "$beam_script" --root "$tmp6" ensure lean > /dev/null
-  "$beam_script" --root "$tmp6" lean-sync SaveSmoke/A.lean > /dev/null
-  rm -f \
-    .lake/build/lib/lean/SaveSmoke/B.olean \
-    .lake/build/lib/lean/SaveSmoke/B.ilean \
-    .lake/build/lib/lean/SaveSmoke/B.trace
+  beam --root "$tmp6" shutdown > /dev/null 2>&1 || true
+  beam --root "$tmp6" ensure lean > /dev/null
+  beam --root "$tmp6" lean-sync SaveSmoke/A.lean > /dev/null
+  edit_b "$tmp6"
   save_out="$(mktemp /tmp/runat-stale-trace-save-out-XXXXXX)"
   save_err="$(mktemp /tmp/runat-stale-trace-save-err-XXXXXX)"
-  if "$beam_script" --root "$tmp6" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err"; then
+  if beam --root "$tmp6" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err"; then
     echo "expected lean-save to reject an importer whose Lake save trace is stale" >&2
     cat "$save_out" >&2
     cat "$save_err" >&2
@@ -290,26 +298,26 @@ edit_b_slow "$tmp4"
     rm -f "$save_out" "$save_err"
     exit 1
   fi
-  "$beam_script" --root "$tmp6" stats > /dev/null
+  beam --root "$tmp6" stats > /dev/null
   rm -f "$save_out" "$save_err"
 )
 
-(cd "$tmp5" && lake build SaveSmoke/A.lean > /dev/null)
+(cd "$tmp5" && lake_build SaveSmoke/A.lean > /dev/null)
 printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
 (
   cd "$tmp5"
-  "$beam_script" --root "$tmp5" shutdown > /dev/null 2>&1 || true
-  "$beam_script" --root "$tmp5" ensure lean > /dev/null
+  beam --root "$tmp5" shutdown > /dev/null 2>&1 || true
+  beam --root "$tmp5" ensure lean > /dev/null
   sync_out="$(mktemp /tmp/runat-stale-sync-out-XXXXXX)"
   sync_err="$(mktemp /tmp/runat-stale-sync-err-XXXXXX)"
   save_out="$(mktemp /tmp/runat-stale-save-out-XXXXXX)"
   save_err="$(mktemp /tmp/runat-stale-save-err-XXXXXX)"
   BEAM_REQUEST_ID=concurrent-stale-sync \
-    "$beam_script" --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
+    beam --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
   sync_pid=$!
   sleep 0.1
   BEAM_REQUEST_ID=concurrent-stale-save \
-    "$beam_script" --root "$tmp5" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err" &
+    beam --root "$tmp5" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err" &
   save_pid=$!
   if wait "$sync_pid"; then
     echo "expected concurrent stale lean-sync to fail" >&2
@@ -353,6 +361,6 @@ printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
     rm -f "$sync_out" "$sync_err" "$save_out" "$save_err"
     exit 1
   fi
-  "$beam_script" --root "$tmp5" stats > /dev/null
+  beam --root "$tmp5" stats > /dev/null
   rm -f "$sync_out" "$sync_err" "$save_out" "$save_err"
 )
