@@ -9,6 +9,7 @@ import Beam.Cli.Args
 import Beam.Cli.Broker
 import Beam.Cli.DaemonManager
 import Beam.Cli.Info
+import Beam.Cli.LeanOperation
 import Beam.Cli.Lock
 import Beam.Cli.Project
 import Beam.Cli.RuntimeBundle
@@ -32,16 +33,8 @@ private def runLeanRunAt
   let line ← parseNatArg "line" lineText
   let character ← parseNatArg "character" characterText
   let parsedText ← parseTextArg s!"{action} <path> <line> <character>" textArgs
-  let req ← withEnvClientRequestId {
-    op := .runAt
-    backend := .lean
-    root? := some root.toString
-    path? := some path
-    line? := some line
-    character? := some character
-    text? := parsedText.text?
-    storeHandle? := if storeHandle then some true else none
-  }
+  let req ← withEnvClientRequestId <|
+    leanRunAtRequest root path line character parsedText.text? (storeHandle := storeHandle)
   maybeEmitTextDebug req.clientRequestId? action parsedText.source parsedText.text?
   withWrapperLease root daemon.startedNew do
     callBrokerWithProgress root daemon.endpoint req (leanRunAtWaitSpec action path line character)
@@ -66,16 +59,8 @@ private def runLeanRunWith
   let daemon ← ensureProjectDaemon home root .lean opts
   let (handle, textArgs) ← parseHandleInput s!"{action} <path>" args
   let parsedText ← parseTextArg s!"{action} <path> <handle-json|-|--handle-file <path>>" textArgs
-  let req ← withEnvClientRequestId {
-    op := .runWith
-    backend := .lean
-    root? := some root.toString
-    path? := some path
-    handle? := some handle
-    text? := parsedText.text?
-    storeHandle? := some true
-    linear? := some linear
-  }
+  let req ← withEnvClientRequestId <|
+    leanRunWithRequest root path handle parsedText.text? (linear := linear)
   maybeEmitTextDebug req.clientRequestId? action parsedText.source parsedText.text?
   withWrapperLease root daemon.startedNew do
     callBrokerWithProgress root daemon.endpoint req (leanRunWithWaitSpec path (linear := linear))
@@ -91,13 +76,7 @@ private def runLeanRelease
   unless extra.isEmpty do
     throw <| IO.userError (handleArgUsage "lean-release <path>")
   withWrapperLease root daemon.startedNew do
-    callBroker root daemon.endpoint {
-      op := .release
-      backend := .lean
-      root? := some root.toString
-      path? := some path
-      handle? := some handle
-    }
+    callBroker root daemon.endpoint <| leanReleaseRequest root path handle
 
 private def shutdownProjectDaemon (opts : CliOptions) : IO Unit := do
   let root ← projectRootAny opts
@@ -193,45 +172,27 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let line ← parseNatArg "line" line
       let character ← parseNatArg "character" character
       withWrapperLease root daemon.startedNew do
-        callBrokerWithProgress root daemon.endpoint {
-          op := .requestAt
-          backend := .lean
-          root? := some root.toString
-          path? := some path
-          line? := some line
-          character? := some character
-          method? := some "textDocument/hover"
-        } (leanHoverWaitSpec path line character)
+        callBrokerWithProgress root daemon.endpoint
+          (leanHoverRequest root path line character)
+          (leanHoverWaitSpec path line character)
   | "lean-goals-after" :: path :: line :: character :: [] =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       let line ← parseNatArg "line" line
       let character ← parseNatArg "character" character
       withWrapperLease root daemon.startedNew do
-        callBrokerWithProgress root daemon.endpoint {
-          op := .goals
-          backend := .lean
-          root? := some root.toString
-          path? := some path
-          line? := some line
-          character? := some character
-          mode? := some .after
-        } (leanGoalsWaitSpec path line character .after)
+        callBrokerWithProgress root daemon.endpoint
+          (leanGoalsAfterRequest root path line character)
+          (leanGoalsWaitSpec path line character .after)
   | "lean-goals-prev" :: path :: line :: character :: [] =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       let line ← parseNatArg "line" line
       let character ← parseNatArg "character" character
       withWrapperLease root daemon.startedNew do
-        callBrokerWithProgress root daemon.endpoint {
-          op := .goals
-          backend := .lean
-          root? := some root.toString
-          path? := some path
-          line? := some line
-          character? := some character
-          mode? := some .prev
-        } (leanGoalsWaitSpec path line character .prev)
+        callBrokerWithProgress root daemon.endpoint
+          (leanGoalsPrevRequest root path line character)
+          (leanGoalsWaitSpec path line character .prev)
   | "lean-request-at" :: path :: line :: character :: method :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
@@ -263,20 +224,14 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       withWrapperLease root daemon.startedNew do
-        callBroker root daemon.endpoint { op := .deps, backend := .lean, root? := some root.toString, path? := some path }
+        callBroker root daemon.endpoint <| leanDepsRequest root path
   | "lean-save" :: path :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       let fullDiagnostics ← parseLeanSaveArgs extra
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          {
-            op := .saveOlean
-            backend := .lean
-            root? := some root.toString
-            path? := some path
-            fullDiagnostics? := some fullDiagnostics
-          }
+          (leanSaveRequest root path fullDiagnostics)
           (leanSaveWaitSpec path)
   | "lean-sync" :: path :: extra => do
       let root ← projectRoot opts .lean
@@ -284,52 +239,30 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let fullDiagnostics ← parseLeanSyncArgs extra
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          {
-            op := .syncFile
-            backend := .lean
-            root? := some root.toString
-            path? := some path
-            fullDiagnostics? := some fullDiagnostics
-          }
+          (leanSyncRequest root path fullDiagnostics)
           (syncWaitSpec path)
   | "lean-refresh" :: path :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       let fullDiagnostics ← parseLeanRefreshArgs extra
       withWrapperLease root daemon.startedNew do
-        callBrokerQuiet root daemon.endpoint {
-          op := .close
-          backend := .lean
-          root? := some root.toString
-          path? := some path
-        }
+        callBrokerQuiet root daemon.endpoint <| leanCloseRequest root path
         callBrokerWithProgress root daemon.endpoint
-          {
-            op := .syncFile
-            backend := .lean
-            root? := some root.toString
-            path? := some path
-            fullDiagnostics? := some fullDiagnostics
-          }
+          (leanSyncRequest root path fullDiagnostics)
           (refreshWaitSpec path)
   | "lean-close" :: path :: [] =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       withWrapperLease root daemon.startedNew do
-        callBroker root daemon.endpoint { op := .close, backend := .lean, root? := some root.toString, path? := some path }
+        callBroker root daemon.endpoint <| leanCloseRequest root path
   | "lean-close-save" :: path :: extra =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       let fullDiagnostics ← parseLeanCloseSaveArgs extra
       withWrapperLease root daemon.startedNew do
-        callBrokerWithProgress root daemon.endpoint {
-          op := .close
-          backend := .lean
-          root? := some root.toString
-          path? := some path
-          saveArtifacts? := some true
-          fullDiagnostics? := some fullDiagnostics
-        } (leanSaveWaitSpec path (closeAfter := true))
+        callBrokerWithProgress root daemon.endpoint
+          (leanCloseSaveRequest root path fullDiagnostics)
+          (leanSaveWaitSpec path (closeAfter := true))
   | "rocq-goals-after" :: path :: line :: character :: text =>
       let root ← projectRoot opts .rocq
       let daemon ← ensureProjectDaemon home root .rocq opts

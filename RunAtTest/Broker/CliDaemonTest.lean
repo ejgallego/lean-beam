@@ -5,8 +5,11 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Cli.Daemon
+import Beam.Cli.Broker
+import Beam.Cli.LeanOperation
 import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle
+import Beam.Mcp.Projection
 
 open Lean
 
@@ -15,6 +18,206 @@ namespace RunAtTest.Broker.CliDaemonTest
 private def require (label : String) (cond : Bool) : IO Unit := do
   unless cond do
     throw <| IO.userError label
+
+private def requireSubstring (label needle haystack : String) : IO Unit := do
+  require s!"{label}: expected '{needle}' in '{haystack}'" (Beam.Cli.hasSubstring haystack needle)
+
+private def requireRequestJson
+    (label : String)
+    (actual expected : Beam.Broker.Request) : IO Unit := do
+  let actualJson := toJson actual
+  let expectedJson := toJson expected
+  if actualJson != expectedJson then
+    throw <| IO.userError s!"{label}: expected {expectedJson.compress}, got {actualJson.compress}"
+
+private def sampleBrokerHandle : Beam.Broker.Handle := {
+  backend := .lean
+  epoch := 3
+  session := "session"
+  raw := Json.mkObj [("value", toJson "raw-handle")]
+}
+
+private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
+  Beam.Mcp.toolDescriptors.foldl (init := #[]) fun acc desc =>
+    match desc.kind with
+    | .leanOperation op => acc.push op
+    | .workspaceInit => acc
+
+private def requireSameOperationSurface
+    (label : String)
+    (actual expected : Array Beam.Lean.Operation) : IO Unit := do
+  require s!"{label}: expected size {expected.size}, got {actual.size}"
+    (actual.size == expected.size)
+  for op in expected do
+    require s!"{label}: missing operation {repr op}" (actual.contains op)
+  for op in actual do
+    require s!"{label}: unexpected operation {repr op}" (expected.contains op)
+
+private def checkLeanOperationSurfaceMatrix : IO Unit := do
+  requireSameOperationSurface "CLI Lean operation surface"
+    Beam.Cli.leanOperationSurface
+    Beam.Lean.Operation.all
+  requireSameOperationSurface "MCP Lean operation surface"
+    mcpLeanOperationSurface
+    Beam.Lean.Operation.all
+  require "MCP init workspace should stay outside Lean operation surface"
+    (Beam.Mcp.ToolName.leanInitWorkspace.kind == .workspaceInit)
+
+private def checkCliRecoveryHints : IO Unit := do
+  let staleData := Json.mkObj [
+    ("targetPath", toJson "SaveSmoke/A.lean"),
+    ("recoveryPlan", toJson #[
+      "lean-beam save \"SaveSmoke/B.lean\"",
+      "lean-beam refresh \"SaveSmoke/A.lean\"",
+      "lake build"
+    ])
+  ]
+  let syncBarrierResp : Beam.Broker.Response := {
+    ok := false
+    error? := some {
+      code := Beam.Broker.syncBarrierIncompleteCode
+      message := "Lean diagnostics barrier did not complete"
+      data? := some staleData
+    }
+  }
+  let some hint := Beam.Cli.responseRecoveryHint? syncBarrierResp
+    | throw <| IO.userError "syncBarrierIncomplete should produce a CLI recovery hint"
+  requireSubstring "syncBarrier recovery hint" "lean-beam save \"SaveSmoke/B.lean\"" hint
+  requireSubstring "syncBarrier recovery hint" "lean-beam refresh \"SaveSmoke/A.lean\"" hint
+  requireSubstring "syncBarrier recovery hint" "lake build" hint
+
+  let fallbackResp : Beam.Broker.Response := {
+    ok := false
+    error? := some {
+      code := Beam.Broker.syncBarrierIncompleteCode
+      message := "Lean diagnostics barrier did not complete"
+      data? := some <| Json.mkObj [("targetPath", toJson "SaveSmoke/A.lean")]
+    }
+  }
+  let some fallbackHint := Beam.Cli.responseRecoveryHint? fallbackResp
+    | throw <| IO.userError "syncBarrierIncomplete fallback should produce a CLI recovery hint"
+  requireSubstring "syncBarrier fallback hint" "lean-beam refresh \"SaveSmoke/A.lean\"" fallbackHint
+  requireSubstring "syncBarrier fallback hint" "lake build" fallbackHint
+
+  let invalidResp : Beam.Broker.Response := {
+    ok := false
+    error? := some { code := "invalidParams", message := "bad input" }
+  }
+  require "invalidParams should not produce a sync recovery hint"
+    (Beam.Cli.responseRecoveryHint? invalidResp).isNone
+
+private def checkSyncWaitSpecs : IO Unit := do
+  let okResp : Beam.Broker.Response := {
+    ok := true
+    result? := some <| toJson ({
+      version := 5
+      saveReady := true
+      : Beam.Broker.SyncFileResult
+    })
+    fileProgress? := some { updates := 2, done := true }
+  }
+  require "sync complete message should include version and progress"
+    ((Beam.Cli.syncWaitSpec "Demo.lean").completeMsg okResp ==
+      "beam: sync complete for Demo.lean (version 5, fp updates=2)")
+  require "refresh complete message should share sync-like formatting"
+    ((Beam.Cli.refreshWaitSpec "Demo.lean").completeMsg okResp ==
+      "beam: refresh complete for Demo.lean (version 5, fp updates=2)")
+
+  let notReadyResp : Beam.Broker.Response := {
+    ok := true
+    result? := some <| toJson ({
+      version := 6
+      stateErrorCount := 1
+      stateCommandErrorCount := 2
+      saveReady := false
+      saveReadyReason := "documentErrors"
+      : Beam.Broker.SyncFileResult
+    })
+  }
+  requireSubstring "sync not-ready message"
+    "saveReady=false (documentErrors, stateErrorCount=1, stateCommandErrorCount=2)"
+    ((Beam.Cli.syncWaitSpec "Demo.lean").completeMsg notReadyResp)
+
+private def checkLeanOperationRequests : IO Unit := do
+  let root := System.FilePath.mk "/repo"
+  let rootText := root.toString
+  let path := "Demo.lean"
+
+  let runAtInput : Beam.Lean.RunAtInput := {
+    path
+    line := 4
+    character := 2
+    text := "exact h"
+  }
+  requireRequestJson "runAt request should share the Lean operation adapter"
+    (Beam.Cli.leanRunAtRequest root path 4 2 (some "exact h"))
+    (runAtInput.toBrokerRequest rootText)
+  requireRequestJson "runAt handle request should share the Lean operation adapter"
+    (Beam.Cli.leanRunAtRequest root path 4 2 (some "exact h") (storeHandle := true))
+    (runAtInput.toBrokerRequest rootText (storeHandle := true))
+  let missingRunAtText := Beam.Cli.leanRunAtRequest root path 4 2 none
+  require "runAt missing text should remain a broker validation error" missingRunAtText.text?.isNone
+  require "runAt missing text should still target run_at" (missingRunAtText.op == .runAt)
+
+  let positionInput : Beam.Lean.PositionInput := {
+    path
+    line := 7
+    character := 3
+  }
+  requireRequestJson "hover request should share the Lean operation adapter"
+    (Beam.Cli.leanHoverRequest root path 7 3)
+    (positionInput.toHoverBrokerRequest rootText)
+  requireRequestJson "goals-after request should share the Lean operation adapter"
+    (Beam.Cli.leanGoalsAfterRequest root path 7 3)
+    (positionInput.toGoalsBrokerRequest rootText .after)
+  requireRequestJson "goals-prev request should share the Lean operation adapter"
+    (Beam.Cli.leanGoalsPrevRequest root path 7 3)
+    (positionInput.toGoalsBrokerRequest rootText .prev)
+
+  let runWithInput : Beam.Lean.RunWithInput := {
+    path
+    handle := sampleBrokerHandle
+    text := "simp"
+  }
+  requireRequestJson "runWith request should share the Lean operation adapter"
+    (Beam.Cli.leanRunWithRequest root path sampleBrokerHandle (some "simp"))
+    (runWithInput.toBrokerRequest rootText)
+  requireRequestJson "runWith linear request should share the Lean operation adapter"
+    (Beam.Cli.leanRunWithRequest root path sampleBrokerHandle (some "simp") (linear := true))
+    (runWithInput.toBrokerRequest rootText (linear := true))
+  let missingRunWithText := Beam.Cli.leanRunWithRequest root path sampleBrokerHandle none
+  require "runWith missing text should remain a broker validation error" missingRunWithText.text?.isNone
+  require "runWith missing text should keep successor-handle semantics"
+    (missingRunWithText.storeHandle? == some true)
+  require "runWith missing text should keep linear flag explicit"
+    (missingRunWithText.linear? == some false)
+  require "runWith missing text should keep the supplied handle"
+    missingRunWithText.handle?.isSome
+
+  requireRequestJson "release request should share the Lean operation adapter"
+    (Beam.Cli.leanReleaseRequest root path sampleBrokerHandle)
+    (({ path, handle := sampleBrokerHandle } : Beam.Lean.ReleaseInput).toBrokerRequest rootText)
+
+  let pathInput : Beam.Lean.PathInput := { path }
+  requireRequestJson "deps request should share the Lean operation adapter"
+    (Beam.Cli.leanDepsRequest root path)
+    (pathInput.toDepsBrokerRequest rootText)
+  requireRequestJson "close request should share the Lean operation adapter"
+    (Beam.Cli.leanCloseRequest root path)
+    (pathInput.toCloseBrokerRequest rootText)
+
+  let syncInput : Beam.Lean.SyncInput := { path, fullDiagnostics? := some true }
+  requireRequestJson "sync request should share the Lean operation adapter"
+    (Beam.Cli.leanSyncRequest root path true)
+    (syncInput.toSyncBrokerRequest rootText)
+  requireRequestJson "save request should share the Lean operation adapter"
+    (Beam.Cli.leanSaveRequest root path true)
+    (syncInput.toSaveBrokerRequest rootText)
+
+  let closeSave := Beam.Cli.leanCloseSaveRequest root path true
+  require "close-save should use close broker op" (closeSave.op == .close)
+  require "close-save should request artifact save" (closeSave.saveArtifacts? == some true)
+  require "close-save should preserve full diagnostic flag" (closeSave.fullDiagnostics? == some true)
 
 private def checkStartupRetryPolicy : IO Unit := do
   require "automatic occupied endpoint should retry"
@@ -143,6 +346,10 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
       pure ()
 
 def main : IO Unit := do
+  checkLeanOperationSurfaceMatrix
+  checkCliRecoveryHints
+  checkSyncWaitSpecs
+  checkLeanOperationRequests
   checkStartupRetryPolicy
   checkLockLifecycle
   checkRuntimeBundleHelpers

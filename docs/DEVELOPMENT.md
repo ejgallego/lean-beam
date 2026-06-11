@@ -91,7 +91,9 @@ exit-capable Lean/Lake API is introduced.
 
 MCP work should go through the shared Lean operation layer in
 [Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) and the typed MCP projection boundary in
-[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean).
+[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean). CLI Lean commands should go through the
+CLI projection helpers in [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean) instead of
+constructing broker requests directly in the command dispatcher.
 `Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
 owns the tool input schemas. `Beam/Mcp/Projection.lean` names the public MCP tools and normalizes
 selected broker results. Workspace/session setup is a shared Beam surface in
@@ -145,6 +147,12 @@ When adding an MCP-facing operation:
 - add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
   and [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), then run
   `bash tests/test-broker-fast.sh`
+
+When a public CLI command exposes the same Lean operation, add or update its request helper in
+`Beam.Cli.LeanOperation` and keep request-shape parity coverage in
+[RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean). CLI-only compatibility
+behavior, such as preserving broker-side validation for omitted text arguments, should stay at this
+projection boundary and should not leak into the typed MCP inputs.
 
 `Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
 add support for another revision, only with a protocol audit: check the upstream MCP
@@ -241,7 +249,8 @@ messages, cancellation-on-interrupt, and response failure notes live in
 in [Beam/Cli/Output.lean](../Beam/Cli/Output.lean). Doctor, supported-toolchain, install-manifest,
 and MCP config reporting live in [Beam/Cli/Info.lean](../Beam/Cli/Info.lean). The command dispatch
 table lives in [Beam/Cli/Commands.lean](../Beam/Cli/Commands.lean), and [Beam/Cli/Usage.lean](../Beam/Cli/Usage.lean)
-owns the help text. Install and bundle layout metadata lives in
+owns the help text. Lean command to broker-request projection lives in
+[Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Install and bundle layout metadata lives in
 [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle cache roots, source
 hashing, fallback bundle builds, versioned metadata payloads, metadata acceptance checks, and
 daemon/client/plugin helper resolution live in [Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean).

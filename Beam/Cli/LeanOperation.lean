@@ -1,0 +1,117 @@
+/-
+Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Author: Emilio J. Gallego Arias
+-/
+
+import Beam.Lean.Operation
+
+open Lean
+
+namespace Beam.Cli
+
+open Beam.Broker
+
+def leanOperationSurface : Array Beam.Lean.Operation :=
+  Beam.Lean.Operation.all
+
+private def rootText (root : System.FilePath) : String :=
+  root.toString
+
+private def storeHandleFlag (storeHandle : Bool) : Option Bool :=
+  if storeHandle then some true else none
+
+def leanRunAtRequest
+    (root : System.FilePath)
+    (path : String)
+    (line character : Nat)
+    (text? : Option String)
+    (storeHandle : Bool := false) : Request :=
+  match text? with
+  | some text =>
+      ({ path, line, character, text } : Beam.Lean.RunAtInput).toBrokerRequest
+        (rootText root) (storeHandle := storeHandle)
+  | none =>
+      {
+        op := .runAt
+        backend := .lean
+        root? := some (rootText root)
+        path? := some path
+        line? := some line
+        character? := some character
+        storeHandle? := storeHandleFlag storeHandle
+      }
+
+def leanRunWithRequest
+    (root : System.FilePath)
+    (path : String)
+    (handle : Handle)
+    (text? : Option String)
+    (linear : Bool := false) : Request :=
+  match text? with
+  | some text =>
+      ({ path, handle, text } : Beam.Lean.RunWithInput).toBrokerRequest
+        (rootText root) (linear := linear)
+  | none =>
+      {
+        op := .runWith
+        backend := .lean
+        root? := some (rootText root)
+        path? := some path
+        handle? := some handle
+        storeHandle? := some true
+        linear? := some linear
+      }
+
+def leanReleaseRequest (root : System.FilePath) (path : String) (handle : Handle) : Request :=
+  ({ path, handle } : Beam.Lean.ReleaseInput).toBrokerRequest (rootText root)
+
+def leanHoverRequest
+    (root : System.FilePath)
+    (path : String)
+    (line character : Nat) : Request :=
+  ({ path, line, character } : Beam.Lean.PositionInput).toHoverBrokerRequest (rootText root)
+
+def leanGoalsAfterRequest
+    (root : System.FilePath)
+    (path : String)
+    (line character : Nat) : Request :=
+  ({ path, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .after
+
+def leanGoalsPrevRequest
+    (root : System.FilePath)
+    (path : String)
+    (line character : Nat) : Request :=
+  ({ path, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .prev
+
+def leanDepsRequest (root : System.FilePath) (path : String) : Request :=
+  ({ path } : Beam.Lean.PathInput).toDepsBrokerRequest (rootText root)
+
+def leanCloseRequest (root : System.FilePath) (path : String) : Request :=
+  ({ path } : Beam.Lean.PathInput).toCloseBrokerRequest (rootText root)
+
+def leanSyncRequest
+    (root : System.FilePath)
+    (path : String)
+    (fullDiagnostics : Bool) : Request :=
+  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toSyncBrokerRequest
+    (rootText root)
+
+def leanSaveRequest
+    (root : System.FilePath)
+    (path : String)
+    (fullDiagnostics : Bool) : Request :=
+  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toSaveBrokerRequest
+    (rootText root)
+
+def leanCloseSaveRequest
+    (root : System.FilePath)
+    (path : String)
+    (fullDiagnostics : Bool) : Request :=
+  {
+    leanCloseRequest root path with
+    saveArtifacts? := some true
+    fullDiagnostics? := some fullDiagnostics
+  }
+
+end Beam.Cli

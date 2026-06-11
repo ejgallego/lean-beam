@@ -84,7 +84,9 @@ imported target is stale and rebuild failure kills the worker session, `lean-bea
 than reporting a partial success. `lean-beam save` and `lean-beam close-save` refuse to proceed past that
 incomplete barrier. Lean sync failures may also attach a cheap direct-import recovery hint in
 `error.data`, based on broker-tracked saved dependency boundaries, to suggest `save` / `refresh` /
-`lake build` next steps without running a full workspace dependency scan.
+`lake build` next steps without running a full workspace dependency scan. The CLI mirrors that
+recovery plan on stderr for the human-facing `lean-beam sync` / `lean-beam save` paths while keeping
+stdout as the machine-readable JSON response.
 
 `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` should be read as a progression rather than as
 unrelated commands: `lean-beam sync` establishes the synced diagnostics-complete saved file snapshot,
@@ -193,8 +195,6 @@ Near-term TODO:
 - tighten the AI-first harness story so the preferred maintainer entrypoints are obvious for both
   humans and AI agents
 - investigate and fix the intermittent `handleProofBranchDsl` CI failure if it reappears
-- surface `syncBarrierIncomplete` recovery hints more clearly in the human-facing CLI path, not just
-  in `error.data`
 - continue validating every supported Lean toolchain in CI before expanding the allowlist further
 - replace the broker's remaining stopgap dependency and readiness logic with stronger Lake or
   backend-facing primitives when Lean exposes them

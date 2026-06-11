@@ -62,6 +62,8 @@ The current code now has a first executable MCP path plus the projection boundar
 - `Beam/Cli.lean` and `scripts/lean-beam` adapt broker operations into the public shell workflow.
 - `Beam/Lean/Operation.lean` owns the first shared Lean operation substrate: curated public
   operations, small typed inputs, JSON schemas, and operation-to-broker request adapters.
+- `Beam/Cli/LeanOperation.lean` owns the CLI projection from parsed shell arguments into that shared
+  Lean operation substrate, keeping CLI compatibility details out of MCP input types.
 - `Beam/Mcp/Projection.lean` owns the MCP projection over that substrate: supported Lean tool
   names, tool descriptors, and normalized agent-facing output shapes.
 - `Beam/Mcp/Protocol.lean` owns the small MCP JSON-RPC/tool-result protocol helpers.
@@ -195,8 +197,9 @@ Start with these MCP tools:
 
 The repository now implements an experimental `lean-beam-mcp` stdio server for this curated tool
 set. New agent-facing Lean operations should be added to `Beam/Lean/Operation.lean` first, then
-projected to MCP with an explicit `ToolName` only when they are meant to be public MCP tools. The
-raw `lean-request-at` escape hatch should stay out of the MCP surface.
+projected to CLI and MCP when those surfaces should expose them. MCP still needs an explicit
+`ToolName` only when an operation is meant to be a public MCP tool. The raw `lean-request-at` escape
+hatch should stay out of the MCP surface.
 
 Lean operation tool inputs should not carry `root`; the MCP server session supplies the project root
 from `lean_init_workspace`, the explicit `--root` override, or a single MCP `roots/list` result.
