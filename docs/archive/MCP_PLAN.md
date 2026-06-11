@@ -1,5 +1,10 @@
 # MCP Plan
 
+Historical design note: this file records the plan that led to the current MCP implementation. It
+is not the authoritative guide for current users or maintainers. Use the
+[setup guide](../SETUP.md#mcp-setup) for user setup and [docs/MCP.md](../MCP.md) for current
+implementation, protocol, and conformance notes.
+
 ## Goal
 
 Build a generic way to expose a useful MCP server from an LSP-style specification, without forcing a

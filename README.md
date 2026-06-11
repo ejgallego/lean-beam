@@ -1,213 +1,100 @@
 # Lean Beam
 
-Lean Beam provides a Claude/Codex skill and local workflow layer for efficient interaction with
-Lean 4. Under the hood, it combines a Lean 4 LSP server extension, the `$/lean/runAt` request for
-cheap speculative execution, and a thin local broker that exposes a more idiomatic CLI and agent
-surface over Lean's LSP and Beam-specific extensions.
+Lean Beam lets humans and agents ask Lean one question at a saved source position without editing
+the file or rebuilding the project.
 
-Lean Beam is aimed at agent-heavy workflows such as proof repair,
-porting from other systems to Lean, proof-search experimentation
-including Monte Carlo Tree Search (MCTS), and autoformalization. For
-agents making many edits to Lean files, Lean Beam can provide
-asymptotic savings over repeating `lake build` after every change; see
-the [cost model and workflow details](skills/lean-beam/references/workflow-details.md#cost-model).
+The smallest request is `runAt(pos, "lean text")`: try this Lean text here, in the real module
+context, and return typed Lean feedback. Ordinary calls are isolated. They do not mutate the source
+file, and they do not become hidden state for the next request. If a speculative result should become
+real source, edit the file, save it, then run `lean-beam sync`.
+
+That makes Beam useful for proof repair, porting, proof-search experiments, and agent workflows that
+need many small Lean checks inside a real project. Optional handles support exact continuation from a
+speculative state, but the base story stays one saved file, one position, one Lean text payload.
+
+Lean Beam is not a replacement for Lake or for an IDE. It is a local layer over Lean LSP plus
+Beam-specific extensions: a Lean plugin provides the execution primitive, and the Beam CLI, broker,
+MCP server, and bundled skills project that primitive into practical workflows.
 
 Lean Beam started as a personal internal project and is now published for public use. It is not an
 official Lean FRO product, the code remains experimental, and you should use it at your own risk.
 
-Feedback is welcome; feel free to open issues or let us know what you think on Zulip.
+Feedback is welcome through
+[GitHub issues](https://github.com/ejgallego/lean-beam/issues) or the
+[Lean Zulip](https://leanprover.zulipchat.com).
 
-## Install
+## Quick Setup
 
-Run the installer from the repo root:
+Install Beam once from a Lean Beam checkout:
 
 ```bash
 ./scripts/install-beam.sh
 ```
 
-That installs:
-
-- `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` into `~/.local/bin`
-- an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
-- a prebuilt bundle for the repo-pinned supported Lean toolchain
-
-Use `--codex`, `--claude`, or `--all-skills` to install the bundled agent skills:
+Use `--codex`, `--claude`, or `--all-skills` when you also want the bundled agent skills. Then move
+to the Lean project you want to work on:
 
 ```bash
-./scripts/install-beam.sh --codex
-./scripts/install-beam.sh --claude
-./scripts/install-beam.sh --all-skills
-```
-
-Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional validated Lean bundles:
-
-```bash
-./scripts/install-beam.sh --toolchain leanprover/lean4:v4.30.0
-./scripts/install-beam.sh --all-supported
-```
-
-## MCP Setup
-
-The installer includes the experimental stdio MCP server as `lean-beam-mcp`. For Codex, register it
-globally with an absolute path so Codex can launch it even if `~/.local/bin` is not on its PATH:
-
-```bash
-codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
-```
-
-MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
-root through `roots/list`. If a client does not provide roots, configure the command with an
-explicit project root:
-
-```bash
-codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
-```
-
-The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt plugin for each
-project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
-`--lean-plugin` explicitly.
-
-To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
-
-```bash
-lean-beam-mcp --root /path/to/lean/project --self-check MyPkg/Sub/Module.lean
-```
-
-The self-check starts a child MCP server, supplies the root through MCP `roots/list`, calls
-`lean_sync` on the file, and shuts the child server down.
-
-## Supported Toolchains
-
-Lean Beam only serves Lean toolchains listed in [`supported-lean-toolchains`](supported-lean-toolchains).
-Inspect the validated allowlist with:
-
-```bash
-lean-beam supported-toolchains
-```
-
-The current repo allowlist is:
-
-```text
-leanprover/lean4:v4.30.0
-leanprover/lean4:v4.29.0
-leanprover/lean4:v4.28.0
-```
-
-If you are unsure which runtime bundle is active or why a toolchain is rejected, use:
-
-```bash
+cd /path/to/lean/project
 lean-beam doctor
-```
-
-## Agent-Facing Surface
-
-For most agent-oriented workflows, the practical entry point is `lean-beam` together with the
-workflow guidance in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md).
-
-Common Lean commands:
-
-```bash
 lean-beam ensure
-lean-beam ensure --hold
-lean-beam hover "Foo.lean" 10 2
-lean-beam goals-prev "Foo.lean" 10 2
 lean-beam run-at "Foo.lean" 10 2 "exact trivial"
-lean-beam deps "Foo.lean"
-lean-beam sync "MyPkg/Sub/Module.lean"
-lean-beam refresh "MyPkg/Sub/Module.lean"
-lean-beam save "MyPkg/Sub/Module.lean"
 ```
 
-Read those commands like this:
-
-- `lean-beam run-at` tries speculative Lean text without editing the file
-- `lean-beam ensure --hold` is for PID-isolated command runners that need one foreground process
-  to keep a newly-started daemon alive across separate wrapper calls
-- `lean-beam deps` reports the broker's direct workspace dependency view for a path
-- `lean-beam sync` is the explicit on-disk edit barrier after a real saved edit
-- `lean-beam refresh` is `lean-beam close` plus `lean-beam sync`
-- `lean-beam save` checkpoints one synced workspace module; it does not validate downstream importers
-
-Multiline and handle-oriented wrapper ergonomics:
+Beam reads saved files on disk, not unsaved editor buffers. After a real source edit, save the file
+normally and sync that workspace module before trusting later probes:
 
 ```bash
-# for multiline probe text, prefer stdin
-printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" 10 2 --stdin
-
-# for exact continuation, prefer a handle file
-lean-beam run-at-handle "Foo.lean" 10 2 "constructor"
-lean-beam run-with "Foo.lean" --handle-file handle.json "exact trivial"
+lean-beam sync "MyPkg/Sub/Module.lean"
 ```
 
-Read those flags like this:
-
-- `--stdin` is the normal multiline path for speculative Lean text
-- `--handle-file <path>` is the normal handle path for exact continuation and release
-- deeper shell-oriented variants and debugging knobs live in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md) and the linked reference docs
-
-When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
-`error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` to suggest a
-cheap direct-import recovery path before falling back to `lake build`.
-
-Detailed Lean workflow guidance lives in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md).
-The narrower Rocq surface lives in [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md).
+Detailed setup, supported toolchains, bundle behavior, and MCP client setup live in
+[docs/SETUP.md](docs/SETUP.md). Lean workflow guidance lives in
+[skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md); the narrower Rocq surface lives in
+[skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md).
 
 ## Which Layer To Use
 
-- Use `lean-beam` plus the installed skills if you want the practical agent workflow that integrates with Codex or Claude out of the box
-- Use the Beam broker if you want one long-lived local process per project root while keeping a narrower local protocol than raw LSP
-- Use the Lean LSP extension directly if you already own the LSP session and want the smallest typed surface, or if you want to build custom agents doing MCTS or other advanced setups
+- Use `lean-beam` if you want the practical CLI workflow for humans, Codex, or Claude.
+- Use `lean-beam-mcp` if your agent client wants MCP tools instead of shell commands.
+- Use the Beam broker if you want one long-lived local process per project root while keeping a
+  narrower local protocol than raw LSP.
+- Use the Lean LSP extension directly if you already own the LSP session and want the smallest
+  typed surface, or if you are building custom agents doing MCTS or other advanced setups.
 
-The public request and response types live in [RunAt/Protocol.lean](RunAt/Protocol.lean). The Lean
-plugin implementation lives in [RunAt/Plugin.lean](RunAt/Plugin.lean).
+The public request and response types live in [RunAt/Protocol.lean](RunAt/Protocol.lean). The
+Lean plugin implementation lives in [RunAt/Plugin.lean](RunAt/Plugin.lean).
 
-## How The Code Is Organized
+## Contributing
 
-- `RunAt`: Lean LSP server plugin providing the `$/lean/runAt` request for speculative execution at arbitrary document points
-- `Beam`: local broker, daemon/client pair, and CLI wrappers exposing a narrower agent-facing surface over LSP and Beam-specific extensions
-- `skills`: installed Claude/Codex workflow guidance built around `lean-beam`
-- Rocq support: a narrow auxiliary goal-probe surface through the same `lean-beam` wrapper, useful when porting from Rocq to Lean
-- `tests`: scenario-DSL coverage for LSP-level behavior, concurrent stress coverage, broker and wrapper regression suites, and install/runtime validation
+Contributor workflow, local harness guidance, and test details are intentionally outside the
+user path:
 
-## Local Build And Test (for development)
-
-Build:
-
-```bash
-lake build
-```
-
-Core tests:
-
-```bash
-bash tests/test.sh
-```
-
-Broker and wrapper suites:
-
-```bash
-bash tests/test-broker-fast.sh
-bash tests/test-broker-slow.sh
-bash tests/test-broker-rocq.sh
-bash tests/test-broker.sh
-bash scripts/lint-shell.sh
-```
-
-GitHub Actions currently validates the main CI job set from
-[.github/workflows/ci.yml](.github/workflows/ci.yml) on both Ubuntu and macOS.
-
-More detail on test coverage and gaps lives in [docs/TESTING.md](docs/TESTING.md).
+- [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): maintainer workflow and implementation notes.
+- [docs/TESTING.md](docs/TESTING.md): developer test-suite guidance and coverage map.
 
 ## Documentation Map
 
-- [docs/STATUS.md](docs/STATUS.md): current scope, limitations, and direction
-- [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md): Lean workflow contract
-- [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md): auxiliary Rocq workflow surface
-- [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): AI-first maintainer workflow and harness guidance
-- [docs/TESTING.md](docs/TESTING.md): test coverage and gaps
-- [docs/experimental.md](docs/experimental.md): unstable experimental surfaces
-- [AGENTS.md](AGENTS.md): repo-specific agent instructions
+For users:
+
+- [docs/SETUP.md](docs/SETUP.md): install, toolchain, bundle, and MCP setup details.
+- [docs/STATUS.md](docs/STATUS.md): current scope, limitations, and direction.
+- [docs/experimental.md](docs/experimental.md): unstable experimental surfaces.
+
+For agent workflows:
+
+- [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md): Lean workflow contract.
+- [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md): auxiliary Rocq workflow surface.
+
+For contributors and maintainers:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): maintainer workflow and implementation notes.
+- [docs/TESTING.md](docs/TESTING.md): developer test-suite guidance and coverage map.
+- [docs/MCP.md](docs/MCP.md): current MCP architecture and conformance notes.
+- [AGENTS.md](AGENTS.md): repo-specific agent instructions.
+- [docs/archive/MCP_PLAN.md](docs/archive/MCP_PLAN.md): historical MCP design note.
 
 ## License
 
