@@ -1694,6 +1694,15 @@ fi
     rm -f "$stale_sync_err"
     exit 1
   fi
+  # shellcheck disable=SC2016 # Expected output contains literal backticks.
+  if ! grep -q 'beam: recovery: try `lean-beam refresh "SaveSmoke/A.lean"`; then `lake build`' "$stale_sync_err"; then
+    echo "expected stale-import lean-sync failure to print the recovery plan on stderr" >&2
+    cat "$stale_sync_json" >&2
+    cat "$stale_sync_err" >&2
+    rm -f "$stale_sync_json"
+    rm -f "$stale_sync_err"
+    exit 1
+  fi
   if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$stale_sync_json")" read_json_text_field error.code)" != "syncBarrierIncomplete" ]; then
     echo "expected stale-import lean-sync failure to expose syncBarrierIncomplete" >&2
     cat "$stale_sync_json" >&2

@@ -107,51 +107,50 @@ def awaitBrokerResponse
     | some watcher => Std.Internal.UV.Signal.stop watcher.signal
     | none => pure ()
 
-def syncWaitSpec (path : String) : BrokerWaitSpec :=
+private def syncReadinessSuffix (result : SyncFileResult) : String :=
+  if result.saveReady then
+    ""
+  else
+    s!", saveReady=false ({result.saveReadyReason}, " ++
+    s!"stateErrorCount={result.stateErrorCount}, " ++
+      s!"stateCommandErrorCount={result.stateCommandErrorCount})"
+
+private def syncLikeCompleteMsg (completeLabel path : String) (resp : Response) : String :=
+  match decodeSyncFileResult? resp with
+  | some result =>
+      let suffix := syncFileProgressSuffix (responseFileProgress? resp)
+      s!"beam: {completeLabel} complete for {path} (version {result.version}{suffix}{syncReadinessSuffix result})"
+  | none =>
+      s!"beam: {completeLabel} complete for {path}"
+
+private def syncLikeWaitSpec
+    (action path startMsg progressLabel stillWaitingLabel completeLabel : String) : BrokerWaitSpec :=
   {
-    action := "lean-sync"
-    startMsg := s!"beam: syncing {path} and waiting for Lean diagnostics"
-    progressMsg := fun progress => s!"beam: sync progress for {path}{syncFileProgressSuffix (some progress)}"
-    stillWaitingMsg := fun seconds => s!"beam: still syncing {path} ({seconds}s)"
-    completeMsg := fun resp =>
-      match decodeSyncFileResult? resp with
-      | some result =>
-          let suffix := syncFileProgressSuffix (responseFileProgress? resp)
-          let readinessSuffix :=
-            if result.saveReady then
-              ""
-            else
-              s!", saveReady=false ({result.saveReadyReason}, " ++
-              s!"stateErrorCount={result.stateErrorCount}, " ++
-                s!"stateCommandErrorCount={result.stateCommandErrorCount})"
-          s!"beam: sync complete for {path} (version {result.version}{suffix}{readinessSuffix})"
-      | none =>
-        s!"beam: sync complete for {path}"
+    action
+    startMsg
+    progressMsg := fun progress => s!"beam: {progressLabel} progress for {path}{syncFileProgressSuffix (some progress)}"
+    stillWaitingMsg := fun seconds => s!"beam: still {stillWaitingLabel} {path} ({seconds}s)"
+    completeMsg := syncLikeCompleteMsg completeLabel path
     failureBoundary := "before a complete diagnostics barrier was available"
   }
 
+def syncWaitSpec (path : String) : BrokerWaitSpec :=
+  syncLikeWaitSpec
+    (action := "lean-sync")
+    (path := path)
+    (startMsg := s!"beam: syncing {path} and waiting for Lean diagnostics")
+    (progressLabel := "sync")
+    (stillWaitingLabel := "syncing")
+    (completeLabel := "sync")
+
 def refreshWaitSpec (path : String) : BrokerWaitSpec :=
-  {
-    action := "lean-refresh"
-    startMsg := s!"beam: refreshing {path} by closing and resyncing"
-    progressMsg := fun progress => s!"beam: refresh progress for {path}{syncFileProgressSuffix (some progress)}"
-    stillWaitingMsg := fun seconds => s!"beam: still refreshing {path} ({seconds}s)"
-    completeMsg := fun resp =>
-      match decodeSyncFileResult? resp with
-      | some result =>
-          let suffix := syncFileProgressSuffix (responseFileProgress? resp)
-          let readinessSuffix :=
-            if result.saveReady then
-              ""
-            else
-              s!", saveReady=false ({result.saveReadyReason}, " ++
-              s!"stateErrorCount={result.stateErrorCount}, " ++
-                s!"stateCommandErrorCount={result.stateCommandErrorCount})"
-          s!"beam: refresh complete for {path} (version {result.version}{suffix}{readinessSuffix})"
-      | none =>
-        s!"beam: refresh complete for {path}"
-    failureBoundary := "before a complete diagnostics barrier was available"
-  }
+  syncLikeWaitSpec
+    (action := "lean-refresh")
+    (path := path)
+    (startMsg := s!"beam: refreshing {path} by closing and resyncing")
+    (progressLabel := "refresh")
+    (stillWaitingLabel := "refreshing")
+    (completeLabel := "refresh")
 
 def leanRunAtWaitSpec (action path : String) (line character : Nat) : BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
@@ -258,6 +257,11 @@ def callBrokerWithProgress
       else
         sendRequestWithCallbacks endpoint req callbacks
     match responseErrorSummary? spec.action spec.failureBoundary resp with
+    | some note =>
+        IO.eprintln <| annotateRunatMessage req.clientRequestId? note
+    | none =>
+        pure ()
+    match responseRecoveryHint? resp with
     | some note =>
         IO.eprintln <| annotateRunatMessage req.clientRequestId? note
     | none =>

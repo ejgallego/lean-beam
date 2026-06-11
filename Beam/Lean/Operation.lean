@@ -31,6 +31,21 @@ inductive Operation where
   | close
   deriving BEq, Repr
 
+def Operation.all : Array Operation := #[
+  .runAt,
+  .runAtHandle,
+  .hover,
+  .goalsAfter,
+  .goalsPrev,
+  .runWith,
+  .runWithLinear,
+  .release,
+  .sync,
+  .deps,
+  .save,
+  .close
+]
+
 def Operation.key : Operation → String
   | .runAt => "run_at"
   | .runAtHandle => "run_at_handle"
