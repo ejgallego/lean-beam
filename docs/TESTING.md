@@ -101,7 +101,9 @@ Beam daemon integration.
   Linux-only because it depends on `bwrap`
 - zero-build save regression coverage in [tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh),
   including exact-target replay, downstream importer reuse after daemon shutdown, and a timed
-  race where a mid-save edit must leave the saved module stale for later `lake build`
+  race where a mid-save edit must leave the saved module stale for later `lake build`. This script
+  disables Lake's artifact cache for its direct Lake and broker-wrapper probes so it can distinguish
+  local rebuilds from broker-written trace replay on warmed developer or CI machines
 - repo-local Codex worktree discipline coverage in [tests/test-codex-harness.sh](../tests/test-codex-harness.sh),
   which checks maintainer workflow helpers that start new tasks in dedicated worktrees and reject
   the primary checkout unless explicitly overridden

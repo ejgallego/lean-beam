@@ -21,8 +21,8 @@ private structure StreamRun where
 
 private def buildLakeTarget (root : System.FilePath) (target : String) : IO Unit := do
   let out ← IO.Process.output {
-    cmd := "lake"
-    args := #["build", target]
+    cmd := "env"
+    args := #["LAKE_ARTIFACT_CACHE=false", "lake", "--no-cache", "build", target]
     cwd := root.toString
   }
   if out.exitCode != 0 then
@@ -218,15 +218,7 @@ def main : IO Unit := do
       path? := some "SaveSmoke/A.lean"
     }
     discard <| expectOk staleTraceSyncResp
-    for path in #[
-      root / ".lake" / "build" / "lib" / "lean" / "SaveSmoke" / "B.olean",
-      root / ".lake" / "build" / "lib" / "lean" / "SaveSmoke" / "B.ilean",
-      root / ".lake" / "build" / "lib" / "lean" / "SaveSmoke" / "B.trace"
-    ] do
-      try
-        IO.FS.removeFile path
-      catch _ =>
-        pure ()
+    writeSaveWarningFile root "-- request-stream stale trace"
 
     let staleTraceSaveMessages ← requireFailedStream "stale trace save_olean" <| ← runRequestStream port {
       op := .saveOlean
