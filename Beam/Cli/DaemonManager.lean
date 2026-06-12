@@ -291,7 +291,9 @@ private partial def startDaemonEntry
     if pid > 0 && (← pidAlive pid) then
       killPid pid
       waitForPidGone pid
-    if shouldRetryAutomaticStartup (usesAutomaticTcpEndpoint opts) tries (← endpointAcceptsConnection endpoint) then
+    let endpointOccupied ← endpointAcceptsConnection endpoint
+    let startupAddressInUse := startupFailureSuggestsEndpointInUse (toString err)
+    if shouldRetryAutomaticStartup (usesAutomaticTcpEndpoint opts) tries endpointOccupied startupAddressInUse then
       return ← startDaemonEntry desired opts (tries - 1)
     throw err
   let entry ← registryEntryFor desired pid endpoint opts

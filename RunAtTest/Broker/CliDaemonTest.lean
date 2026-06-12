@@ -221,13 +221,19 @@ private def checkLeanOperationRequests : IO Unit := do
 
 private def checkStartupRetryPolicy : IO Unit := do
   require "automatic occupied endpoint should retry"
-    (Beam.Cli.shouldRetryAutomaticStartup true 1 true)
+    (Beam.Cli.shouldRetryAutomaticStartup true 1 true false)
+  require "automatic startup bind collision should retry"
+    (Beam.Cli.shouldRetryAutomaticStartup true 1 false true)
   require "automatic endpoint should not retry after attempts are exhausted"
-    (!Beam.Cli.shouldRetryAutomaticStartup true 0 true)
+    (!Beam.Cli.shouldRetryAutomaticStartup true 0 true true)
   require "automatic endpoint should not retry when endpoint is not occupied after failure"
-    (!Beam.Cli.shouldRetryAutomaticStartup true 1 false)
+    (!Beam.Cli.shouldRetryAutomaticStartup true 1 false false)
   require "explicit endpoint should not retry"
-    (!Beam.Cli.shouldRetryAutomaticStartup false 1 true)
+    (!Beam.Cli.shouldRetryAutomaticStartup false 1 true true)
+  require "Linux bind failure wording should be recognized"
+    (Beam.Cli.startupFailureSuggestsEndpointInUse "resource busy (error code: 4294967198, address already in use)")
+  require "macOS bind failure wording should be recognized"
+    (Beam.Cli.startupFailureSuggestsEndpointInUse "Address already in use")
 
 private def checkLockLifecycle : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/beam-cli-lock-test-{← IO.monoNanosNow}"

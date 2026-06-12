@@ -128,25 +128,35 @@ root selection. Keep this resolver as a narrow CLI/MCP setup boundary. Do not du
 selection logic in the MCP server, and do not make MCP clients pass raw plugin paths in normal
 installed use.
 
-When adding an MCP-facing operation:
+When adding an MCP-facing operation, use this order:
 
-- add or reuse a `Beam.Lean.Operation` first
-- add a `ToolName` only if it is meant to be a public agent tool
-- for setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,
-  put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary
-  explicit in tests
-- keep raw LSP methods and params out of the MCP input types
-- keep the project root in server/session context, not in each Lean operation input; root
-  negotiation belongs in server setup, either through `lean_init_workspace`, the explicit `--root`
-  override, or exactly one MCP `roots/list` result. The `lean_init_workspace` setup tool is the
-  exception that accepts a root, and it should project the shared `Beam.Workspace` contract:
-  explicit, absolute, idempotent, and guarded against root resets after Lean tools have run.
-- map to broker operations through the shared operation helpers instead of constructing ad hoc JSON
-- normalize MCP output field names in the projection, for example `next_handle` and `proof_state`
-- do not expose expert/raw escape hatches such as `lean-request-at` as MCP tools
-- add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
-  and [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), then run
-  `bash tests/test-broker-fast.sh`
+1. Add or reuse a `Beam.Lean.Operation`. Define the typed input, broker-request adapter, description,
+   and closed input schema there. Use [Beam/JsonSchema.lean](../Beam/JsonSchema.lean) for public
+   tool schemas instead of hand-rolling schema JSON.
+2. If the operation should be a public MCP tool, add a `ToolName` in `Beam.Mcp.Projection` and map
+   it to the shared Lean operation. Do not add raw LSP method names or expert/raw escape hatches such
+   as `lean-request-at`.
+3. If the operation also belongs on the CLI, add or update the request helper in
+   [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Keep CLI compatibility behavior,
+   such as omitted-text validation, at the CLI projection boundary.
+4. Keep project-root selection in server/session setup, not in each Lean operation input. Root
+   negotiation belongs to `lean_init_workspace`, explicit `--root`, or exactly one MCP `roots/list`
+   result. `lean_init_workspace` is the only setup tool that accepts a root, and it should keep
+   projecting the shared `Beam.Workspace` contract: explicit, absolute, idempotent, and guarded
+   against root resets after Lean tools have run.
+5. Normalize MCP output field names in the projection, for example `next_handle` and `proof_state`.
+   Transport/setup failures should become structured tool or JSON-RPC errors; semantic Lean failures
+   should remain normal tool results when the broker reports them that way.
+6. Add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
+   for operation-to-broker mapping and result normalization, then update
+   [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean) for generated
+   tool schema, lifecycle, root setup, and protocol error-shape expectations.
+7. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
+   focused MCP test executables, `git diff --check`, and `bash tests/test-broker-fast.sh`.
+
+For setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,
+put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary explicit
+in tests.
 
 When a public CLI command exposes the same Lean operation, add or update its request helper in
 `Beam.Cli.LeanOperation` and keep request-shape parity coverage in
