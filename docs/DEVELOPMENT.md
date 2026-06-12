@@ -249,7 +249,11 @@ What the fix does:
 - the regression for this path is
   [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 
-The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Reusable CLI
+The generic lock/process helpers live in [Beam/Cli/Lock.lean](../Beam/Cli/Lock.lean). Project
+daemon control locks use a bounded wait so a live but stuck wrapper process produces owner
+diagnostics instead of making later clients wait silently; `BEAM_CONTROL_LOCK_TIMEOUT_MS` can shorten
+or lengthen that wait for local debugging. Bundle build locks intentionally keep the lower-level
+unbounded helper because another process may legitimately be compiling a helper bundle. Reusable CLI
 argument parsing lives in [Beam/Cli/Args.lean](../Beam/Cli/Args.lean). Project-root inference,
 Lean toolchain lookup, and Rocq command discovery live in [Beam/Cli/Project.lean](../Beam/Cli/Project.lean).
 Daemon registry management, daemon startup/reuse, endpoint selection, and wrapper leases live in

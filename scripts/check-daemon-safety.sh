@@ -15,7 +15,35 @@ report_matches() {
   local pattern="$2"
   shift 2
   local out
-  if out="$(rg -n "$pattern" "$@")"; then
+  if command -v rg > /dev/null 2>&1; then
+    out="$(rg -n "$pattern" "$@" || true)"
+  else
+    out="$(python3 - "$pattern" "$@" <<'PY'
+import pathlib
+import re
+import sys
+
+pattern = re.compile(sys.argv[1])
+paths = [pathlib.Path(arg) for arg in sys.argv[2:]]
+matches = []
+
+for path in paths:
+    files = path.rglob("*.lean") if path.is_dir() else [path]
+    for file in files:
+        try:
+            text = file.read_text()
+        except UnicodeDecodeError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if pattern.search(line):
+                matches.append(f"{file}:{lineno}:{line}")
+
+if matches:
+    print("\n".join(matches))
+PY
+)"
+  fi
+  if [ -n "$out" ]; then
     printf '%s\n%s\n' "$label" "$out" >&2
     fail=1
   fi

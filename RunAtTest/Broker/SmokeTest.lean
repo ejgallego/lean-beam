@@ -457,13 +457,12 @@ private def runSaveAndStatsSmoke
   expectOpMetricAtLeast stats "lean" "run_at" "workerExitedCount" 1
 
 def smokeMain : IO Unit := do
-  let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
-  let endpoint : Beam.Broker.Endpoint := .tcp port
+  let endpoint ← freshTcpEndpoint
   let root ← repoRoot
   let otherRoot ← IO.FS.realPath <| root / "tests" / "save_olean_project"
   let broker ← spawnLeanBrokerWithPlugin endpoint root (← pluginPath) (← leanCmd)
   try
-    waitForBrokerReady endpoint
+    waitForBrokerReadyForRoot endpoint root
     discard <| expectOk (← runClient endpoint { op := .ensure, root? := some root.toString })
     let rootMismatch ← runClient endpoint { op := .ensure, root? := some otherRoot.toString }
     expectErrCode rootMismatch "invalidParams"
