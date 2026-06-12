@@ -23,6 +23,48 @@ def daemonExe : IO System.FilePath := do
 def clientExe : IO System.FilePath := do
   pure <| (← IO.appPath).parent.getD (System.FilePath.mk ".") / "beam-client"
 
+private def testPortBase : Nat :=
+  49152
+
+private def testPortSpan : Nat :=
+  UInt16.size - testPortBase
+
+private def testPortStride : Nat :=
+  7919
+
+private def testPortCandidate (seed attempt : Nat) : UInt16 :=
+  (testPortBase + ((seed + attempt * testPortStride) % testPortSpan)).toUInt16
+
+private def endpointAcceptsConnection (endpoint : Beam.Broker.Endpoint) : IO Bool := do
+  try
+    let conn ← Beam.Broker.Transport.connect endpoint
+    Beam.Broker.Transport.closeConnection conn
+    pure true
+  catch _ =>
+    pure false
+
+/--
+Pick a test TCP port that is not accepting connections right now.
+
+This is still subject to the usual close-before-spawn race, but it avoids the timestamp-derived
+ports colliding with long-running local Beam daemons.
+-/
+partial def freshTcpPort (tries : Nat := 200) : IO UInt16 := do
+  let seed ← IO.monoNanosNow
+  let rec loop (attempt remaining : Nat) : IO UInt16 := do
+    if remaining == 0 then
+      throw <| IO.userError s!"could not find an unused local TCP port after {tries} attempts"
+    let port := testPortCandidate seed attempt
+    let endpoint : Beam.Broker.Endpoint := .tcp port
+    if ← endpointAcceptsConnection endpoint then
+      loop (attempt + 1) (remaining - 1)
+    else
+      pure port
+  loop 0 tries
+
+def freshTcpEndpoint : IO Beam.Broker.Endpoint := do
+  pure (.tcp (← freshTcpPort))
+
 private structure ProcessInfo where
   pid : Nat
   ppid : Nat
@@ -158,5 +200,45 @@ partial def waitForBrokerReady
       throw <| IO.userError s!"timed out waiting for Beam daemon at {Beam.Broker.Transport.endpointDescription endpoint}"
     IO.sleep 100
     waitForBrokerReady endpoint (tries - 1)
+
+private def statsRoot? (resp : Beam.Broker.Response) : Option String := do
+  let result ← resp.result?
+  match result.getObjVal? "root" with
+  | .ok (.str root) => some root
+  | _ => none
+
+private def brokerRoot? (endpoint : Beam.Broker.Endpoint) : IO (Option String) := do
+  try
+    let resp ← Beam.Broker.sendRequest endpoint { op := .stats }
+    if resp.ok then
+      pure (statsRoot? resp)
+    else
+      pure none
+  catch _ =>
+    pure none
+
+private def sameCanonicalPath (a b : System.FilePath) : IO Bool := do
+  try
+    pure ((← IO.FS.realPath a).toString == (← IO.FS.realPath b).toString)
+  catch _ =>
+    pure (a.toString == b.toString)
+
+partial def waitForBrokerReadyForRoot
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath)
+    (tries : Nat := 50) : IO Unit := do
+  match ← brokerRoot? endpoint with
+  | some daemonRoot =>
+      if ← sameCanonicalPath (System.FilePath.mk daemonRoot) root then
+        pure ()
+      else
+        throw <| IO.userError
+          s!"test endpoint {Beam.Broker.Transport.endpointDescription endpoint} already serves Beam root {daemonRoot}, not {root}"
+  | none =>
+      if tries == 0 then
+        throw <| IO.userError
+          s!"timed out waiting for Beam daemon at {Beam.Broker.Transport.endpointDescription endpoint}"
+      IO.sleep 100
+      waitForBrokerReadyForRoot endpoint root (tries - 1)
 
 end RunAtTest.Broker.TestUtil

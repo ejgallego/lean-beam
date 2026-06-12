@@ -59,7 +59,46 @@ def pidAlive (pid : Nat) : IO Bool := do
   let out ← IO.Process.output { cmd := (← killCommand), args := #["-0", toString pid] }
   pure (out.exitCode == 0)
 
-partial def acquireLock (lockDir : System.FilePath) : IO Unit := do
+private def lockPollMs : Nat :=
+  100
+
+private def readLockPid? (lockDir : System.FilePath) : IO (Option Nat) := do
+  try
+    if ← (lockDir / "pid").pathExists then
+      let text ← IO.FS.readFile (lockDir / "pid")
+      pure <| trimLine text |>.toNat?
+    else
+      pure none
+  catch _ =>
+    pure none
+
+private def lockOwnerDescription : Option Nat → String
+  | some pid => s!"pid {pid}"
+  | none => "unknown owner"
+
+private def lockTimeoutMessage
+    (lockDir : System.FilePath)
+    (ownerPid? : Option Nat)
+    (waitedMs timeoutMs : Nat) : String :=
+  s!"timed out after {waitedMs} ms waiting for Beam lock {lockDir}; " ++
+    s!"lock owner: {lockOwnerDescription ownerPid?}; timeout: {timeoutMs} ms"
+
+private def removeStaleLock? (lockDir : System.FilePath) (ownerPid? : Option Nat) : IO Bool := do
+  match ownerPid? with
+  | some ownerPid =>
+      if !(← pidAlive ownerPid) then
+        if ← lockDir.pathExists then
+          IO.FS.removeDirAll lockDir
+        pure true
+      else
+        pure false
+  | none =>
+      pure false
+
+private partial def acquireLockCore
+    (lockDir : System.FilePath)
+    (timeoutMs? : Option Nat)
+    (waitedMs : Nat := 0) : IO Unit := do
   if let some parent := lockDir.parent then
     IO.FS.createDirAll parent
   let selfPid ← IO.Process.getPID
@@ -67,18 +106,31 @@ partial def acquireLock (lockDir : System.FilePath) : IO Unit := do
     IO.FS.createDir lockDir
     IO.FS.writeFile (lockDir / "pid") s!"{selfPid}\n"
   catch _ =>
-    let stalePid? ←
-      if ← (lockDir / "pid").pathExists then
-        let text ← IO.FS.readFile (lockDir / "pid")
-        pure <| trimLine text |>.toNat?
-      else
-        pure none
-    if let some stalePid := stalePid? then
-      if !(← pidAlive stalePid) then
-        if ← lockDir.pathExists then
-          IO.FS.removeDirAll lockDir
-    IO.sleep 100
-    acquireLock lockDir
+    let ownerPid? ← readLockPid? lockDir
+    if ← removeStaleLock? lockDir ownerPid? then
+      acquireLockCore lockDir timeoutMs? waitedMs
+    else
+      match timeoutMs? with
+      | some timeoutMs =>
+          if waitedMs >= timeoutMs then
+            throw <| IO.userError (lockTimeoutMessage lockDir ownerPid? waitedMs timeoutMs)
+      | none =>
+          pure ()
+      IO.sleep lockPollMs.toUInt32
+      acquireLockCore lockDir timeoutMs? (waitedMs + lockPollMs)
+
+def acquireLock (lockDir : System.FilePath) : IO Unit :=
+  acquireLockCore lockDir none
+
+/--
+Acquire a directory lock, but fail with lock owner diagnostics after `timeoutMs`.
+
+The unbounded `acquireLock` remains available for long-running build/install locks. This bounded
+variant is for short project-control critical sections where silent infinite waiting hides daemon
+or wrapper failures.
+-/
+def acquireLockTimeout (lockDir : System.FilePath) (timeoutMs : Nat) : IO Unit :=
+  acquireLockCore lockDir (some timeoutMs)
 
 def releaseLock (lockDir : System.FilePath) : IO Unit := do
   if ← lockDir.pathExists then
@@ -86,6 +138,14 @@ def releaseLock (lockDir : System.FilePath) : IO Unit := do
 
 def withLock (lockDir : System.FilePath) (act : IO α) : IO α := do
   acquireLock lockDir
+  try
+    act
+  finally
+    releaseLock lockDir
+
+/-- Run `act` while holding a bounded directory lock. -/
+def withLockTimeout (lockDir : System.FilePath) (timeoutMs : Nat) (act : IO α) : IO α := do
+  acquireLockTimeout lockDir timeoutMs
   try
     act
   finally

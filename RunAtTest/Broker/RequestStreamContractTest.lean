@@ -79,13 +79,13 @@ private def expectErrorCode (label code : String) (resp : Beam.Broker.Response) 
     throw <| IO.userError s!"expected {label} error response to omit result payload, got {(toJson resp).compress}"
 
 def main : IO Unit := do
-  let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
+  let port ← freshTcpPort
   let endpoint : Beam.Broker.Endpoint := .tcp port
   let root ← mkTempProjectRoot "beam-daemon-request-stream"
   copySaveProjectFixture root
   let broker ← spawnLeanBroker endpoint root
   try
-    waitForBrokerReady endpoint
+    waitForBrokerReadyForRoot endpoint root
     discard <| expectOk (← runClient endpoint { op := .ensure, root? := some root.toString })
 
     writeSaveWarningFile root "-- request-stream sync"

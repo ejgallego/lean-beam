@@ -38,14 +38,13 @@ private def writeFakeServer (root : System.FilePath) : IO System.FilePath := do
   pure script
 
 def main : IO Unit := do
-  let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
-  let endpoint : Beam.Broker.Endpoint := .tcp port
+  let endpoint ← freshTcpEndpoint
   let root ← mkTempProjectRoot "beam-daemon-startup"
   IO.FS.createDirAll root
   let fakeServer ← writeFakeServer root
   let broker ← spawnLeanBrokerWithPlugin endpoint root (← RunAtTest.TestHarness.pluginPath) fakeServer.toString
   try
-    waitForBrokerReady endpoint
+    waitForBrokerReadyForRoot endpoint root
     let resp ← runClient endpoint { op := .ensure, root? := some root.toString }
     if resp.ok then
       throw <| IO.userError s!"expected startup handshake failure, got success {(toJson resp).compress}"

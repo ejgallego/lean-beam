@@ -19,6 +19,19 @@ private def require (label : String) (cond : Bool) : IO Unit := do
   unless cond do
     throw <| IO.userError label
 
+private def expectIoErrorContains (label needle : String) (act : IO α) : IO Unit := do
+  let result ←
+    try
+      pure <| Except.ok (← act)
+    catch err =>
+      pure <| Except.error err
+  match result with
+  | .ok _ =>
+      throw <| IO.userError s!"{label}: expected IO error containing {needle}"
+  | .error err =>
+      unless err.toString.contains needle do
+        throw <| IO.userError s!"{label}: expected error containing {needle}, got {err}"
+
 private def requireSubstring (label needle haystack : String) : IO Unit := do
   require s!"{label}: expected '{needle}' in '{haystack}'" (Beam.Cli.hasSubstring haystack needle)
 
@@ -249,6 +262,13 @@ private def checkLockLifecycle : IO Unit := do
     Beam.Cli.withLock lockDir do
       let pidText := (← IO.FS.readFile (lockDir / "pid")).trimAscii.toString
       require "stale lock should be replaced with this process lock" (pidText != "999999999")
+
+    IO.FS.createDirAll lockDir
+    let selfPid ← IO.Process.getPID
+    IO.FS.writeFile (lockDir / "pid") s!"{selfPid}\n"
+    expectIoErrorContains "live lock timeout" s!"lock owner: pid {selfPid}" <|
+      Beam.Cli.withLockTimeout lockDir 100 do
+        pure ()
   finally
     try
       if ← root.pathExists then

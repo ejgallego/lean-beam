@@ -80,9 +80,7 @@ private def runLeanRelease
 
 private def shutdownProjectDaemon (opts : CliOptions) : IO Unit := do
   let root ← projectRootAny opts
-  let lockDir ← controlDir root
-  let lockDir := lockDir / "lock"
-  withLock lockDir do
+  withProjectControlLock root do
     match ← registryLiveFor root with
     | some entry =>
         if let some endpoint := registryEndpoint? entry then

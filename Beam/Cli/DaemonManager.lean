@@ -26,6 +26,35 @@ def controlDir (root : System.FilePath) : IO System.FilePath := do
   | none =>
       pure (runAtStateDir root)
 
+private def defaultProjectControlLockTimeoutMs : Nat :=
+  60000
+
+private def projectControlLockTimeoutMs : IO Nat := do
+  match ← IO.getEnv "BEAM_CONTROL_LOCK_TIMEOUT_MS" with
+  | none =>
+      pure defaultProjectControlLockTimeoutMs
+  | some raw =>
+      let some timeoutMs := raw.toNat?
+        | throw <| IO.userError
+            s!"invalid BEAM_CONTROL_LOCK_TIMEOUT_MS value '{raw}': expected milliseconds"
+      if timeoutMs == 0 then
+        throw <| IO.userError
+          "invalid BEAM_CONTROL_LOCK_TIMEOUT_MS value '0': expected a positive timeout"
+      pure timeoutMs
+
+def projectControlLockDir (root : System.FilePath) : IO System.FilePath := do
+  pure ((← controlDir root) / "lock")
+
+/--
+Run `act` while holding the per-project daemon control lock.
+
+Project control operations should fail with owner diagnostics instead of waiting forever behind a
+live but stuck wrapper process. Longer bundle build locks intentionally use the lower-level
+unbounded lock helper.
+-/
+def withProjectControlLock (root : System.FilePath) (act : IO α) : IO α := do
+  withLockTimeout (← projectControlLockDir root) (← projectControlLockTimeoutMs) act
+
 def registryPath (root : System.FilePath) : IO System.FilePath := do
   pure ((← controlDir root) / "beam-daemon.json")
 
@@ -379,9 +408,7 @@ structure EnsuredProjectDaemon where
 def ensureProjectDaemon (home root : System.FilePath) (backend : Backend) (opts : CliOptions) :
     IO EnsuredProjectDaemon := do
   let desired ← desiredConfig home root backend
-  let lockDir ← controlDir root
-  let lockDir := lockDir / "lock"
-  withLock lockDir do
+  withProjectControlLock root do
     if let some live ← registryLiveFor root desired.configHash then
       if let some endpoint := registryEndpoint? live then
         return { endpoint, startedNew := false }
@@ -502,9 +529,7 @@ def withWrapperLease (root : System.FilePath) (startedNew : Bool) (act : IO α) 
   | .error err => throw err
 
 def lookupProjectDaemon (root : System.FilePath) : IO RegistryEntry := do
-  let lockDir ← controlDir root
-  let lockDir := lockDir / "lock"
-  withLock lockDir do
+  withProjectControlLock root do
     match ← registryLiveFor root with
     | some entry => pure entry
     | none =>

@@ -48,12 +48,11 @@ private def expectSurfacedError (resp : Beam.Broker.Response) : IO Unit := do
     throw <| IO.userError s!"expected non-empty surfaced Rocq error, got {(toJson resp).compress}"
 
 def main : IO Unit := do
-  let port : UInt16 := ((← IO.monoNanosNow) % 20000 + 30000).toUInt16
-  let endpoint : Beam.Broker.Endpoint := .tcp port
+  let endpoint ← freshTcpEndpoint
   let root ← rocqRoot
   let broker ← spawnRocqBroker endpoint root ((← IO.getEnv "BEAM_ROCQ_CMD").getD "coq-lsp")
   try
-    waitForBrokerReady endpoint
+    waitForBrokerReadyForRoot endpoint root
     discard <| expectOk (← runClient endpoint { op := .ensure, backend := .rocq, root? := some root.toString })
     discard <| expectOk (← runClient endpoint { op := .resetStats })
     let goals ← expectOk <| ← runClient endpoint {
