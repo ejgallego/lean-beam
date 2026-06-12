@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Path
 import Beam.Broker.Client
 import Beam.Broker.Transport
 
@@ -101,7 +102,7 @@ def shouldRetryAutomaticStartup
 -- random auto-port selection can collide with an unrelated Beam daemon.
 def daemonServesRoot (endpoint : Transport.Endpoint) (root : System.FilePath) : IO Bool := do
   match ← daemonRoot? endpoint with
-  | some daemonRoot => pure (daemonRoot == root.toString)
+  | some daemonRoot => Beam.sameFilePath (System.FilePath.mk daemonRoot) root
   | none => pure false
 
 def endpointAcceptsConnection (endpoint : Transport.Endpoint) : IO Bool := do

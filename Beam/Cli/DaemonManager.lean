@@ -122,7 +122,7 @@ private def stopDaemonEntry (entry : RegistryEntry) : IO Unit := do
     | some endpoint =>
         match ← daemonRoot? endpoint with
         | some daemonRoot =>
-            if daemonRoot == entry.root then
+            if ← Beam.sameFilePath (System.FilePath.mk daemonRoot) (System.FilePath.mk entry.root) then
               try
                 let _ ← sendRequest endpoint { op := .shutdown }
                 pure ()
@@ -268,7 +268,7 @@ private partial def waitForDaemon
     (tries : Nat := 300) : IO Unit := do
   match ← daemonRoot? endpoint with
   | some daemonRoot =>
-      if daemonRoot == root.toString then
+      if ← Beam.sameFilePath (System.FilePath.mk daemonRoot) root then
         pure ()
       else
         throw <| IO.userError (endpointOccupancyError endpoint (System.FilePath.mk daemonRoot) root)
@@ -383,7 +383,7 @@ def registryLiveFor (root : System.FilePath) (expectedHash? : Option String := n
   match ← readRegistry? root with
   | none => pure none
   | some entry =>
-      let rootOk := entry.root == root.toString
+      let rootOk ← Beam.sameFilePath (System.FilePath.mk entry.root) root
       let hashOk := expectedHash?.map (· == entry.configHash) |>.getD true
       if !rootOk || !hashOk then
         pure none
