@@ -87,8 +87,15 @@ def endpointOccupancyError
 def endpointInUseError (endpoint : Transport.Endpoint) : String :=
   s!"selected endpoint {endpointSummary endpoint} is already in use"
 
-def shouldRetryAutomaticStartup (usesAutomaticEndpoint : Bool) (tries : Nat) (endpointOccupied : Bool) : Bool :=
-  usesAutomaticEndpoint && tries > 0 && endpointOccupied
+def startupFailureSuggestsEndpointInUse (message : String) : Bool :=
+  message.contains "address already in use" ||
+  message.contains "Address already in use"
+
+def shouldRetryAutomaticStartup
+    (usesAutomaticEndpoint : Bool)
+    (tries : Nat)
+    (endpointOccupied startupAddressInUse : Bool) : Bool :=
+  usesAutomaticEndpoint && tries > 0 && (endpointOccupied || startupAddressInUse)
 
 -- A listening TCP port is not enough evidence that it belongs to this project:
 -- random auto-port selection can collide with an unrelated Beam daemon.
