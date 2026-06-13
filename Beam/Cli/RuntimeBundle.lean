@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Cli.InstallLayout
 import Beam.Cli.Lock
+import Beam.Path
 import RunAt.Lib.NativeLib
 
 open Lean
@@ -195,15 +196,6 @@ private partial def collectTreeFiles (current : System.FilePath) : IO (Array Sys
       files := files.push entry.path
   pure files
 
-def relativePathString (root path : System.FilePath) : String :=
-  let rootStr := root.toString
-  let pathStr := path.toString
-  let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-  if pathStr.startsWith rootPrefix then
-    (pathStr.drop rootPrefix.length).toString
-  else
-    pathStr
-
 def sortedPaths (paths : Array System.FilePath) : Array System.FilePath :=
   paths.qsort (fun a b => a.toString < b.toString)
 
@@ -220,13 +212,13 @@ def collectBundleSourceFiles (root : System.FilePath) : IO (Array System.FilePat
   pure <| sortedPaths files
 
 private def mixFileHash (acc : UInt64) (root path : System.FilePath) : IO UInt64 := do
-  let rel := relativePathString root path
+  let rel := Beam.pathRelativeToRootOrSelf root path
   let acc := mixField acc rel
   let bytes ← IO.FS.readBinFile path
   pure <| hashBytes bytes <| hashByte acc 0
 
 def sourceHash (home : System.FilePath) : IO String := do
-  let root ← IO.FS.realPath home
+  let root ← Beam.resolveExistingPath home
   let files ← collectBundleSourceFiles root
   let mut acc : UInt64 := 14695981039346656037
   for path in files do
@@ -243,7 +235,7 @@ def bundleDirFor (cacheRoot home : System.FilePath) (toolchain : String) : IO (S
   pure (cacheRoot / platformKey / bundleId, bundleId, srcHash)
 
 private def copyFileInto (srcRoot dstRoot srcPath : System.FilePath) : IO Unit := do
-  let rel := relativePathString srcRoot srcPath
+  let rel := Beam.pathRelativeToRootOrSelf srcRoot srcPath
   let dst := dstRoot / rel
   if let some parent := dst.parent then
     IO.FS.createDirAll parent

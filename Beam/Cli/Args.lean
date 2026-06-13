@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Beam.Broker.Client
+import Beam.Path
 
 open Lean
 
@@ -157,7 +158,7 @@ def envFlag? (name : String) : IO (Option Bool) := do
 partial def parseCliOptions (opts : CliOptions) : List String → IO CliOptions
   | [] => pure opts
   | "--root" :: root :: rest => do
-      let root ← IO.FS.realPath <| System.FilePath.mk root
+      let root ← Beam.resolveExistingPath <| System.FilePath.mk root
       parseCliOptions { opts with explicitRoot? := some root } rest
   | "--port" :: port :: rest => do
       let port ← IO.ofExcept <| parsePortText "port" port

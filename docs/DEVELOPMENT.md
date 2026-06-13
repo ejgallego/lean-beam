@@ -265,9 +265,20 @@ or lengthen that wait for local debugging. Bundle build locks intentionally keep
 unbounded helper because another process may legitimately be compiling a helper bundle. Reusable CLI
 argument parsing lives in [Beam/Cli/Args.lean](../Beam/Cli/Args.lean). Project-root inference,
 Lean toolchain lookup, and Rocq command discovery live in [Beam/Cli/Project.lean](../Beam/Cli/Project.lean).
-Use [Beam/Path.lean](../Beam/Path.lean) for root/path identity checks that must survive platform path
-aliases such as macOS `/tmp` and `/private/tmp`; keep raw path strings only for JSON payloads,
-diagnostics, and stable cache keys.
+Shared filesystem path helpers live in [Beam/Path.lean](../Beam/Path.lean). Use them instead of
+copying string-prefix checks or raw `IO.FS.realPath` wrappers:
+
+- `resolveExistingPath` resolves an existing path to its canonical spelling.
+- `resolvePathAgainstRoot` resolves an absolute path as-is or a relative path under an already
+  resolved root.
+- `sameFilePath` compares existing paths through canonical spelling and falls back to exact text
+  equality for missing paths.
+- `pathRelativeToRoot?` and `pathRelativeToRootOrSelf` derive workspace-relative display/cache paths
+  with a real directory-boundary check, so `/tmp/foo` does not accidentally match `/tmp/foobar`.
+
+Keep raw path strings only for JSON payloads, diagnostics, and intentionally stable cache keys.
+When symlink or platform-alias behavior matters, resolve paths before deriving workspace-relative
+strings.
 Daemon registry management, daemon startup/reuse, endpoint selection, and wrapper leases live in
 [Beam/Cli/DaemonManager.lean](../Beam/Cli/DaemonManager.lean). Broker request plumbing, progress
 messages, cancellation-on-interrupt, and response failure notes live in

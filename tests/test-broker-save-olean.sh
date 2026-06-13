@@ -84,6 +84,8 @@ path.write_text("""import Lean
 open Lean Elab Command
 
 elab "save_sleep_cmd" : command => do
+  if let some path ← IO.getEnv "LEAN_BEAM_SAVE_RACE_SENTINEL" then
+    IO.FS.writeFile path "started\n"
   IO.sleep 1500
 
 def bVal : Nat := 2
@@ -102,12 +104,25 @@ path.write_text("def bVal : Nat := 3\n")
 PY
 }
 
+wait_for_file() {
+  local path="$1"
+  local deadline=$((SECONDS + 15))
+  while [ ! -e "$path" ]; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      echo "timed out waiting for $path" >&2
+      exit 1
+    fi
+    sleep 0.05
+  done
+}
+
 tmp1="$(mktemp -d /tmp/runat-save-olean-build-XXXXXX)"
 tmp2="$(mktemp -d /tmp/runat-save-olean-broker-XXXXXX)"
 tmp3="$(mktemp -d /tmp/runat-save-olean-race-XXXXXX)"
 tmp4="$(mktemp -d /tmp/runat-save-olean-cancel-XXXXXX)"
 tmp5="$(mktemp -d /tmp/runat-save-olean-stale-XXXXXX)"
 tmp6="$(mktemp -d /tmp/runat-save-olean-stale-trace-XXXXXX)"
+race_sentinel="$(mktemp /tmp/runat-save-olean-race-sentinel-XXXXXX)"
 log1="$(mktemp /tmp/runat-save-olean-build-log-XXXXXX)"
 log2="$(mktemp /tmp/runat-save-olean-broker-log-XXXXXX)"
 log3="$(mktemp /tmp/runat-save-olean-race-log-XXXXXX)"
@@ -121,6 +136,7 @@ cleanup() {
   remove_owned_tmp_tree "$tmp4"
   remove_owned_tmp_tree "$tmp5"
   remove_owned_tmp_tree "$tmp6"
+  remove_owned_tmp_file "$race_sentinel"
   remove_owned_tmp_file "$log1"
   remove_owned_tmp_file "$log2"
   remove_owned_tmp_file "$log3"
@@ -208,17 +224,18 @@ fi
 (
   cd "$tmp3"
   beam --root "$tmp3" shutdown > /dev/null 2>&1 || true
-  beam --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
+  remove_owned_tmp_file "$race_sentinel"
+  LEAN_BEAM_SAVE_RACE_SENTINEL="$race_sentinel" beam --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
 )
 edit_b_slow "$tmp3"
 (
   cd "$tmp3"
   (
-    sleep 0.3
+    wait_for_file "$race_sentinel"
     edit_b_final "$tmp3"
   ) &
   racer_pid="$!"
-  beam --root "$tmp3" lean-close-save SaveSmoke/B.lean > /dev/null
+  LEAN_BEAM_SAVE_RACE_SENTINEL="$race_sentinel" beam --root "$tmp3" lean-close-save SaveSmoke/B.lean > /dev/null
   wait "$racer_pid"
   lake_build -v SaveSmoke/A.lean >"$log3" 2>&1
   beam --root "$tmp3" shutdown > /dev/null 2>&1 || true

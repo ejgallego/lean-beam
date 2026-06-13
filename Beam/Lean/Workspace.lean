@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Path
 import Beam.Project
 import Beam.Workspace
 
@@ -18,7 +19,7 @@ def resolveRoot (rootText : String) : IO (Except Beam.Workspace.InitError System
   if !rootPath.isAbsolute then
     return .error { message := "workspace root must be an absolute path" }
   try
-    let root ← IO.FS.realPath rootPath
+    let root ← Beam.resolveExistingPath rootPath
     if !(← root.isDir) then
       pure <| .error { message := s!"workspace root is not a directory: {root}" }
     else if !(← Beam.Project.hasLeanProject root) then

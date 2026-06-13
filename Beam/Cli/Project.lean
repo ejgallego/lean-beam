@@ -9,6 +9,7 @@ import Beam.Broker.Protocol
 import Beam.Cli.Args
 import Beam.Cli.RuntimeBundle
 import Beam.Lean.Workspace
+import Beam.Path
 import Beam.Project
 
 open Lean
@@ -25,10 +26,10 @@ partial def climbParents (path : System.FilePath) (count : Nat) : System.FilePat
 def runAtHome : IO System.FilePath := do
   match ← IO.getEnv "BEAM_HOME" with
   | some root =>
-      IO.FS.realPath <| System.FilePath.mk root
+      Beam.resolveExistingPath <| System.FilePath.mk root
   | none =>
       let app ← IO.appPath
-      IO.FS.realPath <| climbParents app 4
+      Beam.resolveExistingPath <| climbParents app 4
 
 abbrev hasLeanProject := Beam.Project.hasLeanProject
 
@@ -40,7 +41,7 @@ def requireLeanProjectRoot (root : System.FilePath) : IO System.FilePath := do
   | .error err => throw <| IO.userError err.message
 
 partial def findRootUpwards (start : System.FilePath) (backend : Backend) : IO (Option System.FilePath) := do
-  let dir ← IO.FS.realPath start
+  let dir ← Beam.resolveExistingPath start
   let rec loop (dir : System.FilePath) : IO (Option System.FilePath) := do
     let found ←
       match backend with

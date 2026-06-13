@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Broker.Protocol
+import Beam.Path
 import RunAt.Lib.NativeLib
 import RunAtTest.Broker.TestUtil
 import Lean
@@ -70,15 +71,6 @@ def awaitTask (label : String) (task : Task (Except IO.Error α)) : IO α := do
   match (← IO.wait task) with
   | .ok value => pure value
   | .error err => throw <| IO.userError s!"{label} failed: {err}"
-
-def relativePathString (root path : System.FilePath) : String :=
-  let rootStr := root.toString
-  let pathStr := path.toString
-  let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-  if pathStr.startsWith rootPrefix then
-    (pathStr.drop rootPrefix.length).toString
-  else
-    pathStr
 
 def writeStandaloneErrorFile (root : System.FilePath) : IO System.FilePath := do
   let dir := root / ".tmp" / s!"beam-daemon-error-{← IO.monoNanosNow}"

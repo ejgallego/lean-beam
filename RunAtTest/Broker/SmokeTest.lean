@@ -58,7 +58,7 @@ private def runErrorOnlySyncSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let errorPath ← writeStandaloneErrorFile root
-  let errorRel := relativePathString root errorPath
+  let errorRel := Beam.pathRelativeToRootOrSelf root errorPath
   let (errorResp, errorProgress, errorDiagnostics) ← runClientWithStream endpoint {
     op := .syncFile
     root? := some root.toString
