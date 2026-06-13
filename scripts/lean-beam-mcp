@@ -18,8 +18,8 @@ The installed wrapper resolves the matching beam-cli automatically. Project root
 come from --root, lean_init_workspace with an absolute Lean/Lake root, or the
 MCP client's roots/list support.
 
---self-check starts a child MCP server, supplies the root through roots/list, and
-calls lean_sync on <lean-file>.
+--self-check starts a child MCP server, calls lean_init_workspace for --root, and
+then calls lean_sync on <lean-file>.
 EOF
 }
 

@@ -27,8 +27,8 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
   invalidate handles before switching or restarting roots. Reset responses report `previous_root`
   and `invalidated_handles`; all successful setup responses report whether the runtime was reused
   with `runtime_reused`.
-- `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, root
-  discovery through `roots/list`, and a real `lean_sync` tool call
+- `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, explicit
+  `lean_init_workspace` runtime setup, and a real `lean_sync` tool call
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
 - `lean-beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
   direct Lean deps when available, whether the current synced version has been checkpointed with
@@ -78,7 +78,11 @@ Beam broker responses include an explicit top-level `ok` boolean. Older response
 Other slow Lean Beam daemon calls may attach a compact top-level `fileProgress` summary when they had
 to wait on the same Lean elaboration progress. For non-barrier calls this summary may be partial,
 because the request can return before the whole file reaches `done = true`. This should be read as a
-Lean-side wrapper contract. The wrapper now also exposes alpha Lean handle commands for
+Lean-side wrapper contract: `fileProgress` is observability except where `sync`, `save`, and
+`close-save` explicitly use it as a diagnostics-completion barrier input. MCP setup progress is a
+separate concern; the self-check path now reports explicit workspace setup before running
+`lean_sync`, so slow bundle/runtime setup is not described as Lean-file sync latency.
+The wrapper now also exposes alpha Lean handle commands for
 continuation, linear playout, and release; these are useful for search-style workflows but are still
 more fragile than the base one-shot request. Rocq support remains narrower and does not currently
 expose an equivalent public sync command in the wrapper.

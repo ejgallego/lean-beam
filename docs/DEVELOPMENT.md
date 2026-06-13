@@ -149,11 +149,15 @@ When adding an MCP-facing operation, use this order:
 5. Normalize MCP output field names in the projection, for example `next_handle` and `proof_state`.
    Transport/setup failures should become structured tool or JSON-RPC errors; semantic Lean failures
    should remain normal tool results when the broker reports them that way.
-6. Add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
+6. Keep progress and readiness separate. Lean `fileProgress` is useful observability and a
+   sync/save barrier input, but it is not a general proof that every operation is semantically ready.
+   Setup latency should be attributed to setup phases such as `lean_init_workspace`, not reported as
+   a later Lean operation timeout.
+7. Add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
    for operation-to-broker mapping and result normalization, then update
    [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean) for generated
    tool schema, lifecycle, root setup, and protocol error-shape expectations.
-7. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
+8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
    focused MCP test executables, `git diff --check`, and `bash tests/test-broker-fast.sh`.
 
 For setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,

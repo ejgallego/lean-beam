@@ -192,7 +192,7 @@ private def sendInitialized (stdin : IO.FS.Handle) : IO Unit := do
 private def sendSync (stdin : IO.FS.Handle) (pathText : String) : IO Unit := do
   Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
-    ("id", toJson (2 : Nat)),
+    ("id", toJson (3 : Nat)),
     ("method", toJson "tools/call"),
     ("params", Json.mkObj [
       ("name", toJson ToolName.leanSync),
@@ -202,10 +202,24 @@ private def sendSync (stdin : IO.FS.Handle) (pathText : String) : IO Unit := do
     ])
   ]
 
+private def sendInitWorkspace (stdin : IO.FS.Handle) (root : System.FilePath) : IO Unit := do
+  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("id", toJson (2 : Nat)),
+    ("method", toJson "tools/call"),
+    ("params", Json.mkObj [
+      ("name", toJson ToolName.leanInitWorkspace),
+      ("arguments", Json.mkObj [
+        ("root", toJson root.toString),
+        ("mode", toJson "set")
+      ])
+    ])
+  ]
+
 private def sendShutdown (stdin : IO.FS.Handle) : IO Unit := do
   Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
-    ("id", toJson (3 : Nat)),
+    ("id", toJson (4 : Nat)),
     ("method", toJson "shutdown")
   ]
 
@@ -239,9 +253,18 @@ def run (opts : Options) (pathText : String) : IO Unit := do
     if negotiated != protocolVersion then
       throw <| IO.userError s!"server negotiated MCP protocol {negotiated}, expected {protocolVersion}"
     sendInitialized child.stdin
+    sendInitWorkspace child.stdin root
+    let initWorkspace ← expectResult "lean_init_workspace" =<<
+      readResponse child child.stdin child.stdout root (toJson (2 : Nat)) "lean_init_workspace response" timeout
+    match initWorkspace.getObjVal? "isError" with
+    | .ok (.bool true) =>
+        throw <| IO.userError s!"lean_init_workspace returned an MCP tool error: {initWorkspace.compress}"
+    | _ => pure ()
+    let initStructured ← requireObjVal "lean_init_workspace result" "structuredContent" initWorkspace
+    discard <| requireObjVal "lean_init_workspace structuredContent" "active_root" initStructured
     sendSync child.stdin pathText
     let sync ← expectResult "lean_sync" =<<
-      readResponse child child.stdin child.stdout root (toJson (2 : Nat)) "lean_sync response" timeout
+      readResponse child child.stdin child.stdout root (toJson (3 : Nat)) "lean_sync response" timeout
     match sync.getObjVal? "isError" with
     | .ok (.bool true) =>
         throw <| IO.userError s!"lean_sync returned an MCP tool error: {sync.compress}"
@@ -250,7 +273,7 @@ def run (opts : Options) (pathText : String) : IO Unit := do
     discard <| requireObjVal "lean_sync structuredContent" "file_progress" structured
     sendShutdown child.stdin
     let shutdown ← expectResult "shutdown" =<<
-      readResponse child child.stdin child.stdout root (toJson (3 : Nat)) "shutdown response" timeout
+      readResponse child child.stdin child.stdout root (toJson (4 : Nat)) "shutdown response" timeout
     unless shutdown == Json.mkObj [] do
       throw <| IO.userError s!"unexpected shutdown result: {shutdown.compress}"
     let exitCode ← child.wait
@@ -263,7 +286,7 @@ def run (opts : Options) (pathText : String) : IO Unit := do
     IO.println "Lean Beam MCP self-check passed"
     IO.println s!"  root: {root}"
     IO.println s!"  file: {resolvedPath}"
-    IO.println s!"  root discovery: roots/list"
+    IO.println s!"  workspace setup: lean_init_workspace"
     IO.println s!"  protocol: {protocolVersion}"
     IO.println "  lean_sync: ok"
   catch e =>

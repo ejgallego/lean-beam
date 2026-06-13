@@ -613,8 +613,8 @@ if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'Lean Beam MCP self-check pas
   printf '%s\n' "$mcp_self_check_out" >&2
   exit 1
 fi
-if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'root discovery: roots/list'; then
-  echo "expected installed MCP self-check to exercise roots/list discovery" >&2
+if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'workspace setup: lean_init_workspace'; then
+  echo "expected installed MCP self-check to exercise explicit workspace setup" >&2
   printf '%s\n' "$mcp_self_check_out" >&2
   exit 1
 fi
