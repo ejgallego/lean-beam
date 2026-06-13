@@ -181,6 +181,8 @@ Near-term work is mostly about hardening and simplifying:
   instead of reconstructing barrier completeness from multiple LSP channels
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling
+- keep cross-surface utility code such as root resolution and workspace-relative path derivation in
+  shared Beam modules, not copied across CLI, broker, MCP, and test helpers
 
 ## Roadmap / TODO
 
@@ -202,3 +204,5 @@ Near-term TODO:
 - continue validating every supported Lean toolchain in CI before expanding the allowlist further
 - replace the broker's remaining stopgap dependency and readiness logic with stronger Lake or
   backend-facing primitives when Lean exposes them
+- keep new CLI/MCP/broker path handling on [Beam/Path.lean](../Beam/Path.lean); remaining
+  workspace work should improve dependency/readiness semantics, not reintroduce bespoke path helpers

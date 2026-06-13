@@ -14,6 +14,7 @@ import Lake.Build.Common
 import Lake.Build.InitFacets
 import Lean.Elab.Term
 import Beam.Broker.Config
+import Beam.Path
 
 open Lean
 open System
@@ -95,17 +96,6 @@ private def quietTraceConfig : BuildConfig :=
 
 private def quietLogConfig : LogConfig :=
   { outLv := .error }
-
-private def workspaceRelPath? (root path : FilePath) : Option String := do
-  let rootStr := root.toString
-  let pathStr := path.toString
-  let rootPrefix := rootStr ++ s!"{FilePath.pathSeparator}"
-  if pathStr.startsWith rootPrefix then
-    some <| (pathStr.drop rootPrefix.length).toString
-  else if pathStr == rootStr then
-    some "."
-  else
-    none
 
 private def computeLakeEnv (leanCmd? : Option String) : IO Lake.Env := do
   let elan? ← Lake.findElanInstall?
@@ -263,7 +253,7 @@ private def buildDepTraceJob
       return (← getTrace, setup.isModule)
 
 private def saveTraceStaleMessage (root path : FilePath) : String :=
-  let relPath := (workspaceRelPath? root path).getD path.toString
+  let relPath := Beam.pathRelativeToRootOrSelf root path
   s!"Lake save trace is stale for {relPath}. " ++
   "A dependency or build input would need to rebuild before Beam can save this module safely. " ++
   "Save stale direct dependencies with lean-save, or run lake build and retry."
@@ -291,15 +281,15 @@ def mkLeanSaveSpec
     (root path : FilePath)
     (snapshot : SourceSnapshot)
     (leanCmd? : Option String := none) : IO LeanSaveSpec := do
-  let root ← IO.FS.realPath root
-  let path ← IO.FS.realPath (if path.isAbsolute then path else root / path)
+  let root ← Beam.resolveExistingPath root
+  let path ← Beam.resolvePathAgainstRoot root path
   let ws ← loadWorkspaceForSave root leanCmd?
   let some mod := ws.findModuleBySrc? path
     | throw <| IO.userError <|
         s!"could not resolve a Lake module for {path}. " ++
         "lean-save only works for synced files that belong to the current Lake workspace package graph."
   let (depTrace, isModule) ← buildDepTrace ws root path mod snapshot
-  let relPath := (workspaceRelPath? root path).getD path.toString
+  let relPath := Beam.pathRelativeToRootOrSelf root path
   pure {
     relPath
     moduleName := mod.name
@@ -317,8 +307,8 @@ def mkLeanSaveSpec
 def checkLeanSaveTarget
     (root path : FilePath)
     (leanCmd? : Option String := none) : IO SaveTargetEligibility := do
-  let root ← IO.FS.realPath root
-  let path ← IO.FS.realPath (if path.isAbsolute then path else root / path)
+  let root ← Beam.resolveExistingPath root
+  let path ← Beam.resolvePathAgainstRoot root path
   try
     let ws ← loadWorkspaceForSave root leanCmd?
     match ws.findModuleBySrc? path with

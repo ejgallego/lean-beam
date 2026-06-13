@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Lean.Parser.Module
+import Beam.Path
 
 open Lean
 open Lean.Lsp
@@ -24,15 +25,7 @@ private def sessionUri (path : System.FilePath) : String :=
 
 def workspacePath? (root : System.FilePath) (uri : DocumentUri) : Option String := do
   let path ← System.Uri.fileUriToPath? uri
-  let rootStr := root.toString
-  let pathStr := path.toString
-  let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-  if pathStr.startsWith rootPrefix then
-    some <| (pathStr.drop rootPrefix.length).toString
-  else if pathStr == rootStr then
-    some "."
-  else
-    none
+  Beam.pathRelativeToRoot? root path
 
 def fallbackModuleName? (root path : System.FilePath) : Option String := do
   let relPath ← workspacePath? root (sessionUri path)

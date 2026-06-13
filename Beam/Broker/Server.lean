@@ -27,6 +27,7 @@ import Beam.Broker.Deps
 import Beam.Broker.LakeSave
 import Beam.Broker.StaleDirectDeps
 import Beam.Broker.SyncSaveSupport
+import Beam.Path
 import Std.Sync.Mutex
 
 open Lean
@@ -81,11 +82,10 @@ private def mkSessionToken : IO String := do
   pure s!"{pid}-{now}"
 
 private def resolveRoot (root : System.FilePath) : IO System.FilePath :=
-  IO.FS.realPath root
+  Beam.resolveExistingPath root
 
-private def resolvePath (root : System.FilePath) (path : System.FilePath) : IO System.FilePath := do
-  let path := if path.isAbsolute then path else root / path
-  IO.FS.realPath path
+private def resolvePath (root : System.FilePath) (path : System.FilePath) : IO System.FilePath :=
+  Beam.resolvePathAgainstRoot root path
 
 def sessionUri (path : System.FilePath) : String :=
   (System.Uri.pathToUri path : String)
@@ -1535,8 +1535,8 @@ def main (args : List String) : IO Unit := do
   let opts ← IO.ofExcept <| parseCliOptions {} args
   let some root := opts.root?
     | throw <| IO.userError "missing Beam daemon --root PATH"
-  let root ← IO.FS.realPath <| System.FilePath.mk root
-  let leanPlugin? ← opts.leanPlugin?.mapM (fun path => IO.FS.realPath <| System.FilePath.mk path)
+  let root ← Beam.resolveExistingPath <| System.FilePath.mk root
+  let leanPlugin? ← opts.leanPlugin?.mapM (fun path => Beam.resolveExistingPath <| System.FilePath.mk path)
   let config : BrokerConfig := {
     root := root
     leanCmd? := opts.leanCmd?

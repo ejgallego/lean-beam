@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Mcp.Protocol
 import Beam.Mcp.Stdio
+import Beam.Path
 
 open Lean
 
@@ -68,13 +69,12 @@ private def childArgs (opts : Options) : List String :=
 
 private def root (opts : Options) : IO System.FilePath := do
   match opts.root? with
-  | some root => IO.FS.realPath <| System.FilePath.mk root
-  | none => IO.FS.realPath (← IO.currentDir)
+  | some root => Beam.resolveExistingPath <| System.FilePath.mk root
+  | none => Beam.resolveExistingPath (← IO.currentDir)
 
 private def resolveFile (root : System.FilePath) (pathText : String) : IO System.FilePath := do
   let path := System.FilePath.mk pathText
-  let path := if path.isAbsolute then path else root / path
-  IO.FS.realPath path
+  Beam.resolvePathAgainstRoot root path
 
 private def timeoutMessage (phase : String) (timeoutMs : Nat) : String :=
   s!"timed out after {timeoutMs} ms waiting for lean-beam-mcp self-check {phase}"

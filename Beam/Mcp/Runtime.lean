@@ -8,6 +8,7 @@ import Lean
 import Beam.Broker.Config
 import Beam.Mcp.Protocol
 import Beam.Mcp.SetupError
+import Beam.Path
 
 open Lean
 
@@ -49,13 +50,13 @@ private def resolveFromBeamCli (beamCli : String) (root : System.FilePath) : IO 
     match parseCliMcpConfig out.stdout with
     | .error err => pure <| .error s!"{beamCli} mcp-config returned invalid JSON: {err}"
     | .ok config => do
-        let plugin ← IO.FS.realPath config.leanPlugin
+        let plugin ← Beam.resolveExistingPath config.leanPlugin
         pure <| .ok { config with leanPlugin := plugin }
 
 private def resolveLeanRuntime (opts : Options) (root : System.FilePath) : IO (Except RpcError LeanRuntimeConfig) := do
   let explicitPlugin? ←
     try
-      opts.leanPlugin?.mapM (fun path => IO.FS.realPath <| System.FilePath.mk path)
+      opts.leanPlugin?.mapM (fun path => Beam.resolveExistingPath <| System.FilePath.mk path)
     catch e =>
       return .error <| runtimeSetupError <| leanPluginSetupError e.toString
   match opts.leanCmd?, explicitPlugin? with
@@ -77,7 +78,7 @@ private def resolveLeanRuntime (opts : Options) (root : System.FilePath) : IO (E
 def mkBrokerConfig (opts : Options) (root : System.FilePath) : IO (Except RpcError Beam.Broker.BrokerConfig) := do
   let root ←
     try
-      IO.FS.realPath root
+      Beam.resolveExistingPath root
     catch e =>
       return .error <| runtimeSetupError <| projectRootSetupError e.toString
   let runtime ← resolveLeanRuntime opts root

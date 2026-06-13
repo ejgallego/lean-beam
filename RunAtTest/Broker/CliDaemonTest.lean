@@ -249,6 +249,53 @@ private def checkStartupRetryPolicy : IO Unit := do
   require "macOS bind failure wording should be recognized"
     (Beam.Cli.startupFailureSuggestsEndpointInUse "Address already in use")
 
+private structure RelativePathCase where
+  label : String
+  root : System.FilePath
+  path : System.FilePath
+  expected? : Option String
+  display : String
+
+private def checkPathRelativeToRoot : IO Unit := do
+  let p := System.FilePath.mk
+  let cases : Array RelativePathCase := #[
+    {
+      label := "root path"
+      root := p "/tmp/beam-root"
+      path := p "/tmp/beam-root"
+      expected? := some "."
+      display := "."
+    },
+    {
+      label := "child path"
+      root := p "/tmp/beam-root"
+      path := p "/tmp/beam-root/src/Main.lean"
+      expected? := some "src/Main.lean"
+      display := "src/Main.lean"
+    },
+    {
+      label := "sibling prefix trap"
+      root := p "/tmp/beam-root"
+      path := p "/tmp/beam-root-other/Main.lean"
+      expected? := none
+      display := "/tmp/beam-root-other/Main.lean"
+    },
+    {
+      label := "outside root"
+      root := p "/tmp/beam-root"
+      path := p "/tmp/other-root/Main.lean"
+      expected? := none
+      display := "/tmp/other-root/Main.lean"
+    }
+  ]
+  for c in cases do
+    let actual? := Beam.pathRelativeToRoot? c.root c.path
+    require s!"{c.label}: expected relative path {repr c.expected?}, got {repr actual?}"
+      (actual? == c.expected?)
+    let display := Beam.pathRelativeToRootOrSelf c.root c.path
+    require s!"{c.label}: expected display path {c.display}, got {display}"
+      (display == c.display)
+
 private def checkPathCanonicalization : IO Unit := do
   let stamp ← IO.monoNanosNow
   let root := System.FilePath.mk s!"/tmp/beam-path-canonical-root-{stamp}"
@@ -406,6 +453,7 @@ def main : IO Unit := do
   checkSyncWaitSpecs
   checkLeanOperationRequests
   checkStartupRetryPolicy
+  checkPathRelativeToRoot
   checkPathCanonicalization
   checkLockLifecycle
   checkRuntimeBundleHelpers

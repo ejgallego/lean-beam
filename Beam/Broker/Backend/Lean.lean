@@ -12,6 +12,7 @@ import RunAt.Internal.DirectImports
 import RunAt.Internal.SaveSupport
 import Beam.Broker.Config
 import Beam.Broker.Protocol
+import Beam.Path
 
 open Lean
 open Lean.Lsp
@@ -20,7 +21,7 @@ namespace Beam.Broker.Backend.Lean
 
 private def pluginPath (config : BrokerConfig) : IO System.FilePath := do
   match config.leanPlugin? with
-  | some path => IO.FS.realPath path
+  | some path => Beam.resolveExistingPath path
   | none => throw <| IO.userError "missing Beam daemon --lean-plugin configuration"
 
 def command (config : BrokerConfig) : IO (String × Array String) := do
