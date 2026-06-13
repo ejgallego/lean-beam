@@ -62,7 +62,7 @@ if LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=10000 \
     .lake/build/bin/lean-beam-mcp --root tests/save_olean_project \
       --beam-cli "$self_check_fake_cli" --self-check PositionEmptyLine.lean \
     > /dev/null 2>"$self_check_timeout_err"; then
-  echo "expected MCP self-check to time out while waiting for lean_sync" >&2
+  echo "expected MCP self-check to time out while setting up the workspace" >&2
   if [ -s "$self_check_fake_cli_pid" ]; then
     kill "$(cat "$self_check_fake_cli_pid")" 2> /dev/null || true
   fi
@@ -71,9 +71,9 @@ if LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=10000 \
   exit 1
 fi
 if ! grep -Fq \
-    'timed out after 10000 ms waiting for lean-beam-mcp self-check lean_sync response' \
+    'timed out after 10000 ms waiting for lean-beam-mcp self-check lean_init_workspace response' \
     "$self_check_timeout_err"; then
-  echo "expected MCP self-check timeout to identify the lean_sync phase" >&2
+  echo "expected MCP self-check timeout to identify the workspace setup phase" >&2
   cat "$self_check_timeout_err" >&2
   if [ -s "$self_check_fake_cli_pid" ]; then
     kill "$(cat "$self_check_fake_cli_pid")" 2> /dev/null || true
