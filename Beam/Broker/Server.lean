@@ -40,7 +40,9 @@ namespace Beam.Broker
 abbrev brokerStdio : IO.Process.StdioConfig where
   stdin := .piped
   stdout := .piped
-  stderr := .inherit
+  -- Keep backend stderr away from MCP stdio. Inheriting it can corrupt
+  -- client framing; piping and draining it caused macOS save_olean hangs.
+  stderr := .null
 
 structure Session where
   backend : Backend
@@ -104,6 +106,30 @@ private partial def waitForTaskWithTimeout
 private def sessionShutdownReplyTimeoutMs : Nat :=
   1000
 
+private def killCommand? : IO (Option System.FilePath) := do
+  for candidate in [System.FilePath.mk "/bin/kill", System.FilePath.mk "/usr/bin/kill"] do
+    if ← candidate.pathExists then
+      return some candidate
+  pure none
+
+private partial def waitForProcessExitWithTimeout
+    (proc : IO.Process.Child brokerStdio)
+    (timeoutMs : Nat)
+    (pollMs : Nat := 50) : IO Bool := do
+  let rec loop (remainingMs : Nat) : IO Bool := do
+    match ← (try
+      proc.tryWait
+    catch _ =>
+      pure none) with
+    | some _ => pure true
+    | none =>
+        if remainingMs == 0 then
+          pure false
+        else
+          IO.sleep pollMs.toUInt32
+          loop (remainingMs - min pollMs remainingMs)
+  loop timeoutMs
+
 private def shutdownSession (session : Session) : IO Unit := do
   try
     writeLspRequest session.stdin ({ id := 0, method := "shutdown", param := Json.null : Lean.JsonRpc.Request Json })
@@ -116,10 +142,21 @@ private def shutdownSession (session : Session) : IO Unit := do
     writeLspNotification session.stdin ({ method := "exit", param := Json.null : Lean.JsonRpc.Notification Json })
   catch _ =>
     pure ()
-  try
-    session.proc.kill
-  catch _ =>
-    pure ()
+  unless ← waitForProcessExitWithTimeout session.proc sessionShutdownReplyTimeoutMs do
+    try
+      session.proc.kill
+    catch _ =>
+      pure ()
+    try
+      if let some kill := ← killCommand? then
+        let _ ← IO.Process.output {
+          cmd := kill.toString
+          args := #["-9", toString session.proc.pid.toNat]
+        }
+        pure ()
+    catch _ =>
+      pure ()
+    discard <| waitForProcessExitWithTimeout session.proc sessionShutdownReplyTimeoutMs
   try
     discard <| session.proc.tryWait
   catch _ =>
@@ -614,6 +651,15 @@ private def currentSession? (backend : Backend) : M (Option Session) := do
         pure none
       else
         pure (some session)
+
+private def currentSessionForHandle (backend : Backend) : M Session := do
+  match ← currentSession? backend with
+  | some session => pure session
+  | none =>
+      throwBrokerFailure {
+        code := .contentModified
+        message := "handle belongs to a stale backend session"
+      }
 
 private def sameSessionIdentity (left right : Session) : Bool :=
   left.backend == right.backend &&
@@ -1249,7 +1295,7 @@ private def handleRunWithOpIO
     ensureRequestNotCancelled cancelRef?
     let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do
-      let session ← ensureSession req.backend
+      let session ← currentSessionForHandle req.backend
       let rawHandle ←
         match unwrapHandle session args.handle with
         | .ok raw => pure raw
@@ -1291,7 +1337,7 @@ private def handleReleaseOpIO
     ensureRequestNotCancelled cancelRef?
     let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do
-      let session ← ensureSession req.backend
+      let session ← currentSessionForHandle req.backend
       let rawHandle ←
         match unwrapHandle session args.handle with
         | .ok raw => pure raw

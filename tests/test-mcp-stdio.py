@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 
 import argparse
+import collections
 import json
+import os
 import platform
 import select
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -45,6 +48,7 @@ class McpClient:
         roots=None,
         roots_payload=None,
         roots_response="normal",
+        root_arg=None,
     ):
         self.repo_root = repo_root
         self.project_root = project_root
@@ -57,6 +61,9 @@ class McpClient:
         self.roots_request_count = 0
         self.pending_extra_response_ids = set()
         self.extra_responses = []
+        self.pending_requests = {}
+        self.completed_requests = collections.deque(maxlen=20)
+        self.stderr_lines = collections.deque(maxlen=80)
         exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
         plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
         lean_cmd = shutil.which("lean") or "lean"
@@ -64,7 +71,7 @@ class McpClient:
         require(plugin.exists(), f"missing runAt plugin shared library at {plugin}")
         cmd = [str(exe)]
         if use_root_arg:
-            cmd.extend(["--root", str(project_root)])
+            cmd.extend(["--root", str(root_arg if root_arg is not None else project_root)])
         cmd.extend(
             [
                 "--lean-cmd",
@@ -83,6 +90,15 @@ class McpClient:
             encoding="utf-8",
             bufsize=1,
         )
+        self.stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self.stderr_thread.start()
+
+    def _drain_stderr(self):
+        try:
+            for line in self.proc.stderr:
+                self.stderr_lines.append(line.rstrip("\n"))
+        except Exception as err:
+            self.stderr_lines.append(f"<stderr drain failed: {err}>")
 
     def close(self):
         if self.proc.poll() is None:
@@ -95,7 +111,8 @@ class McpClient:
         except subprocess.TimeoutExpired:
             self.proc.kill()
             self.proc.wait(timeout=5)
-        stderr = self.proc.stderr.read()
+        self.stderr_thread.join(timeout=1)
+        stderr = "\n".join(self.stderr_lines)
         require(stderr.strip() == "", f"lean-beam-mcp wrote unexpected stderr:\n{stderr}")
 
     def send_message(self, message):
@@ -139,14 +156,63 @@ class McpClient:
             }
         )
 
+    def _request_label(self, request_id):
+        pending = self.pending_requests.get(request_id)
+        if pending is None:
+            return "<unknown request>"
+        return pending["label"]
+
+    def _process_snapshot(self):
+        try:
+            out = subprocess.run(
+                ["ps", "-ef"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except Exception as err:
+            return f"<ps failed: {err}>"
+        needles = [
+            "lean-beam-mcp",
+            "beam-daemon",
+            "beam-daemon-smo",
+            "lean --server",
+        ]
+        lines = [
+            line
+            for line in out.stdout.splitlines()
+            if any(needle in line for needle in needles)
+        ]
+        return "\n".join(lines[-40:]) if lines else "<no Beam/Lean processes found>"
+
+    def _timeout_message(self, expected_id):
+        label = self._request_label(expected_id)
+        pending = self.pending_requests.get(expected_id)
+        elapsed = time.monotonic() - pending["started"] if pending is not None else 0.0
+        completed = "\n".join(
+            f"  id {entry['id']}: {entry['label']} in {entry['elapsed']:.3f}s"
+            for entry in self.completed_requests
+        )
+        stderr_tail = "\n".join(self.stderr_lines)
+        process_snapshot = self._process_snapshot()
+        return (
+            f"timed out waiting for MCP response id {expected_id} ({label}) after {elapsed:.3f}s\n"
+            f"recent completed MCP requests:\n{completed or '  <none>'}\n"
+            f"lean-beam-mcp stderr tail:\n{stderr_tail or '  <empty>'}\n"
+            f"process snapshot:\n{process_snapshot}"
+        )
+
     def read_response(self, expected_id):
         deadline = time.monotonic() + self.timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                fail(f"timed out waiting for MCP response id {expected_id}")
+                fail(self._timeout_message(expected_id))
             if self.proc.poll() is not None:
-                stderr = self.proc.stderr.read()
+                self.stderr_thread.join(timeout=1)
+                stderr = "\n".join(self.stderr_lines)
                 fail(f"lean-beam-mcp exited early with code {self.proc.returncode}\n{stderr}")
             ready, _, _ = select.select([self.proc.stdout], [], [], remaining)
             if not ready:
@@ -167,6 +233,15 @@ class McpClient:
                 self.pending_extra_response_ids.remove(response.get("id"))
                 continue
             require(response.get("id") == expected_id, f"expected response id {expected_id}, got {response}")
+            pending = self.pending_requests.pop(expected_id, None)
+            if pending is not None:
+                self.completed_requests.append(
+                    {
+                        "id": expected_id,
+                        "label": pending["label"],
+                        "elapsed": time.monotonic() - pending["started"],
+                    }
+                )
             return response
 
     def request(self, method, params=None):
@@ -174,6 +249,15 @@ class McpClient:
         message = {"jsonrpc": "2.0", "id": self.next_id, "method": method}
         if params is not None:
             message["params"] = params
+        label = method
+        if method == "tools/call" and isinstance(params, dict):
+            tool_name = params.get("name")
+            if isinstance(tool_name, str):
+                label = f"{method} {tool_name}"
+        self.pending_requests[self.next_id] = {
+            "label": label,
+            "started": time.monotonic(),
+        }
         self.send_message(message)
         return self.read_response(self.next_id)
 
@@ -281,7 +365,7 @@ def require_failure(label, structured):
     require(structured.get("success") is False, f"{label} should fail semantically: {structured}")
 
 
-def init_workspace(client, root, *, mode=None):
+def init_workspace(client, root, *, mode=None, invalidated_handles=False, previous_root=None):
     args = {"root": str(root)}
     if mode is not None:
         args["mode"] = mode
@@ -300,7 +384,45 @@ def init_workspace(client, root, *, mode=None):
         structured.get("mode") == expected_mode,
         f"init workspace returned wrong mode {expected_mode!r}: {structured}",
     )
+    require(
+        isinstance(structured.get("runtime_reused"), bool),
+        f"init workspace missing runtime_reused flag: {structured}",
+    )
+    require(
+        isinstance(structured.get("invalidated_handles"), bool),
+        f"init workspace missing invalidated_handles flag: {structured}",
+    )
+    require(
+        structured.get("invalidated_handles") is invalidated_handles,
+        f"init workspace returned wrong invalidated_handles={invalidated_handles}: {structured}",
+    )
+    if previous_root is None:
+        require("previous_root" not in structured, f"init workspace unexpectedly returned previous_root: {structured}")
+    else:
+        require(
+            Path(structured.get("previous_root")).resolve() == Path(previous_root).resolve(),
+            f"init workspace returned wrong previous_root {previous_root}: {structured}",
+        )
     return structured
+
+
+def expect_stale_handle(client, handle, label):
+    response = client.request(
+        "tools/call",
+        {
+            "name": "lean_run_with",
+            "arguments": {
+                "path": "PositionEmptyLine.lean",
+                "handle": handle,
+                "text": "def mcpResetAfter : Nat := mcpResetBase + 1",
+            },
+        },
+    )
+    error = expect_tool_error_code(response, "contentModified")
+    require(
+        "stale backend session" in error.get("message", ""),
+        f"{label}: handle should be stale after reset: {error}",
+    )
 
 
 def run_iteration(client, suffix):
@@ -453,6 +575,24 @@ def run_cycle(
             client.close()
 
 
+def run_relative_root_arg(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-relative-root-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        relative_root = os.path.relpath(project_root, repo_root)
+        client = McpClient(repo_root, project_root, timeout, root_arg=relative_root)
+        try:
+            client.initialize()
+            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                Path(sync.get("active_root")).resolve() == project_root.resolve(),
+                f"relative --root returned wrong active_root: {sync}",
+            )
+            require_roots_requests(client, 0, "relative --root")
+        finally:
+            client.close()
+
+
 def run_root_setup_matrix(repo_root, fixture_root, timeout):
     cases = [
         {
@@ -560,12 +700,12 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
                 if case.get("init_workspace"):
                     first_init = init_workspace(client, project_root)
                     require(
-                        first_init.get("already_initialized") is False,
+                        first_init.get("runtime_reused") is False,
                         f"{case['name']}: first init should create the workspace: {first_init}",
                     )
                     second_init = init_workspace(client, project_root)
                     require(
-                        second_init.get("already_initialized") is True,
+                        second_init.get("runtime_reused") is True,
                         f"{case['name']}: second init should be idempotent: {second_init}",
                     )
                     other_root = Path(tmp) / "other-project"
@@ -648,17 +788,23 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
         try:
             client.initialize()
             first_init = init_workspace(client, project_root)
-            require(first_init.get("already_initialized") is False, f"first init should create runtime: {first_init}")
+            require(first_init.get("runtime_reused") is False, f"first init should create runtime: {first_init}")
             verify = init_workspace(client, project_root, mode="verify")
-            require(verify.get("already_initialized") is True, f"verify should be idempotent: {verify}")
+            require(verify.get("runtime_reused") is True, f"verify should reuse runtime: {verify}")
             verify_other = client.request(
                 "tools/call",
                 {"name": "lean_init_workspace", "arguments": {"root": str(other_root), "mode": "verify"}},
             )
             expect_tool_error_code(verify_other, "invalidInput")
 
-            reset = init_workspace(client, other_root, mode="reset")
-            require(reset.get("already_initialized") is False, f"reset should create new runtime: {reset}")
+            reset = init_workspace(
+                client,
+                other_root,
+                mode="reset",
+                invalidated_handles=True,
+                previous_root=project_root,
+            )
+            require(reset.get("runtime_reused") is False, f"reset should create new runtime: {reset}")
             sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
             require(
                 Path(sync.get("active_root")).resolve() == other_root.resolve(),
@@ -677,16 +823,110 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
             client.initialize()
             init_workspace(client, project_root)
             sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(Path(sync.get("active_root")).resolve() == project_root.resolve(), f"bad active_root before reset: {sync}")
-            response = client.request(
-                "tools/call",
-                {"name": "lean_init_workspace", "arguments": {"root": str(other_root), "mode": "reset"}},
+            require(
+                Path(sync.get("active_root")).resolve() == project_root.resolve(),
+                f"bad active_root before reset: {sync}",
             )
-            error = expect_tool_error_code(response, "invalidInput")
-            require("cannot reset" in error.get("message", ""), f"reset-after-use error should explain reset guard: {error}")
-            data = error.get("data")
-            require(isinstance(data, dict), f"reset-after-use error should include data: {error}")
-            require(Path(data.get("active_root")).resolve() == project_root.resolve(), f"reset error active_root mismatch: {error}")
+            minted = client.call_tool(
+                "lean_run_at_handle",
+                {
+                    "path": "PositionEmptyLine.lean",
+                    "line": 1,
+                    "character": 0,
+                    "text": "def mcpResetBase : Nat := 1",
+                },
+            )
+            require_success("pre-reset handle mint", minted)
+            old_handle = minted.get("next_handle")
+            require(
+                isinstance(old_handle, dict),
+                f"pre-reset handle mint did not return next_handle: {minted}",
+            )
+
+            same_root_reset = init_workspace(
+                client,
+                project_root,
+                mode="reset",
+                invalidated_handles=True,
+                previous_root=project_root,
+            )
+            require(
+                same_root_reset.get("runtime_reused") is False,
+                f"same-root reset should recreate runtime: {same_root_reset}",
+            )
+            expect_stale_handle(client, old_handle, "same-root reset")
+            sync_after_same_reset = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                Path(sync_after_same_reset.get("active_root")).resolve() == project_root.resolve(),
+                f"sync after same-root reset returned wrong active_root: {sync_after_same_reset}",
+            )
+            reminted = client.call_tool(
+                "lean_run_at_handle",
+                {
+                    "path": "PositionEmptyLine.lean",
+                    "line": 1,
+                    "character": 0,
+                    "text": "def mcpResetBase : Nat := 1",
+                },
+            )
+            require_success("post-reset handle mint", reminted)
+            current_handle = reminted.get("next_handle")
+            require(
+                isinstance(current_handle, dict),
+                f"post-reset handle mint did not return next_handle: {reminted}",
+            )
+
+            reset = init_workspace(
+                client,
+                other_root,
+                mode="reset",
+                invalidated_handles=True,
+                previous_root=project_root,
+            )
+            require(
+                reset.get("runtime_reused") is False,
+                f"reset after use should create new runtime: {reset}",
+            )
+            sync_after_reset = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                Path(sync_after_reset.get("active_root")).resolve() == other_root.resolve(),
+                f"sync after reset returned wrong active_root: {sync_after_reset}",
+            )
+            expect_stale_handle(client, current_handle, "cross-root reset")
+        finally:
+            client.close()
+
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-reset-stale-root-") as tmp:
+        project_root = Path(tmp) / "project"
+        other_root = Path(tmp) / "other-project"
+        shutil.copytree(fixture_root, project_root)
+        shutil.copytree(fixture_root, other_root)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        try:
+            client.initialize()
+            init_workspace(client, project_root)
+            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                Path(sync.get("active_root")).resolve() == project_root.resolve(),
+                f"bad active_root before stale reset: {sync}",
+            )
+            shutil.rmtree(project_root)
+            reset = init_workspace(
+                client,
+                other_root,
+                mode="reset",
+                invalidated_handles=True,
+                previous_root=project_root,
+            )
+            require(
+                reset.get("runtime_reused") is False,
+                f"stale reset should create new runtime: {reset}",
+            )
+            sync_after_reset = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                Path(sync_after_reset.get("active_root")).resolve() == other_root.resolve(),
+                f"sync after stale reset returned wrong active_root: {sync_after_reset}",
+            )
         finally:
             client.close()
 
@@ -834,7 +1074,8 @@ def run_closed_stdout_regression(repo_root, fixture_root, timeout):
             except subprocess.TimeoutExpired:
                 client.proc.kill()
                 fail("lean-beam-mcp did not exit after stdout was closed")
-            stderr = client.proc.stderr.read()
+            client.stderr_thread.join(timeout=1)
+            stderr = "\n".join(client.stderr_lines)
             require(client.proc.returncode == 0, f"lean-beam-mcp exited with {client.proc.returncode}\n{stderr}")
             require(stderr.strip() == "", f"lean-beam-mcp wrote unexpected stderr after closed stdout:\n{stderr}")
         finally:
@@ -864,6 +1105,7 @@ def main():
             advertise_roots=True,
             expected_roots_requests=1,
         )
+    run_relative_root_arg(repo_root, fixture_root, args.timeout)
     run_root_setup_matrix(repo_root, fixture_root, args.timeout)
     run_init_workspace_mode_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)

@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Lean.Workspace
 import Beam.Mcp.Protocol
 import Beam.Mcp.Stdio
 
@@ -62,8 +63,9 @@ partial def requestClientRoot
                     match selectClientRoot result.roots with
                     | .error err => pure <| .error err
                     | .ok root =>
-                        let root ← IO.FS.realPath root
-                        pure <| .ok root
+                        match ← Beam.Lean.Workspace.resolveRoot root.toString with
+                        | .ok root => pure <| .ok root
+                        | .error err => pure <| .error err.message
     waitForResponse
   catch e =>
     pure <| .error e.toString

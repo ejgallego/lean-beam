@@ -101,6 +101,9 @@ private def checkToolsListShape : IO Unit := do
   let modeEnum ← requireObjVal "lean_init_workspace mode schema" "enum" modeSchema
   require "lean_init_workspace mode enum should expose set/verify/reset"
     (modeEnum == toJson (#["set", "verify", "reset"] : Array String))
+  let modeDescription ← IO.ofExcept <| modeSchema.getObjValAs? String "description"
+  require "lean_init_workspace mode description should explain destructive reset"
+    (modeDescription.contains "invalidates handles")
 
   let schemaCases : Array (String × Array String) := #[
     ("lean_run_at", #["path", "line", "character", "text"]),
@@ -277,27 +280,45 @@ private def checkWorkspaceInitPolicy : IO Unit := do
   let setPlan ← expectWorkspacePlan "set unbound workspace" {} root .set
   require "set unbound should create runtime" setPlan.createRuntime
   require "set unbound should not reset runtime" (!setPlan.resetCurrent)
-  require "set unbound should not be already initialized" (!setPlan.alreadyInitialized)
+  require "set unbound should not reuse runtime" (!setPlan.runtimeReused)
 
   discard <| expectWorkspacePlanError "verify unbound workspace" "not initialized" {} root .verify
 
   let readyState : Beam.Workspace.InitState := {
     root? := some root
     runtimeReady := true
-    workspaceUsed := false
   }
   let samePlan ← expectWorkspacePlan "set same workspace" readyState root .set
-  require "same workspace should be idempotent" samePlan.alreadyInitialized
+  require "same workspace should reuse runtime" samePlan.runtimeReused
   require "same workspace should not recreate runtime" (!samePlan.createRuntime)
 
-  let resetPlan ← expectWorkspacePlan "reset before use" readyState other .reset
-  require "reset before use should create runtime" resetPlan.createRuntime
-  require "reset before use should shut down current runtime" resetPlan.resetCurrent
-  require "reset before use should target requested root" (resetPlan.root == other)
+  let setOtherErr ← expectWorkspacePlanError "set other workspace" "switch roots explicitly" readyState other .set
+  require "set other workspace should report active root" (setOtherErr.activeRoot? == some root)
 
-  let usedState := { readyState with workspaceUsed := true }
-  let resetErr ← expectWorkspacePlanError "reset after use" "cannot reset" usedState other .reset
-  require "reset after use should report active root" (resetErr.activeRoot? == some root)
+  let sameResetPlan ← expectWorkspacePlan "reset same workspace" readyState root .reset
+  require "reset same workspace should create runtime" sameResetPlan.createRuntime
+  require "reset same workspace should shut down current runtime" sameResetPlan.resetCurrent
+  require "reset same workspace should target requested root" (sameResetPlan.root == root)
+  require "reset same workspace should not reuse runtime" (!sameResetPlan.runtimeReused)
+  require "reset same workspace should remember previous root" (sameResetPlan.previousRoot? == some root)
+
+  let resetPlan ← expectWorkspacePlan "reset other workspace" readyState other .reset
+  require "reset other workspace should create runtime" resetPlan.createRuntime
+  require "reset other workspace should shut down current runtime" resetPlan.resetCurrent
+  require "reset other workspace should target requested root" (resetPlan.root == other)
+  require "reset other workspace should remember previous root" (resetPlan.previousRoot? == some root)
+  let resetResult := Beam.Workspace.initResult resetPlan other
+  require "reset result should report invalidated handles" resetResult.invalidatedHandles
+  let resetJson := toJson resetResult
+  requireJsonString "reset result json" "root" other.toString resetJson
+  requireJsonString "reset result json" "active_root" other.toString resetJson
+  requireJsonString "reset result json" "previous_root" root.toString resetJson
+  requireJsonBool "reset result json" "invalidated_handles" true resetJson
+  requireJsonBool "reset result json" "runtime_reused" false resetJson
+
+  let setResultJson := toJson <| Beam.Workspace.initResult setPlan root
+  requireJsonBool "set result json" "invalidated_handles" false setResultJson
+  requireFieldAbsent "set result json" "previous_root" setResultJson
 
 private def expectResponse (label : String) (value : Option Json × Bool) : IO Json := do
   match value with

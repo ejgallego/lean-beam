@@ -49,10 +49,10 @@ Beam daemon integration.
   [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py), which runs initialize, initialized
   notification, tools/list, raw-tool rejection, sync, runAt semantic success/failure, handle
   mint/continue/linear/release, goals, close, shutdown, a table-driven lifecycle matrix,
-  explicit-root startup, `lean_init_workspace` startup for clients without roots, recovery after a
+  explicit-root startup including relative `--root`, `lean_init_workspace` startup for clients without roots, recovery after a
   missing-roots tool error, MCP `roots/list` project-root discovery, absolute-root and Lean/Lake
-  workspace validation, idempotent `set`/`verify`/`reset` mode behavior, active-root diagnostics,
-  root setup error cases, stdout JSON parsing, and stderr hygiene assertions against a copied Lean fixture project. Stderr hygiene is
+  workspace validation, idempotent `set`/`verify` behavior, same-root and live-root reset with
+  handle invalidation, stale-root reset recovery, active-root diagnostics, root setup error cases, stdout JSON parsing, and stderr hygiene assertions against a copied Lean fixture project. Stderr hygiene is
   a local regression check, not an MCP requirement; the `2025-11-25` stdio transport explicitly
   permits server logging on stderr.
 - local Streamable HTTP bridge coverage in
@@ -185,7 +185,8 @@ Current MCP gates are layered:
 - projection tests for the shared Beam operation substrate and agent-facing field names
 - `tests/test-mcp-stdio.py` for real stdio process behavior over a copied Lean project, including
   table-driven lifecycle/root setup cases, explicit `--root`, `lean_init_workspace`, recovery after
-  missing-roots setup errors, and client-advertised MCP roots
+  missing-roots setup errors, relative `--root` startup, same-root and live-root reset with handle
+  invalidation, stale-root reset recovery, and client-advertised MCP roots
 - `tests/test-mcp-http-bridge.py` for local Streamable HTTP transport behavior over the same stdio
   server
 - `tests/test-broker-fast.sh` for one quick Lean-backed MCP stdio path, one HTTP bridge smoke, and a

@@ -12,6 +12,7 @@ open Lean
 
 namespace Beam.Lean.Workspace
 
+/-- Resolve roots supplied by API clients. These must already be absolute. -/
 def resolveRoot (rootText : String) : IO (Except Beam.Workspace.InitError System.FilePath) := do
   let rootPath := System.FilePath.mk rootText
   if !rootPath.isAbsolute then
@@ -28,5 +29,15 @@ def resolveRoot (rootText : String) : IO (Except Beam.Workspace.InitError System
       pure <| .ok root
   catch e =>
     pure <| .error { message := s!"workspace root does not resolve: {e.toString}" }
+
+/-- Resolve roots supplied through local CLI flags, where relative paths are current-directory based. -/
+def resolveCliRoot (rootText : String) : IO (Except Beam.Workspace.InitError System.FilePath) := do
+  let rootPath := System.FilePath.mk rootText
+  let rootPath ←
+    if rootPath.isAbsolute then
+      pure rootPath
+    else
+      pure <| (← IO.currentDir) / rootPath
+  resolveRoot rootPath.toString
 
 end Beam.Lean.Workspace

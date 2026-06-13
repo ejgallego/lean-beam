@@ -68,17 +68,24 @@ instance : FromJson InitInput where
 structure InitResult where
   root : System.FilePath
   mode : InitMode
-  alreadyInitialized : Bool
+  runtimeReused : Bool
+  previousRoot? : Option System.FilePath := none
+  invalidatedHandles : Bool := false
 
 instance : ToJson InitResult where
   toJson result :=
-    Json.mkObj [
-      ("root", toJson result.root.toString),
-      ("active_root", toJson result.root.toString),
-      ("initialized", toJson true),
-      ("mode", toJson result.mode),
-      ("already_initialized", toJson result.alreadyInitialized)
-    ]
+    Json.mkObj <|
+      [
+        ("root", toJson result.root.toString),
+        ("active_root", toJson result.root.toString),
+        ("initialized", toJson true),
+        ("mode", toJson result.mode),
+        ("runtime_reused", toJson result.runtimeReused),
+        ("invalidated_handles", toJson result.invalidatedHandles)
+      ] ++
+      match result.previousRoot? with
+      | some previousRoot => [("previous_root", toJson previousRoot.toString)]
+      | none => []
 
 def addActiveRoot (root : System.FilePath) (json : Json) : Json :=
   json.setObjVal! "active_root" (toJson root.toString)
@@ -93,25 +100,35 @@ instance : ToString InitError where
 structure InitState where
   root? : Option System.FilePath := none
   runtimeReady : Bool := false
-  workspaceUsed : Bool := false
 
 structure InitPlan where
   root : System.FilePath
   mode : InitMode
-  alreadyInitialized : Bool
+  runtimeReused : Bool
   resetCurrent : Bool
   createRuntime : Bool
+  previousRoot? : Option System.FilePath := none
 
 def planInit (state : InitState) (requestedRoot : System.FilePath) (mode : InitMode) :
     Except InitError InitPlan := do
   match state.root? with
   | some currentRoot =>
-      if currentRoot == requestedRoot then
+      let resetPlan : InitPlan := {
+        root := requestedRoot
+        mode
+        runtimeReused := false
+        resetCurrent := state.runtimeReady
+        createRuntime := true
+        previousRoot? := some currentRoot
+      }
+      if mode == .reset then
+        pure resetPlan
+      else if currentRoot == requestedRoot then
         if state.runtimeReady then
           pure {
             root := currentRoot
             mode
-            alreadyInitialized := true
+            runtimeReused := true
             resetCurrent := false
             createRuntime := false
           }
@@ -119,7 +136,7 @@ def planInit (state : InitState) (requestedRoot : System.FilePath) (mode : InitM
           pure {
             root := currentRoot
             mode
-            alreadyInitialized := false
+            runtimeReused := false
             resetCurrent := false
             createRuntime := false
           }
@@ -127,7 +144,7 @@ def planInit (state : InitState) (requestedRoot : System.FilePath) (mode : InitM
           pure {
             root := currentRoot
             mode
-            alreadyInitialized := false
+            runtimeReused := false
             resetCurrent := false
             createRuntime := true
           }
@@ -136,24 +153,10 @@ def planInit (state : InitState) (requestedRoot : System.FilePath) (mode : InitM
         | .set | .verify =>
             throw {
               message :=
-                s!"workspace session is already initialized for {currentRoot}; use mode=reset before opening files or restart the session to use {requestedRoot}"
+                s!"workspace session is already initialized for {currentRoot}; use mode=reset to switch roots explicitly to {requestedRoot}"
               activeRoot? := some currentRoot
             }
-        | .reset =>
-            if state.workspaceUsed then
-              throw {
-                message :=
-                  s!"cannot reset workspace session from {currentRoot} to {requestedRoot} after workspace tools have run; restart the session"
-                activeRoot? := some currentRoot
-              }
-            else
-              pure {
-                root := requestedRoot
-                mode
-                alreadyInitialized := false
-                resetCurrent := state.runtimeReady
-                createRuntime := true
-              }
+        | .reset => pure resetPlan
   | none =>
       if mode == .verify then
         throw { message := "workspace session is not initialized; call init workspace with mode=set first" }
@@ -161,7 +164,7 @@ def planInit (state : InitState) (requestedRoot : System.FilePath) (mode : InitM
         pure {
           root := requestedRoot
           mode
-          alreadyInitialized := false
+          runtimeReused := false
           resetCurrent := false
           createRuntime := true
         }
@@ -169,7 +172,9 @@ def planInit (state : InitState) (requestedRoot : System.FilePath) (mode : InitM
 def initResult (plan : InitPlan) (root : System.FilePath := plan.root) : InitResult := {
   root
   mode := plan.mode
-  alreadyInitialized := plan.alreadyInitialized
+  runtimeReused := plan.runtimeReused
+  previousRoot? := plan.previousRoot?
+  invalidatedHandles := plan.resetCurrent
 }
 
 end Beam.Workspace

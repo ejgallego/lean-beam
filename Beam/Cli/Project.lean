@@ -35,7 +35,7 @@ abbrev hasLeanProject := Beam.Project.hasLeanProject
 abbrev hasRocqProject := Beam.Project.hasRocqProject
 
 def requireLeanProjectRoot (root : System.FilePath) : IO System.FilePath := do
-  match ← Beam.Lean.Workspace.resolveRoot root.toString with
+  match ← Beam.Lean.Workspace.resolveCliRoot root.toString with
   | .ok root => pure root
   | .error err => throw <| IO.userError err.message
 
