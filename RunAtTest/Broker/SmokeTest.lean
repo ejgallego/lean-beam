@@ -422,7 +422,7 @@ private def runHandleAndDepsSmoke
   expectModuleNames deps "importClosure" ["RunAtTest.Deps.DepC"]
   expectModuleNames deps "importedByClosure" ["RunAtTest.Deps.DepA"]
 
-private def runSaveAndStatsSmoke
+private def runSaveSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let saveResp ← runClient endpoint {
@@ -441,6 +441,10 @@ private def runSaveAndStatsSmoke
   if !saveProgress.done then
     throw <| IO.userError s!"expected save_olean fileProgress.done = true, got {(toJson saveProgress).compress}"
 
+private def runSaveAndStatsSmoke
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath) : IO Unit := do
+  runSaveSmoke endpoint root
   let stats ← expectOk <| ← runClient endpoint { op := .stats }
   expectOpCountAtLeast stats "lean" "sync_file" 1
   expectOpCountAtLeast stats "lean" "run_at" 3
@@ -467,6 +471,13 @@ def smokeMain : IO Unit := do
     let rootMismatch ← runClient endpoint { op := .ensure, root? := some otherRoot.toString }
     expectErrCode rootMismatch "invalidParams"
     discard <| expectOk (← runClient endpoint { op := .resetStats })
+    if (← IO.getEnv "BEAM_DEBUG_SAVE_ONLY") == some "1" then
+      IO.eprintln "beam-debug: save-only smoke start"
+      runSaveSmoke endpoint root
+      IO.eprintln "beam-debug: save-only smoke done"
+      let shutdownResp ← runClient endpoint { op := .shutdown }
+      discard <| expectOk shutdownResp
+      return
     runSyncSmoke endpoint root
     runErrorOnlySyncSmoke endpoint root
     runPartialProgressSmoke endpoint root

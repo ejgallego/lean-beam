@@ -96,6 +96,9 @@ private def quietTraceConfig : BuildConfig :=
 private def quietLogConfig : LogConfig :=
   { outLv := .error }
 
+private def debugLog (message : String) : IO Unit := do
+  IO.eprintln s!"beam-debug: {message}"
+
 private def workspaceRelPath? (root path : FilePath) : Option String := do
   let rootStr := root.toString
   let pathStr := path.toString
@@ -276,7 +279,13 @@ private def ensureSaveTraceReady
   -- Lake's no-build `runBuild` mode is CLI-oriented and may exit the process.
   -- The daemon must convert stale traces into an ordinary request
   -- error before running the trace job for real.
-  unless ← ws.checkNoBuild (buildDepTraceJob mod snapshot) do
+  debugLog "mkLeanSaveSpec checkNoBuild trivial start"
+  let trivialReady ← ws.checkNoBuild (pure (Job.nil "beam-debug-trivial"))
+  debugLog s!"mkLeanSaveSpec checkNoBuild trivial done ready={trivialReady}"
+  debugLog "mkLeanSaveSpec checkNoBuild start"
+  let ready ← ws.checkNoBuild (buildDepTraceJob mod snapshot)
+  debugLog s!"mkLeanSaveSpec checkNoBuild done ready={ready}"
+  unless ready do
     throw <| IO.userError <| saveTraceStaleMessage root path
 
 private def buildDepTrace
@@ -284,22 +293,33 @@ private def buildDepTrace
     (root path : FilePath)
     (mod : Lake.Module)
     (snapshot : SourceSnapshot) : IO (BuildTrace × Bool) := do
+  debugLog "mkLeanSaveSpec buildDepTrace start"
   ensureSaveTraceReady ws root path mod snapshot
-  ws.runBuild (cfg := quietTraceConfig) (buildDepTraceJob mod snapshot)
+  debugLog "mkLeanSaveSpec runBuild start"
+  let result ← ws.runBuild (cfg := quietTraceConfig) (buildDepTraceJob mod snapshot)
+  debugLog "mkLeanSaveSpec runBuild done"
+  pure result
 
 def mkLeanSaveSpec
     (root path : FilePath)
     (snapshot : SourceSnapshot)
     (leanCmd? : Option String := none) : IO LeanSaveSpec := do
+  debugLog "mkLeanSaveSpec start"
   let root ← IO.FS.realPath root
   let path ← IO.FS.realPath (if path.isAbsolute then path else root / path)
+  debugLog "mkLeanSaveSpec loadWorkspace start"
   let ws ← loadWorkspaceForSave root leanCmd?
+  debugLog "mkLeanSaveSpec loadWorkspace done"
+  debugLog "mkLeanSaveSpec findModule start"
   let some mod := ws.findModuleBySrc? path
     | throw <| IO.userError <|
         s!"could not resolve a Lake module for {path}. " ++
         "lean-save only works for synced files that belong to the current Lake workspace package graph."
+  debugLog s!"mkLeanSaveSpec findModule done module={mod.name}"
   let (depTrace, isModule) ← buildDepTrace ws root path mod snapshot
+  debugLog s!"mkLeanSaveSpec buildDepTrace done isModule={isModule}"
   let relPath := (workspaceRelPath? root path).getD path.toString
+  debugLog "mkLeanSaveSpec done"
   pure {
     relPath
     moduleName := mod.name

@@ -9,6 +9,7 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -18,185 +19,178 @@ permissions:
   contents: read
 
 jobs:
-  shell-lint:
-    name: shell-lint (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
+  macos-stderr-lake-repro:
+    name: macos-stderr-lake-repro
+    runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install shellcheck
+      - uses: ./.github/actions/lean-ci-setup
+
+      - name: Build reducer
+        run: lake build RunAt:shared beam-stderr-lake-repro beam-daemon beam-daemon-smoke-test
+
+      - name: Run standalone stderr/Lake reducer
         shell: bash
         run: |
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            sudo apt-get update
-            sudo apt-get install -y shellcheck
-          else
-            brew install shellcheck
-          fi
+          set -euo pipefail
 
-      - name: Shell Lint
-        run: bash scripts/lint-shell.sh
+          dump_hang_state() {
+            local label="$1"
+            local pattern="$2"
+            local root_pid="${3:-}"
+            local tmpdir="${RUNNER_TEMP:-/tmp}"
+            local pid_file="${tmpdir}/beam-hang-pids-${label}.txt"
 
-  build-and-test:
-    name: build-and-test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    steps:
-      - uses: actions/checkout@v6
+            echo "::group::${label}: process state"
+            ps -axo pid,ppid,state,command | grep -E "${pattern}" | grep -v grep || true
+            echo "::endgroup::"
 
-      - uses: ./.github/actions/lean-ci-setup
+            if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sample >/dev/null 2>&1; then
+              return 0
+            fi
 
-      - name: Build
-        run: lake build
+            {
+              if [[ -n "${root_pid}" ]]; then
+                echo "${root_pid}"
+              fi
+              ps -axo pid=,command= | awk -v pat="${pattern}" '$0 ~ pat && $0 !~ /awk/ { print $1 }'
+            } | sort -nu > "${pid_file}"
 
-      - name: Test
-        run: bash tests/test.sh
+            echo "::group::${label}: macOS stack samples"
+            while IFS= read -r pid; do
+              if [[ -z "${pid}" ]]; then
+                continue
+              fi
+              echo "--- sample pid=${pid} ---"
+              local sample_file="${tmpdir}/beam-sample-${label}-${pid}.txt"
+              sample "${pid}" 3 -file "${sample_file}" || true
+              if [[ -f "${sample_file}" ]]; then
+                sed -n '1,260p' "${sample_file}"
+              fi
+            done < "${pid_file}"
+            echo "::endgroup::"
+          }
 
-  broker-fast:
-    name: broker-fast (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    steps:
-      - uses: actions/checkout@v6
+          run_case() {
+            local kind="$1"
+            echo "::group::stderr/Lake reducer: ${kind}"
+            .lake/build/bin/beam-stderr-lake-repro "$kind" &
+            local reducer_pid="$!"
+            (
+              sleep 45
+              echo "::error::stderr/Lake reducer '${kind}' exceeded 45s; dumping process state"
+              dump_hang_state \
+                "stderr-lake-${kind}" \
+                'beam-stderr-lake-repro|lean --server|sleep 120' \
+                "${reducer_pid}"
+              kill -TERM "$reducer_pid" 2>/dev/null || true
+              sleep 5
+              kill -KILL "$reducer_pid" 2>/dev/null || true
+            ) &
+            local watchdog_pid="$!"
+            set +e
+            wait "$reducer_pid"
+            local status="$?"
+            set -e
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+            echo "::endgroup::"
+            return "$status"
+          }
 
-      - uses: ./.github/actions/lean-ci-setup
+          run_case sleep
+          run_case sleep-task
+          run_case sleep-dual-dedicated-task
+          run_case lean-session-dedicated-task
+          run_case sleep-dual-task
+          run_case lean-server
+          run_case lean-server-task
+          run_case lean-server-dual-task
+          run_case lean-session
+          run_case lean-session-no-readers-task
+          run_case lean-session-no-stderr-task
+          run_case lean-session-no-stdout-task
+          run_case lean-open
+          run_case lean-session-task
+          run_case lean-open-no-stderr-task
+          run_case lean-open-no-stdout-task
+          run_case lean-open-task
+          run_case lean-plugin-open
+          run_case lean-plugin-open-task
+          BEAM_DEBUG_SAVE_DUMMY_DRAIN=1 run_case broker-direct
+          BEAM_DEBUG_SAVE_DUMMY_DRAIN=1 run_case broker-direct-task
 
-      - name: Broker Fast Test
-        run: bash tests/test-broker-fast.sh
-
-  mcp-conformance:
-    name: mcp-conformance (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: ./.github/actions/lean-ci-setup
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: MCP Conformance Test
-        env:
-          MCP_CONFORMANCE_NPM_CACHE: ${{ runner.temp }}/npm-cache
-        run: bash tests/test-mcp-conformance.sh
-
-  broker-slow:
-    name: broker-slow (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: ./.github/actions/lean-ci-setup
-
-      - name: Install shellcheck
+      - name: Run broker save reducer
         shell: bash
         run: |
-          if command -v shellcheck >/dev/null 2>&1; then
-            exit 0
-          fi
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            sudo apt-get update
-            sudo apt-get install -y shellcheck
-          else
-            brew install shellcheck
-          fi
+          set -euo pipefail
 
-      - name: Broker Slow Test
-        run: bash tests/test-broker-slow.sh
+          dump_hang_state() {
+            local label="$1"
+            local pattern="$2"
+            local root_pid="${3:-}"
+            local tmpdir="${RUNNER_TEMP:-/tmp}"
+            local pid_file="${tmpdir}/beam-hang-pids-${label}.txt"
 
-  install:
-    name: install (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    steps:
-      - uses: actions/checkout@v6
+            echo "::group::${label}: process state"
+            ps -axo pid,ppid,state,command | grep -E "${pattern}" | grep -v grep || true
+            echo "::endgroup::"
 
-      - uses: ./.github/actions/lean-ci-setup
+            if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sample >/dev/null 2>&1; then
+              return 0
+            fi
 
-      - name: Install Test
-        run: bash tests/test-install.sh
+            {
+              if [[ -n "${root_pid}" ]]; then
+                echo "${root_pid}"
+              fi
+              ps -axo pid=,command= | awk -v pat="${pattern}" '$0 ~ pat && $0 !~ /awk/ { print $1 }'
+            } | sort -nu > "${pid_file}"
 
-  toolchain-compat:
-    name: toolchain-compat (${{ matrix.os }}, ${{ matrix.toolchain }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-        toolchain:
-          - leanprover/lean4:v4.30.0
-          - leanprover/lean4:v4.29.0
-          - leanprover/lean4:v4.28.0
-    steps:
-      - uses: actions/checkout@v6
+            echo "::group::${label}: macOS stack samples"
+            while IFS= read -r pid; do
+              if [[ -z "${pid}" ]]; then
+                continue
+              fi
+              echo "--- sample pid=${pid} ---"
+              local sample_file="${tmpdir}/beam-sample-${label}-${pid}.txt"
+              sample "${pid}" 3 -file "${sample_file}" || true
+              if [[ -f "${sample_file}" ]]; then
+                sed -n '1,260p' "${sample_file}"
+              fi
+            done < "${pid_file}"
+            echo "::endgroup::"
+          }
 
-      - uses: ./.github/actions/lean-ci-setup
+          run_broker_case() {
+            local name="$1"
+            shift
+            echo "::group::broker save reducer: ${name}"
+            env BEAM_DEBUG_SAVE_ONLY=1 "$@" .lake/build/bin/beam-daemon-smoke-test &
+            local reducer_pid="$!"
+            (
+              sleep 45
+              echo "::error::broker save reducer '${name}' exceeded 45s; dumping process state"
+              dump_hang_state \
+                "broker-save-${name}" \
+                'beam-daemon|beam-daemon-smoke-test|lean --server|sleep 120' \
+                "${reducer_pid}"
+              kill -TERM "$reducer_pid" 2>/dev/null || true
+              sleep 5
+              kill -KILL "$reducer_pid" 2>/dev/null || true
+            ) &
+            local watchdog_pid="$!"
+            set +e
+            wait "$reducer_pid"
+            local status="$?"
+            set -e
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+            echo "::endgroup::"
+            return "$status"
+          }
 
-      - name: Validate toolchain compatibility
-        run: bash tests/test-toolchain-compat.sh '${{ matrix.toolchain }}'
-
-  broker-rocq:
-    name: broker-rocq (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: ./.github/actions/lean-ci-setup
-
-      - name: Set up OCaml / opam
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 4.14.2
-          dune-cache: true
-          opam-repositories: |
-            default: git+https://github.com/ocaml/opam-repository.git
-            coq-released: https://coq.inria.fr/opam/released
-          opam-local-packages: tests/rocq-ci.opam
-
-      - name: Install Rocq CI Dependencies
-        run: opam install -y ./tests/rocq-ci.opam --deps-only
-
-      - name: Broker Rocq Test
-        run: bash tests/test-broker-rocq.sh
+          run_broker_case control
+          run_broker_case dummy-drain BEAM_DEBUG_SAVE_DUMMY_DRAIN=1

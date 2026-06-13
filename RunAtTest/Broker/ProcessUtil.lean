@@ -16,7 +16,7 @@ namespace RunAtTest.Broker.TestUtil
 abbrev nullBrokerStdio : IO.Process.StdioConfig where
   stdin := .null
   stdout := .null
-  stderr := .null
+  stderr := .inherit
 
 def daemonExe : IO System.FilePath := do
   pure <| (← IO.appPath).parent.getD (System.FilePath.mk ".") / "beam-daemon"

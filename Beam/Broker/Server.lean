@@ -106,6 +106,51 @@ private partial def waitForTaskWithTimeout
 private def sessionShutdownReplyTimeoutMs : Nat :=
   1000
 
+private def debugLog (message : String) : IO Unit := do
+  IO.eprintln s!"beam-debug: {message}"
+
+abbrev debugDummyStdio : IO.Process.StdioConfig where
+  stdin := .null
+  stdout := .null
+  stderr := .piped
+
+private def debugSaveDummyDrainEnabled : IO Bool := do
+  pure <| (← IO.getEnv "BEAM_DEBUG_SAVE_DUMMY_DRAIN") == some "1"
+
+private def cleanupDebugDummyDrain (child : IO.Process.Child debugDummyStdio) : IO Unit := do
+  try
+    child.kill
+  catch _ =>
+    pure ()
+  IO.sleep 100
+  try
+    discard <| child.tryWait
+  catch _ =>
+    pure ()
+
+private def withDebugSaveDummyDrain (body : IO α) : IO α := do
+  if ← debugSaveDummyDrainEnabled then
+    debugLog "dummy stderr drain spawn start"
+    let child ← IO.Process.spawn {
+      toStdioConfig := debugDummyStdio
+      cmd := "/bin/sleep"
+      args := #["120"]
+    }
+    debugLog s!"dummy stderr drain spawned pid={child.pid.toNat}"
+    let _ ← IO.asTask do
+      try
+        debugLog s!"dummy stderr drain readToEnd start pid={child.pid.toNat}"
+        let stderr ← child.stderr.readToEnd
+        debugLog s!"dummy stderr drain eof pid={child.pid.toNat} bytes={stderr.length}"
+      catch e =>
+        debugLog s!"dummy stderr drain failed pid={child.pid.toNat}: {e.toString}"
+    try
+      body
+    finally
+      cleanupDebugDummyDrain child
+  else
+    body
+
 private def killCommand? : IO (Option System.FilePath) := do
   for candidate in [System.FilePath.mk "/bin/kill", System.FilePath.mk "/usr/bin/kill"] do
     if ← candidate.pathExists then
@@ -1048,7 +1093,10 @@ private def saveOleanIO
   mergeFileProgressIfCurrent server started.session started.uri barrierProgress?
   ensureSyncBarrierComplete started.uri started.version barrierProgress? barrier.diagnostics
   ensureRequestNotCancelled cancelRef?
-  let spec ← mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
+  debugLog "save_olean before mkLeanSaveSpec"
+  let spec ← withDebugSaveDummyDrain <|
+    mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
+  debugLog "save_olean after mkLeanSaveSpec"
   let method ← IO.ofExcept <| saveArtifactsMethod started.session.backend
   let params := toJson ({
     textDocument := ({ uri := started.uri : TextDocumentIdentifier })

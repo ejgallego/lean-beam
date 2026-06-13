@@ -82,6 +82,10 @@ lean_exe "beam-cli" where
 lean_exe "beam-daemon-smoke-test" where
   root := `RunAtTest.Broker.SmokeTestMain
 
+lean_exe "beam-stderr-lake-repro" where
+  root := `RunAtTest.Broker.StderrLakeRepro
+  supportInterpreter := true
+
 lean_exe "beam-daemon-save-stream-test" where
   root := `RunAtTest.Broker.SaveStreamTestMain
 
