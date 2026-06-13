@@ -79,8 +79,8 @@ Beam daemon integration.
   `lean-beam ensure --hold`, stale same-namespace wrapper lease cleanup, endpoint collisions with
   another Beam root, stale registries that point at another root, and non-Beam busy-port rejection
 - shared wrapper shell helpers in
-  [tests/lib/beam-wrapper-common.sh](../tests/lib/beam-wrapper-common.sh), used by both the broad
-  wrapper workflow and focused daemon lifecycle test
+  [tests/lib/beam-wrapper-common.sh](../tests/lib/beam-wrapper-common.sh), used by the broad
+  wrapper workflow, focused daemon lifecycle test, and PID-isolated sandbox wrapper test
 - experimental Lean broker `request_at` coverage through
   [RunAtTest/Broker/SmokeTest.lean](../RunAtTest/Broker/SmokeTest.lean) and
   [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), including whitelisted request
@@ -100,16 +100,35 @@ Beam daemon integration.
   wrapper requests on the same root do not kill each other's daemon mid-flight; this regression is
   Linux-only because it depends on `bwrap`
 - zero-build save regression coverage in [tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh),
-  including exact-target replay, downstream importer reuse after daemon shutdown, and a timed
-  race where a mid-save edit must leave the saved module stale for later `lake build`. This script
-  disables Lake's artifact cache for its direct Lake and broker-wrapper probes so it can distinguish
-  local rebuilds from broker-written trace replay on warmed developer or CI machines
+  including exact-target replay, downstream importer reuse after daemon shutdown, and a
+  sentinel-driven race where a mid-save edit must leave the saved module stale for later
+  `lake build`. This script disables Lake's artifact cache for its direct Lake and broker-wrapper
+  probes so it can distinguish local rebuilds from broker-written trace replay on warmed developer
+  or CI machines
 - repo-local Codex worktree discipline coverage in [tests/test-codex-harness.sh](../tests/test-codex-harness.sh),
   which checks maintainer workflow helpers that start new tasks in dedicated worktrees and reject
   the primary checkout unless explicitly overridden
 - lightweight search-workload latency reporting in
   [RunAtTest/Scenario/SearchWorkloadReport.lean](../RunAtTest/Scenario/SearchWorkloadReport.lean)
   and [scripts/search-workload-report.sh](../scripts/search-workload-report.sh)
+
+## Race-Test Discipline
+
+Race and concurrency regressions should wait for observable state, not for guessed wall-clock
+delays. Prefer request IDs plus cancellation acknowledgements, wrapper progress text, registry
+files, non-empty response files, and Lean-side sentinel files that prove a slow command reached the
+intended phase. Use [tests/lib/beam-wrapper-common.sh](../tests/lib/beam-wrapper-common.sh) helpers
+for repeated shell polling patterns.
+
+Keep `fileProgress` and readiness distinct in assertions. For `lean-beam sync`, `lean-beam save`,
+and `lean-beam close-save`, completed progress is part of the diagnostics/save barrier contract.
+For other wrapper requests, progress text is a useful synchronization marker only; it is not proof
+that the file or request has reached a stronger semantic readiness state.
+
+Fixed sleeps are acceptable only when the behavior under test is explicitly elapsed-time behavior,
+such as "the daemon remains live after a short idle interval". When a test is trying to observe
+startup, overlap, cancellation, or a stale-state transition, add a bounded polling helper or a
+fixture sentinel instead.
 
 ## Search-Style Coverage
 

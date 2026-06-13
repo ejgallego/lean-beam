@@ -473,7 +473,22 @@ with open(out_path, "wb") as out, open(err_path, "wb") as err:
         stderr=err,
         env=env,
     )
-    time.sleep(1.0)
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            break
+        try:
+            progress = open(err_path, encoding="utf-8").read()
+        except FileNotFoundError:
+            progress = ""
+        if "snapshot progress" in progress:
+            break
+        time.sleep(0.05)
+    else:
+        proc.kill()
+        proc.wait()
+        print("timeout")
+        raise SystemExit(0)
     proc.send_signal(signal.SIGINT)
     try:
         rc = proc.wait(timeout=30.0)
@@ -535,7 +550,14 @@ PY
     "$beam_script" --root "$tmp10" lean-run-at tests/scenario/docs/SlowPoll.lean 25 2 "poll_sleep_cmd" \
     >"$duplicate_slow_out" 2>"$duplicate_slow_err" &
   duplicate_slow_pid=$!
-  sleep 1
+  if ! wait_for_file_text "$duplicate_slow_err" "snapshot progress" "duplicate active slow wrapper request progress"; then
+    cat "$duplicate_slow_out" >&2
+    cat "$duplicate_slow_err" >&2
+    kill "$duplicate_slow_pid" > /dev/null 2>&1 || true
+    wait "$duplicate_slow_pid" 2>/dev/null || true
+    rm -f "$duplicate_slow_out" "$duplicate_slow_err" "$duplicate_out" "$duplicate_err"
+    exit 1
+  fi
   if BEAM_REQUEST_ID=wrapper-duplicate-active \
       "$beam_script" --root "$tmp10" lean-hover tests/scenario/docs/CommandA.lean 0 4 \
       >"$duplicate_out" 2>"$duplicate_err"; then
@@ -1610,14 +1632,31 @@ expect_file "$reg5"
 
 pid5="$(read_json_field "$reg5" pid)"
 port5="$(read_json_field "$reg5" port)"
-busy_port=43123
-if [ "$busy_port" = "$port5" ]; then
-  busy_port=43124
-fi
+busy_port_file="$(mktemp /tmp/beam-wrapper-busy-port-XXXXXX)"
+python3 - "$busy_port_file" <<'PY' >/dev/null 2>&1 &
+import http.server
+import socketserver
+import sys
 
-python3 -m http.server "$busy_port" >/dev/null 2>&1 &
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
+with socketserver.TCPServer(("127.0.0.1", 0), Handler) as server:
+    with open(sys.argv[1], "w", encoding="utf-8") as f:
+        print(server.server_address[1], file=f, flush=True)
+    server.serve_forever()
+PY
 busy_pid=$!
-sleep 1
+if ! wait_for_nonempty_file "$busy_port_file" "temporary busy-port server"; then
+  kill "$busy_pid" > /dev/null 2>&1 || true
+  wait "$busy_pid" 2>/dev/null || true
+  busy_pid=""
+  rm -f "$busy_port_file"
+  exit 1
+fi
+busy_port="$(cat "$busy_port_file")"
+rm -f "$busy_port_file"
 
 (
   cd "$tmp5"
