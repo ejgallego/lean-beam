@@ -41,6 +41,33 @@ def ensureParentDir (path : System.FilePath) : IO Unit := do
   if let some parent := path.parent then
     IO.FS.createDirAll parent
 
+private def removeFileIfExists (path : System.FilePath) : IO Unit := do
+  if ← path.pathExists then
+    IO.FS.removeFile path
+
+private def withTempSibling (path : System.FilePath) (writeTemp : System.FilePath → IO Unit) : IO Unit := do
+  ensureParentDir path
+  let tmp := System.FilePath.mk s!"{path.toString}.beam-tmp-{← IO.monoNanosNow}"
+  try
+    writeTemp tmp
+    removeFileIfExists path
+    IO.FS.rename tmp path
+  catch e =>
+    try
+      removeFileIfExists tmp
+    catch _ =>
+      pure ()
+    throw e
+
+private def writeFileReplacing (path : System.FilePath) (content : String) : IO Unit :=
+  withTempSibling path fun tmp => IO.FS.writeFile tmp content
+
+private def writeModuleReplacing (env : Environment) (path : System.FilePath) : IO Unit :=
+  withTempSibling path fun tmp => Lean.writeModule env tmp
+
+private def emitLLVMReplacing (env : Environment) (mainModule : Name) (path : System.FilePath) : IO Unit :=
+  withTempSibling path fun tmp => Lean.IR.emitLLVM env mainModule tmp.toString
+
 def writeIlean
     (doc : DocumentMeta)
     (headerStx : Syntax)
@@ -55,8 +82,7 @@ def writeIlean
     references := moduleRefs
     decls
   }
-  ensureParentDir ileanFile
-  IO.FS.writeFile ileanFile (Json.compress <| toJson ilean)
+  writeFileReplacing ileanFile (Json.compress <| toJson ilean)
 
 def singleLineText (text : String) : String :=
   let parts := text.splitOn "\n"
@@ -150,16 +176,13 @@ def saveCurrentArtifacts
   let oleanFile := mkFilePath p.oleanFile
   let ileanFile := mkFilePath p.ileanFile
   let cFile := mkFilePath p.cFile
-  ensureParentDir oleanFile
-  ensureParentDir cFile
-  Lean.writeModule env oleanFile
+  writeModuleReplacing env oleanFile
   let trees := snaps.toArray.map (·.infoTree)
   writeIlean doc.meta doc.initSnap.stx mainModule trees ileanFile
   let cOutput ← emitCForSavedModule(env, mainModule)
-  IO.FS.writeFile cFile cOutput
+  writeFileReplacing cFile cOutput
   if let some bcFile := p.bcFile?.map mkFilePath then
-    ensureParentDir bcFile
-    Lean.IR.emitLLVM env mainModule bcFile.toString
+    emitLLVMReplacing env mainModule bcFile
   checkRequestCancelled
   pure {
     written := true

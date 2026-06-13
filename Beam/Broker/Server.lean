@@ -133,7 +133,7 @@ private partial def waitForProcessExitWithTimeout
 private def shutdownSession (session : Session) : IO Unit := do
   try
     writeLspRequest session.stdin ({ id := 0, method := "shutdown", param := Json.null : Lean.JsonRpc.Request Json })
-    let task ← IO.asTask session.stdout.readLspMessage
+    let task ← IO.asTask (prio := Task.Priority.dedicated) session.stdout.readLspMessage
     let _ ← waitForTaskWithTimeout task sessionShutdownReplyTimeoutMs
     pure ()
   catch _ =>
@@ -438,7 +438,7 @@ private def ensureSession (backend : Backend) : M Session := do
       writeLspRequest stdin ({ id := 0, method := "initialize", param := initializeParams backend root : Lean.JsonRpc.Request Json })
       awaitInitializeResponse stdout
       writeLspNotification stdin ({ method := "initialized", param := Json.mkObj [] : Lean.JsonRpc.Notification Json })
-      let _ ← IO.asTask do
+      let _ ← IO.asTask (prio := Task.Priority.dedicated) do
         try
           sessionReaderLoop session
         catch e =>
@@ -1487,7 +1487,7 @@ private partial def acceptLoop (server : ServerRuntime) (listener : Transport.Li
     if ← server.stop.get then
       Transport.closeConnection client
     else
-      let _ ← IO.asTask do
+      let _ ← IO.asTask (prio := Task.Priority.dedicated) do
         try
           handleClient server client
         catch e =>
