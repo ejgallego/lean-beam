@@ -106,13 +106,20 @@ def ToolName.toBrokerRequest
   | .workspaceInit => throw s!"{tool.key} initializes MCP server state and does not map to a broker request"
 
 def initWorkspaceDescription : String :=
-  "Initialize the Lean workspace root for MCP clients that cannot advertise roots/list."
+  "Initialize, verify, or explicitly reset the Lean workspace root for MCP clients that cannot advertise roots/list."
+
+def initWorkspaceModeDescription : String :=
+  String.intercalate " " [
+    "Workspace init mode. Defaults to set.",
+    "Use reset to switch roots explicitly;",
+    "reset discards the current runtime and invalidates handles from the previous root."
+  ]
 
 open Beam.JsonSchema in
 def initWorkspaceInputSchema : Json :=
   inputObject [
     ("root", string "Absolute Lean/Lake project root path."),
-    ("mode", enumString "Workspace init mode. Defaults to set." Beam.Workspace.initModeKeys)
+    ("mode", enumString initWorkspaceModeDescription Beam.Workspace.initModeKeys)
   ] #["root"]
 
 /-- Minimal descriptor for the planned MCP tool list. -/

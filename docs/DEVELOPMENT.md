@@ -142,8 +142,10 @@ When adding an MCP-facing operation, use this order:
 4. Keep project-root selection in server/session setup, not in each Lean operation input. Root
    negotiation belongs to `lean_init_workspace`, explicit `--root`, or exactly one MCP `roots/list`
    result. `lean_init_workspace` is the only setup tool that accepts a root, and it should keep
-   projecting the shared `Beam.Workspace` contract: explicit, absolute, idempotent, and guarded
-   against root resets after Lean tools have run.
+   projecting the shared `Beam.Workspace` contract: explicit, absolute, idempotent for `set` and
+   `verify`, and destructive only through `mode=reset`, which discards the current runtime and
+   invalidates handles before switching roots. Keep reset result fields in snake_case, including
+   `runtime_reused`, `previous_root`, and `invalidated_handles`.
 5. Normalize MCP output field names in the projection, for example `next_handle` and `proof_state`.
    Transport/setup failures should become structured tool or JSON-RPC errors; semantic Lean failures
    should remain normal tool results when the broker reports them that way.
@@ -157,6 +159,13 @@ When adding an MCP-facing operation, use this order:
 For setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,
 put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary explicit
 in tests.
+
+Lean/Lake root validation should stay shared between CLI and MCP. `lean_init_workspace` should keep
+using `Beam.Lean.Workspace.resolveRoot`, which requires an absolute root because it is a client API.
+Local startup paths such as `beam --root` and `lean-beam-mcp --root` should use
+`Beam.Lean.Workspace.resolveCliRoot`, which first resolves relative paths from the current working
+directory and then applies the same Lean/Lake project validation before `Beam.Workspace` session
+policy.
 
 When a public CLI command exposes the same Lean operation, add or update its request helper in
 `Beam.Cli.LeanOperation` and keep request-shape parity coverage in

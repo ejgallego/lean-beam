@@ -25,7 +25,6 @@ structure ProtocolState where
   root? : Option System.FilePath := none
   rootError? : Option String := none
   runtime? : Option Beam.Broker.ServerRuntime := none
-  workspaceUsed : Bool := false
 
 def ProtocolState.create (root? : Option System.FilePath := none) : IO (IO.Ref ProtocolState) :=
   IO.mkRef { root? }
@@ -33,7 +32,6 @@ def ProtocolState.create (root? : Option System.FilePath := none) : IO (IO.Ref P
 private def ProtocolState.initState (state : ProtocolState) : Beam.Workspace.InitState := {
   root? := state.root?
   runtimeReady := state.runtime?.isSome
-  workspaceUsed := state.workspaceUsed
 }
 
 abbrev Options := Beam.Mcp.Options
@@ -127,6 +125,18 @@ private def shutdownRuntimeForReset (runtime : Beam.Broker.ServerRuntime) : IO (
     let message := (brokerResp.error?.map (·.message)).getD "Beam broker shutdown failed"
     pure <| .error <| ToolError.runtimeSetup s!"failed to reset MCP workspace: {message}"
 
+private def resetRuntimeHandoff
+    (oldRuntime? : Option Beam.Broker.ServerRuntime)
+    (newRuntime : Beam.Broker.ServerRuntime) : IO (Except ToolError Unit) := do
+  match oldRuntime? with
+  | none => pure <| .ok ()
+  | some oldRuntime =>
+      match ← shutdownRuntimeForReset oldRuntime with
+      | .ok () => pure <| .ok ()
+      | .error err =>
+          discard <| shutdownRuntimeForReset newRuntime
+          pure <| .error err
+
 private def handleInitWorkspace
     (state : IO.Ref ProtocolState)
     (opts : Options)
@@ -145,26 +155,21 @@ private def handleInitWorkspace
     match Beam.Workspace.planInit currentState.initState requestedRoot mode with
     | .ok plan => pure plan
     | .error err => return callToolErrorResult <| workspaceErrorToToolError err
-  if plan.resetCurrent then
-    match currentState.runtime? with
-    | some runtime =>
-        match ← shutdownRuntimeForReset runtime with
-        | .ok () => pure ()
-        | .error err => return callToolErrorResult err
-    | none =>
-        pure ()
   if !plan.createRuntime then
     return callToolResult <| toJson <| Beam.Workspace.initResult plan
   match ← createRuntimeForRoot opts requestedRoot with
   | .error err =>
       return callToolErrorResult <| ToolError.runtimeSetup err.message
   | .ok (runtime, root) =>
+      if plan.resetCurrent then
+        match ← resetRuntimeHandoff currentState.runtime? runtime with
+        | .ok () => pure ()
+        | .error err => return callToolErrorResult err
       state.set {
         currentState with
           root? := some root
           rootError? := none
           runtime? := some runtime
-          workspaceUsed := false
       }
       pure <| callToolResult <| toJson <| Beam.Workspace.initResult plan root
 
@@ -198,7 +203,6 @@ private def handleToolCall
     match ← ensureRuntime state opts stdin with
     | .ok runtimeAndRoot => pure runtimeAndRoot
     | .error err => return .error err
-  state.modify fun state => { state with workspaceUsed := true }
   let (brokerResp, _) ← runtime.dispatchRequest brokerReq
   match normalizeBrokerResponse params.name brokerResp with
   | .ok result =>
@@ -318,6 +322,11 @@ partial def runStdio (opts : Options) (root? : Option System.FilePath) : IO Unit
     else
       throw e
 
+private def requireStartupRoot (rootText : String) : IO System.FilePath := do
+  match ← Beam.Lean.Workspace.resolveCliRoot rootText with
+  | .ok root => pure root
+  | .error err => throw <| IO.userError err.message
+
 def main (args : List String) : IO Unit := do
   let opts ←
     match Beam.Mcp.parseOptions {} args with
@@ -332,7 +341,7 @@ def main (args : List String) : IO Unit := do
         beamCli? := opts.beamCli?
       } path
   | none =>
-      let root? ← opts.root?.mapM (fun root => IO.FS.realPath <| System.FilePath.mk root)
+      let root? ← opts.root?.mapM requireStartupRoot
       runStdio opts root?
 
 end Beam.Mcp.Server

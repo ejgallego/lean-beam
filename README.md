@@ -63,14 +63,40 @@ project root per MCP server session with the `lean_init_workspace` tool before c
 {"root":"/path/to/lean/project"}
 ```
 
-The optional `mode` field defaults to `"set"`. Use `"verify"` to check the active root without
-changing it, and `"reset"` only before any Lean tool has opened files in that server session.
+The optional `mode` field defaults to `"set"`:
+
+| mode | Behavior |
+| --- | --- |
+| `"set"` | Initialize the root if unset; succeed idempotently for the active root; reject a different root. |
+| `"verify"` | Check that the requested root is already active without changing runtime state. |
+| `"reset"` | Explicitly switch roots; discard the current runtime and invalidate handles from the previous root. |
+
+Successful responses include `active_root`, `runtime_reused`, and `invalidated_handles`.
+`runtime_reused` means no runtime was changed because the requested root was already active;
+`reset` always reports `runtime_reused: false`, even when resetting to the same root. Reset
+responses also include `previous_root`:
+
+```json
+{
+  "root": "/path/to/other/project",
+  "active_root": "/path/to/other/project",
+  "previous_root": "/path/to/lean/project",
+  "initialized": true,
+  "mode": "reset",
+  "runtime_reused": false,
+  "invalidated_handles": true
+}
+```
 
 Direct developer runs and single-project MCP registrations may still pass an explicit project root:
 
 ```bash
 codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
 ```
+
+The `--root` startup flag accepts absolute paths and paths relative to the server's current working
+directory. The `lean_init_workspace` tool intentionally accepts only absolute paths so clients do not
+accidentally bind a session to a root interpreted from the server process cwd.
 
 The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt plugin for each
 project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
@@ -152,6 +178,8 @@ Read those flags like this:
 
 - `--stdin` is the normal multiline path for speculative Lean text
 - `--handle-file <path>` is the normal handle path for exact continuation and release
+- MCP workspace reset invalidates handles minted by the old runtime; discard saved handle files after
+  `lean_init_workspace` with `mode: "reset"`
 - deeper shell-oriented variants and debugging knobs live in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md) and the linked reference docs
 
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include

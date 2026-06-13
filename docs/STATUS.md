@@ -22,8 +22,11 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
   than a second daemon/client connection
 - MCP `lean_init_workspace` setup tool for clients that can register only a generic global server
   command and do not advertise MCP roots. It requires an absolute Lean/Lake project root, is
-  idempotent for the active root, supports `mode` values `set`, `verify`, and `reset`, and rejects
-  root resets after Lean tools have run in the session.
+  idempotent for the active root in `set` and `verify` mode, supports `mode` values `set`,
+  `verify`, and `reset`, and uses explicit `reset` calls to discard the current runtime and
+  invalidate handles before switching or restarting roots. Reset responses report `previous_root`
+  and `invalidated_handles`; all successful setup responses report whether the runtime was reused
+  with `runtime_reused`.
 - `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, root
   discovery through `roots/list`, and a real `lean_sync` tool call
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
@@ -56,6 +59,7 @@ long-term contract. Current handle behavior is:
 - invalidated by same-document edits
 - invalidated by document close
 - invalidated by worker restart or Beam daemon restart
+- invalidated by MCP `lean_init_workspace` calls with `mode: "reset"`
 - exact continuation requires an explicit handle path; separate `lean-beam run-at` calls do not chain
   through hidden state
 
