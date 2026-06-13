@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Path
 import Beam.Broker.Client
 import Beam.Broker.Protocol
 import Beam.Broker.Transport
@@ -217,19 +218,13 @@ private def brokerRoot? (endpoint : Beam.Broker.Endpoint) : IO (Option String) :
   catch _ =>
     pure none
 
-private def sameCanonicalPath (a b : System.FilePath) : IO Bool := do
-  try
-    pure ((← IO.FS.realPath a).toString == (← IO.FS.realPath b).toString)
-  catch _ =>
-    pure (a.toString == b.toString)
-
 partial def waitForBrokerReadyForRoot
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath)
     (tries : Nat := 50) : IO Unit := do
   match ← brokerRoot? endpoint with
   | some daemonRoot =>
-      if ← sameCanonicalPath (System.FilePath.mk daemonRoot) root then
+      if ← Beam.sameFilePath (System.FilePath.mk daemonRoot) root then
         pure ()
       else
         throw <| IO.userError

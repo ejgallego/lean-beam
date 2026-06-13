@@ -9,6 +9,7 @@ import Beam.Cli.Broker
 import Beam.Cli.LeanOperation
 import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle
+import Beam.Path
 import Beam.Mcp.Projection
 
 open Lean
@@ -248,6 +249,34 @@ private def checkStartupRetryPolicy : IO Unit := do
   require "macOS bind failure wording should be recognized"
     (Beam.Cli.startupFailureSuggestsEndpointInUse "Address already in use")
 
+private def checkPathCanonicalization : IO Unit := do
+  let stamp ← IO.monoNanosNow
+  let root := System.FilePath.mk s!"/tmp/beam-path-canonical-root-{stamp}"
+  let alias := System.FilePath.mk s!"/tmp/beam-path-canonical-alias-{stamp}"
+  try
+    IO.FS.createDirAll root
+    let out ← IO.Process.output {
+      cmd := "ln"
+      args := #["-s", root.toString, alias.toString]
+    }
+    if out.exitCode != 0 then
+      throw <| IO.userError s!"failed to create symlink alias for path canonicalization test\n{out.stderr}"
+    require "canonical path equality should treat symlinked workspace roots as the same path"
+      (← Beam.sameFilePath root alias)
+    require "missing paths should fall back to exact text equality"
+      (!(← Beam.sameFilePath (root / "missing") (alias / "missing")))
+  finally
+    try
+      if ← alias.pathExists then
+        IO.FS.removeFile alias
+    catch _ =>
+      pure ()
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
 private def checkLockLifecycle : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/beam-cli-lock-test-{← IO.monoNanosNow}"
   let lockDir := root / "lock"
@@ -377,6 +406,7 @@ def main : IO Unit := do
   checkSyncWaitSpecs
   checkLeanOperationRequests
   checkStartupRetryPolicy
+  checkPathCanonicalization
   checkLockLifecycle
   checkRuntimeBundleHelpers
   checkRuntimeBundleMetadataAcceptance
