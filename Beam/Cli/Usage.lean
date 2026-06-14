@@ -18,6 +18,7 @@ def usage : String :=
     "  beam [--root PATH] [--socket PATH | --port N] lean-hover <path> <line> <character>",
     "  beam [--root PATH] [--socket PATH | --port N] lean-goals-after <path> <line> <character>",
     "  beam [--root PATH] [--socket PATH | --port N] lean-goals-prev <path> <line> <character>",
+    "  beam [--root PATH] [--socket PATH | --port N] lean-todo <path> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-with <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-with-linear <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-release <path> <handle-json|-|--handle-file <path>>",
