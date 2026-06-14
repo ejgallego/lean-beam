@@ -296,6 +296,7 @@ log "overlaying current working tree state"
 "$system_rsync" -a --delete \
   --exclude='.git/' \
   --exclude='.beam/' \
+  --exclude='.codex-worktrees/' \
   "$repo_root"/ "$clone_root"/
 
 if [ "$print_root" -eq 1 ]; then
