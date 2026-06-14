@@ -244,6 +244,11 @@ to prove request overlap, cancellation, startup, or stale-state transitions shou
 state such as request IDs, response files, registry files, or fixture sentinels instead of treating
 progress as a general semantic-ready signal.
 
+Pure readiness decisions and sync/save response shaping live in
+[Beam/Broker/Readiness.lean](../Beam/Broker/Readiness.lean). Keep LSP/session IO in
+`Beam/Broker/Server.lean`, but put barrier interpretation, top-level `fileProgress` attachment, and
+sync/save success or `syncBarrierIncomplete` response construction behind that named boundary.
+
 ## Sandboxed Wrapper Path
 
 This wrapper path is easy to break accidentally, so keep the mental model simple.
