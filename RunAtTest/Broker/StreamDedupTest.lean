@@ -79,7 +79,7 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
     stdout := IO.FS.Stream.ofHandle proc.stdout
     pending
   }
-  let _ ← IO.asTask <| Beam.Broker.sessionReaderLoop session
+  let _ ← IO.asTask (prio := Task.Priority.dedicated) <| Beam.Broker.sessionReaderLoop session
   pure session
 
 def check : IO Unit := do

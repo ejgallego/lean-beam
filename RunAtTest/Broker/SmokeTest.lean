@@ -120,7 +120,7 @@ private def runConcurrentSmoke
   let concurrentSyncId := some "concurrent-sync"
   let concurrentHoverId := some "concurrent-hover"
   let slowSyncPath ← writeSlowSyncFile root
-  let syncTask ← IO.asTask <| runClientWithProgress endpoint {
+  let syncTask ← IO.asTask (prio := Task.Priority.dedicated) <| runClientWithProgress endpoint {
     op := .syncFile
     clientRequestId? := concurrentSyncId
     root? := some root.toString
@@ -272,7 +272,7 @@ private def runCancelSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let slowRequestId := some "cancel-slow"
-  let slowTask ← IO.asTask <| runClientWithProgress endpoint {
+  let slowTask ← IO.asTask (prio := Task.Priority.dedicated) <| runClientWithProgress endpoint {
     op := .runAt
     clientRequestId? := slowRequestId
     root? := some root.toString
@@ -324,7 +324,7 @@ private def runWorkerExitSmoke
   let staleHandle : Beam.Broker.Handle ← IO.ofExcept <| fromJson? handleJson
 
   let workerExitRequestId := some "worker-exit-slow"
-  let slowTask ← IO.asTask <| runClientWithProgress endpoint {
+  let slowTask ← IO.asTask (prio := Task.Priority.dedicated) <| runClientWithProgress endpoint {
     op := .runAt
     clientRequestId? := workerExitRequestId
     root? := some root.toString

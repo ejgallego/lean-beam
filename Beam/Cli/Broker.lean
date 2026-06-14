@@ -58,7 +58,7 @@ private def mkInterruptWatcher? (clientRequestId? : Option String) : IO (Option 
   | none => pure none
   | some _ =>
       let signal ← Std.Internal.UV.Signal.mk 2 false
-      let task ← IO.asTask do
+      let task ← IO.asTask (prio := Task.Priority.dedicated) do
         let promise ← Std.Internal.UV.Signal.next signal
         let some _ ← IO.wait promise.result?
           | throw <| IO.userError "SIGINT watcher promise dropped"
@@ -252,7 +252,8 @@ def callBrokerWithProgress
     }
     let resp ←
       if showProgress then
-        let task ← IO.asTask <| sendRequestWithCallbacks endpoint req callbacks
+        let task ← IO.asTask (prio := Task.Priority.dedicated) <|
+          sendRequestWithCallbacks endpoint req callbacks
         awaitBrokerResponse task endpoint req spec
       else
         sendRequestWithCallbacks endpoint req callbacks
