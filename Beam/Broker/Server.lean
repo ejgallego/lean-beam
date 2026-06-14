@@ -33,7 +33,6 @@ open Lean
 open Lean.JsonRpc
 open Lean.Lsp
 open IO.FS.Stream
-open Std.Internal.IO.Async
 
 namespace Beam.Broker
 

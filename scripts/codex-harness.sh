@@ -13,11 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 default_worktree_root() {
-  if [[ -n "${HOME:-}" ]]; then
-    printf '%s\n' "${HOME}/.codex/worktrees/lean-beam"
-  else
-    printf '%s\n' "/var/tmp/runat-codex-worktrees"
-  fi
+  printf '%s\n' "${REPO_ROOT}/.codex-worktrees/lean-beam"
 }
 
 WORKTREE_ROOT="${RUNAT_CODEX_WORKTREE_ROOT:-$(default_worktree_root)}"
@@ -41,7 +37,8 @@ Environment:
 
 Note:
   This is maintainer workflow tooling for this repo. It is not part of the public runAt CLI.
-  By default, worktrees live under ~/.codex/worktrees/lean-beam so they survive reboots.
+  By default, worktrees live under .codex-worktrees/lean-beam inside this repo.
+  RUNAT_CODEX_WORKTREE_ROOT must also point inside this repo when set explicitly.
   Destructive cleanup must stay scoped to harness-owned worktrees under RUNAT_CODEX_WORKTREE_ROOT.
   Do not use broad rm/rm -rf against repo-local or user-local state from normal maintainer flows.
 EOF
@@ -89,6 +86,13 @@ ensure_safe_worktree_root() {
     "RUNAT_CODEX_WORKTREE_ROOT must not be the repo root: ${resolved_root}"
   [[ "${resolved_root}" != "${resolved_primary}" ]] || die \
     "RUNAT_CODEX_WORKTREE_ROOT must not be the primary worktree: ${resolved_root}"
+  python3 - "$resolved_repo" "$resolved_root" <<'PY' >/dev/null || \
+    die "RUNAT_CODEX_WORKTREE_ROOT must be inside the repo root: ${resolved_root}"
+import os, sys
+repo, root = sys.argv[1:]
+if os.path.commonpath([repo, root]) != repo:
+    raise SystemExit(1)
+PY
 }
 
 ensure_managed_worktree_path() {

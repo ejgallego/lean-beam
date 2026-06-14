@@ -42,7 +42,7 @@ Use `--codex`, `--claude`, or `--all-skills` to install the bundled agent skills
 Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional validated Lean bundles:
 
 ```bash
-./scripts/install-beam.sh --toolchain leanprover/lean4:v4.30.0
+./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0-rc2
 ./scripts/install-beam.sh --all-supported
 ```
 
@@ -123,6 +123,7 @@ lean-beam supported-toolchains
 The current repo allowlist is:
 
 ```text
+leanprover/lean4:v4.31.0-rc2
 leanprover/lean4:v4.30.0
 leanprover/lean4:v4.29.0
 leanprover/lean4:v4.28.0

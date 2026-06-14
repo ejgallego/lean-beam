@@ -24,8 +24,12 @@ namespace RunAt.Requests
 private def legacyIREmitCName : Name :=
   .str (.str (.str .anonymous "Lean") "IR") "emitC"
 
+private def collectCurrentDiagnosticsName : Name :=
+  .str (.str (.str (.str (.str .anonymous "Lean") "Server") "FileWorker")
+    "EditableDocumentCore") "collectCurrentDiagnostics"
+
 -- Lean v4.30 moved C emission from `Lean.IR.emitC` to `Lean.Compiler.LCNF.emitC`.
--- Select the available API at elaboration time so one source tree still builds on v4.28-v4.30.
+-- Select the available API at elaboration time so one source tree still builds on v4.28-v4.31.
 elab "emitCForSavedModule(" env:term ", " modName:term ")" : term => do
   if (← getEnv).contains legacyIREmitCName then
     Lean.Elab.Term.elabTerm (← `(term| IO.ofExcept <| Lean.IR.emitC $env $modName)) none
@@ -33,6 +37,17 @@ elab "emitCForSavedModule(" env:term ", " modName:term ")" : term => do
     Lean.Elab.Term.elabTerm (← `(term| (Lean.Compiler.LCNF.emitC $modName).toIO'
         { fileName := "", fileMap := default }
         { env := $env })) none
+
+-- Lean v4.31 replaced `EditableDocument.diagnosticsRef` with a diagnostics mutex and
+-- `EditableDocumentCore.collectCurrentDiagnostics`.
+elab "collectCurrentDiagnosticsCompat(" doc:term ")" : term => do
+  if (← getEnv).contains collectCurrentDiagnosticsName then
+    Lean.Elab.Term.elabTerm (← `(term| (do
+      let diagnostics ← Lean.Server.FileWorker.EditableDocumentCore.collectCurrentDiagnostics
+        (($doc).toEditableDocumentCore)
+      pure diagnostics.toArray))) none
+  else
+    Lean.Elab.Term.elabTerm (← `(term| (($doc).diagnosticsRef.get))) none
 
 def mkFilePath (path : String) : System.FilePath :=
   System.FilePath.mk path
@@ -135,7 +150,7 @@ def collectSaveReadiness
         Option Elab.Command.State ×
         Array Lean.Widget.InteractiveDiagnostic ×
         Array String) := do
-  let diagnostics ← doc.diagnosticsRef.get
+  let diagnostics ← collectCurrentDiagnosticsCompat(doc)
   let diagnosticErrors := diagnostics.filter (fun diag => diag.severity? == some .error)
   let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
     | return ({
