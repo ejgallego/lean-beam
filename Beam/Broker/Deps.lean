@@ -27,15 +27,19 @@ def workspacePath? (root : System.FilePath) (uri : DocumentUri) : Option String 
   let path ← System.Uri.fileUriToPath? uri
   Beam.pathRelativeToRoot? root path
 
-def fallbackModuleName? (root path : System.FilePath) : Option String := do
-  let relPath ← workspacePath? root (sessionUri path)
+private def moduleNameFromWorkspacePath? (relPath : String) : Option String := do
   if !relPath.endsWith ".lean" then
     none
   else
-    let parts := (System.FilePath.mk relPath).components
-    let stem ← (System.FilePath.mk relPath).fileStem
+    let relFile := System.FilePath.mk relPath
+    let parts := relFile.components
+    let stem ← relFile.fileStem
     let init := parts.dropLast
     some <| String.intercalate "." (init ++ [stem])
+
+def fallbackModuleName? (root path : System.FilePath) : Option String := do
+  let relPath ← Beam.pathRelativeToRoot? root path
+  moduleNameFromWorkspacePath? relPath
 
 def normalizeModuleForPath (root path : System.FilePath) (uri : DocumentUri) (module? : Option LeanModule) : Option LeanModule :=
   match module? with
