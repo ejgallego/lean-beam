@@ -9,6 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 bash scripts/check-daemon-safety.sh
+bash scripts/check-task-priority.sh
 
 lake build \
   RunAt:shared \

@@ -290,6 +290,14 @@ copying string-prefix checks or raw `IO.FS.realPath` wrappers:
 Keep raw path strings only for JSON payloads, diagnostics, and intentionally stable cache keys.
 When symlink or platform-alias behavior matters, resolve paths before deriving workspace-relative
 strings.
+
+Direct `IO.asTask`, `BaseIO.asTask`, and `EIO.asTask` calls should make their priority explicit.
+Use `Task.Priority.dedicated` for blocking or long-lived IO such as process pipe readers, accepted
+client handlers, signal watchers, and streaming callback loops. Lean's regular task pool is bounded
+and shared with Lake/elaboration work, so a tiny task that blocks in an OS read can still starve
+normal-priority work on low-core runners. The cheap regression guard is
+[scripts/check-task-priority.sh](../scripts/check-task-priority.sh).
+
 Daemon registry management, daemon startup/reuse, endpoint selection, and wrapper leases live in
 [Beam/Cli/DaemonManager.lean](../Beam/Cli/DaemonManager.lean). Broker request plumbing, progress
 messages, cancellation-on-interrupt, and response failure notes live in
