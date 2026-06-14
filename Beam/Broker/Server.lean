@@ -25,8 +25,7 @@ import Beam.Broker.Transport
 import Beam.Broker.Lean
 import Beam.Broker.Deps
 import Beam.Broker.LakeSave
-import Beam.Broker.StaleDirectDeps
-import Beam.Broker.SyncSaveSupport
+import Beam.Broker.Readiness
 import Beam.Path
 import Std.Sync.Mutex
 
@@ -539,10 +538,11 @@ private def ensureSyncBarrierComplete
     (version : Nat)
     (progress? : Option SyncFileProgress)
     (diagnostics : Array Diagnostic := #[]) : IO Unit := do
-  if syncBarrierIncomplete? progress? diagnostics then
+  let decision := decideSyncBarrier uri version none progress? diagnostics
+  if decision.incomplete then
     throwBrokerFailure {
       code := .syncBarrierIncomplete
-      message := syncBarrierIncompleteMessage uri version progress?
+      message := decision.message?.getD (syncBarrierIncompleteMessage uri version progress?)
     }
 
 private def trackedPathLabel (root : System.FilePath) (uri : DocumentUri) : String :=
@@ -602,11 +602,6 @@ private def wrapResultHandle (session : Session) (result : Json) : Json :=
       result.setObjVal! "handle" (wrapHandle session raw)
   | .error _ =>
       result
-
-private def withFileProgress (resp : Response) (fileProgress? : Option SyncFileProgress) : Response :=
-  match fileProgress? with
-  | some progress => { resp with fileProgress? := some progress }
-  | none => resp
 
 private def updateSession (session : Session) : M Unit := do
   modify fun state =>
@@ -970,7 +965,7 @@ private def saveCompletedResponse
       Json.mkObj [("closed", toJson true), ("saved", saved.payload)]
     else
       saved.payload
-  withFileProgress (Response.success payload) saved.fileProgress?
+  responseWithFileProgress (Response.success payload) saved.fileProgress?
 
 private def fetchSyncSaveReadinessIO
     (server : ServerRuntime)
@@ -1003,12 +998,6 @@ private def fetchDirectImportsIO
     version := result.version
     imports := result.imports
   }
-
-private def staleSyncErrorResponse
-    (message : String)
-    (targetPath : String)
-    (hints : Array StaleDirectDepHint) : Response :=
-  reqError syncBarrierIncompleteCode message (some <| staleSyncErrorData targetPath hints)
 
 private def collectStaleDirectDepHintsIO
     (server : ServerRuntime)
@@ -1043,7 +1032,9 @@ private def saveOleanIO
     pure (docState.textHash, docState.textTraceHash, docState.textMTime, (← get).config.leanCmd?)
   propagatePendingCancellation started.session req.clientRequestId? cancelRef?
   let barrier ← PendingRequest.awaitResult started.promise
-  let barrierProgress? := effectiveSyncBarrierProgress started.priorProgress? barrier.progress? barrier.diagnostics
+  let barrierDecision :=
+    decideSyncBarrier started.uri started.version started.priorProgress? barrier.progress? barrier.diagnostics
+  let barrierProgress? := barrierDecision.fileProgress?
   let (_ : WaitForDiagnostics) ← decodeResponseAs barrier.result
   mergeFileProgressIfCurrent server started.session started.uri barrierProgress?
   ensureSyncBarrierComplete started.uri started.version barrierProgress? barrier.diagnostics
@@ -1099,28 +1090,19 @@ private def handleSyncFileOpIO
     let started ← startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
     propagatePendingCancellation started.session req.clientRequestId? cancelRef?
     let pending ← PendingRequest.awaitResult started.promise
-    let fileProgress? := effectiveSyncBarrierProgress started.priorProgress? pending.progress? pending.diagnostics
+    let barrierDecision :=
+      decideSyncBarrier started.uri started.version started.priorProgress? pending.progress? pending.diagnostics
+    let fileProgress? := barrierDecision.fileProgress?
     mergeFileProgressIfCurrent server started.session started.uri fileProgress?
-    if syncBarrierIncomplete? fileProgress? pending.diagnostics then
+    if barrierDecision.incomplete then
       let hints ← collectStaleDirectDepHintsIO server started.session started.uri started.version
-      let message := syncBarrierIncompleteMessage started.uri started.version fileProgress?
       let targetPath := trackedPathLabel started.session.root started.uri
-      return (staleSyncErrorResponse message targetPath hints, false)
+      return (syncBarrierIncompleteResponse started.uri started.version targetPath hints fileProgress?, false)
     server.withState do
       modifyCurrentSessionIfMatching started.session
         (fun current => markDocSyncedVersion current started.uri started.version)
     let saveReadiness ← fetchSyncSaveReadinessIO server started.session started.uri
-    let payload := toJson ({
-      version := started.version
-      errorCount := syncErrorCount pending.diagnostics
-      warningCount := syncWarningCount pending.diagnostics
-      stateErrorCount := saveReadiness.stateErrorCount
-      stateCommandErrorCount := saveReadiness.stateCommandErrorCount
-      saveReady := saveReadiness.saveReady
-      saveReadyReason := saveReadiness.saveReadyReason
-      : SyncFileResult
-    })
-    pure (withFileProgress (Response.success payload) fileProgress?, false)
+    pure (syncFileSuccessResponse started.version pending.diagnostics saveReadiness fileProgress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1181,7 +1163,7 @@ private def handleRunAtOpIO
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (
-      withFileProgress
+      responseWithFileProgress
         (Response.success (wrapResultHandle started.session pending.result))
         pending.progress?,
       false)
@@ -1212,7 +1194,7 @@ private def handleRequestAtOpIO
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
-    pure (withFileProgress (Response.success pending.result) pending.progress?, false)
+    pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1277,7 +1259,7 @@ private def handleGoalsOpIO
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
-    pure (withFileProgress (Response.success pending.result) pending.progress?, false)
+    pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
@@ -1316,7 +1298,7 @@ private def handleRunWithOpIO
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
     pure (
-      withFileProgress
+      responseWithFileProgress
         (Response.success (wrapResultHandle started.session pending.result))
         pending.progress?,
       false)
@@ -1351,7 +1333,7 @@ private def handleReleaseOpIO
         (clientRequestId? := req.clientRequestId?)
         (emitProgress? := emitProgress?)
     let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
-    pure (withFileProgress (Response.success pending.result) pending.progress?, false)
+    pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 

@@ -6,11 +6,13 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Broker.Errors
 import Beam.Broker.Protocol
+import Beam.Broker.Readiness
 import Beam.Broker.RequestArgs
 import RunAtTest.Broker.JsonAssert
 import Lean
 
 open Lean
+open Lean.Lsp
 open Beam.Broker
 open RunAtTest.Broker.JsonAssert
 
@@ -45,6 +47,16 @@ private def requireError
   | none =>
       throw <| IO.userError s!"{label}: expected error payload, got {(toJson resp).compress}"
 
+private def requireResponseResult (label : String) (resp : Response) : IO Json := do
+  match resp.result? with
+  | some result => pure result
+  | none => throw <| IO.userError s!"{label}: expected result payload, got {(toJson resp).compress}"
+
+private def requireErrorData (label : String) (err : Error) : IO Json := do
+  match err.data? with
+  | some data => pure data
+  | none => throw <| IO.userError s!"{label}: expected error data, got {(toJson err).compress}"
+
 private def expectRequestArgError
     (label : String)
     (expectedMessage : String)
@@ -54,6 +66,27 @@ private def expectRequestArgError
       throw <| IO.userError s!"{label}: expected invalidParams response"
   | .error resp =>
       discard <| requireError label "invalidParams" expectedMessage resp
+
+private def jsonPos (line character : Nat) : Json :=
+  Json.mkObj [
+    ("line", toJson line),
+    ("character", toJson character)
+  ]
+
+private def jsonRange (line character endCharacter : Nat) : Json :=
+  Json.mkObj [
+    ("start", jsonPos line character),
+    ("end", jsonPos line endCharacter)
+  ]
+
+private def diagnostic (severity : Nat) (message : String) : IO Diagnostic := do
+  match fromJson? (α := Diagnostic) <| Json.mkObj [
+    ("range", jsonRange 0 0 1),
+    ("severity", toJson severity),
+    ("message", toJson message)
+  ] with
+  | .ok diagnostic => pure diagnostic
+  | .error err => throw <| IO.userError s!"failed to build diagnostic fixture: {err}"
 
 private def checkResponseJsonShape : IO Unit := do
   let successJson := toJson <| Response.success (Json.mkObj [("value", toJson (1 : Nat))])
@@ -150,6 +183,69 @@ private def checkJsonRpcErrorMapping : IO Unit := do
     (responseForExceptionMessage
       "Cannot read LSP message: JSON '{\"error\":{\"code\":-32803,\"message\":\"focused goal error\"}}' did not have the format of a JSON-RPC message.")
 
+private def checkReadinessBoundary : IO Unit := do
+  let uri := "file:///workspace/SaveSmoke/A.lean"
+  let clean := decideSyncBarrier uri 7 (some { updates := 1, done := true }) none #[]
+  require "clean readiness barrier should be complete" (!clean.incomplete)
+  require "clean readiness barrier preserves prior progress"
+    (clean.fileProgress? == some { updates := 1, done := true })
+
+  let partialBarrier := decideSyncBarrier uri 7 none (some { updates := 2, done := false }) #[]
+  require "partial readiness barrier should be incomplete" partialBarrier.incomplete
+  require "partial readiness barrier should explain the incomplete barrier"
+    (partialBarrier.message?.any (·.contains "Lean diagnostics barrier did not complete"))
+
+  let incompleteDiagnostic ← diagnostic 3 "Failed to build module dependencies."
+  let diagnosticBarrier :=
+    decideSyncBarrier uri 7 none (some { updates := 4, done := true }) #[incompleteDiagnostic]
+  require "stale dependency diagnostic should force an incomplete barrier" diagnosticBarrier.incomplete
+  require "stale dependency diagnostic should force progress done=false"
+    (diagnosticBarrier.fileProgress? == some { updates := 4, done := false })
+
+  let hints : Array StaleDirectDepHint := #[{
+    module := "SaveSmoke.B"
+    path := "SaveSmoke/B.lean"
+    needsSave := true
+    lastSyncSeq := 4
+    lastSaveSeq := 3
+  }]
+  let incompleteResp :=
+    syncBarrierIncompleteResponse uri 7 "SaveSmoke/A.lean" hints diagnosticBarrier.fileProgress?
+  let err ← requireError
+    "readiness incomplete response"
+    syncBarrierIncompleteCode
+    (syncBarrierIncompleteMessage uri 7 diagnosticBarrier.fileProgress?)
+    incompleteResp
+  let data ← requireErrorData "readiness incomplete response" err
+  requireJsonString "readiness incomplete response data" "targetPath" "SaveSmoke/A.lean" data
+  let recoveryPlanJson ← requireObjVal "readiness incomplete response data" "recoveryPlan" data
+  let recoveryPlan ← expectOk "readiness recovery plan decode"
+    (fromJson? (α := Array String) recoveryPlanJson)
+  require "readiness recovery plan should start with dependency save"
+    (recoveryPlan[0]? == some "lean-beam save \"SaveSmoke/B.lean\"")
+  require "readiness recovery plan should include target refresh"
+    (recoveryPlan[1]? == some "lean-beam refresh \"SaveSmoke/A.lean\"")
+  require "readiness recovery plan should end with lake build"
+    (recoveryPlan[2]? == some "lake build")
+
+  let warningDiagnostic ← diagnostic 2 "warning only"
+  let successResp := syncFileSuccessResponse 9 #[warningDiagnostic] {
+    stateErrorCount := 1
+    stateCommandErrorCount := 2
+    saveReady := false
+    saveReadyReason := "documentErrors"
+  } (some { updates := 5, done := true })
+  require "readiness success response should be ok" successResp.ok
+  require "readiness success response should keep fileProgress"
+    (successResp.fileProgress? == some { updates := 5, done := true })
+  let successResult ← requireResponseResult "readiness success response" successResp
+  requireJsonInt "readiness success payload" "version" 9 successResult
+  requireJsonInt "readiness success payload" "warningCount" 1 successResult
+  requireJsonInt "readiness success payload" "stateErrorCount" 1 successResult
+  requireJsonInt "readiness success payload" "stateCommandErrorCount" 2 successResult
+  requireJsonBool "readiness success payload" "saveReady" false successResult
+  requireJsonString "readiness success payload" "saveReadyReason" "documentErrors" successResult
+
 private def checkRequestArgsBoundary : IO Unit := do
   let runAtMissingText : Request := {
     op := .runAt
@@ -191,6 +287,7 @@ def main : IO Unit := do
   checkBrokerFailureRoundTrip
   checkExceptionErrorMapping
   checkJsonRpcErrorMapping
+  checkReadinessBoundary
   checkRequestArgsBoundary
 
 end RunAtTest.Broker.ProtocolTest
