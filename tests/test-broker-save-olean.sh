@@ -116,6 +116,23 @@ wait_for_file() {
   done
 }
 
+wait_for_file_text() {
+  local path="$1"
+  local text="$2"
+  local label="$3"
+  local deadline=$((SECONDS + 15))
+  while true; do
+    if [ -f "$path" ] && grep -F -q -- "$text" "$path"; then
+      return 0
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      echo "timed out waiting for $label in $path" >&2
+      exit 1
+    fi
+    sleep 0.05
+  done
+}
+
 tmp1="$(mktemp -d /tmp/runat-save-olean-build-XXXXXX)"
 tmp2="$(mktemp -d /tmp/runat-save-olean-broker-XXXXXX)"
 tmp3="$(mktemp -d /tmp/runat-save-olean-race-XXXXXX)"
@@ -123,6 +140,7 @@ tmp4="$(mktemp -d /tmp/runat-save-olean-cancel-XXXXXX)"
 tmp5="$(mktemp -d /tmp/runat-save-olean-stale-XXXXXX)"
 tmp6="$(mktemp -d /tmp/runat-save-olean-stale-trace-XXXXXX)"
 race_sentinel="$(mktemp /tmp/runat-save-olean-race-sentinel-XXXXXX)"
+cancel_sentinel="$(mktemp /tmp/runat-save-olean-cancel-sentinel-XXXXXX)"
 log1="$(mktemp /tmp/runat-save-olean-build-log-XXXXXX)"
 log2="$(mktemp /tmp/runat-save-olean-broker-log-XXXXXX)"
 log3="$(mktemp /tmp/runat-save-olean-race-log-XXXXXX)"
@@ -137,6 +155,7 @@ cleanup() {
   remove_owned_tmp_tree "$tmp5"
   remove_owned_tmp_tree "$tmp6"
   remove_owned_tmp_file "$race_sentinel"
+  remove_owned_tmp_file "$cancel_sentinel"
   remove_owned_tmp_file "$log1"
   remove_owned_tmp_file "$log2"
   remove_owned_tmp_file "$log3"
@@ -251,13 +270,14 @@ edit_b_slow "$tmp4"
 (
   cd "$tmp4"
   beam --root "$tmp4" shutdown > /dev/null 2>&1 || true
-  beam --root "$tmp4" ensure lean > /dev/null
   close_out="$(mktemp /tmp/runat-close-save-cancel-out-XXXXXX)"
   close_err="$(mktemp /tmp/runat-close-save-cancel-err-XXXXXX)"
-  BEAM_REQUEST_ID=cancel-close-save \
+  remove_owned_tmp_file "$cancel_sentinel"
+  LEAN_BEAM_SAVE_RACE_SENTINEL="$cancel_sentinel" beam --root "$tmp4" ensure lean > /dev/null
+  LEAN_BEAM_SAVE_RACE_SENTINEL="$cancel_sentinel" BEAM_REQUEST_ID=cancel-close-save \
     beam --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
   close_pid=$!
-  sleep 0.5
+  wait_for_file "$cancel_sentinel"
   cancel_json="$(beam --root "$tmp4" cancel cancel-close-save)"
   if ! printf '%s\n' "$cancel_json" | grep -q '"cancelled": true'; then
     echo "expected explicit cancel to report cancelled=true for lean-close-save" >&2
@@ -329,10 +349,10 @@ printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
   sync_err="$(mktemp /tmp/runat-stale-sync-err-XXXXXX)"
   save_out="$(mktemp /tmp/runat-stale-save-out-XXXXXX)"
   save_err="$(mktemp /tmp/runat-stale-save-err-XXXXXX)"
-  BEAM_REQUEST_ID=concurrent-stale-sync \
+  BEAM_PROGRESS=1 BEAM_REQUEST_ID=concurrent-stale-sync \
     beam --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
   sync_pid=$!
-  sleep 0.1
+  wait_for_file_text "$sync_err" "syncing SaveSmoke/A.lean" "concurrent stale lean-sync start"
   BEAM_REQUEST_ID=concurrent-stale-save \
     beam --root "$tmp5" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err" &
   save_pid=$!

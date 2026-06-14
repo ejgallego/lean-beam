@@ -8,6 +8,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# shellcheck source=tests/lib/beam-wrapper-common.sh
+. tests/lib/beam-wrapper-common.sh
+
 platform_system="$(uname -s)"
 if [ "$platform_system" != "Linux" ]; then
   echo "skipping sandbox wrapper regression on unsupported platform: $platform_system" >&2
@@ -37,18 +40,6 @@ if ! bwrap --new-session --die-with-parent \
   exit 0
 fi
 
-read_json_field() {
-  python3 - "$1" "$2" <<'PY'
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-value = data
-for part in sys.argv[2].split("."):
-    value = value[part]
-print(value)
-PY
-}
-
 tmp_root="$(mktemp -d /tmp/beam-wrapper-sandbox-XXXXXX)"
 project_root="$tmp_root/project"
 control_root="$tmp_root/control"
@@ -58,23 +49,6 @@ owner_out="$tmp_root/owner.out"
 owner_err="$tmp_root/owner.err"
 follower_out="$tmp_root/follower.out"
 follower_err="$tmp_root/follower.err"
-
-expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/beam-wrapper-sandbox-*|/tmp/runat-validate-*/tmp/beam-wrapper-sandbox-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
-}
-
-remove_owned_tmp_tree() {
-  local path="$1"
-  expect_owned_tmp_dir "$path"
-  rm -rf -- "$path"
-}
 
 cleanup() {
   if [ -n "${hold_pid:-}" ]; then
@@ -122,7 +96,7 @@ sandbox_shell_hold() {
 }
 
 wait_for_registry() {
-  local remaining=30
+  local remaining=300
   while [ "$remaining" -gt 0 ]; do
     registry="$(find "$control_root" -name beam-daemon.json -print | sed -n '1p')"
     if [ -n "$registry" ] && [ -f "$registry" ]; then
@@ -198,15 +172,31 @@ hold_pid=""
 
 find "$control_root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 
-sandbox_beam sync CommandA.lean >"$owner_out" 2>"$owner_err" &
+sandbox_beam ensure lean >"$owner_out" 2>"$owner_err" &
 owner_pid="$!"
-sleep 0.2
+if ! wait_for_registry; then
+  echo "expected owner sandbox wrapper request to create a control-dir registry" >&2
+  cat "$owner_err" >&2
+  exit 1
+fi
 BEAM_PROGRESS=1 BEAM_REQUEST_ID=wrapper-sandbox-follower \
   sandbox_beam lean-run-at tests/scenario/docs/SlowPoll.lean 25 2 poll_sleep_cmd \
   >"$follower_out" 2>"$follower_err" &
 follower_pid="$!"
 
-sleep 1
+if ! wait_for_file_text "$follower_err" "snapshot progress" "follower sandbox wrapper request progress"; then
+  cat "$owner_out" >&2
+  cat "$owner_err" >&2
+  cat "$follower_out" >&2
+  cat "$follower_err" >&2
+  exit 1
+fi
+if ! wait_for_nonempty_file "$owner_out" "owner sandbox ensure response"; then
+  cat "$owner_err" >&2
+  cat "$follower_out" >&2
+  cat "$follower_err" >&2
+  exit 1
+fi
 
 if ! kill -0 "$follower_pid" 2>/dev/null; then
   echo "expected the follower sandbox request to stay alive while the owner request finishes" >&2
@@ -216,7 +206,6 @@ if ! kill -0 "$follower_pid" 2>/dev/null; then
   cat "$follower_err" >&2
   exit 1
 fi
-
 cancel_json="$(sandbox_beam cancel wrapper-sandbox-follower)"
 if ! printf '%s\n' "$cancel_json" | python3 -c 'import json,sys; payload=json.load(sys.stdin); raise SystemExit(0 if payload.get("result", {}).get("cancelled") is True else 1)'; then
   echo "expected sandbox wrapper cancel request to acknowledge the follower request id" >&2

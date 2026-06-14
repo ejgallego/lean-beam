@@ -237,6 +237,13 @@ asking the backend for more complete structured answers, for example "sync this 
 wait until it is usable, and return save/readiness facts" instead of having the broker infer readiness
 from several notification channels and follow-up requests.
 
+Until that backend-facing readiness primitive exists, keep readiness claims deliberately narrow:
+`fileProgress` is an observable LSP progress signal, and it is a barrier input only for the
+operations that define a diagnostics/save barrier (`sync`, `save`, and `close-save`). Tests that need
+to prove request overlap, cancellation, startup, or stale-state transitions should wait on explicit
+state such as request IDs, response files, registry files, or fixture sentinels instead of treating
+progress as a general semantic-ready signal.
+
 ## Sandboxed Wrapper Path
 
 This wrapper path is easy to break accidentally, so keep the mental model simple.
