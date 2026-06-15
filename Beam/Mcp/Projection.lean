@@ -15,7 +15,7 @@ open Lean
 namespace Beam.Mcp
 
 /--
-Agent-facing MCP tool names supported by the planned Lean projection.
+Agent-facing MCP tool names supported by the Lean projection.
 
 This is intentionally smaller than the broker and LSP surfaces. In particular, raw LSP method names
 such as `$/lean/runAt` are not accepted here.
@@ -96,6 +96,21 @@ def ToolName.kind : ToolName → ToolKind
   | .leanSave => .leanOperation .save
   | .leanClose => .leanOperation .close
 
+def ToolName.ofLeanOperation : Beam.Lean.Operation → ToolName
+  | .runAt => .leanRunAt
+  | .runAtHandle => .leanRunAtHandle
+  | .hover => .leanHover
+  | .goalsAfter => .leanGoalsAfter
+  | .goalsPrev => .leanGoalsPrev
+  | .todo => .leanTodo
+  | .runWith => .leanRunWith
+  | .runWithLinear => .leanRunWithLinear
+  | .release => .leanRelease
+  | .sync => .leanSync
+  | .deps => .leanDeps
+  | .save => .leanSave
+  | .close => .leanClose
+
 def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
   match tool.kind with
   | .leanOperation operation => operation.expectsRunAtResult
@@ -126,29 +141,18 @@ def initWorkspaceInputSchema : Json :=
     ("mode", enumString initWorkspaceModeDescription Beam.Workspace.initModeKeys)
   ] #["root"]
 
-/-- Minimal descriptor for the planned MCP tool list. -/
+/-- Minimal descriptor for the MCP tool list. -/
 structure ToolDescriptor where
   name : ToolName
   kind : ToolKind
   description : String
   inputSchema : Json
 
-def toolNames : Array ToolName := #[
-  .leanInitWorkspace,
-  .leanRunAt,
-  .leanRunAtHandle,
-  .leanHover,
-  .leanGoalsAfter,
-  .leanGoalsPrev,
-  .leanTodo,
-  .leanRunWith,
-  .leanRunWithLinear,
-  .leanRelease,
-  .leanSync,
-  .leanDeps,
-  .leanSave,
-  .leanClose
-]
+def leanOperationToolNames : Array ToolName :=
+  Beam.Lean.Operation.all.map ToolName.ofLeanOperation
+
+def toolNames : Array ToolName :=
+  #[.leanInitWorkspace] ++ leanOperationToolNames
 
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
   match tool.kind with
@@ -230,7 +234,7 @@ def ToolError.runtimeSetup (message : String) : ToolError :=
   { code := "runtimeSetup", message }
 
 /--
-Normalize a broker-level `runAt` result into the planned agent-facing field names.
+Normalize a broker-level `runAt` result into the agent-facing field names.
 
 The MCP surface uses `next_handle` and `proof_state` rather than the Lean/LSP payload's
 `handle`/`proofState` names. `next_handle` is the broker-wrapped handle that follow-up tools pass
@@ -306,7 +310,7 @@ private def withMetadata
   | none => json
 
 /--
-Normalize a broker response into the future MCP tool result content.
+Normalize a broker response into MCP tool result content.
 
 Broker-level failures become `ToolError`s so an MCP server can map them to tool/JSON-RPC errors.
 Semantic Lean failures remain normal tool results with `success = false`.

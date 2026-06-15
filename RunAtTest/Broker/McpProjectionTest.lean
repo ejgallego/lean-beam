@@ -63,6 +63,18 @@ private def checkToolNames : IO Unit := do
 private def checkToolDescriptors : IO Unit := do
   require "tool descriptor count tracks tool name count"
     (Beam.Mcp.toolDescriptors.size == Beam.Mcp.toolNames.size)
+  let mut seenToolKeys : Array String := #[]
+  for tool in Beam.Mcp.toolNames do
+    require s!"duplicate MCP tool name {tool.key}" (!seenToolKeys.contains tool.key)
+    seenToolKeys := seenToolKeys.push tool.key
+  require "Lean operation tool names track shared operation surface"
+    (Beam.Mcp.leanOperationToolNames.size == Beam.Lean.Operation.all.size)
+  for op in Beam.Lean.Operation.all do
+    let tool := Beam.Mcp.ToolName.ofLeanOperation op
+    require s!"Lean operation {repr op} maps back to the expected tool kind"
+      (tool.kind == .leanOperation op)
+    require s!"Lean operation tool list is missing {repr tool}"
+      (Beam.Mcp.leanOperationToolNames.contains tool)
   require "init workspace descriptor is exposed as setup tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanInitWorkspace && desc.kind == .workspaceInit))
