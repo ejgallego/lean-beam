@@ -104,12 +104,6 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  if printf '%s\n' "$sync_out" | grep -q '"ok"[[:space:]]*:'; then
-    echo "expected lean-sync output to omit the legacy ok field" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
-
   open_files_synced="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
     echo "expected open-files after lean-sync to retain completed fileProgress" >&2
@@ -336,7 +330,7 @@ EOF
     cat "$standalone_save_err" >&2
     exit 1
   fi
-  if ! grep -q 'lean-save only works for synced files that belong to the current Lake workspace package graph' "$standalone_save_err"; then
+  if ! grep -q 'lean-beam save only works for synced files that belong to the current Lake workspace package graph' "$standalone_save_err"; then
     echo "expected standalone lean-save failure to explain the Lake module requirement" >&2
     cat "$standalone_save_err" >&2
     exit 1

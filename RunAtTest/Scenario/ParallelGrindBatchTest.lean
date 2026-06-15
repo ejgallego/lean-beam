@@ -24,70 +24,80 @@ private def insertedText : String :=
 
 private def reportJson
     (runAtBatchWallTimeUs changeBatchILeansWallTimeUs : Nat)
-    (scannedSorryCount declarationSorryDiagnosticCount finalDiagnosticCount remainingSorryCount : Nat)
+    (todoSorryCount declarationSorryDiagnosticCount finalDiagnosticCount remainingSorryCount : Nat)
     (saveReady : RunAt.Internal.SaveReadinessResult) : Json :=
   Json.mkObj [
     ("kind", toJson ("parallelGrindBatchReport" : String)),
     ("fixture", toJson fixturePath.toString),
     ("runAtBatchWallTimeUs", toJson runAtBatchWallTimeUs),
     ("changeBatchILeansWallTimeUs", toJson changeBatchILeansWallTimeUs),
-    ("scannedSorryCount", toJson scannedSorryCount),
+    ("todoSorryCount", toJson todoSorryCount),
     ("declarationSorryDiagnosticCount", toJson declarationSorryDiagnosticCount),
     ("finalDiagnosticCount", toJson finalDiagnosticCount),
     ("remainingSorryDiagnosticCount", toJson remainingSorryCount),
     ("saveReady", toJson saveReady.saveReady),
     ("saveReadyReason", toJson saveReady.saveReadyReason),
-    ("diagnosticErrorCount", toJson saveReady.diagnosticErrorCount),
+    ("saveBlockingErrorCount", toJson saveReady.saveBlockingErrorCount),
     ("commandErrorCount", toJson saveReady.commandErrorCount)
   ]
 
-private def sortChangesDescending (changes : Array ChangeSpec) : Array ChangeSpec :=
-  changes.qsort fun a b =>
-    if a.line == b.line then
-      a.character > b.character
+private structure TodoPlan where
+  item : RunAt.TodoItem
+  change : ChangeSpec
+
+private def sortPlansDescending (plans : Array TodoPlan) : Array TodoPlan :=
+  plans.qsort fun a b =>
+    if a.change.line == b.change.line then
+      a.change.character > b.change.character
     else
-      a.line > b.line
+      a.change.line > b.change.line
 
-private def fixtureLines : IO (Array String) := do
-  return (← IO.FS.readFile fixturePath).splitOn "\n" |>.toArray
+private def endLineOf (source : String) : Nat :=
+  source.foldl (init := 0) fun count ch =>
+    if ch == '\n' then count + 1 else count
 
-private def leadingSpaces (line : String) : Nat :=
-  line.toList.takeWhile (· == ' ') |>.length
+private def fixtureEndLine : IO Nat := do
+  return endLineOf (← IO.FS.readFile fixturePath)
 
-private def findSorryColumns (line : String) : Array Nat := Id.run do
-  let parts := (line.splitOn "sorry").toArray
-  let mut cols := #[]
-  let mut offset := 0
-  for i in [:parts.size] do
-    if i + 1 < parts.size then
-      let some part := parts[i]?
-        | panic! "splitOn index out of bounds"
-      cols := cols.push (offset + part.length)
-      offset := offset + part.length + "sorry".length
-  cols
+private def requestSorryTodos (doc : DocHandle) (endLine : Nat) : ScenarioM RunAt.TodoResult := do
+  let req ← sendTodo doc {
+    startLine := 0
+    startCharacter := 0
+    endLine
+    endCharacter := 0
+    kinds? := some #[.sorry]
+    suggest? := some .none
+  }
+  awaitResponseAs req
 
-private def extractSorryChanges (lines : Array String) (diagnostics : PublishDiagnosticsParams) :
-    ScenarioM (Array ChangeSpec) := do
+private def extractTodoPlans
+    (result : RunAt.TodoResult)
+    (diagnostics : PublishDiagnosticsParams) :
+    ScenarioM (Array TodoPlan) := do
   let sorryDiags := diagnostics.diagnostics.filter (fun diag => diag.message.contains sorryWarning)
   if sorryDiags.size != 10 then
     throw <| IO.userError s!"expected exactly 10 sorry diagnostics, got {sorryDiags.size}"
-  let mut edits := #[]
-  for lineNo in [:lines.size] do
-    let some line := lines[lineNo]?
-      | panic! "lines index out of bounds"
-    let cols := findSorryColumns line
-    for i in [:cols.size] do
-      let some col := cols[i]?
-        | panic! "sorry column index out of bounds"
-      edits := edits.push {
-        line := lineNo
-        character := col
+  if result.items.size != 100 then
+    throw <| IO.userError s!"expected exactly 100 todo sorry items, got {result.items.size}: {(toJson result).compress}"
+  let mut plans := #[]
+  for h : i in [:result.items.size] do
+    let item := result.items[i]
+    if item.kind != .sorry then
+      throw <| IO.userError s!"expected todo item {i} to be a sorry, got {(toJson item).compress}"
+    if item.runAtText?.isSome then
+      throw <| IO.userError s!"expected suggest=none to omit runAtText, got {(toJson item).compress}"
+    plans := plans.push {
+      item
+      change := {
+        line := item.range.start.line
+        character := item.range.start.character
+        endLine? := some item.range.«end».line
+        endCharacter? := some item.range.«end».character
         delete := "sorry"
         insert := insertedText
       }
-  if edits.size != 100 then
-    throw <| IO.userError s!"expected exactly 100 scanned sorry tokens, got {edits.size}"
-  pure <| sortChangesDescending edits
+    }
+  pure <| sortPlansDescending plans
 
 private def expectSolvedGrind (index : Nat) (result : RunAt.Result) : ScenarioM Unit := do
   if !result.success then
@@ -102,20 +112,21 @@ private def expectSolvedGrind (index : Nat) (result : RunAt.Result) : ScenarioM 
 
 def main : IO Unit := do
   let report ← RunAtTest.Scenario.run do
-    let lines ← fixtureLines
+    let endLine ← fixtureEndLine
     let doc ← openDoc fixturePath
 
     let initialDiagnostics ← waitForILeansDiagnostics doc
-    let edits ← extractSorryChanges lines initialDiagnostics
-    let scannedSorryCount := edits.size
+    let todoResult ← requestSorryTodos doc endLine
+    let plans ← extractTodoPlans todoResult initialDiagnostics
+    let todoSorryCount := plans.size
     let diagnosticSorryCount :=
       initialDiagnostics.diagnostics.filter (fun diag => diag.message.contains sorryWarning) |>.size
 
     let runAtStartedAt ← IO.monoNanosNow
-    let requests ← edits.mapM fun edit =>
+    let requests ← plans.mapM fun plan =>
       sendRunAt doc {
-        line := edit.line
-        character := edit.character
+        line := plan.item.runAtPosition.line
+        character := plan.item.runAtPosition.character
         text := insertedText
       }
 
@@ -125,6 +136,7 @@ def main : IO Unit := do
     let runAtFinishedAt ← IO.monoNanosNow
 
     let changeStartedAt ← IO.monoNanosNow
+    let edits := plans.map (fun plan => plan.change)
     changeDocBatch doc edits
     let finalDiagnostics ← waitForILeansDiagnostics doc
     let changeILeansFinishedAt ← IO.monoNanosNow
@@ -141,8 +153,8 @@ def main : IO Unit := do
       throw <| IO.userError s!"expected saveReadiness = true after the grind batch, got {(toJson readiness).compress}"
     if readiness.saveReadyReason != "ok" then
       throw <| IO.userError s!"expected saveReadiness reason = ok, got {(toJson readiness).compress}"
-    if readiness.diagnosticErrorCount != 0 then
-      throw <| IO.userError s!"expected diagnosticErrorCount = 0, got {(toJson readiness).compress}"
+    if readiness.saveBlockingErrorCount != 0 then
+      throw <| IO.userError s!"expected saveBlockingErrorCount = 0, got {(toJson readiness).compress}"
     if readiness.commandErrorCount != 0 then
       throw <| IO.userError s!"expected commandErrorCount = 0, got {(toJson readiness).compress}"
 
@@ -150,7 +162,7 @@ def main : IO Unit := do
     pure <| reportJson
       ((runAtFinishedAt - runAtStartedAt) / 1000)
       ((changeILeansFinishedAt - changeStartedAt) / 1000)
-      scannedSorryCount
+      todoSorryCount
       diagnosticSorryCount
       finalDiagnostics.diagnostics.size
       remainingSorryDiags.size

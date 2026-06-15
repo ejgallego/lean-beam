@@ -9,6 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 lake build RunAt:shared > /dev/null
+lake build RunAtTest > /dev/null
 lake build RunAtTest.Deps.DepA > /dev/null
 
 run_case() {
@@ -72,14 +73,14 @@ with open(sys.argv[1]) as f:
 
 assert data["kind"] == "parallelGrindBatchReport", data
 assert data["fixture"] == "tests/scenario/docs/ParallelGrind10.lean", data
-assert data["scannedSorryCount"] == 100, data
+assert data["todoSorryCount"] == 100, data
 assert data["declarationSorryDiagnosticCount"] == 10, data
 assert data["remainingSorryDiagnosticCount"] == 0, data
 assert data["runAtBatchWallTimeUs"] > 0, data
 assert data["changeBatchILeansWallTimeUs"] > 0, data
 assert data["saveReady"] is True, data
 assert data["saveReadyReason"] == "ok", data
-assert data["diagnosticErrorCount"] == 0, data
+assert data["saveBlockingErrorCount"] == 0, data
 assert data["commandErrorCount"] == 0, data
 PY
   rm -f "$report"

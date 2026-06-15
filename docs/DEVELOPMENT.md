@@ -158,7 +158,7 @@ When adding an MCP-facing operation, use this order:
    [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean) for generated
    tool schema, lifecycle, root setup, and protocol error-shape expectations.
 8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
-   focused MCP test executables, `git diff --check`, and `bash tests/test-broker-fast.sh`.
+   focused MCP test executables, `git diff --check`, and `bash tests/test-beam-fast.sh`.
 
 For setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,
 put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary explicit

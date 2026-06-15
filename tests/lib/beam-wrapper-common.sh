@@ -454,12 +454,12 @@ beam_wrapper_remove_owned_tree() {
 beam_wrapper_cleanup() {
   local pid root
 
-  for pid in "${beam_wrapper_managed_pids[@]}"; do
+  for pid in ${beam_wrapper_managed_pids[@]+"${beam_wrapper_managed_pids[@]}"}; do
     kill "$pid" > /dev/null 2>&1 || true
     wait "$pid" 2>/dev/null || true
   done
 
-  for root in "${beam_wrapper_managed_roots[@]}"; do
+  for root in ${beam_wrapper_managed_roots[@]+"${beam_wrapper_managed_roots[@]}"}; do
     "$beam_script" --root "$root" shutdown > /dev/null 2>&1 || true
   done
 
