@@ -25,8 +25,11 @@ Run the installer from the repo root:
 ./scripts/install-beam.sh
 ```
 
-The installer prompts before filesystem edits. For non-interactive scripts, pass `--dont-ask`; this
-only skips prompts for Beam-owned install paths and does not allow replacing unrelated user files.
+The default installer is interactive: it asks which supported Lean toolchains, agent skills, and
+MCP client registrations to set up. It then shows a compact write summary and asks once for the Beam
+runtime/wrapper install area, selected skill locations, and selected MCP config locations. For
+non-interactive scripts, pass `--dont-ask`; this only skips prompts for requested Beam-owned
+install/config paths and does not allow replacing unrelated user files.
 
 That installs:
 
@@ -42,6 +45,15 @@ Use `--codex`, `--claude`, or `--all-skills` to install the bundled agent skills
 ./scripts/install-beam.sh --all-skills
 ```
 
+Use `--codex-mcp`, `--claude-mcp`, or `--all-mcp` to register the installed `lean-beam-mcp` server
+with Codex and/or Claude Code:
+
+```bash
+./scripts/install-beam.sh --codex-mcp
+./scripts/install-beam.sh --claude-mcp
+./scripts/install-beam.sh --all-mcp
+```
+
 Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional validated Lean bundles:
 
 ```bash
@@ -51,11 +63,21 @@ Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional valida
 
 ## MCP Setup
 
-The installer includes the experimental stdio MCP server as `lean-beam-mcp`. For Codex, register it
-globally with an absolute path so Codex can launch it even if `~/.local/bin` is not on its PATH:
+The installer includes the experimental stdio MCP server as `lean-beam-mcp`. It can register the
+server automatically for Codex, Claude Code, or both:
+
+```bash
+./scripts/install-beam.sh --codex-mcp
+./scripts/install-beam.sh --claude-mcp
+./scripts/install-beam.sh --all-mcp
+```
+
+To register an existing install manually, use an absolute path so the client can launch the server
+even if `~/.local/bin` is not on its PATH:
 
 ```bash
 codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
+claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
 ```
 
 MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
@@ -74,6 +96,7 @@ Direct developer runs and single-project MCP registrations may still pass an exp
 
 ```bash
 codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
+claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
 ```
 
 The `--root` startup flag accepts absolute paths and paths relative to the server's current working

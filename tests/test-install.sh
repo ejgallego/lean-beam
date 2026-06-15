@@ -114,6 +114,26 @@ assert_contains() {
   fi
 }
 
+assert_contains_literal() {
+  local path="$1"
+  local pattern="$2"
+  if ! grep -Fq "$pattern" "$path"; then
+    echo "expected $path to contain literal: $pattern" >&2
+    cat "$path" >&2
+    exit 1
+  fi
+}
+
+assert_not_contains() {
+  local path="$1"
+  local pattern="$2"
+  if grep -q "$pattern" "$path"; then
+    echo "expected $path not to contain pattern: $pattern" >&2
+    cat "$path" >&2
+    exit 1
+  fi
+}
+
 assert_symlink_target() {
   local path="$1"
   local expected="$2"
@@ -289,6 +309,113 @@ run_install_from_source() {
   )
 }
 
+setup_mcp_cli_stubs() {
+  local stub_bin="$1"
+  local log_path="$2"
+  mkdir -p "$stub_bin"
+  rm -f -- "$log_path"
+  cat > "$stub_bin/codex" <<'SH'
+#!/usr/bin/env bash
+{
+  printf 'codex'
+  for arg in "$@"; do
+    printf '|%s' "$arg"
+  done
+  printf '\n'
+} >> "$BEAM_TEST_MCP_STUB_LOG"
+exit 0
+SH
+  cat > "$stub_bin/claude" <<'SH'
+#!/usr/bin/env bash
+{
+  printf 'claude'
+  for arg in "$@"; do
+    printf '|%s' "$arg"
+  done
+  printf '\n'
+} >> "$BEAM_TEST_MCP_STUB_LOG"
+exit 0
+SH
+  chmod +x "$stub_bin/codex" "$stub_bin/claude"
+}
+
+run_install_with_mcp_stubs() {
+  local stub_bin="$1"
+  local log_path="$2"
+  shift 2
+  (
+    cd "$source_checkout"
+    BEAM_TEST_MCP_STUB_LOG="$log_path" PATH="$stub_bin:$PATH" \
+      bash scripts/install-beam.sh --dont-ask "$@" > /dev/null
+  )
+}
+
+run_interactive_install_from_source() {
+  local transcript="$1"
+  local install_home="$2"
+  local install_root="$3"
+  local input_text="$4"
+  shift 4
+  (
+    cd "$source_checkout"
+    python3 - "$transcript" "$install_home" "$install_root" "$input_text" "$@" <<'PY'
+import errno
+import os
+import pty
+import select
+import subprocess
+import sys
+
+transcript_path = sys.argv[1]
+install_home = sys.argv[2]
+install_root = sys.argv[3]
+input_text = sys.argv[4]
+cmd = ["bash", "scripts/install-beam.sh", *sys.argv[5:]]
+env = os.environ.copy()
+env["HOME"] = install_home
+env["BEAM_INSTALL_ROOT"] = install_root
+
+master, slave = pty.openpty()
+proc = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave, close_fds=True, env=env)
+os.close(slave)
+if input_text:
+    os.write(master, input_text.encode())
+
+chunks = []
+while True:
+    ready, _, _ = select.select([master], [], [], 0.1)
+    if master in ready:
+        try:
+            data = os.read(master, 4096)
+        except OSError as exc:
+            if exc.errno == errno.EIO:
+                break
+            raise
+        if not data:
+            break
+        chunks.append(data)
+    if proc.poll() is not None:
+        while True:
+            try:
+                data = os.read(master, 4096)
+            except OSError as exc:
+                if exc.errno == errno.EIO:
+                    break
+                raise
+            if not data:
+                break
+            chunks.append(data)
+        break
+
+rc = proc.wait()
+os.close(master)
+with open(transcript_path, "wb") as f:
+    f.write(b"".join(chunks))
+sys.exit(rc)
+PY
+  )
+}
+
 rsync -a --exclude='.git' ./ "$source_checkout"/
 path_no_elan="$(path_without_elan)"
 if PATH="$path_no_elan" command -v elan >/dev/null 2>&1; then
@@ -378,6 +505,30 @@ remove_tmp_file "$no_prompt_err"
 assert_not_exists "$no_prompt_home/.local"
 assert_not_exists "$no_prompt_install_root"
 
+interactive_home="$tmp_root/interactive-home"
+interactive_install_root="$tmp_root/interactive-install-root"
+interactive_transcript="$tmp_root/install-interactive-transcript"
+mkdir -p "$interactive_home"
+if ! run_interactive_install_from_source "$interactive_transcript" "$interactive_home" "$interactive_install_root" $'\n\n\nY\n'; then
+  echo "expected interactive default install to succeed" >&2
+  cat "$interactive_transcript" >&2
+  exit 1
+fi
+assert_contains "$interactive_transcript" 'Prebuild toolchains'
+assert_contains "$interactive_transcript" 'Agent skills to install'
+assert_contains "$interactive_transcript" 'MCP clients'
+assert_contains "$interactive_transcript" 'commands'
+assert_contains "$interactive_transcript" 'Write Permissions'
+assert_contains "$interactive_transcript" 'Lean Beam will create or update the following locations:'
+assert_contains "$interactive_transcript" 'Beam install'
+assert_contains "$interactive_transcript" 'Allow lean-beam to write to these locations?'
+assert_not_contains "$interactive_transcript" 'Allow this edit?'
+assert_file "$interactive_install_root/.lean-beam-install-root"
+assert_file "$interactive_home/.local/bin/lean-beam"
+assert_not_exists "$interactive_home/.codex"
+assert_not_exists "$interactive_home/.claude"
+remove_tmp_file "$interactive_transcript"
+
 run_step "install default runtime" run_install_from_source
 expected_source_commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
 install_layout_json="$(cd "$source_checkout" && ./.lake/build/bin/beam-cli install-layout)"
@@ -461,6 +612,14 @@ for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
+
+mcp_stub_bin="$tmp_root/mcp-stubs"
+mcp_stub_log="$tmp_root/mcp-stubs.log"
+setup_mcp_cli_stubs "$mcp_stub_bin" "$mcp_stub_log"
+run_step "register MCP clients" run_install_with_mcp_stubs "$mcp_stub_bin" "$mcp_stub_log" --toolchain "$toolchain" --all-mcp
+assert_contains_literal "$mcp_stub_log" "codex|mcp|add|lean-beam|--|$installed_mcp"
+assert_contains_literal "$mcp_stub_log" "claude|mcp|remove|--scope|user|lean-beam"
+assert_contains_literal "$mcp_stub_log" "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp"
 
 blocked_home="$tmp_root/blocked-home"
 blocked_install_root="$tmp_root/blocked-install-root"

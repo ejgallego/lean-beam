@@ -8,8 +8,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$repo_root/scripts/shared-lib.sh"
+codex_home="${CODEX_HOME:-$HOME/.codex}"
 codex_skills_home="${CODEX_HOME:-$HOME/.codex}/skills"
 claude_skills_home="${CLAUDE_HOME:-$HOME/.claude}/skills"
+claude_mcp_user_config="$HOME/.claude.json"
+claude_mcp_backup_home="$HOME/.claude"
 bin_home="${HOME}/.local/bin"
 install_root="${BEAM_INSTALL_ROOT:-$HOME/.local/share/beam}"
 versions_root="$install_root/versions"
@@ -17,14 +20,24 @@ current_root="$install_root/current"
 state_root="$install_root/state"
 install_bundles_root="$state_root/install-bundles"
 beam_cli="$repo_root/.lake/build/bin/beam-cli"
-install_notes_path="$repo_root/scripts/install-beam-notes.txt"
 installer_cmd="./scripts/install-beam.sh"
 install_codex_skills=0
 install_claude_skills=0
+register_codex_mcp=0
+register_claude_mcp=0
 install_all_supported=0
 dont_ask=0
+toolchain_selection_explicit=0
+skill_selection_explicit=0
+mcp_registration_explicit=0
+runtime_writes_approved=0
+bin_writes_approved=0
+source_build_approved=0
 requested_toolchains=()
 installed_skill_targets=()
+registered_mcp_targets=()
+approved_skill_homes=()
+approved_skill_home_count=0
 prepared_repo_toolchain=""
 prepared_selected_toolchains=()
 prepared_payload_id=""
@@ -66,18 +79,20 @@ runtime_payload_spec=(
 usage() {
   cat <<EOF
 Usage:
-  $installer_cmd [--toolchain TOOLCHAIN ... | --all-supported] [--codex] [--claude] [--all-skills]
+  $installer_cmd [OPTIONS]
 
 Installs the local beam command wrappers and self-contained runtime under:
   $install_root
 
-With no flags, this installs:
+With no flags, an interactive install asks which supported Lean toolchains, agent skills, and MCP
+clients to set up before showing the write plan. Press Enter through the setup prompts for the
+minimal runtime install:
   - $bin_home/lean-beam
   - $bin_home/lean-beam-search
   - $bin_home/lean-beam-mcp
   - one prebuilt toolchain build for the repo-pinned Lean toolchain
 
-With no agent flags, this does not install Codex or Claude Code skills.
+With --dont-ask and no agent flags, this does not install Codex or Claude Code skills.
 
 Optional flags:
   --dont-ask    do not prompt before Beam-owned filesystem edits
@@ -89,6 +104,9 @@ Optional flags:
   --codex       install bundled Lean and Rocq skills into $codex_skills_home
   --claude      install bundled Lean and Rocq skills into $claude_skills_home
   --all-skills  install bundled skills for both Codex and Claude Code
+  --codex-mcp   register lean-beam-mcp with Codex
+  --claude-mcp  register lean-beam-mcp with Claude Code user config
+  --all-mcp     register lean-beam-mcp with both Codex and Claude Code
   -h, --help    show this help
 
 Environment:
@@ -193,19 +211,28 @@ require_absolute_path() {
   require_no_parent_refs "$path" "$label"
 }
 
+path_is_within() {
+  local path="$1"
+  local root="$2"
+  case "$path" in
+    "$root"|"$root"/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 require_path_within() {
   local path="$1"
   local root="$2"
   local label="$3"
   require_absolute_path "$path" "$label"
   require_absolute_path "$root" "$label root"
-  case "$path" in
-    "$root"|"$root"/*)
-      ;;
-    *)
-      die "refusing to use $label outside $root: $path"
-      ;;
-  esac
+  if ! path_is_within "$path" "$root"; then
+    die "refusing to use $label outside $root: $path"
+  fi
 }
 
 require_not_root() {
@@ -214,6 +241,42 @@ require_not_root() {
   if [ "$path" = "/" ]; then
     die "refusing to use / as $label"
   fi
+}
+
+path_edit_preapproved() {
+  local path="$1"
+  local skill_home=""
+  if [ "$runtime_writes_approved" -eq 1 ] && path_is_within "$path" "$install_root"; then
+    return 0
+  fi
+  if [ "$bin_writes_approved" -eq 1 ]; then
+    case "$path" in
+      "$bin_home"|"$bin_home/lean-beam"|"$bin_home/lean-beam-search"|"$bin_home/lean-beam-mcp"|"$bin_home/.link-swap-"*)
+        return 0
+        ;;
+    esac
+  fi
+  if [ "$source_build_approved" -eq 1 ] && path_is_within "$path" "$repo_root/.lake"; then
+    return 0
+  fi
+  if [ "$approved_skill_home_count" -gt 0 ]; then
+    for skill_home in "${approved_skill_homes[@]}"; do
+      if path_is_within "$path" "$skill_home"; then
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
+confirm_path_edit() {
+  local action="$1"
+  local path="$2"
+  shift 2
+  if [ "$dont_ask" -eq 1 ] || path_edit_preapproved "$path"; then
+    return 0
+  fi
+  confirm_edit "$action" "$path" "$@"
 }
 
 ensure_dir_for_install() {
@@ -227,7 +290,7 @@ ensure_dir_for_install() {
     fi
     return 0
   fi
-  confirm_edit "create $label directory" "$path"
+  confirm_path_edit "create $label directory" "$path"
   mkdir -p "$path"
 }
 
@@ -286,7 +349,7 @@ write_install_root_marker() {
   if [ -f "$marker" ]; then
     return 0
   fi
-  confirm_edit "mark Beam install root as installer-owned" "$marker"
+  confirm_path_edit "mark Beam install root as installer-owned" "$marker"
   {
     printf 'schema=1\n'
     printf 'owner=lean-beam\n'
@@ -386,7 +449,7 @@ move_staging_dir_into_versions() {
       die "refusing to reuse unmarked existing version directory: $version_dir"
     fi
   fi
-  confirm_edit "publish staged runtime version" "$version_dir"
+  confirm_path_edit "publish staged runtime version" "$version_dir"
   mv "$staging_dir" "$version_dir"
 }
 
@@ -403,7 +466,7 @@ replace_symlink_atomically() {
   link_dir="$(dirname "$link_path")"
   require_path_within "$link_dir" "$allowed_root" "$label parent"
   ensure_dir_for_install "$link_dir" "$label parent"
-  confirm_edit "publish $label" "$link_path -> $target"
+  confirm_path_edit "publish $label" "$link_path" "$link_path -> $target"
   tmp_dir="$(mktemp -d "$link_dir/.link-swap-XXXXXX")"
   require_path_within "$tmp_dir" "$link_dir" "$label temp dir"
   tmp_link="$tmp_dir/link"
@@ -430,21 +493,39 @@ parse_args() {
         if [ "$#" -lt 2 ]; then
           die "missing value for --toolchain"
         fi
+        toolchain_selection_explicit=1
         requested_toolchains+=("$2")
         shift
         ;;
       --all-supported)
+        toolchain_selection_explicit=1
         install_all_supported=1
         ;;
       --codex)
+        skill_selection_explicit=1
         install_codex_skills=1
         ;;
       --claude)
+        skill_selection_explicit=1
         install_claude_skills=1
         ;;
       --all-skills)
+        skill_selection_explicit=1
         install_codex_skills=1
         install_claude_skills=1
+        ;;
+      --codex-mcp)
+        mcp_registration_explicit=1
+        register_codex_mcp=1
+        ;;
+      --claude-mcp)
+        mcp_registration_explicit=1
+        register_claude_mcp=1
+        ;;
+      --all-mcp)
+        mcp_registration_explicit=1
+        register_codex_mcp=1
+        register_claude_mcp=1
         ;;
       -h|--help|help)
         usage
@@ -464,7 +545,6 @@ validate_install_config() {
   require_absolute_path "$repo_root" "repo root"
   require_absolute_path "$bin_home" "bin home"
   require_absolute_path "$install_root" "install root"
-  require_absolute_path "$install_notes_path" "install notes path"
   require_not_root "$bin_home" "bin home"
   require_not_root "$install_root" "install root"
   require_path_within "$versions_root" "$install_root" "versions root"
@@ -518,6 +598,167 @@ array_contains() {
   return 1
 }
 
+prompt_toolchain_selection() {
+  local repo_toolchain="$1"
+  local supported_toolchains=()
+  local selected=()
+  local toolchain=""
+  local reply=""
+  local token=""
+  local index=""
+  local ordinal=1
+
+  while IFS= read -r toolchain; do
+    [ -n "$toolchain" ] || continue
+    supported_toolchains+=("$toolchain")
+  done < <(read_supported_toolchains)
+  if [ "${#supported_toolchains[@]}" -eq 0 ]; then
+    die "beam CLI reported no supported Lean toolchains"
+  fi
+
+  print_section "$style_blue" "Lean Toolchains"
+  printf 'Supported toolchains:\n' >&2
+  for toolchain in "${supported_toolchains[@]}"; do
+    if [ "$toolchain" = "$repo_toolchain" ]; then
+      printf '  %d) %s (default)\n' "$ordinal" "$toolchain" >&2
+    else
+      printf '  %d) %s\n' "$ordinal" "$toolchain" >&2
+    fi
+    ordinal=$((ordinal + 1))
+  done
+  printf 'Prebuild toolchains [Enter: %s; numbers, names, or all]: ' "$repo_toolchain" >&2
+  IFS= read -r reply
+  reply="${reply//,/ }"
+  if [ -z "$reply" ]; then
+    requested_toolchains=("$repo_toolchain")
+    install_all_supported=0
+    return 0
+  fi
+  if [ "$reply" = "all" ] || [ "$reply" = "ALL" ] || [ "$reply" = "All" ]; then
+    requested_toolchains=()
+    install_all_supported=1
+    return 0
+  fi
+  for token in $reply; do
+    case "$token" in
+      all|ALL|All)
+        requested_toolchains=()
+        install_all_supported=1
+        return 0
+        ;;
+      *[!0-9]*)
+        if ! array_contains "$token" "${supported_toolchains[@]}"; then
+          die "unsupported Lean toolchain selected for install: $token"
+        fi
+        if [ "${#selected[@]}" -eq 0 ] || ! array_contains "$token" "${selected[@]}"; then
+          selected+=("$token")
+        fi
+        ;;
+      *)
+        if [ "$token" -lt 1 ] || [ "$token" -gt "${#supported_toolchains[@]}" ]; then
+          die "toolchain selection out of range: $token"
+        fi
+        index=$((token - 1))
+        toolchain="${supported_toolchains[$index]}"
+        if [ "${#selected[@]}" -eq 0 ] || ! array_contains "$toolchain" "${selected[@]}"; then
+          selected+=("$toolchain")
+        fi
+        ;;
+    esac
+  done
+  if [ "${#selected[@]}" -eq 0 ]; then
+    die "no Lean toolchains selected"
+  fi
+  requested_toolchains=("${selected[@]}")
+  install_all_supported=0
+}
+
+prompt_skill_selection() {
+  local reply=""
+  local choice=""
+  print_section "$style_blue" "Agent Skills"
+  printf 'Agent skills to install:\n' >&2
+  printf '  1) none (default)\n' >&2
+  printf '  2) Codex (%s)\n' "$codex_skills_home" >&2
+  printf '  3) Claude Code (%s)\n' "$claude_skills_home" >&2
+  printf '  4) both\n' >&2
+  printf 'Install skills [Enter: none]: ' >&2
+  IFS= read -r reply
+  choice="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  case "$choice" in
+    ""|1|n|no|none)
+      install_codex_skills=0
+      install_claude_skills=0
+      ;;
+    2|c|codex)
+      install_codex_skills=1
+      install_claude_skills=0
+      ;;
+    3|claude|"claude code"|claude-code)
+      install_codex_skills=0
+      install_claude_skills=1
+      ;;
+    4|b|both|all)
+      install_codex_skills=1
+      install_claude_skills=1
+      ;;
+    *)
+      die "unknown skill selection: $reply"
+      ;;
+  esac
+}
+
+prompt_mcp_registration_selection() {
+  local reply=""
+  local choice=""
+  print_section "$style_blue" "MCP Registration"
+  printf 'Register lean-beam-mcp with:\n' >&2
+  printf '  1) none (default)\n' >&2
+  printf '  2) Codex\n' >&2
+  printf '  3) Claude Code\n' >&2
+  printf '  4) both\n' >&2
+  printf 'MCP clients [Enter: none]: ' >&2
+  IFS= read -r reply
+  choice="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  case "$choice" in
+    ""|1|n|no|none)
+      register_codex_mcp=0
+      register_claude_mcp=0
+      ;;
+    2|c|codex)
+      register_codex_mcp=1
+      register_claude_mcp=0
+      ;;
+    3|claude|"claude code"|claude-code)
+      register_codex_mcp=0
+      register_claude_mcp=1
+      ;;
+    4|b|both|all)
+      register_codex_mcp=1
+      register_claude_mcp=1
+      ;;
+    *)
+      die "unknown MCP registration selection: $reply"
+      ;;
+  esac
+}
+
+maybe_prompt_interactive_choices() {
+  local repo_toolchain="$1"
+  if [ "$dont_ask" -eq 1 ] || [ ! -t 0 ]; then
+    return 0
+  fi
+  if [ "$toolchain_selection_explicit" -eq 0 ]; then
+    prompt_toolchain_selection "$repo_toolchain"
+  fi
+  if [ "$skill_selection_explicit" -eq 0 ]; then
+    prompt_skill_selection
+  fi
+  if [ "$mcp_registration_explicit" -eq 0 ]; then
+    prompt_mcp_registration_selection
+  fi
+}
+
 resolve_install_toolchains() {
   local repo_toolchain="$1"
   local supported_toolchains=()
@@ -557,23 +798,58 @@ resolve_install_toolchains() {
   printf '%s\n' "${selected[@]}"
 }
 
+runtime_artifacts_ready() {
+  [ -x "$beam_cli" ] \
+    && [ -x "$repo_root/.lake/build/bin/beam-daemon" ] \
+    && [ -x "$repo_root/.lake/build/bin/beam-client" ] \
+    && [ -x "$repo_root/.lake/build/bin/lean-beam-mcp" ] \
+    && [ -f "$repo_root/.lake/build/lib/$runat_plugin_shared_lib" ]
+}
+
 print_install_plan() {
   local resolved_toolchains="$1"
   local toolchain=""
   print_section "$style_blue" "Install Plan"
-  print_field "install root" "$install_root"
-  print_field "bin directory" "$bin_home"
-  print_field "bundle cache" "$install_bundles_root"
-  print_field "Codex skills" "$(if [ "$install_codex_skills" -eq 1 ]; then printf '%s' "$codex_skills_home"; else printf 'not requested'; fi)"
-  print_field "Claude skills" "$(if [ "$install_claude_skills" -eq 1 ]; then printf '%s' "$claude_skills_home"; else printf 'not requested'; fi)"
+  print_field "runtime" "$install_root"
+  print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
+  print_field "bundles" "$install_bundles_root"
   if [ -n "$resolved_toolchains" ]; then
+    local first_toolchain=1
     while IFS= read -r toolchain; do
       [ -n "$toolchain" ] || continue
-      print_field "toolchain" "$toolchain"
+      if [ "$first_toolchain" -eq 1 ]; then
+        print_field "toolchains" "$toolchain"
+        first_toolchain=0
+      else
+        print_field "" "$toolchain"
+      fi
     done <<< "$resolved_toolchains"
   fi
+  if [ "$install_codex_skills" -eq 0 ] && [ "$install_claude_skills" -eq 0 ]; then
+    print_field "skills" "none"
+  else
+    if [ "$install_codex_skills" -eq 1 ]; then
+      print_field "Codex skills" "$codex_skills_home/{lean-beam,rocq-beam}"
+    fi
+    if [ "$install_claude_skills" -eq 1 ]; then
+      print_field "Claude skills" "$claude_skills_home/{lean-beam,rocq-beam}"
+    fi
+  fi
+  if [ "$register_codex_mcp" -eq 0 ] && [ "$register_claude_mcp" -eq 0 ]; then
+    print_field "MCP setup" "none"
+  else
+    if [ "$register_codex_mcp" -eq 1 ]; then
+      print_field "Codex MCP" "lean-beam -> $bin_home/lean-beam-mcp"
+    fi
+    if [ "$register_claude_mcp" -eq 1 ]; then
+      print_field "Claude MCP" "lean-beam -> $bin_home/lean-beam-mcp"
+    fi
+  fi
+  if ! runtime_artifacts_ready; then
+    print_field "source build" "$repo_root/.lake"
+  fi
   if [ "$dont_ask" -eq 0 ]; then
-    print_field "approval" "each filesystem edit will ask first"
+    print_field "approval" "one grouped write-permission prompt"
   else
     print_field "approval" "--dont-ask supplied; safety checks still apply"
   fi
@@ -601,14 +877,10 @@ hash_tree() {
 }
 
 ensure_runtime_artifacts() {
-  if [ -x "$beam_cli" ] \
-    && [ -x "$repo_root/.lake/build/bin/beam-daemon" ] \
-    && [ -x "$repo_root/.lake/build/bin/beam-client" ] \
-    && [ -x "$repo_root/.lake/build/bin/lean-beam-mcp" ] \
-    && [ -f "$repo_root/.lake/build/lib/$runat_plugin_shared_lib" ]; then
+  if runtime_artifacts_ready; then
     return 0
   fi
-  confirm_edit "build Beam runtime artifacts in the source checkout" "$repo_root/.lake/build"
+  confirm_path_edit "build Beam runtime artifacts in the source checkout" "$repo_root/.lake/build"
   echo "building beam runtime artifacts" >&2
   (
     cd "$repo_root"
@@ -679,7 +951,7 @@ prebuild_bundle() {
   local toolchain="$2"
   local bundle_home="$3"
   ensure_dir_for_install "$bundle_home" "install bundle cache"
-  confirm_edit "prebuild Beam bundle" "$toolchain" "$bundle_home"
+  confirm_path_edit "prebuild Beam bundle" "$bundle_home" "$toolchain"
   BEAM_HOME="$runtime_home" BEAM_INSTALL_BUNDLE_DIR="$bundle_home" \
     "$runtime_home/libexec/beam-cli" bundle-install "$toolchain"
 }
@@ -713,7 +985,7 @@ install_one_skill() {
   parent="$(dirname "$target_dir")"
   ensure_dir_for_install "$parent" "$label skill parent"
   ensure_skill_target_replaceable "$target_dir" "$label"
-  confirm_edit "install $label skill" "$target_dir"
+  confirm_path_edit "install $label skill" "$target_dir"
   staging_dir="$(mktemp -d "$parent/.${label}.staging-XXXXXX")"
   require_path_within "$staging_dir" "$parent" "$label skill staging directory"
   cp -Rp "$source_dir/." "$staging_dir/"
@@ -759,6 +1031,133 @@ verify_requested_skill_targets() {
   fi
 }
 
+verify_requested_mcp_clients() {
+  if [ "$register_codex_mcp" -eq 1 ]; then
+    require_absolute_path "$codex_home" "Codex home"
+    require_not_root "$codex_home" "Codex home"
+    require_absolute_path "$codex_home/config.toml" "Codex MCP config"
+    if ! command -v codex >/dev/null 2>&1; then
+      die "cannot register Codex MCP server because codex is not on PATH"
+    fi
+  fi
+  if [ "$register_claude_mcp" -eq 1 ]; then
+    require_absolute_path "$claude_mcp_user_config" "Claude Code MCP config"
+    require_absolute_path "$claude_mcp_backup_home" "Claude Code backup home"
+    require_not_root "$claude_mcp_backup_home" "Claude Code backup home"
+    if ! command -v claude >/dev/null 2>&1; then
+      die "cannot register Claude Code MCP server because claude is not on PATH"
+    fi
+  fi
+}
+
+remember_approved_skill_home() {
+  local location="$1"
+  if [ "$approved_skill_home_count" -eq 0 ] || ! array_contains "$location" "${approved_skill_homes[@]}"; then
+    approved_skill_homes+=("$location")
+    approved_skill_home_count=$((approved_skill_home_count + 1))
+  fi
+}
+
+approve_requested_writes() {
+  local reply=""
+  if [ "$install_codex_skills" -eq 1 ]; then
+    remember_approved_skill_home "$codex_skills_home"
+  fi
+  if [ "$install_claude_skills" -eq 1 ]; then
+    remember_approved_skill_home "$claude_skills_home"
+  fi
+  if [ "$dont_ask" -eq 1 ]; then
+    return 0
+  fi
+  if [ "$runtime_writes_approved" -eq 1 ] && [ "$bin_writes_approved" -eq 1 ]; then
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    die "refusing to install without confirmation; rerun with --dont-ask to approve Beam-owned installer edits"
+  fi
+
+  print_section "$style_yellow" "Write Permissions"
+  printf 'Lean Beam will create or update the following locations:\n' >&2
+  printf '\n  Beam install\n' >&2
+  printf '    - Runtime: %s\n' "$install_root" >&2
+  printf '    - Commands: %s\n' "$bin_home" >&2
+  if ! runtime_artifacts_ready; then
+    printf '    - Build output: %s\n' "$repo_root/.lake" >&2
+  fi
+
+  if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ]; then
+    printf '\n  Agent skills\n' >&2
+    if [ "$install_codex_skills" -eq 1 ]; then
+      printf '    - Codex: %s\n' "$codex_skills_home" >&2
+    fi
+    if [ "$install_claude_skills" -eq 1 ]; then
+      printf '    - Claude Code: %s\n' "$claude_skills_home" >&2
+    fi
+  fi
+
+  if [ "$register_codex_mcp" -eq 1 ] || [ "$register_claude_mcp" -eq 1 ]; then
+    printf '\n  MCP registration\n' >&2
+    if [ "$register_codex_mcp" -eq 1 ]; then
+      printf '    - Codex config: %s\n' "$codex_home/config.toml" >&2
+    fi
+    if [ "$register_claude_mcp" -eq 1 ]; then
+      printf '    - Claude Code config: %s\n' "$claude_mcp_user_config" >&2
+      printf '    - Claude Code backups: %s\n' "$claude_mcp_backup_home" >&2
+    fi
+  fi
+
+  printf '\nAllow lean-beam to write to these locations? [y/N] ' >&2
+  IFS= read -r reply
+  case "$reply" in
+    y|Y|yes|YES|Yes)
+      ;;
+    *)
+      die "cancelled before: Write Permissions"
+      ;;
+  esac
+
+  runtime_writes_approved=1
+  bin_writes_approved=1
+  if ! runtime_artifacts_ready; then
+    source_build_approved=1
+  fi
+}
+
+ensure_mcp_config_dir() {
+  local path="$1"
+  local label="$2"
+  require_absolute_path "$path" "$label"
+  require_not_root "$path" "$label"
+  if [ -e "$path" ]; then
+    if [ ! -d "$path" ]; then
+      die "refusing to use non-directory $label at $path"
+    fi
+    return 0
+  fi
+  mkdir -p "$path"
+}
+
+register_codex_mcp_server() {
+  ensure_mcp_config_dir "$codex_home" "Codex home"
+  codex mcp add lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
+  registered_mcp_targets+=("Codex: lean-beam")
+}
+
+register_claude_mcp_server() {
+  claude mcp remove --scope user lean-beam >/dev/null 2>&1 || true
+  claude mcp add --scope user lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
+  registered_mcp_targets+=("Claude Code: lean-beam")
+}
+
+register_requested_mcp_servers() {
+  if [ "$register_codex_mcp" -eq 1 ]; then
+    register_codex_mcp_server
+  fi
+  if [ "$register_claude_mcp" -eq 1 ]; then
+    register_claude_mcp_server
+  fi
+}
+
 prepare_install_environment() {
   local resolved_toolchains=""
   local toolchain=""
@@ -766,8 +1165,14 @@ prepare_install_environment() {
   prepared_repo_toolchain="$(awk 'NR==1 {print $1}' "$repo_root/lean-toolchain")"
   require_repo_toolchain "$prepared_repo_toolchain"
   resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
+  maybe_prompt_interactive_choices "$prepared_repo_toolchain"
+  resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
   print_install_plan "$resolved_toolchains"
   verify_requested_skill_targets
+  verify_requested_mcp_clients
+  ensure_install_root_claimable
+  verify_publish_targets
+  approve_requested_writes
   ensure_install_root_ready
   acquire_install_lock
   ensure_runtime_artifacts
@@ -778,7 +1183,6 @@ prepare_install_environment() {
       prepared_selected_toolchains+=("$toolchain")
     done <<< "$resolved_toolchains"
   fi
-  verify_publish_targets
   ensure_dir_for_install "$bin_home" "bin home"
   ensure_dir_for_install "$versions_root" "versions root"
   ensure_dir_for_install "$state_root" "state root"
@@ -843,11 +1247,16 @@ install_requested_skills() {
 }
 
 print_install_summary() {
-  local version_root="$1"
   shift
   local toolchain=""
-  local codex_status="not installed"
-  local claude_status="not installed"
+  local codex_skill_installed=0
+  local claude_skill_installed=0
+  local codex_mcp_registered=0
+  local claude_mcp_registered=0
+  local codex_skill_state="not installed"
+  local claude_skill_state="not installed"
+  local codex_mcp_state="not registered"
+  local claude_mcp_state="not registered"
   local path_status="$bin_home is not on PATH yet"
 
   if path_contains_dir "$bin_home"; then
@@ -857,22 +1266,30 @@ print_install_summary() {
     for toolchain in "${installed_skill_targets[@]}"; do
       case "$toolchain" in
         Codex:*)
-          codex_status="installed at ${toolchain#Codex: }"
+          codex_skill_installed=1
           ;;
         "Claude Code:"*)
-          claude_status="installed at ${toolchain#Claude Code: }"
+          claude_skill_installed=1
+          ;;
+      esac
+    done
+  fi
+  if [ -n "${registered_mcp_targets[*]-}" ]; then
+    for toolchain in "${registered_mcp_targets[@]}"; do
+      case "$toolchain" in
+        Codex:*)
+          codex_mcp_registered=1
+          ;;
+        "Claude Code:"*)
+          claude_mcp_registered=1
           ;;
       esac
     done
   fi
 
   print_section "$style_green" "Install Complete"
-  print_field "lean-beam" "$bin_home/lean-beam"
-  print_field "lean search helper" "$bin_home/lean-beam-search"
-  print_field "MCP server" "$bin_home/lean-beam-mcp"
-  print_field "active install" "$current_root"
-  print_field "versioned install" "$version_root"
-  print_field "Lean toolchain store" "$install_bundles_root"
+  print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
+  print_field "runtime" "$current_root"
   if [ "$#" -gt 0 ]; then
     print_field "prebuilt toolchains" "$1"
     shift
@@ -884,28 +1301,43 @@ print_install_summary() {
   fi
   print_field "shell PATH" "$path_status"
 
-  print_section "$style_blue" "Agent Skills"
-  print_field "Codex skill" "$codex_status"
-  print_field "Claude skill" "$claude_status"
-  if [ "$codex_status" = "not installed" ] && [ "$claude_status" = "not installed" ]; then
-    print_field "note" "the base install does not add agent skills unless you request them"
+  print_section "$style_green" "Agent Setup"
+  if [ "$codex_skill_installed" -eq 1 ]; then
+    codex_skill_state="installed"
   fi
-
-  print_section "$style_yellow" "Optional Next Steps"
-  if [ "$codex_status" = "not installed" ]; then
-    print_field "Codex" "$installer_cmd --codex"
+  if [ "$claude_skill_installed" -eq 1 ]; then
+    claude_skill_state="installed"
   fi
-  if [ "$claude_status" = "not installed" ]; then
-    print_field "Claude Code" "$installer_cmd --claude"
+  if [ "$codex_mcp_registered" -eq 1 ]; then
+    codex_mcp_state="registered"
   fi
-  if [ "$codex_status" = "not installed" ] || [ "$claude_status" = "not installed" ]; then
-    print_field "both skills" "$installer_cmd --all-skills"
+  if [ "$claude_mcp_registered" -eq 1 ]; then
+    claude_mcp_state="registered"
   fi
-}
-
-print_post_install_notes() {
-  print_section "$style_blue" "Try It"
-  cat "$install_notes_path" >&2
+  print_field "Codex" "skill: $codex_skill_state; MCP: $codex_mcp_state"
+  print_field "Claude Code" "skill: $claude_skill_state; MCP: $claude_mcp_state"
+  if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ]; then
+    print_field "Codex setup" "$installer_cmd --codex --codex-mcp"
+  elif [ "$codex_skill_installed" -eq 0 ]; then
+    print_field "Codex skill" "$installer_cmd --codex"
+  elif [ "$codex_mcp_registered" -eq 0 ]; then
+    print_field "Codex MCP" "$installer_cmd --codex-mcp"
+  fi
+  if [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ]; then
+    print_field "Claude Code setup" "$installer_cmd --claude --claude-mcp"
+  elif [ "$claude_skill_installed" -eq 0 ]; then
+    print_field "Claude Code skill" "$installer_cmd --claude"
+  elif [ "$claude_mcp_registered" -eq 0 ]; then
+    print_field "Claude Code MCP" "$installer_cmd --claude-mcp"
+  fi
+  if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ] \
+    && [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ]; then
+    print_field "both agents" "$installer_cmd --all-skills --all-mcp"
+  fi
+  print_field "Lean Beam help" "$bin_home/lean-beam help"
+  print_field "MCP help" "$bin_home/lean-beam-mcp --help"
+  print_field "install guide" "$repo_root/README.md"
+  print_field "workflow guide" "$repo_root/skills/lean-beam/SKILL.md"
 }
 
 main() {
@@ -915,7 +1347,7 @@ main() {
   validate_install_config
   prepare_install_environment
 
-  confirm_edit "create Beam staging directory" "$install_root/.staging-XXXXXX"
+  confirm_path_edit "create Beam staging directory" "$install_root/.staging-XXXXXX"
   staging_root="$(mktemp -d "$install_root/.staging-XXXXXX")"
   trap 'remove_owned_staging_dir "$staging_root"; release_install_lock' EXIT
   prepare_install_version "$staging_root"
@@ -924,9 +1356,9 @@ main() {
 
   prebuild_install_bundles "$prepared_version_root" "${prepared_selected_toolchains[@]}"
   publish_runtime "$prepared_version_root"
+  register_requested_mcp_servers
   install_requested_skills
   print_install_summary "$prepared_version_root" "${prepared_selected_toolchains[@]}"
-  print_post_install_notes
   release_install_lock
   trap - EXIT
 }
