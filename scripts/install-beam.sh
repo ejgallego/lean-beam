@@ -22,6 +22,7 @@ installer_cmd="./scripts/install-beam.sh"
 install_codex_skills=0
 install_claude_skills=0
 install_all_supported=0
+dont_ask=0
 requested_toolchains=()
 installed_skill_targets=()
 prepared_repo_toolchain=""
@@ -36,6 +37,9 @@ style_blue=""
 style_yellow=""
 style_dim=""
 runat_plugin_shared_lib="$(beam_shared_lib_name runAt_RunAt)"
+install_root_marker=".lean-beam-install-root"
+skill_owner_marker=".lean-beam-skill"
+install_lock_dir="$install_root/.install-lock"
 
 runtime_payload_spec=(
   "copy|rootFiles|RunAt.lean|RunAt.lean"
@@ -76,6 +80,9 @@ With no flags, this installs:
 With no agent flags, this does not install Codex or Claude Code skills.
 
 Optional flags:
+  --dont-ask    do not prompt before Beam-owned filesystem edits
+  --don't-ask   alias for --dont-ask
+  --yes         alias for --dont-ask
   --toolchain    prebuild one supported Lean toolchain; may be repeated
   --all-supported
                 prebuild every supported Lean toolchain
@@ -134,6 +141,42 @@ die() {
   exit 1
 }
 
+confirm_edit() {
+  local action="$1"
+  shift
+  local reply=""
+  local detail=""
+  if [ "$dont_ask" -eq 1 ]; then
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    die "refusing to $action without confirmation; rerun with --dont-ask to approve Beam-owned installer edits"
+  fi
+  printf '\nInstaller wants to %s:\n' "$action" >&2
+  for detail in "$@"; do
+    printf '  %s\n' "$detail" >&2
+  done
+  printf 'Allow this edit? [y/N] ' >&2
+  IFS= read -r reply
+  case "$reply" in
+    y|Y|yes|YES|Yes)
+      ;;
+    *)
+      die "cancelled before: $action"
+      ;;
+  esac
+}
+
+require_no_parent_refs() {
+  local path="$1"
+  local label="$2"
+  case "$path" in
+    *"/../"*|*/..|../*|..)
+      die "$label must not contain '..': $path"
+      ;;
+  esac
+}
+
 require_absolute_path() {
   local path="$1"
   local label="$2"
@@ -147,6 +190,7 @@ require_absolute_path() {
       die "$label must be an absolute path: $path"
       ;;
   esac
+  require_no_parent_refs "$path" "$label"
 }
 
 require_path_within() {
@@ -162,6 +206,29 @@ require_path_within() {
       die "refusing to use $label outside $root: $path"
       ;;
   esac
+}
+
+require_not_root() {
+  local path="$1"
+  local label="$2"
+  if [ "$path" = "/" ]; then
+    die "refusing to use / as $label"
+  fi
+}
+
+ensure_dir_for_install() {
+  local path="$1"
+  local label="$2"
+  require_absolute_path "$path" "$label"
+  require_not_root "$path" "$label"
+  if [ -e "$path" ]; then
+    if [ ! -d "$path" ]; then
+      die "refusing to use non-directory $label at $path"
+    fi
+    return 0
+  fi
+  confirm_edit "create $label directory" "$path"
+  mkdir -p "$path"
 }
 
 require_owned_staging_dir() {
@@ -186,6 +253,108 @@ ensure_replaceable_path() {
   fi
 }
 
+ensure_install_root_claimable() {
+  local entry=""
+  local base=""
+  if [ ! -e "$install_root" ]; then
+    return 0
+  fi
+  if [ -L "$install_root" ]; then
+    die "refusing to use symlinked install root: $install_root"
+  fi
+  if [ ! -d "$install_root" ]; then
+    die "refusing to use non-directory install root: $install_root"
+  fi
+  if [ -f "$install_root/$install_root_marker" ]; then
+    return 0
+  fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    base="$(basename "$entry")"
+    case "$base" in
+      current|versions|state|"$install_root_marker"|.staging-*|.link-swap-*|.install-lock)
+        ;;
+      *)
+        die "refusing to claim install root with unrecognized existing path: $entry"
+        ;;
+    esac
+  done < <(find "$install_root" -mindepth 1 -maxdepth 1 -print)
+}
+
+write_install_root_marker() {
+  local marker="$install_root/$install_root_marker"
+  if [ -f "$marker" ]; then
+    return 0
+  fi
+  confirm_edit "mark Beam install root as installer-owned" "$marker"
+  {
+    printf 'schema=1\n'
+    printf 'owner=lean-beam\n'
+    printf 'root=%s\n' "$install_root"
+  } >"$marker"
+}
+
+ensure_install_root_ready() {
+  require_absolute_path "$install_root" "install root"
+  require_not_root "$install_root" "install root"
+  ensure_install_root_claimable
+  ensure_dir_for_install "$install_root" "install root"
+  write_install_root_marker
+}
+
+release_install_lock() {
+  if [ -d "$install_lock_dir" ] && [ -f "$install_lock_dir/pid" ]; then
+    rm -f -- "$install_lock_dir/pid"
+    rmdir "$install_lock_dir" 2>/dev/null || true
+  fi
+}
+
+acquire_install_lock() {
+  require_path_within "$install_lock_dir" "$install_root" "install lock"
+  if mkdir "$install_lock_dir"; then
+    printf '%s\n' "$$" >"$install_lock_dir/pid"
+    trap 'release_install_lock' EXIT
+  else
+    die "another Beam install appears to be running: $install_lock_dir"
+  fi
+}
+
+symlink_target_text() {
+  local link_path="$1"
+  local target=""
+  local link_dir=""
+  target="$(readlink "$link_path")"
+  require_no_parent_refs "$target" "symlink target"
+  case "$target" in
+    /*)
+      printf '%s\n' "$target"
+      ;;
+    *)
+      link_dir="$(dirname "$link_path")"
+      printf '%s/%s\n' "$link_dir" "$target"
+      ;;
+  esac
+}
+
+ensure_beam_symlink_or_absent() {
+  local path="$1"
+  local root="$2"
+  local label="$3"
+  local target=""
+  require_path_within "$path" "$root" "$label"
+  if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+    return 0
+  fi
+  if [ ! -L "$path" ]; then
+    if [ -d "$path" ]; then
+      die "refusing to replace directory at $path"
+    fi
+    die "refusing to replace non-Beam path at $path"
+  fi
+  target="$(symlink_target_text "$path")"
+  require_path_within "$target" "$install_root" "$label target"
+}
+
 remove_owned_staging_dir() {
   local path="$1"
   require_owned_staging_dir "$path"
@@ -199,7 +368,7 @@ copy_repo_path_if_present() {
   require_path_within "$src" "$repo_root" "copy source"
   require_path_within "$dest" "$dest_root" "copy destination"
   if [ -e "$src" ]; then
-    mkdir -p "$(dirname "$dest")"
+    ensure_dir_for_install "$(dirname "$dest")" "copy destination parent"
     cp -Rp "$src" "$dest"
   fi
 }
@@ -209,6 +378,15 @@ move_staging_dir_into_versions() {
   local version_dir="$2"
   require_owned_staging_dir "$staging_dir"
   require_path_within "$version_dir" "$versions_root" "version dir"
+  if [ -e "$version_dir" ]; then
+    if [ ! -d "$version_dir" ]; then
+      die "refusing to use non-directory version path: $version_dir"
+    fi
+    if [ ! -f "$version_dir/manifest.json" ]; then
+      die "refusing to reuse unmarked existing version directory: $version_dir"
+    fi
+  fi
+  confirm_edit "publish staged runtime version" "$version_dir"
   mv "$staging_dir" "$version_dir"
 }
 
@@ -221,10 +399,11 @@ replace_symlink_atomically() {
   local tmp_dir=""
   local tmp_link=""
   require_absolute_path "$target" "$label target"
-  ensure_replaceable_path "$link_path" "$allowed_root" "$label"
+  ensure_beam_symlink_or_absent "$link_path" "$allowed_root" "$label"
   link_dir="$(dirname "$link_path")"
   require_path_within "$link_dir" "$allowed_root" "$label parent"
-  mkdir -p "$link_dir"
+  ensure_dir_for_install "$link_dir" "$label parent"
+  confirm_edit "publish $label" "$link_path -> $target"
   tmp_dir="$(mktemp -d "$link_dir/.link-swap-XXXXXX")"
   require_path_within "$tmp_dir" "$link_dir" "$label temp dir"
   tmp_link="$tmp_dir/link"
@@ -235,15 +414,18 @@ replace_symlink_atomically() {
 }
 
 verify_publish_targets() {
-  ensure_replaceable_path "$current_root" "$install_root" "current link"
-  ensure_replaceable_path "$bin_home/lean-beam" "$bin_home" "lean-beam wrapper link"
-  ensure_replaceable_path "$bin_home/lean-beam-search" "$bin_home" "lean-beam-search link"
-  ensure_replaceable_path "$bin_home/lean-beam-mcp" "$bin_home" "lean-beam-mcp link"
+  ensure_beam_symlink_or_absent "$current_root" "$install_root" "current link"
+  ensure_beam_symlink_or_absent "$bin_home/lean-beam" "$bin_home" "lean-beam wrapper link"
+  ensure_beam_symlink_or_absent "$bin_home/lean-beam-search" "$bin_home" "lean-beam-search link"
+  ensure_beam_symlink_or_absent "$bin_home/lean-beam-mcp" "$bin_home" "lean-beam-mcp link"
 }
 
 parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --dont-ask|"--don't-ask"|--yes)
+        dont_ask=1
+        ;;
       --toolchain)
         if [ "$#" -lt 2 ]; then
           die "missing value for --toolchain"
@@ -283,6 +465,8 @@ validate_install_config() {
   require_absolute_path "$bin_home" "bin home"
   require_absolute_path "$install_root" "install root"
   require_absolute_path "$install_notes_path" "install notes path"
+  require_not_root "$bin_home" "bin home"
+  require_not_root "$install_root" "install root"
   require_path_within "$versions_root" "$install_root" "versions root"
   require_path_within "$current_root" "$install_root" "current link"
   require_path_within "$state_root" "$install_root" "state root"
@@ -373,6 +557,28 @@ resolve_install_toolchains() {
   printf '%s\n' "${selected[@]}"
 }
 
+print_install_plan() {
+  local resolved_toolchains="$1"
+  local toolchain=""
+  print_section "$style_blue" "Install Plan"
+  print_field "install root" "$install_root"
+  print_field "bin directory" "$bin_home"
+  print_field "bundle cache" "$install_bundles_root"
+  print_field "Codex skills" "$(if [ "$install_codex_skills" -eq 1 ]; then printf '%s' "$codex_skills_home"; else printf 'not requested'; fi)"
+  print_field "Claude skills" "$(if [ "$install_claude_skills" -eq 1 ]; then printf '%s' "$claude_skills_home"; else printf 'not requested'; fi)"
+  if [ -n "$resolved_toolchains" ]; then
+    while IFS= read -r toolchain; do
+      [ -n "$toolchain" ] || continue
+      print_field "toolchain" "$toolchain"
+    done <<< "$resolved_toolchains"
+  fi
+  if [ "$dont_ask" -eq 0 ]; then
+    print_field "approval" "each filesystem edit will ask first"
+  else
+    print_field "approval" "--dont-ask supplied; safety checks still apply"
+  fi
+}
+
 hash_tree() {
   local root="$1"
   local tool
@@ -402,6 +608,7 @@ ensure_runtime_artifacts() {
     && [ -f "$repo_root/.lake/build/lib/$runat_plugin_shared_lib" ]; then
     return 0
   fi
+  confirm_edit "build Beam runtime artifacts in the source checkout" "$repo_root/.lake/build"
   echo "building beam runtime artifacts" >&2
   (
     cd "$repo_root"
@@ -471,28 +678,85 @@ prebuild_bundle() {
   local runtime_home="$1"
   local toolchain="$2"
   local bundle_home="$3"
-  mkdir -p "$bundle_home"
+  ensure_dir_for_install "$bundle_home" "install bundle cache"
+  confirm_edit "prebuild Beam bundle" "$toolchain" "$bundle_home"
   BEAM_HOME="$runtime_home" BEAM_INSTALL_BUNDLE_DIR="$bundle_home" \
     "$runtime_home/libexec/beam-cli" bundle-install "$toolchain"
+}
+
+ensure_skill_target_replaceable() {
+  local target="$1"
+  local label="$2"
+  require_absolute_path "$target" "$label skill directory"
+  if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+    return 0
+  fi
+  if [ -L "$target" ]; then
+    die "refusing to replace symlinked $label skill directory at $target"
+  fi
+  if [ ! -d "$target" ]; then
+    die "refusing to replace non-directory $label skill path at $target"
+  fi
+  if [ ! -f "$target/$skill_owner_marker" ]; then
+    die "refusing to replace unmarked existing $label skill directory at $target"
+  fi
+}
+
+install_one_skill() {
+  local source_dir="$1"
+  local target_dir="$2"
+  local label="$3"
+  local parent=""
+  local staging_dir=""
+  require_path_within "$source_dir" "$repo_root" "$label skill source"
+  require_absolute_path "$target_dir" "$label skill target"
+  parent="$(dirname "$target_dir")"
+  ensure_dir_for_install "$parent" "$label skill parent"
+  ensure_skill_target_replaceable "$target_dir" "$label"
+  confirm_edit "install $label skill" "$target_dir"
+  staging_dir="$(mktemp -d "$parent/.${label}.staging-XXXXXX")"
+  require_path_within "$staging_dir" "$parent" "$label skill staging directory"
+  cp -Rp "$source_dir/." "$staging_dir/"
+  {
+    printf 'schema=1\n'
+    printf 'owner=lean-beam\n'
+    printf 'skill=%s\n' "$label"
+  } >"$staging_dir/$skill_owner_marker"
+  if [ -e "$target_dir" ]; then
+    rm -rf -- "$target_dir"
+  fi
+  mv "$staging_dir" "$target_dir"
 }
 
 install_skills() {
   local skills_home="$1"
   require_absolute_path "$skills_home" "skills home"
-  mkdir -p "$skills_home/lean-beam" "$skills_home/rocq-beam"
-  rsync -a "$repo_root/skills/lean-beam/" "$skills_home/lean-beam/"
-  rsync -a "$repo_root/skills/rocq-beam/" "$skills_home/rocq-beam/"
+  ensure_dir_for_install "$skills_home" "skills home"
+  install_one_skill "$repo_root/skills/lean-beam" "$skills_home/lean-beam" "lean-beam"
+  install_one_skill "$repo_root/skills/rocq-beam" "$skills_home/rocq-beam" "rocq-beam"
 }
 
 install_skill_target() {
-  local enabled="$1"
-  local label="$2"
-  local skills_home="$3"
-  if [ "$enabled" -ne 1 ]; then
-    return 1
-  fi
+  local label="$1"
+  local skills_home="$2"
   install_skills "$skills_home"
   printf '%s: %s\n' "$label" "$skills_home"
+}
+
+verify_skill_home_targets() {
+  local skills_home="$1"
+  require_absolute_path "$skills_home" "skills home"
+  ensure_skill_target_replaceable "$skills_home/lean-beam" "lean-beam"
+  ensure_skill_target_replaceable "$skills_home/rocq-beam" "rocq-beam"
+}
+
+verify_requested_skill_targets() {
+  if [ "$install_codex_skills" -eq 1 ]; then
+    verify_skill_home_targets "$codex_skills_home"
+  fi
+  if [ "$install_claude_skills" -eq 1 ]; then
+    verify_skill_home_targets "$claude_skills_home"
+  fi
 }
 
 prepare_install_environment() {
@@ -502,6 +766,10 @@ prepare_install_environment() {
   prepared_repo_toolchain="$(awk 'NR==1 {print $1}' "$repo_root/lean-toolchain")"
   require_repo_toolchain "$prepared_repo_toolchain"
   resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
+  print_install_plan "$resolved_toolchains"
+  verify_requested_skill_targets
+  ensure_install_root_ready
+  acquire_install_lock
   ensure_runtime_artifacts
   prepared_selected_toolchains=()
   if [ -n "$resolved_toolchains" ]; then
@@ -511,7 +779,9 @@ prepare_install_environment() {
     done <<< "$resolved_toolchains"
   fi
   verify_publish_targets
-  mkdir -p "$bin_home" "$versions_root" "$state_root"
+  ensure_dir_for_install "$bin_home" "bin home"
+  ensure_dir_for_install "$versions_root" "versions root"
+  ensure_dir_for_install "$state_root" "state root"
 }
 
 prepare_install_version() {
@@ -528,6 +798,9 @@ prepare_install_version() {
   if [ ! -d "$prepared_version_root" ]; then
     move_staging_dir_into_versions "$staging_root" "$prepared_version_root"
   else
+    if [ ! -f "$prepared_version_root/manifest.json" ]; then
+      die "refusing to reuse unmarked existing version directory: $prepared_version_root"
+    fi
     remove_owned_staging_dir "$staging_root"
   fi
   if [ ! -f "$prepared_version_root/manifest.json" ]; then
@@ -559,10 +832,12 @@ publish_runtime() {
 
 install_requested_skills() {
   local target=""
-  if target="$(install_skill_target "$install_codex_skills" "Codex" "$codex_skills_home")"; then
+  if [ "$install_codex_skills" -eq 1 ]; then
+    target="$(install_skill_target "Codex" "$codex_skills_home")"
     installed_skill_targets+=("$target")
   fi
-  if target="$(install_skill_target "$install_claude_skills" "Claude Code" "$claude_skills_home")"; then
+  if [ "$install_claude_skills" -eq 1 ]; then
+    target="$(install_skill_target "Claude Code" "$claude_skills_home")"
     installed_skill_targets+=("$target")
   fi
 }
@@ -640,16 +915,20 @@ main() {
   validate_install_config
   prepare_install_environment
 
+  confirm_edit "create Beam staging directory" "$install_root/.staging-XXXXXX"
   staging_root="$(mktemp -d "$install_root/.staging-XXXXXX")"
-  trap 'remove_owned_staging_dir "$staging_root"' EXIT
+  trap 'remove_owned_staging_dir "$staging_root"; release_install_lock' EXIT
   prepare_install_version "$staging_root"
-  trap - EXIT
+  staging_root=""
+  trap 'release_install_lock' EXIT
 
   prebuild_install_bundles "$prepared_version_root" "${prepared_selected_toolchains[@]}"
   publish_runtime "$prepared_version_root"
   install_requested_skills
   print_install_summary "$prepared_version_root" "${prepared_selected_toolchains[@]}"
   print_post_install_notes
+  release_install_lock
+  trap - EXIT
 }
 
 main "$@"
