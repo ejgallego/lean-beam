@@ -357,8 +357,8 @@ likely simplify these spots:
 
 - `RunAt/Requests/Save.lean`: `emitCForSavedModule` selects between the older `Lean.IR.emitC` API and
   the newer `Lean.Compiler.LCNF.emitC` API.
-- `RunAt/Requests/Save.lean`: `collectCurrentDiagnosticsCompat` selects between the older
-  `EditableDocument.diagnosticsRef` API and the newer
+- `RunAt/Requests/Save.lean` and `RunAt/Requests/Todo.lean`: local diagnostics helpers select
+  between the older `EditableDocument.diagnosticsRef` API and the newer
   `EditableDocumentCore.collectCurrentDiagnostics` API.
 - `Beam/Broker/Transport.lean`: the transport uses `Std.Internal.UV.TCP` directly because the async
   TCP wrapper moved from `Std.Internal.Async.TCP` to `Std.Async.TCP`.
