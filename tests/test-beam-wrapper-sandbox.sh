@@ -180,7 +180,7 @@ if ! wait_for_registry; then
   exit 1
 fi
 BEAM_PROGRESS=1 BEAM_REQUEST_ID=wrapper-sandbox-follower \
-  sandbox_beam lean-run-at tests/scenario/docs/SlowPoll.lean 25 2 poll_sleep_cmd \
+  sandbox_beam run-at tests/scenario/docs/SlowPoll.lean 25 2 poll_sleep_cmd \
   >"$follower_out" 2>"$follower_err" &
 follower_pid="$!"
 

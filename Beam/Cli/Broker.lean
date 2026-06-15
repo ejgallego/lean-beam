@@ -134,18 +134,18 @@ private def syncLikeWaitSpec
     failureBoundary := "before a complete diagnostics barrier was available"
   }
 
-def syncWaitSpec (path : String) : BrokerWaitSpec :=
+def syncWaitSpec (path : String) (action : String := "lean-sync") : BrokerWaitSpec :=
   syncLikeWaitSpec
-    (action := "lean-sync")
+    (action := action)
     (path := path)
     (startMsg := s!"beam: syncing {path} and waiting for Lean diagnostics")
     (progressLabel := "sync")
     (stillWaitingLabel := "syncing")
     (completeLabel := "sync")
 
-def refreshWaitSpec (path : String) : BrokerWaitSpec :=
+def refreshWaitSpec (path : String) (action : String := "lean-refresh") : BrokerWaitSpec :=
   syncLikeWaitSpec
-    (action := "lean-refresh")
+    (action := action)
     (path := path)
     (startMsg := s!"beam: refreshing {path} by closing and resyncing")
     (progressLabel := "refresh")
@@ -166,25 +166,31 @@ def leanRunAtWaitSpec (action path : String) (line character : Nat) : BrokerWait
     responseNote? := runAtPayloadSummary? action "probe"
   }
 
-def leanHoverWaitSpec (path : String) (line character : Nat) : BrokerWaitSpec :=
+def leanHoverWaitSpec (path : String) (line character : Nat) (action : String := "lean-hover") :
+    BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
   {
-    action := "lean-hover"
-    startMsg := s!"beam: running lean-hover on {pos} and waiting for a ready Lean snapshot"
+    action := action
+    startMsg := s!"beam: running {action} on {pos} and waiting for a ready Lean snapshot"
     progressMsg := fun progress => s!"beam: hover progress for {pos}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
-      s!"beam: still waiting for lean-hover on {pos} ({seconds}s)"
+      s!"beam: still waiting for {action} on {pos} ({seconds}s)"
     completeMsg := fun resp =>
-      s!"beam: lean-hover complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+      s!"beam: {action} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
     failureBoundary := "before hover data was available"
   }
 
-def leanGoalsWaitSpec (path : String) (line character : Nat) (mode : GoalMode) : BrokerWaitSpec :=
+def leanGoalsWaitSpec
+    (path : String)
+    (line character : Nat)
+    (mode : GoalMode)
+    (action? : Option String := none) : BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
   let action :=
-    match mode with
-    | .after => "lean-goals-after"
-    | .prev => "lean-goals-prev"
+    action?.getD <|
+      match mode with
+      | .after => "lean-goals-after"
+      | .prev => "lean-goals-prev"
   {
     action := action
     startMsg := s!"beam: running {action} on {pos} and waiting for a ready Lean snapshot"
@@ -198,23 +204,28 @@ def leanGoalsWaitSpec (path : String) (line character : Nat) (mode : GoalMode) :
 
 def leanTodoWaitSpec
     (path : String)
-    (startLine startCharacter endLine endCharacter : Nat) : BrokerWaitSpec :=
+    (startLine startCharacter endLine endCharacter : Nat)
+    (action : String := "lean-todo") : BrokerWaitSpec :=
   let pos := s!"{path}:{startLine}:{startCharacter}-{endLine}:{endCharacter}"
   {
-    action := "lean-todo"
-    startMsg := s!"beam: querying lean-todo for {pos} and waiting for Lean diagnostics"
+    action := action
+    startMsg := s!"beam: querying {action} for {pos} and waiting for Lean diagnostics"
     progressMsg := fun progress => s!"beam: todo progress for {pos}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
-      s!"beam: still waiting for lean-todo on {pos} ({seconds}s)"
+      s!"beam: still waiting for {action} on {pos} ({seconds}s)"
     completeMsg := fun resp =>
-      s!"beam: lean-todo complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+      s!"beam: {action} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
     failureBoundary := "before todo inspection completed"
   }
 
-def leanRequestAtWaitSpec (path : String) (line character : Nat) (method : String) : BrokerWaitSpec :=
+def leanRequestAtWaitSpec
+    (path : String)
+    (line character : Nat)
+    (method : String)
+    (action : String := "lean-request-at") : BrokerWaitSpec :=
   let pos := s!"{path}:{line}:{character}"
   {
-    action := s!"lean-request-at {method}"
+    action := s!"{action} {method}"
     startMsg := s!"beam: forwarding experimental {method} at {pos} and waiting for a ready Lean snapshot"
     progressMsg := fun progress => s!"beam: request-at progress for {pos}{syncFileProgressSuffix (some progress)}"
     stillWaitingMsg := fun seconds =>
@@ -224,8 +235,11 @@ def leanRequestAtWaitSpec (path : String) (line character : Nat) (method : Strin
     failureBoundary := s!"before experimental {method} completed"
   }
 
-def leanRunWithWaitSpec (path : String) (linear : Bool := false) : BrokerWaitSpec :=
-  let action := if linear then "lean-run-with-linear" else "lean-run-with"
+def leanRunWithWaitSpec
+    (path : String)
+    (linear : Bool := false)
+    (action? : Option String := none) : BrokerWaitSpec :=
+  let action := action?.getD <| if linear then "lean-run-with-linear" else "lean-run-with"
   {
     action := action
     startMsg := s!"beam: running {action} on {path} and waiting for a ready Lean snapshot"
@@ -238,8 +252,11 @@ def leanRunWithWaitSpec (path : String) (linear : Bool := false) : BrokerWaitSpe
     responseNote? := runAtPayloadSummary? action "continuation"
   }
 
-def leanSaveWaitSpec (path : String) (closeAfter : Bool := false) : BrokerWaitSpec :=
-  let action := if closeAfter then "lean-close-save" else "lean-save"
+def leanSaveWaitSpec
+    (path : String)
+    (closeAfter : Bool := false)
+    (action? : Option String := none) : BrokerWaitSpec :=
+  let action := action?.getD <| if closeAfter then "lean-close-save" else "lean-save"
   let verb := if closeAfter then "closing and saving" else "saving"
   {
     action := action
