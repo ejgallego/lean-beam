@@ -104,6 +104,16 @@ assert_no_skill_socket_guidance() {
   fi
 }
 
+assert_contains() {
+  local path="$1"
+  local pattern="$2"
+  if ! grep -q "$pattern" "$path"; then
+    echo "expected $path to contain pattern: $pattern" >&2
+    cat "$path" >&2
+    exit 1
+  fi
+}
+
 assert_symlink_target() {
   local path="$1"
   local expected="$2"
@@ -260,6 +270,7 @@ assert_bundle_layout() {
     fi
     local workspace
     workspace="$(dirname "$found")/workspace"
+    assert_file "$workspace/.lean-beam-bundle-workspace"
     assert_file "$workspace/Beam.lean"
     assert_file "$workspace/Beam/Broker/Server.lean"
     assert_file "$workspace/RunAt/Internal/SaveArtifacts.lean"
@@ -274,7 +285,7 @@ assert_bundle_layout() {
 run_install_from_source() {
   (
     cd "$source_checkout"
-    bash scripts/install-beam.sh "$@" > /dev/null
+    bash scripts/install-beam.sh --dont-ask "$@" > /dev/null
   )
 }
 
@@ -348,6 +359,25 @@ assert_not_exists "$BEAM_INSTALL_ROOT/current"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 0
 assert_not_exists "$BEAM_INSTALL_ROOT/state"
 
+no_prompt_home="$tmp_root/no-prompt-home"
+no_prompt_install_root="$tmp_root/no-prompt-install-root"
+mkdir -p "$no_prompt_home"
+no_prompt_err="$(mktemp "$tmp_root/install-no-prompt-XXXXXX")"
+if (
+  cd "$source_checkout"
+  HOME="$no_prompt_home" BEAM_INSTALL_ROOT="$no_prompt_install_root" \
+    bash scripts/install-beam.sh > /dev/null 2>"$no_prompt_err"
+); then
+  echo "expected install to fail non-interactively without --dont-ask" >&2
+  cat "$no_prompt_err" >&2
+  remove_tmp_file "$no_prompt_err"
+  exit 1
+fi
+assert_contains "$no_prompt_err" 'without confirmation'
+remove_tmp_file "$no_prompt_err"
+assert_not_exists "$no_prompt_home/.local"
+assert_not_exists "$no_prompt_install_root"
+
 run_step "install default runtime" run_install_from_source
 expected_source_commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
 install_layout_json="$(cd "$source_checkout" && ./.lake/build/bin/beam-cli install-layout)"
@@ -378,6 +408,7 @@ assert_symlink_target "$installed_mcp" "$installed_runtime_root/bin/lean-beam-mc
 assert_not_exists "$HOME/.local/bin/beam"
 assert_not_exists "$HOME/.local/bin/beam-lean-search"
 assert_runtime_layout "$installed_runtime_root"
+assert_file "$BEAM_INSTALL_ROOT/.lean-beam-install-root"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 installed_version_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$installed_runtime_root")"
 installed_payload_id="$(basename "$installed_version_root")"
@@ -387,6 +418,30 @@ BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$insta
 assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"
 assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" "$toolchain"
+
+blocked_bundle_root="$tmp_root/blocked-bundles"
+BEAM_HOME="$installed_runtime_root" BEAM_INSTALL_BUNDLE_DIR="$blocked_bundle_root" \
+  "$installed_runtime_root/libexec/beam-cli" bundle-install "$toolchain" > /dev/null
+blocked_bundle_metadata="$(find "$blocked_bundle_root" -name metadata.json | sort | head -n 1)"
+if [ -z "$blocked_bundle_metadata" ]; then
+  echo "expected blocked bundle setup to create metadata" >&2
+  exit 1
+fi
+blocked_bundle_workspace="$(dirname "$blocked_bundle_metadata")/workspace"
+printf 'sentinel\n' >"$blocked_bundle_workspace/user-file.txt"
+remove_tmp_file "$blocked_bundle_workspace/.lean-beam-bundle-workspace"
+remove_tmp_file "$blocked_bundle_workspace/.lake/build/bin/beam-client"
+blocked_bundle_err="$(mktemp "$tmp_root/bundle-unmarked-workspace-XXXXXX")"
+if BEAM_HOME="$installed_runtime_root" BEAM_INSTALL_BUNDLE_DIR="$blocked_bundle_root" \
+  "$installed_runtime_root/libexec/beam-cli" bundle-install "$toolchain" > /dev/null 2>"$blocked_bundle_err"; then
+  echo "expected bundle rebuild to fail for an unmarked existing workspace" >&2
+  cat "$blocked_bundle_err" >&2
+  remove_tmp_file "$blocked_bundle_err"
+  exit 1
+fi
+assert_contains "$blocked_bundle_err" 'refusing to remove unmarked existing bundle workspace'
+remove_tmp_file "$blocked_bundle_err"
+assert_file "$blocked_bundle_workspace/user-file.txt"
 
 run_step "prebuild all supported bundles" run_install_from_source --all-supported
 
@@ -398,7 +453,9 @@ run_step "install skills" run_install_from_source --toolchain "$toolchain" --all
 
 for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-beam/SKILL.md"
+  assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
   assert_file "$skills_home/skills/rocq-beam/SKILL.md"
+  assert_file "$skills_home/skills/rocq-beam/.lean-beam-skill"
   assert_no_skill_socket_guidance "$skills_home/skills/lean-beam/SKILL.md"
   assert_no_skill_socket_guidance "$skills_home/skills/rocq-beam/SKILL.md"
 done
@@ -413,7 +470,7 @@ blocked_wrapper_err="$(mktemp "$tmp_root/install-wrapper-dir-XXXXXX")"
 if (
   cd "$source_checkout"
   HOME="$blocked_home" BEAM_INSTALL_ROOT="$blocked_install_root" \
-    bash scripts/install-beam.sh > /dev/null 2>"$blocked_wrapper_err"
+    bash scripts/install-beam.sh --dont-ask > /dev/null 2>"$blocked_wrapper_err"
 ); then
   echo "expected install to fail when the wrapper target path is a real directory" >&2
   cat "$blocked_wrapper_err" >&2
@@ -438,6 +495,54 @@ assert_not_exists "$blocked_home/.local/bin/beam-lean-search"
 assert_not_exists "$blocked_install_root/current"
 assert_not_exists "$blocked_install_root/versions"
 assert_not_exists "$blocked_install_root/state"
+
+blocked_file_home="$tmp_root/blocked-file-home"
+blocked_file_install_root="$tmp_root/blocked-file-install-root"
+blocked_lean_beam_file="$blocked_file_home/.local/bin/lean-beam"
+mkdir -p "$(dirname "$blocked_lean_beam_file")" "$blocked_file_install_root"
+printf 'user file\n' >"$blocked_lean_beam_file"
+blocked_file_err="$(mktemp "$tmp_root/install-wrapper-file-XXXXXX")"
+if (
+  cd "$source_checkout"
+  HOME="$blocked_file_home" BEAM_INSTALL_ROOT="$blocked_file_install_root" \
+    bash scripts/install-beam.sh --dont-ask > /dev/null 2>"$blocked_file_err"
+); then
+  echo "expected install to fail when the wrapper target path is a regular file" >&2
+  cat "$blocked_file_err" >&2
+  remove_tmp_file "$blocked_file_err"
+  exit 1
+fi
+assert_contains "$blocked_file_err" "refusing to replace non-Beam path at $blocked_lean_beam_file"
+remove_tmp_file "$blocked_file_err"
+if [ "$(cat "$blocked_lean_beam_file")" != "user file" ]; then
+  echo "expected blocked wrapper file to remain untouched" >&2
+  exit 1
+fi
+assert_not_exists "$blocked_file_home/.local/bin/lean-beam-search"
+assert_not_exists "$blocked_file_home/.local/bin/lean-beam-mcp"
+assert_not_exists "$blocked_file_install_root/current"
+
+blocked_skill_home="$tmp_root/blocked-skill-home"
+blocked_skill_install_root="$tmp_root/blocked-skill-install-root"
+blocked_codex_home="$tmp_root/blocked-codex"
+mkdir -p "$blocked_skill_home" "$blocked_codex_home/skills/lean-beam"
+printf 'user skill\n' >"$blocked_codex_home/skills/lean-beam/custom.txt"
+blocked_skill_err="$(mktemp "$tmp_root/install-skill-dir-XXXXXX")"
+if (
+  cd "$source_checkout"
+  HOME="$blocked_skill_home" CODEX_HOME="$blocked_codex_home" \
+    CLAUDE_HOME="$tmp_root/blocked-claude" BEAM_INSTALL_ROOT="$blocked_skill_install_root" \
+    bash scripts/install-beam.sh --dont-ask --codex > /dev/null 2>"$blocked_skill_err"
+); then
+  echo "expected install to fail when the skill target directory is unmarked" >&2
+  cat "$blocked_skill_err" >&2
+  remove_tmp_file "$blocked_skill_err"
+  exit 1
+fi
+assert_contains "$blocked_skill_err" "refusing to replace unmarked existing lean-beam skill directory"
+remove_tmp_file "$blocked_skill_err"
+assert_file "$blocked_codex_home/skills/lean-beam/custom.txt"
+assert_not_exists "$blocked_codex_home/skills/rocq-beam"
 
 remove_tmp_tree "$source_checkout"
 
