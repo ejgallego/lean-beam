@@ -29,7 +29,7 @@ Default validation command sequence:
 
 This script is a maintainer safety wrapper. It clones the current checkout into /tmp,
 overlays the working tree state, sets fake HOME/CODEX_HOME/CLAUDE_HOME/TMPDIR, and
-prepends guarded rm/mv/mktemp wrappers for the validation run.
+prepends guarded filesystem wrappers for the validation run.
 EOF
 }
 
@@ -236,6 +236,82 @@ done
 exec "$real_bin" "${rewritten_args[@]}"
 EOF
       ;;
+    mkdir)
+      cat >>"$path" <<'EOF'
+expect_mode_arg=0
+parsing_operands=0
+for arg in "$@"; do
+  if [ "$expect_mode_arg" -eq 1 ]; then
+    expect_mode_arg=0
+    continue
+  fi
+  if [ "$parsing_operands" -eq 1 ]; then
+    validate_operand "$arg"
+    continue
+  fi
+  case "$arg" in
+    --)
+      parsing_operands=1
+      ;;
+    -m)
+      expect_mode_arg=1
+      ;;
+    --mode=*)
+      ;;
+    -*)
+      ;;
+    *)
+      validate_operand "$arg"
+      ;;
+  esac
+done
+exec "$real_bin" "$@"
+EOF
+      ;;
+    rmdir)
+      cat >>"$path" <<'EOF'
+parsing_operands=0
+for arg in "$@"; do
+  if [ "$parsing_operands" -eq 1 ]; then
+    validate_operand "$arg"
+    continue
+  fi
+  case "$arg" in
+    --)
+      parsing_operands=1
+      ;;
+    -*)
+      ;;
+    *)
+      validate_operand "$arg"
+      ;;
+  esac
+done
+exec "$real_bin" "$@"
+EOF
+      ;;
+    cp|ln)
+      cat >>"$path" <<'EOF'
+parsing_operands=0
+for arg in "$@"; do
+  if [ "$parsing_operands" -eq 1 ]; then
+    validate_operand "$arg"
+    continue
+  fi
+  case "$arg" in
+    --)
+      parsing_operands=1
+      ;;
+    -*)
+      ;;
+    *)
+      validate_operand "$arg"
+      ;;
+  esac
+done
+exec "$real_bin" "$@"
+EOF
+      ;;
     *)
       die "unknown guard wrapper: $name"
       ;;
@@ -278,6 +354,10 @@ mkdir -p "$guard_bin" "$fake_home" "$fake_codex_home" "$fake_claude_home" "$fake
 write_guard_wrapper rm "$(command -v rm)"
 write_guard_wrapper mv "$(command -v mv)"
 write_guard_wrapper mktemp "$(command -v mktemp)"
+write_guard_wrapper mkdir "$(command -v mkdir)"
+write_guard_wrapper rmdir "$(command -v rmdir)"
+write_guard_wrapper cp "$(command -v cp)"
+write_guard_wrapper ln "$(command -v ln)"
 
 if [ -z "${ELAN_HOME:-}" ] && [ -d "$HOME/.elan" ]; then
   export ELAN_HOME="$HOME/.elan"

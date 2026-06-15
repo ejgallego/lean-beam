@@ -22,6 +22,9 @@ structure BundlePaths where
 
 def bundleMetadataSchemaVersion : Nat := 1
 
+def bundleWorkspaceOwnerMarkerName : String :=
+  ".lean-beam-bundle-workspace"
+
 private structure BundleMetadata where
   schemaVersion : Nat
   toolchain : String
@@ -155,6 +158,9 @@ def utf8Hex (bytes : ByteArray) : String :=
 def bundleWorkspaceFor (bundleDir : System.FilePath) : System.FilePath :=
   bundleDir / "workspace"
 
+def bundleWorkspaceOwnerMarker (workspace : System.FilePath) : System.FilePath :=
+  workspace / bundleWorkspaceOwnerMarkerName
+
 def bundlePathsFor (workspace : System.FilePath) : BundlePaths :=
   {
     daemon := workspace / ".lake" / "build" / "bin" / "beam-daemon"
@@ -246,10 +252,24 @@ private def copyTreeInto (srcRoot dstRoot : System.FilePath) : IO Unit := do
   for path in files do
     copyFileInto srcRoot dstRoot path
 
-def syncBundleWorkspace (home workspace : System.FilePath) : IO Unit := do
+private def ensureBundleWorkspaceOwnedForRewrite (bundleDir workspace : System.FilePath) : IO Unit := do
+  unless ← workspace.pathExists do
+    return ()
+  unless ← workspace.isDir do
+    throw <| IO.userError s!"refusing to replace non-directory bundle workspace at {workspace}"
+  let resolvedBundleDir ← Beam.resolveExistingPath bundleDir
+  let resolvedWorkspace ← Beam.resolveExistingPath workspace
+  if Beam.pathRelativeToRoot? resolvedBundleDir resolvedWorkspace |>.isNone then
+    throw <| IO.userError s!"refusing to rewrite bundle workspace outside its bundle directory: {workspace}"
+  unless ← (bundleWorkspaceOwnerMarker workspace).pathExists do
+    throw <| IO.userError s!"refusing to remove unmarked existing bundle workspace at {workspace}"
+
+def syncBundleWorkspace (home bundleDir workspace : System.FilePath) : IO Unit := do
+  ensureBundleWorkspaceOwnedForRewrite bundleDir workspace
   if ← workspace.pathExists then
     IO.FS.removeDirAll workspace
   IO.FS.createDirAll workspace
+  IO.FS.writeFile (bundleWorkspaceOwnerMarker workspace) "owner=lean-beam\nschema=1\n"
   let files ← collectBundleSourceFiles home
   for path in files do
     copyFileInto home workspace path
@@ -330,7 +350,7 @@ private def fallbackBuildFailureMessage (toolchain : String) (cacheRoot bundleDi
 def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
     (cacheRoot bundleDir workspace : System.FilePath) : IO Unit := do
   ensureElan
-  syncBundleWorkspace home workspace
+  syncBundleWorkspace home bundleDir workspace
   IO.eprintln s!"building beam bundle for {toolchain}"
   let out ← IO.Process.output {
     cmd := "elan"

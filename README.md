@@ -25,6 +25,9 @@ Run the installer from the repo root:
 ./scripts/install-beam.sh
 ```
 
+The installer prompts before filesystem edits. For non-interactive scripts, pass `--dont-ask`; this
+only skips prompts for Beam-owned install paths and does not allow replacing unrelated user files.
+
 That installs:
 
 - `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` into `~/.local/bin`
