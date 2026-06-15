@@ -382,15 +382,15 @@ fi
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
-  references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/references -)"
+  references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$beam_script" request-at CommandA.lean 0 4 textDocument/references -)"
   if [ "$(RUNAT_JSON_PAYLOAD="$references_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper lean-request-at references probe from stdin json to succeed" >&2
+    echo "expected wrapper request-at references probe from stdin json to succeed" >&2
     printf '%s\n' "$references_out" >&2
     exit 1
   fi
   unsupported_err="$(mktemp /tmp/beam-wrapper-request-at-unsupported-XXXXXX)"
-  if "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/completion '{}' >"$unsupported_err" 2>&1; then
-    echo "expected wrapper lean-request-at to reject unsupported methods" >&2
+  if "$beam_script" request-at CommandA.lean 0 4 textDocument/completion '{}' >"$unsupported_err" 2>&1; then
+    echo "expected wrapper request-at to reject unsupported methods" >&2
     cat "$unsupported_err" >&2
     rm -f "$unsupported_err"
     exit 1
@@ -403,8 +403,8 @@ fi
   fi
   rm -f "$unsupported_err"
   params_doc_err="$(mktemp /tmp/beam-wrapper-request-at-textDocument-XXXXXX)"
-  if "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"textDocument":{"uri":"file:///tmp/nope.lean"}}' >"$params_doc_err" 2>&1; then
-    echo "expected wrapper lean-request-at to reject user-supplied textDocument" >&2
+  if "$beam_script" request-at CommandA.lean 0 4 textDocument/hover '{"textDocument":{"uri":"file:///tmp/nope.lean"}}' >"$params_doc_err" 2>&1; then
+    echo "expected wrapper request-at to reject user-supplied textDocument" >&2
     cat "$params_doc_err" >&2
     rm -f "$params_doc_err"
     exit 1
@@ -417,8 +417,8 @@ fi
   fi
   rm -f "$params_doc_err"
   params_pos_err="$(mktemp /tmp/beam-wrapper-request-at-position-XXXXXX)"
-  if "$beam_script" lean-request-at CommandA.lean 0 4 textDocument/hover '{"position":{"line":99,"character":0}}' >"$params_pos_err" 2>&1; then
-    echo "expected wrapper lean-request-at to reject user-supplied position" >&2
+  if "$beam_script" request-at CommandA.lean 0 4 textDocument/hover '{"position":{"line":99,"character":0}}' >"$params_pos_err" 2>&1; then
+    echo "expected wrapper request-at to reject user-supplied position" >&2
     cat "$params_pos_err" >&2
     rm -f "$params_pos_err"
     exit 1

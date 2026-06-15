@@ -65,7 +65,7 @@ def printExperimentalInfo (home : System.FilePath) : IO Unit := do
   let doc := home / "docs" / "experimental.md"
   IO.println s!"Experimental expert commands live in {doc}"
   IO.println "This is an unstable broker escape hatch, not part of the stable runAt contract."
-  IO.println "Current experimental entry point: lean-request-at"
+  IO.println "Current experimental entry point: lean-beam request-at"
   IO.println "Unsupported or broken compatibility aliases may still exist for tests; they are not part of the supported or experimental surface."
 
 end Beam.Cli

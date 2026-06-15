@@ -64,17 +64,6 @@ def Operation.key : Operation → String
 instance : ToJson Operation where
   toJson op := toJson op.key
 
-def Operation.brokerOp : Operation → Beam.Broker.Op
-  | .runAt | .runAtHandle => .runAt
-  | .hover => .requestAt
-  | .goalsAfter | .goalsPrev => .goals
-  | .runWith | .runWithLinear => .runWith
-  | .release => .release
-  | .sync => .syncFile
-  | .deps => .deps
-  | .save => .saveOlean
-  | .close => .close
-
 def Operation.description : Operation → String
   | .runAt => "Run Lean text at a file position without storing follow-up state."
   | .runAtHandle => "Run Lean text at a file position and store a follow-up handle."
