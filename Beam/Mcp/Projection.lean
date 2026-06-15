@@ -27,6 +27,7 @@ inductive ToolName where
   | leanHover
   | leanGoalsAfter
   | leanGoalsPrev
+  | leanTodo
   | leanRunWith
   | leanRunWithLinear
   | leanRelease
@@ -43,6 +44,7 @@ def ToolName.key : ToolName → String
   | .leanHover => "lean_hover"
   | .leanGoalsAfter => "lean_goals_after"
   | .leanGoalsPrev => "lean_goals_prev"
+  | .leanTodo => "lean_todo"
   | .leanRunWith => "lean_run_with"
   | .leanRunWithLinear => "lean_run_with_linear"
   | .leanRelease => "lean_release"
@@ -62,6 +64,7 @@ instance : FromJson ToolName where
     | .str "lean_hover" => .ok .leanHover
     | .str "lean_goals_after" => .ok .leanGoalsAfter
     | .str "lean_goals_prev" => .ok .leanGoalsPrev
+    | .str "lean_todo" => .ok .leanTodo
     | .str "lean_run_with" => .ok .leanRunWith
     | .str "lean_run_with_linear" => .ok .leanRunWithLinear
     | .str "lean_release" => .ok .leanRelease
@@ -84,6 +87,7 @@ def ToolName.kind : ToolName → ToolKind
   | .leanHover => .leanOperation .hover
   | .leanGoalsAfter => .leanOperation .goalsAfter
   | .leanGoalsPrev => .leanOperation .goalsPrev
+  | .leanTodo => .leanOperation .todo
   | .leanRunWith => .leanOperation .runWith
   | .leanRunWithLinear => .leanOperation .runWithLinear
   | .leanRelease => .leanOperation .release
@@ -136,6 +140,7 @@ def toolNames : Array ToolName := #[
   .leanHover,
   .leanGoalsAfter,
   .leanGoalsPrev,
+  .leanTodo,
   .leanRunWith,
   .leanRunWithLinear,
   .leanRelease,
@@ -167,6 +172,7 @@ def toolDescriptors : Array ToolDescriptor :=
 
 abbrev RunAtInput := Beam.Lean.RunAtInput
 abbrev PositionInput := Beam.Lean.PositionInput
+abbrev TodoInput := Beam.Lean.TodoInput
 abbrev RunWithInput := Beam.Lean.RunWithInput
 abbrev ReleaseInput := Beam.Lean.ReleaseInput
 abbrev PathInput := Beam.Lean.PathInput
@@ -244,11 +250,39 @@ def normalizeRunAtResult (result : Json) : Except ToolError Json := do
   | .ok parsed => pure <| runAtResultJson parsed
   | .error err => throw <| ToolError.invalidResult err
 
+private def todoItemKey (key : String) : String :=
+  match key with
+  | "runAtPosition" => "run_at_position"
+  | "runAtText" => "run_at_text"
+  | "codeAction" => "code_action"
+  | "proofState" => "proof_state"
+  | other => other
+
+private def normalizeTodoItemJson : Json → Json
+  | Json.obj fields =>
+      let fields :=
+        fields.foldl (init := []) fun acc key value =>
+          (todoItemKey key, value) :: acc
+      Json.mkObj fields.reverse
+  | other => other
+
+private def normalizeTodoResult (result : Json) : Except ToolError Json := do
+  match result.getObjVal? "items" with
+  | .ok (Json.arr items) =>
+      pure <| result.setObjVal! "items" (Json.arr (items.map normalizeTodoItemJson))
+  | .ok _ =>
+      throw <| ToolError.invalidResult "todo result 'items' must be an array"
+  | .error err =>
+      throw <| ToolError.invalidResult s!"todo result missing 'items': {err}"
+
 private def normalizeResult? (tool : ToolName) : Option Json → Except ToolError (Option Json)
   | none => pure none
   | some result =>
       if tool.expectsRunAtResult then do
         let normalized ← normalizeRunAtResult result
+        pure <| some normalized
+      else if tool == .leanTodo then do
+        let normalized ← normalizeTodoResult result
         pure <| some normalized
       else
         pure <| some result

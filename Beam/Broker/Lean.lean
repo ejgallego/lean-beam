@@ -60,6 +60,11 @@ def goalsMethod (backend : Backend) (mode? : Option GoalMode := none) : Except S
   | .lean => .ok (Backend.Lean.goalsMethod mode?)
   | .rocq => .ok Backend.Rocq.goalsMethod
 
+def todoMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok Backend.Lean.todoMethod
+  | .rocq => .error "rocq backend does not support todo queries"
+
 def goalModeValue (mode? : Option GoalMode) : String :=
   Backend.Shared.goalModeValue mode?
 

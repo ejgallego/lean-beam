@@ -43,6 +43,7 @@ Supported command families:
 - bootstrap the Lean backend: `lean-beam ensure`
 - keep a sandboxed daemon owner alive across separate commands: `lean-beam ensure --hold`
 - inspect existing code or proof state: `lean-beam hover`, `lean-beam goals-prev`, `lean-beam goals-after`
+- inspect actionable Lean items in a range: `lean-beam todo`
 - inspect file or daemon state: `lean-beam open-files`, `lean-beam doctor`, `lean-beam stats`,
   `lean-beam reset-stats`
 - try one isolated speculative Lean snippet: `lean-beam run-at`
@@ -56,7 +57,7 @@ Supported command families:
 What to treat as the default public skill surface:
 
 - default and stable enough for normal use: `lean-beam hover`, `lean-beam goals-prev`, `lean-beam goals-after`,
-  `lean-beam run-at`, `lean-beam sync`, `lean-beam refresh`
+  `lean-beam todo`, `lean-beam run-at`, `lean-beam sync`, `lean-beam refresh`
 - narrower but supported wrapper surface: `lean-beam open-files`, `lean-beam doctor`,
   `lean-beam stats`, `lean-beam reset-stats`, `lean-beam save`, `lean-beam close-save`
 - alpha support APIs: `lean-beam run-at-handle`, `lean-beam run-with`, `lean-beam run-with-linear`,
@@ -104,8 +105,11 @@ Prefer the smallest command that matches the actual task:
 - use `lean-beam hover` when you want semantic information about existing code at one position
 - use `lean-beam goals-prev` or `lean-beam goals-after` when you want existing proof state at one tactic
   position
+- use `lean-beam todo` when you want actionable items in a saved file range, such as sorries, holes,
+  diagnostics, code actions, or incomplete proofs
 - use `lean-beam run-at` when you want to try one speculative Lean snippet without editing the file
-- for `lean-beam run-at`, `lean-beam hover`, and `lean-beam goals-*`, treat `<line> <character>` as Lean/LSP
+- for `lean-beam run-at`, `lean-beam hover`, `lean-beam goals-*`, and `lean-beam todo`, treat line and
+  character arguments as Lean/LSP
   coordinates: line `0` is the first line, character `0` is the first UTF-16 code unit, and on a
   truly empty line only character `0` is valid
 - use `lean-beam run-at-handle` and then `lean-beam run-with` or `lean-beam run-with-linear` only when exact

@@ -1263,6 +1263,44 @@ private def handleGoalsOpIO
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
+private def handleTodoOpIO
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    IO (Response × Bool) := do
+  try
+    let args ←
+      match req.todoArgs with
+      | .ok args => pure args
+      | .error resp => return (resp, false)
+    ensureRequestNotCancelled cancelRef?
+    let range : Lsp.Range := {
+      start := { line := args.line, character := args.character }
+      «end» := { line := args.endLine, character := args.endCharacter }
+    }
+    let snapshot ← readRequestSyncSnapshot server req args.path
+    let started ← server.withState do
+      let session ← ensureSession req.backend
+      startSyncedDocumentRequest session snapshot args.method
+        (fun uri _docState => Json.mkObj <|
+          [ ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
+          , ("range", toJson range)
+          ] ++
+          (match req.kinds? with
+          | some kinds => [("kinds", toJson kinds)]
+          | none => []) ++
+          (match req.suggest? with
+          | some suggest => [("suggest", toJson suggest)]
+          | none => []))
+        (trackedLeanDocumentVersion req.backend)
+        (clientRequestId? := req.clientRequestId?)
+        (emitProgress? := emitProgress?)
+    let pending ← awaitSyncedDocumentRequestIO server req started cancelRef?
+    pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
+  catch e =>
+    pure (responseForExceptionMessage e.toString, false)
+
 private def handleRunWithOpIO
     (server : ServerRuntime)
     (req : Request)
@@ -1396,6 +1434,7 @@ private def handleRequestIO
           | .deps => server.withState <| handleDepsOp req
           | .saveOlean => handleSaveOleanOpIO server req cancelRef? emitProgress? emitDiagnostic?
           | .goals => handleGoalsOpIO server req cancelRef? emitProgress?
+          | .todo => handleTodoOpIO server req cancelRef? emitProgress?
           | .runWith => handleRunWithOpIO server req cancelRef? emitProgress?
           | .release => handleReleaseOpIO server req cancelRef? emitProgress?
           | .openDocs | .stats | .resetStats | .shutdown =>

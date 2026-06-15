@@ -78,4 +78,7 @@ def goalsMethod (mode? : Option GoalMode := none) : String :=
   | .after => RunAt.goalsAfterMethod
   | .prev => RunAt.goalsPrevMethod
 
+def todoMethod : String :=
+  RunAt.todoMethod
+
 end Beam.Broker.Backend.Lean

@@ -81,6 +81,25 @@ def Request.goalsArgs (req : Request) : Except Response GoalsArgs := do
     method
   }
 
+structure TodoArgs extends PositionArgs where
+  endLine : Nat
+  endCharacter : Nat
+  method : String
+
+def Request.todoArgs (req : Request) : Except Response TodoArgs := do
+  let position ← req.positionArgs
+  let endLine ← asInvalidParams req.requireEndLine
+  let endCharacter ← asInvalidParams req.requireEndCharacter
+  let method ← asInvalidParams (todoMethod req.backend)
+  pure {
+    path := position.path
+    line := position.line
+    character := position.character
+    endLine
+    endCharacter
+    method
+  }
+
 structure RunWithArgs where
   path : System.FilePath
   handle : Handle

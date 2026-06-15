@@ -191,6 +191,18 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         callBrokerWithProgress root daemon.endpoint
           (leanGoalsPrevRequest root path line character)
           (leanGoalsWaitSpec path line character .prev)
+  | "lean-todo" :: path :: startLine :: startCharacter :: endLine :: endCharacter :: extra => do
+      let root ← projectRoot opts .lean
+      let daemon ← ensureProjectDaemon home root .lean opts
+      let startLine ← parseNatArg "startLine" startLine
+      let startCharacter ← parseNatArg "startCharacter" startCharacter
+      let endLine ← parseNatArg "endLine" endLine
+      let endCharacter ← parseNatArg "endCharacter" endCharacter
+      let (kinds?, suggest?) ← parseLeanTodoArgs extra
+      withWrapperLease root daemon.startedNew do
+        callBrokerWithProgress root daemon.endpoint
+          (leanTodoRequest root path startLine startCharacter endLine endCharacter kinds? suggest?)
+          (leanTodoWaitSpec path startLine startCharacter endLine endCharacter)
   | "lean-request-at" :: path :: line :: character :: method :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
