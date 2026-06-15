@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Broker.Protocol
 import RunAtTest.Broker.TestUtil
+import RunAtTest.TodoFixture
 import Lean
 
 open Lean
@@ -78,6 +79,16 @@ private def expectErrorCode (label code : String) (resp : Beam.Broker.Response) 
   if resp.result?.isSome then
     throw <| IO.userError s!"expected {label} error response to omit result payload, got {(toJson resp).compress}"
 
+private def expectTodoKindOnly
+    (label : String)
+    (kind : RunAt.TodoKind)
+    (result : RunAt.TodoResult) : IO RunAt.TodoItem := do
+  let some item := result.items.find? (fun item => item.kind == kind)
+    | throw <| IO.userError s!"expected {label} to contain todo kind {kind.key}, got {(toJson result).compress}"
+  if result.items.any (fun item => item.kind != kind) then
+    throw <| IO.userError s!"expected {label} to contain only todo kind {kind.key}, got {(toJson result).compress}"
+  pure item
+
 def main : IO Unit := do
   let port ← freshTcpPort
   let endpoint : Beam.Broker.Endpoint := .tcp port
@@ -87,6 +98,26 @@ def main : IO Unit := do
   try
     waitForBrokerReadyForRoot endpoint root
     discard <| expectOk (← runClient endpoint { op := .ensure, root? := some root.toString })
+
+    let todoMessages ← requireSuccessStream "todo" <| ← runRequestStream port {
+      op := .todo
+      root? := some root.toString
+      path? := some RunAtTest.TodoFixture.brokerPath
+      line? := some RunAtTest.TodoFixture.startLine
+      character? := some RunAtTest.TodoFixture.startCharacter
+      endLine? := some RunAtTest.TodoFixture.endLine
+      endCharacter? := some RunAtTest.TodoFixture.endCharacter
+      kinds? := some #[.sorry]
+      suggest? := some .none
+    }
+    expectStreamKindsOnly "todo" todoMessages
+    let todoResp ← requireFinalStreamResponse "todo" todoMessages
+    let todoPayload ← expectOk todoResp
+    let todoResult : RunAt.TodoResult ← IO.ofExcept <| fromJson? todoPayload
+    let todoSorry ← expectTodoKindOnly "todo" .sorry todoResult
+    if todoSorry.runAtPosition != RunAtTest.TodoFixture.sorryPosition then
+      throw <| IO.userError
+        s!"expected todo runAtPosition at {RunAtTest.TodoFixture.sorryPosition}, got {(toJson todoSorry).compress}"
 
     writeSaveWarningFile root "-- request-stream sync"
     let syncMessages ← requireSuccessStream "sync_file" <| ← runRequestStream port {

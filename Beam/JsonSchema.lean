@@ -27,6 +27,13 @@ def enumString (description : String) (values : Array String) : Json :=
     ("enum", toJson values)
   ]
 
+def enumStringArray (description : String) (values : Array String) : Json :=
+  Json.mkObj [
+    ("type", toJson "array"),
+    ("description", toJson description),
+    ("items", enumString description values)
+  ]
+
 def natural (description : String) : Json :=
   Json.mkObj [
     ("type", toJson "integer"),

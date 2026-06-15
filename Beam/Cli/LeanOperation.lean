@@ -84,6 +84,22 @@ def leanGoalsPrevRequest
     (line character : Nat) : Request :=
   ({ path, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .prev
 
+def leanTodoRequest
+    (root : System.FilePath)
+    (path : String)
+    (startLine startCharacter endLine endCharacter : Nat)
+    (kinds? : Option (Array RunAt.TodoKind))
+    (suggest? : Option RunAt.TodoSuggestMode) : Request :=
+  ({
+    path
+    startLine
+    startCharacter
+    endLine
+    endCharacter
+    kinds?
+    suggest?
+  } : Beam.Lean.TodoInput).toBrokerRequest (rootText root)
+
 def leanDepsRequest (root : System.FilePath) (path : String) : Request :=
   ({ path } : Beam.Lean.PathInput).toDepsBrokerRequest (rootText root)
 

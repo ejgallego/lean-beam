@@ -32,6 +32,9 @@ def goalsAfterMethod : String := "$/lean/goalsAfter"
 /-- JSON-RPC method name for read-only goal inspection before the position. -/
 def goalsPrevMethod : String := "$/lean/goalsPrev"
 
+/-- JSON-RPC method name for agent-oriented todo inspection over a document range. -/
+def todoMethod : String := "$/lean/todo"
+
 /-- Opaque follow-up handle returned by the server. -/
 structure Handle where
   value : String
@@ -68,6 +71,76 @@ structure GoalsParams where
   deriving FromJson, ToJson
 
 instance : Lean.Lsp.FileSource GoalsParams where
+  fileSource p := Lean.Lsp.fileSource p.textDocument
+
+/-- Kinds of agent-actionable todo items reported by `$/lean/todo`. -/
+inductive TodoKind where
+  | sorry
+  | hole
+  | diagnostic
+  | codeAction
+  | incompleteProof
+  deriving BEq, Repr
+
+def TodoKind.key : TodoKind → String
+  | .sorry => "sorry"
+  | .hole => "hole"
+  | .diagnostic => "diagnostic"
+  | .codeAction => "code_action"
+  | .incompleteProof => "incomplete_proof"
+
+def TodoKind.all : Array TodoKind :=
+  #[.sorry, .hole, .diagnostic, .codeAction, .incompleteProof]
+
+def TodoKind.allKeys : Array String :=
+  TodoKind.all.map TodoKind.key
+
+instance : ToJson TodoKind where
+  toJson kind := toJson kind.key
+
+instance : FromJson TodoKind where
+  fromJson?
+    | .str "sorry" => .ok .sorry
+    | .str "hole" => .ok .hole
+    | .str "diagnostic" => .ok .diagnostic
+    | .str "code_action" => .ok .codeAction
+    | .str "incomplete_proof" => .ok .incompleteProof
+    | j => .error s!"expected todo kind, got {j.compress}"
+
+/-- Suggestion budget for `$/lean/todo`. -/
+inductive TodoSuggestMode where
+  | none
+  | basic
+  deriving BEq, Repr
+
+def TodoSuggestMode.key : TodoSuggestMode → String
+  | .none => "none"
+  | .basic => "basic"
+
+def TodoSuggestMode.all : Array TodoSuggestMode :=
+  #[.none, .basic]
+
+def TodoSuggestMode.allKeys : Array String :=
+  TodoSuggestMode.all.map TodoSuggestMode.key
+
+instance : ToJson TodoSuggestMode where
+  toJson mode := toJson mode.key
+
+instance : FromJson TodoSuggestMode where
+  fromJson?
+    | .str "none" => .ok .none
+    | .str "basic" => .ok .basic
+    | j => .error s!"expected todo suggest mode 'none' or 'basic', got {j.compress}"
+
+/-- Request payload for agent-oriented todo inspection over a document range. -/
+structure TodoParams where
+  textDocument : Lean.Lsp.TextDocumentIdentifier
+  range : Lean.Lsp.Range
+  kinds? : Option (Array TodoKind) := none
+  suggest? : Option TodoSuggestMode := none
+  deriving FromJson, ToJson
+
+instance : Lean.Lsp.FileSource TodoParams where
   fileSource p := Lean.Lsp.fileSource p.textDocument
 
 /-- Request payload for `$/lean/runWith`. -/
@@ -129,6 +202,26 @@ Solved proof states use `goals := #[]`.
 -/
 structure ProofState where
   goals : Array Goal := #[]
+  deriving FromJson, ToJson
+
+/-- One normalized agent-facing todo item. -/
+structure TodoItem where
+  kind : TodoKind
+  range : Lean.Lsp.Range
+  runAtPosition : Lean.Lsp.Position
+  runAtText? : Option String := none
+  message? : Option String := none
+  severity? : Option Lean.Lsp.DiagnosticSeverity := none
+  diagnostic? : Option Lean.Lsp.Diagnostic := none
+  codeAction? : Option Lean.Lsp.CodeAction := none
+  proofState? : Option ProofState := none
+  deriving FromJson, ToJson
+
+/-- Typed success payload for `$/lean/todo`. -/
+structure TodoResult where
+  version : Nat
+  range : Lean.Lsp.Range
+  items : Array TodoItem := #[]
   deriving FromJson, ToJson
 
 /--

@@ -12,6 +12,9 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - internal proof-first, command-fallback basis selection
 - typed response payload with messages, traces, optional proof state, and optional follow-up handle
 - optional follow-up execution through `$/lean/runWith` and `$/lean/releaseHandle`
+- agent-oriented `$/lean/todo` range inspection for actionable items such as sorries, holes,
+  diagnostics, code actions, and incomplete proofs, exposed through the broker, `lean-beam todo`,
+  and MCP `lean_todo`
 - local Beam daemon/client pair for Lean and Rocq workflows
 - alpha Lean wrapper commands for follow-up handle continuation and release
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows

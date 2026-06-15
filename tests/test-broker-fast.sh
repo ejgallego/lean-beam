@@ -45,7 +45,8 @@ lake build \
 
 python3 tests/test-mcp-stdio.py --iterations 1 --restart-cycles 1 > /dev/null
 python3 tests/test-mcp-http-bridge.py > /dev/null
-scripts/lean-beam-mcp --root tests/save_olean_project --self-check PositionEmptyLine.lean > /dev/null
+LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=60000 \
+  scripts/lean-beam-mcp --root tests/save_olean_project --self-check PositionEmptyLine.lean > /dev/null
 
 self_check_timeout_dir="$(mktemp -d /tmp/lean-beam-mcp-self-check-timeout-XXXXXX)"
 self_check_timeout_err="$(mktemp /tmp/lean-beam-mcp-self-check-timeout-err-XXXXXX)"
@@ -140,14 +141,71 @@ fi
 rm -rf -- "$cli_non_workspace_root"
 rm -f "$cli_non_workspace_err"
 
+wrapper_todo_control_dir="$(mktemp -d /tmp/lean-beam-wrapper-todo-XXXXXX)"
+wrapper_todo_out="$(mktemp /tmp/lean-beam-wrapper-todo-out-XXXXXX)"
+wrapper_todo_err="$(mktemp /tmp/lean-beam-wrapper-todo-err-XXXXXX)"
+wrapper_todo_cleanup() {
+  BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
+    scripts/lean-beam --root tests/save_olean_project shutdown > /dev/null 2>&1 || true
+  rm -rf -- "$wrapper_todo_control_dir"
+  rm -f "$wrapper_todo_out" "$wrapper_todo_err"
+}
+
+if ! BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
+    scripts/lean-beam --root tests/save_olean_project \
+      todo TodoSmoke.lean 13 0 14 0 --kind sorry --suggest none \
+    > "$wrapper_todo_out" 2>"$wrapper_todo_err"; then
+  echo "expected lean-beam todo wrapper smoke to succeed" >&2
+  cat "$wrapper_todo_err" >&2
+  wrapper_todo_cleanup
+  exit 1
+fi
+
+if ! WRAPPER_TODO_OUT="$wrapper_todo_out" python3 - <<'PY'
+import json
+import os
+import sys
+
+with open(os.environ["WRAPPER_TODO_OUT"], encoding="utf-8") as f:
+    response = json.load(f)
+
+if response.get("ok") is not True:
+    print(f"expected lean-beam todo wrapper response ok=true, got {response}", file=sys.stderr)
+    sys.exit(1)
+
+items = response.get("result", {}).get("items", [])
+if len(items) != 1:
+    print(f"expected one wrapper todo item, got {items}", file=sys.stderr)
+    sys.exit(1)
+
+item = items[0]
+if item.get("kind") != "sorry":
+    print(f"expected wrapper todo kind sorry, got {item}", file=sys.stderr)
+    sys.exit(1)
+
+if item.get("runAtPosition") != {"line": 13, "character": 2}:
+    print(f"unexpected wrapper todo runAtPosition: {item}", file=sys.stderr)
+    sys.exit(1)
+
+if "runAtText" in item:
+    print(f"expected --suggest none to omit wrapper runAtText: {item}", file=sys.stderr)
+    sys.exit(1)
+PY
+then
+  wrapper_todo_cleanup
+  exit 1
+fi
+wrapper_todo_cleanup
+
 mcp_smoke_out="$(
   printf '%s\n' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}' \
     '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"$/lean/runAt","arguments":{}}}' \
-    '{"jsonrpc":"2.0","id":4,"method":"shutdown"}' |
-    .lake/build/bin/lean-beam-mcp --root tests/save_olean_project
+    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lean_todo","arguments":{"path":"TodoSmoke.lean","start_line":13,"start_character":0,"end_line":14,"end_character":0,"kinds":["sorry"],"suggest":"none"}}}' \
+    '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"$/lean/runAt","arguments":{}}}' \
+    '{"jsonrpc":"2.0","id":5,"method":"shutdown"}' |
+    scripts/lean-beam-mcp --root tests/save_olean_project
 )"
 
 MCP_SMOKE_OUT="${mcp_smoke_out}" python3 - <<'PY'
@@ -156,19 +214,33 @@ import os
 import sys
 
 lines = [json.loads(line) for line in os.environ["MCP_SMOKE_OUT"].splitlines() if line.strip()]
-if len(lines) != 4:
-    print(f"expected 4 MCP responses, got {len(lines)}", file=sys.stderr)
+if len(lines) != 5:
+    print(f"expected 5 MCP responses, got {len(lines)}", file=sys.stderr)
     print(os.environ["MCP_SMOKE_OUT"], file=sys.stderr)
     sys.exit(1)
 
-init, tools, raw_tool, shutdown = lines
+init, tools, todo, raw_tool, shutdown = lines
 if init.get("result", {}).get("protocolVersion") != "2025-11-25":
     print("MCP initialize did not negotiate the expected protocol version", file=sys.stderr)
     sys.exit(1)
 
 tool_names = {tool.get("name") for tool in tools.get("result", {}).get("tools", [])}
-if "lean_run_at" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
+if "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
     print(f"unexpected MCP tool list: {sorted(tool_names)}", file=sys.stderr)
+    sys.exit(1)
+
+todo_content = todo.get("result", {}).get("structuredContent", {})
+todo_items = todo_content.get("items", [])
+if len(todo_items) != 1 or todo_items[0].get("kind") != "sorry":
+    print(f"expected lean_todo MCP smoke to return one sorry item: {todo}", file=sys.stderr)
+    sys.exit(1)
+
+if todo_items[0].get("run_at_position") != {"line": 13, "character": 2}:
+    print(f"unexpected MCP todo run_at_position: {todo}", file=sys.stderr)
+    sys.exit(1)
+
+if "run_at_text" in todo_items[0]:
+    print(f"expected MCP todo suggest=none to omit run_at_text: {todo}", file=sys.stderr)
     sys.exit(1)
 
 if raw_tool.get("error", {}).get("code") != -32602:

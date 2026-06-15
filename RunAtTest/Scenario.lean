@@ -46,6 +46,15 @@ structure GoalsSpec where
   useAfter : Bool := true
   deriving Inhabited, Repr, ToJson
 
+structure TodoSpec where
+  startLine : Nat
+  startCharacter : Nat
+  endLine : Nat
+  endCharacter : Nat
+  kinds? : Option (Array RunAt.TodoKind) := none
+  suggest? : Option RunAt.TodoSuggestMode := none
+  deriving Inhabited, Repr, ToJson
+
 structure SaveArtifactsSpec where
   oleanFile : String
   ileanFile : String
@@ -336,6 +345,20 @@ def sendGoals (doc : DocHandle) (spec : GoalsSpec) : ScenarioM ReqHandle := do
   }
   let method := if spec.useAfter then RunAt.goalsAfterMethod else RunAt.goalsPrevMethod
   let requestID ← sendRequest method (toJson params)
+  registerRequest requestID (toJson params)
+
+def sendTodo (doc : DocHandle) (spec : TodoSpec) : ScenarioM ReqHandle := do
+  let docState ← getDocState doc
+  let params : RunAt.TodoParams := {
+    textDocument := { uri := docState.uri }
+    range := {
+      start := { line := spec.startLine, character := spec.startCharacter }
+      «end» := { line := spec.endLine, character := spec.endCharacter }
+    }
+    kinds? := spec.kinds?
+    suggest? := spec.suggest?
+  }
+  let requestID ← sendRequest RunAt.todoMethod (toJson params)
   registerRequest requestID (toJson params)
 
 def sendSaveArtifacts (doc : DocHandle) (spec : SaveArtifactsSpec) : ScenarioM ReqHandle := do
