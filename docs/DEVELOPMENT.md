@@ -351,7 +351,7 @@ When support for `v4.28.0` is eventually dropped, re-check and likely simplify t
 
 ## Lean 4.30 And 4.31 Compatibility Shims
 
-Current validated support spans Lean `v4.29.0` through `v4.31.0-rc2`, which requires local
+Current validated support spans Lean `v4.29.0` through `v4.31.0`, which requires local
 compatibility code. When the support window no longer crosses these API boundaries, re-check and
 likely simplify these spots:
 
