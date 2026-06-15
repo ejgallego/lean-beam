@@ -42,7 +42,7 @@ Use `--codex`, `--claude`, or `--all-skills` to install the bundled agent skills
 Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional validated Lean bundles:
 
 ```bash
-./scripts/install-beam.sh --toolchain leanprover/lean4:v4.30.0
+./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0
 ./scripts/install-beam.sh --all-supported
 ```
 
@@ -63,30 +63,9 @@ project root per MCP server session with the `lean_init_workspace` tool before c
 {"root":"/path/to/lean/project"}
 ```
 
-The optional `mode` field defaults to `"set"`:
-
-| mode | Behavior |
-| --- | --- |
-| `"set"` | Initialize the root if unset; succeed idempotently for the active root; reject a different root. |
-| `"verify"` | Check that the requested root is already active without changing runtime state. |
-| `"reset"` | Explicitly switch roots; discard the current runtime and invalidate handles from the previous root. |
-
-Successful responses include `active_root`, `runtime_reused`, and `invalidated_handles`.
-`runtime_reused` means no runtime was changed because the requested root was already active;
-`reset` always reports `runtime_reused: false`, even when resetting to the same root. Reset
-responses also include `previous_root`:
-
-```json
-{
-  "root": "/path/to/other/project",
-  "active_root": "/path/to/other/project",
-  "previous_root": "/path/to/lean/project",
-  "initialized": true,
-  "mode": "reset",
-  "runtime_reused": false,
-  "invalidated_handles": true
-}
-```
+The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check the active root or
+`mode: "reset"` to explicitly switch roots and invalidate handles; see
+[docs/STATUS.md](docs/STATUS.md#mcp-workspace-initialization).
 
 Direct developer runs and single-project MCP registrations may still pass an explicit project root:
 
@@ -123,6 +102,7 @@ lean-beam supported-toolchains
 The current repo allowlist is:
 
 ```text
+leanprover/lean4:v4.31.0
 leanprover/lean4:v4.30.0
 leanprover/lean4:v4.29.0
 leanprover/lean4:v4.28.0

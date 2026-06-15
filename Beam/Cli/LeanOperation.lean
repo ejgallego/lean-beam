@@ -12,9 +12,6 @@ namespace Beam.Cli
 
 open Beam.Broker
 
-def leanOperationSurface : Array Beam.Lean.Operation :=
-  Beam.Lean.Operation.all
-
 private def rootText (root : System.FilePath) : String :=
   root.toString
 

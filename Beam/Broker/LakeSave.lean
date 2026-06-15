@@ -256,7 +256,7 @@ private def saveTraceStaleMessage (root path : FilePath) : String :=
   let relPath := Beam.pathRelativeToRootOrSelf root path
   s!"Lake save trace is stale for {relPath}. " ++
   "A dependency or build input would need to rebuild before Beam can save this module safely. " ++
-  "Save stale direct dependencies with lean-save, or run lake build and retry."
+  "Save stale direct dependencies with lean-beam save, or run lake build and retry."
 
 private def ensureSaveTraceReady
     (ws : Workspace)
@@ -287,7 +287,7 @@ def mkLeanSaveSpec
   let some mod := ws.findModuleBySrc? path
     | throw <| IO.userError <|
         s!"could not resolve a Lake module for {path}. " ++
-        "lean-save only works for synced files that belong to the current Lake workspace package graph."
+        "lean-beam save only works for synced files that belong to the current Lake workspace package graph."
   let (depTrace, isModule) ← buildDepTrace ws root path mod snapshot
   let relPath := Beam.pathRelativeToRootOrSelf root path
   pure {

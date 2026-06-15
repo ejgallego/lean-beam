@@ -36,8 +36,8 @@ Start from the repo root and prefer dedicated worktrees for new tasks:
 ```
 
 That keeps new work off the primary checkout and matches the repository's default Codex workflow.
-By default, the harness uses `~/.codex/worktrees/lean-beam` rather than `/tmp` so task
-worktrees survive reboots.
+By default, the harness uses `.codex-worktrees/lean-beam` inside the repo rather than `/tmp` or a
+home-global worktree root.
 
 Important local scripts:
 
@@ -349,14 +349,19 @@ When support for `v4.28.0` is eventually dropped, re-check and likely simplify t
   `v4.28.0` lacks the newer generic `ComputeHash [Hashable α]` instance that makes plain
   `addPureTrace mod.name` and `addPureTrace mod.pkg.id?` work upstream in newer Lean versions.
 
-## Lean 4.30 Compatibility Shims
+## Lean 4.30 And 4.31 Compatibility Shims
 
-Current validated support spans Lean `v4.29.0` and `v4.30.0`, which requires two local
-compatibility shims. When the support window no longer crosses this API boundary, re-check and
+Current validated support spans Lean `v4.29.0` through `v4.31.0`, which requires local
+compatibility code. When the support window no longer crosses these API boundaries, re-check and
 likely simplify these spots:
 
 - `RunAt/Requests/Save.lean`: `emitCForSavedModule` selects between the older `Lean.IR.emitC` API and
   the newer `Lean.Compiler.LCNF.emitC` API.
+- `RunAt/Requests/Save.lean` and `RunAt/Requests/Todo.lean`: local diagnostics helpers select
+  between the older `EditableDocument.diagnosticsRef` API and the newer
+  `EditableDocumentCore.collectCurrentDiagnostics` API.
+- `Beam/Broker/Transport.lean`: the transport uses `Std.Internal.UV.TCP` directly because the async
+  TCP wrapper moved from `Std.Internal.Async.TCP` to `Std.Async.TCP`.
 - `Beam/Broker/LakeSave.lean`: `mkModuleOutputDescrsCompat` selects between the older
   `ModuleOutputDescrs` record shape and the newer shape with `isModule`.
 

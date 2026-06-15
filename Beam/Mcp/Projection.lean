@@ -15,7 +15,7 @@ open Lean
 namespace Beam.Mcp
 
 /--
-Agent-facing MCP tool names supported by the planned Lean projection.
+Agent-facing MCP tool names supported by the Lean projection.
 
 This is intentionally smaller than the broker and LSP surfaces. In particular, raw LSP method names
 such as `$/lean/runAt` are not accepted here.
@@ -37,64 +37,68 @@ inductive ToolName where
   | leanClose
   deriving BEq, Repr
 
-def ToolName.key : ToolName → String
-  | .leanInitWorkspace => "lean_init_workspace"
-  | .leanRunAt => "lean_run_at"
-  | .leanRunAtHandle => "lean_run_at_handle"
-  | .leanHover => "lean_hover"
-  | .leanGoalsAfter => "lean_goals_after"
-  | .leanGoalsPrev => "lean_goals_prev"
-  | .leanTodo => "lean_todo"
-  | .leanRunWith => "lean_run_with"
-  | .leanRunWithLinear => "lean_run_with_linear"
-  | .leanRelease => "lean_release"
-  | .leanSync => "lean_sync"
-  | .leanDeps => "lean_deps"
-  | .leanSave => "lean_save"
-  | .leanClose => "lean_close"
-
-instance : ToJson ToolName where
-  toJson tool := toJson tool.key
-
-instance : FromJson ToolName where
-  fromJson?
-    | .str "lean_init_workspace" => .ok .leanInitWorkspace
-    | .str "lean_run_at" => .ok .leanRunAt
-    | .str "lean_run_at_handle" => .ok .leanRunAtHandle
-    | .str "lean_hover" => .ok .leanHover
-    | .str "lean_goals_after" => .ok .leanGoalsAfter
-    | .str "lean_goals_prev" => .ok .leanGoalsPrev
-    | .str "lean_todo" => .ok .leanTodo
-    | .str "lean_run_with" => .ok .leanRunWith
-    | .str "lean_run_with_linear" => .ok .leanRunWithLinear
-    | .str "lean_release" => .ok .leanRelease
-    | .str "lean_sync" => .ok .leanSync
-    | .str "lean_deps" => .ok .leanDeps
-    | .str "lean_save" => .ok .leanSave
-    | .str "lean_close" => .ok .leanClose
-    | j => .error s!"expected Lean MCP tool name, got {j.compress}"
-
 /-- MCP tool categories after projecting the shared Beam operation surface. -/
 inductive ToolKind where
   | workspaceInit
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
 
-def ToolName.kind : ToolName → ToolKind
-  | .leanInitWorkspace => .workspaceInit
-  | .leanRunAt => .leanOperation .runAt
-  | .leanRunAtHandle => .leanOperation .runAtHandle
-  | .leanHover => .leanOperation .hover
-  | .leanGoalsAfter => .leanOperation .goalsAfter
-  | .leanGoalsPrev => .leanOperation .goalsPrev
-  | .leanTodo => .leanOperation .todo
-  | .leanRunWith => .leanOperation .runWith
-  | .leanRunWithLinear => .leanOperation .runWithLinear
-  | .leanRelease => .leanOperation .release
-  | .leanSync => .leanOperation .sync
-  | .leanDeps => .leanOperation .deps
-  | .leanSave => .leanOperation .save
-  | .leanClose => .leanOperation .close
+structure ToolNameInfo where
+  key : String
+  kind : ToolKind
+
+def ToolName.info : ToolName → ToolNameInfo
+  | .leanInitWorkspace => { key := "lean_init_workspace", kind := .workspaceInit }
+  | .leanRunAt => { key := "lean_run_at", kind := .leanOperation .runAt }
+  | .leanRunAtHandle => { key := "lean_run_at_handle", kind := .leanOperation .runAtHandle }
+  | .leanHover => { key := "lean_hover", kind := .leanOperation .hover }
+  | .leanGoalsAfter => { key := "lean_goals_after", kind := .leanOperation .goalsAfter }
+  | .leanGoalsPrev => { key := "lean_goals_prev", kind := .leanOperation .goalsPrev }
+  | .leanTodo => { key := "lean_todo", kind := .leanOperation .todo }
+  | .leanRunWith => { key := "lean_run_with", kind := .leanOperation .runWith }
+  | .leanRunWithLinear => { key := "lean_run_with_linear", kind := .leanOperation .runWithLinear }
+  | .leanRelease => { key := "lean_release", kind := .leanOperation .release }
+  | .leanSync => { key := "lean_sync", kind := .leanOperation .sync }
+  | .leanDeps => { key := "lean_deps", kind := .leanOperation .deps }
+  | .leanSave => { key := "lean_save", kind := .leanOperation .save }
+  | .leanClose => { key := "lean_close", kind := .leanOperation .close }
+
+def ToolName.all : Array ToolName := #[
+  .leanInitWorkspace,
+  .leanRunAt,
+  .leanRunAtHandle,
+  .leanHover,
+  .leanGoalsAfter,
+  .leanGoalsPrev,
+  .leanTodo,
+  .leanRunWith,
+  .leanRunWithLinear,
+  .leanRelease,
+  .leanSync,
+  .leanDeps,
+  .leanSave,
+  .leanClose
+]
+
+def ToolName.key (tool : ToolName) : String :=
+  tool.info.key
+
+def ToolName.kind (tool : ToolName) : ToolKind :=
+  tool.info.kind
+
+def ToolName.fromKey? (key : String) : Option ToolName :=
+  ToolName.all.find? (fun tool => tool.key == key)
+
+instance : ToJson ToolName where
+  toJson tool := toJson tool.key
+
+instance : FromJson ToolName where
+  fromJson?
+    | .str key =>
+        match ToolName.fromKey? key with
+        | some tool => .ok tool
+        | none => .error s!"expected Lean MCP tool name, got {toJson key |>.compress}"
+    | j => .error s!"expected Lean MCP tool name, got {j.compress}"
 
 def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
   match tool.kind with
@@ -126,29 +130,21 @@ def initWorkspaceInputSchema : Json :=
     ("mode", enumString initWorkspaceModeDescription Beam.Workspace.initModeKeys)
   ] #["root"]
 
-/-- Minimal descriptor for the planned MCP tool list. -/
+/-- Minimal descriptor for the MCP tool list. -/
 structure ToolDescriptor where
   name : ToolName
   kind : ToolKind
   description : String
   inputSchema : Json
 
-def toolNames : Array ToolName := #[
-  .leanInitWorkspace,
-  .leanRunAt,
-  .leanRunAtHandle,
-  .leanHover,
-  .leanGoalsAfter,
-  .leanGoalsPrev,
-  .leanTodo,
-  .leanRunWith,
-  .leanRunWithLinear,
-  .leanRelease,
-  .leanSync,
-  .leanDeps,
-  .leanSave,
-  .leanClose
-]
+def toolNames : Array ToolName :=
+  ToolName.all
+
+def leanOperationToolNames : Array ToolName :=
+  toolNames.filter (fun tool =>
+    match tool.kind with
+    | .leanOperation _ => true
+    | .workspaceInit => false)
 
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
   match tool.kind with
@@ -230,7 +226,7 @@ def ToolError.runtimeSetup (message : String) : ToolError :=
   { code := "runtimeSetup", message }
 
 /--
-Normalize a broker-level `runAt` result into the planned agent-facing field names.
+Normalize a broker-level `runAt` result into the agent-facing field names.
 
 The MCP surface uses `next_handle` and `proof_state` rather than the Lean/LSP payload's
 `handle`/`proofState` names. `next_handle` is the broker-wrapped handle that follow-up tools pass
@@ -306,7 +302,7 @@ private def withMetadata
   | none => json
 
 /--
-Normalize a broker response into the future MCP tool result content.
+Normalize a broker response into MCP tool result content.
 
 Broker-level failures become `ToolError`s so an MCP server can map them to tool/JSON-RPC errors.
 Semantic Lean failures remain normal tool results with `success = false`.

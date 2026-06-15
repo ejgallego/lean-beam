@@ -8,10 +8,8 @@ broker-side conveniences for debugging and exploration.
 `lean-beam request-at` is an unstable broker escape hatch for expert debugging. It does not widen the
 stable `runAt` contract.
 
-Some unsupported or broken compatibility extensions may still exist in the tree for tests or local
-maintainer workflows. Treat those as implementation leftovers, not as experimental API candidates.
-The current example is the hidden `lean-deps` compatibility alias: you can use it at your own risk
-to extract full deps, but there are no guarantees and the information is likely broken.
+This page documents expert-only commands. Supported wrapper commands such as `lean-beam deps` live in
+the normal workflow docs rather than here.
 
 ## `lean-beam request-at`
 
