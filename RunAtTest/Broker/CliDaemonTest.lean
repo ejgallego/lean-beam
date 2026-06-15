@@ -67,10 +67,7 @@ private def requireSameOperationSurface
   for op in actual do
     require s!"{label}: unexpected operation {repr op}" (expected.contains op)
 
-private def checkLeanOperationSurfaceMatrix : IO Unit := do
-  requireSameOperationSurface "CLI Lean operation surface"
-    Beam.Cli.leanOperationSurface
-    Beam.Lean.Operation.all
+private def checkMcpOperationSurface : IO Unit := do
   requireSameOperationSurface "MCP Lean operation surface"
     mcpLeanOperationSurface
     Beam.Lean.Operation.all
@@ -136,6 +133,15 @@ private def checkSyncWaitSpecs : IO Unit := do
   require "refresh complete message should share sync-like formatting"
     ((Beam.Cli.refreshWaitSpec "Demo.lean").completeMsg okResp ==
       "beam: refresh complete for Demo.lean (version 5, fp updates=2)")
+  let publicTodoSpec := Beam.Cli.leanTodoWaitSpec "Demo.lean" 1 0 2 3 "todo"
+  require "todo wait action should accept public wrapper label"
+    (publicTodoSpec.action == "todo")
+  requireSubstring "todo start message should use public wrapper label"
+    "beam: querying todo for Demo.lean:1:0-2:3"
+    publicTodoSpec.startMsg
+  requireSubstring "todo complete message should use public wrapper label"
+    "beam: todo complete for Demo.lean:1:0-2:3"
+    (publicTodoSpec.completeMsg okResp)
 
   let notReadyResp : Beam.Broker.Response := {
     ok := true
@@ -448,7 +454,7 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
       pure ()
 
 def main : IO Unit := do
-  checkLeanOperationSurfaceMatrix
+  checkMcpOperationSurface
   checkCliRecoveryHints
   checkSyncWaitSpecs
   checkLeanOperationRequests

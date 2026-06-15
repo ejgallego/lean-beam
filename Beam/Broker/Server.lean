@@ -1227,7 +1227,7 @@ private def handleGoalsOpIO
       | .ok args => pure args
       | .error resp => return (resp, false)
     if req.backend == .lean && req.text?.isSome then
-      return (reqError "invalidParams" "lean goals does not accept speculative text; use lean-run-at for execution", false)
+      return (reqError "invalidParams" "lean goals does not accept speculative text; use lean-beam run-at for execution", false)
     ensureRequestNotCancelled cancelRef?
     let snapshot ← readRequestSyncSnapshot server req args.path
     let started ← server.withState do

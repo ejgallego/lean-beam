@@ -30,17 +30,26 @@ def InitMode.key : InitMode → String
   | .verify => "verify"
   | .reset => "reset"
 
+def InitMode.all : Array InitMode :=
+  #[.set, .verify, .reset]
+
 def initModeKeys : Array String :=
-  #["set", "verify", "reset"]
+  InitMode.all.map InitMode.key
+
+def InitMode.fromKey? (key : String) : Option InitMode :=
+  InitMode.all.find? (fun mode => mode.key == key)
 
 instance : ToJson InitMode where
   toJson mode := toJson mode.key
 
 instance : FromJson InitMode where
   fromJson?
-    | .str "set" => .ok .set
-    | .str "verify" => .ok .verify
-    | .str "reset" => .ok .reset
+    | .str key =>
+        match InitMode.fromKey? key with
+        | some mode => .ok mode
+        | none =>
+            .error <|
+              s!"expected init workspace mode 'set', 'verify', or 'reset', got {toJson key |>.compress}"
     | j => .error s!"expected init workspace mode 'set', 'verify', or 'reset', got {j.compress}"
 
 /-- Shared input for explicit Beam workspace/session initialization. -/

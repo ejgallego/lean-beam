@@ -123,6 +123,7 @@ done
 
 rest=("$@")
 mapped=()
+display_cmd=""
 
 if [ -z "$cmd" ]; then
   usage
@@ -136,51 +137,67 @@ case "$cmd" in
     ;;
   run-at)
     mapped=("lean-run-at")
+    display_cmd="$cmd"
     ;;
   run-at-handle)
     mapped=("lean-run-at-handle")
+    display_cmd="$cmd"
     ;;
   hover)
     mapped=("lean-hover")
+    display_cmd="$cmd"
     ;;
   goals-after)
     mapped=("lean-goals-after")
+    display_cmd="$cmd"
     ;;
   goals-prev)
     mapped=("lean-goals-prev")
+    display_cmd="$cmd"
     ;;
   todo)
     mapped=("lean-todo")
+    display_cmd="$cmd"
     ;;
   run-with)
     mapped=("lean-run-with")
+    display_cmd="$cmd"
     ;;
   run-with-linear)
     mapped=("lean-run-with-linear")
+    display_cmd="$cmd"
     ;;
   release)
     mapped=("lean-release")
+    display_cmd="$cmd"
     ;;
   deps)
     mapped=("lean-deps")
+    display_cmd="$cmd"
     ;;
   sync)
     mapped=("lean-sync")
+    display_cmd="$cmd"
     ;;
   refresh)
     mapped=("lean-refresh")
+    display_cmd="$cmd"
     ;;
   save)
     mapped=("lean-save")
+    display_cmd="$cmd"
     ;;
   close)
     mapped=("lean-close")
+    display_cmd="$cmd"
     ;;
   close-save)
     mapped=("lean-close-save")
+    display_cmd="$cmd"
     ;;
   request-at)
     mapped=("lean-request-at")
+    display_cmd="$cmd"
     ;;
   ensure)
     if [ "${#rest[@]}" -eq 0 ]; then
@@ -210,6 +227,12 @@ case "$cmd" in
     mapped=("$cmd")
     ;;
 esac
+
+if [ -n "$display_cmd" ]; then
+  export BEAM_WRAPPER_COMMAND="$display_cmd"
+else
+  unset BEAM_WRAPPER_COMMAND
+fi
 
 if [ -n "${prefix[*]-}" ]; then
   if [ -n "${rest[*]-}" ]; then

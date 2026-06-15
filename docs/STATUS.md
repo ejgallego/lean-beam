@@ -24,12 +24,8 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
   MCP `initialize`, `tools/list`, and `tools/call`, backed directly by the broker runtime rather
   than a second daemon/client connection
 - MCP `lean_init_workspace` setup tool for clients that can register only a generic global server
-  command and do not advertise MCP roots. It requires an absolute Lean/Lake project root, is
-  idempotent for the active root in `set` and `verify` mode, supports `mode` values `set`,
-  `verify`, and `reset`, and uses explicit `reset` calls to discard the current runtime and
-  invalidate handles before switching or restarting roots. Reset responses report `previous_root`
-  and `invalidated_handles`; all successful setup responses report whether the runtime was reused
-  with `runtime_reused`.
+  command and do not advertise MCP roots. It requires an absolute Lean/Lake project root and keeps
+  root switching explicit; see [MCP Workspace Initialization](#mcp-workspace-initialization).
 - `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, explicit
   `lean_init_workspace` runtime setup, and a real `lean_sync` tool call
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
@@ -43,6 +39,39 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - repo-local regression coverage around isolation, stale state, cancellation, and handle invalidation
 
 ## API Notes
+
+### MCP Workspace Initialization
+
+The normal `lean_init_workspace` call supplies only a root:
+
+```json
+{"root":"/path/to/lean/project"}
+```
+
+The optional `mode` field defaults to `"set"`:
+
+| mode | Behavior |
+| --- | --- |
+| `"set"` | Initialize the root if unset; succeed idempotently for the active root; reject a different root. |
+| `"verify"` | Check that the requested root is already active without changing runtime state. |
+| `"reset"` | Explicitly switch roots; discard the current runtime and invalidate handles from the previous root. |
+
+Successful responses include `active_root`, `runtime_reused`, and `invalidated_handles`.
+`runtime_reused` means no runtime was changed because the requested root was already active;
+`reset` always reports `runtime_reused: false`, even when resetting to the same root. Reset
+responses also include `previous_root`:
+
+```json
+{
+  "root": "/path/to/other/project",
+  "active_root": "/path/to/other/project",
+  "previous_root": "/path/to/lean/project",
+  "initialized": true,
+  "mode": "reset",
+  "runtime_reused": false,
+  "invalidated_handles": true
+}
+```
 
 The base request is intentionally small:
 
@@ -191,25 +220,12 @@ Near-term work is mostly about hardening and simplifying:
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in
   shared Beam modules, not copied across CLI, broker, MCP, and test helpers
 
-## Roadmap / TODO
+## Release Focus
 
-Current release priorities:
+The first Lean release should stay conservative:
 
-1. documentation polish for release readiness
-2. AI/human harness polish for maintainer workflows
-3. stability fixes only where they materially improve release confidence
-
-Near-term TODO:
-
-- finish the human-facing docs split so README stays human-only and maintainer or agent workflow
-  detail stays in contributor, development, and skill docs
-- decide whether the new README still needs a short architecture note, or whether `docs/STATUS.md`
-  plus `docs/DEVELOPMENT.md` are enough
-- tighten the AI-first harness story so the preferred maintainer entrypoints are obvious for both
-  humans and AI agents
-- investigate and fix the intermittent `handleProofBranchDsl` CI failure if it reappears
-- continue validating every supported Lean toolchain in CI before expanding the allowlist further
-- replace the broker's remaining stopgap dependency and readiness logic with stronger Lake or
-  backend-facing primitives when Lean exposes them
-- keep new CLI/MCP/broker path handling on [Beam/Path.lean](../Beam/Path.lean); remaining
-  workspace work should improve dependency/readiness semantics, not reintroduce bespoke path helpers
+- keep the public `runAt`, `lean-beam`, and MCP surfaces small and documented
+- keep CLI and MCP as thin projections over shared typed operation adapters
+- keep compatibility and install behavior covered across every supported Lean toolchain in CI
+- take stability fixes when they materially improve release confidence
+- defer broader dependency/readiness redesigns until Lean or Lake expose stronger primitives
