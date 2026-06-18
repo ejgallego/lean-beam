@@ -19,10 +19,12 @@ open Beam.Broker
 
 private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
   let toolchain ← leanToolchain root
-  let (supportPath, supportedToolchains) ← supportedLeanToolchains home
-  let toolchainSupported := supportedToolchains.elem toolchain
+  let support ← leanToolchainSupport home toolchain
+  let toolchainSupported := support.acceptance == .supported
+  let toolchainCustom := support.acceptance == .custom
+  let toolchainAccepted := support.acceptance.accepted
   let leanCmd? ←
-    if toolchainSupported then
+    if toolchainAccepted then
       let leanCmd ← leanBin root
       pure (some leanCmd)
     else
@@ -43,8 +45,11 @@ private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
             pure (paths, bundleId, "missing", false)
   IO.println s!"project toolchain: {toolchain}"
   IO.println s!"project toolchain supported: {boolText toolchainSupported}"
-  IO.println s!"supported toolchains registry: {supportPath}"
-  IO.println s!"lean binary: {leanCmd?.getD "(not resolved for unsupported toolchain)"}"
+  IO.println s!"project toolchain custom: {boolText toolchainCustom}"
+  IO.println s!"project toolchain accepted: {boolText toolchainAccepted}"
+  IO.println s!"supported toolchains registry: {support.supportedPath}"
+  IO.println s!"custom toolchains registry: {support.customPath}"
+  IO.println s!"lean binary: {leanCmd?.getD "(not resolved for rejected toolchain)"}"
   IO.println s!"bundle platform: {platform}"
   IO.println s!"bundle source: {source}"
   IO.println s!"bundle source hash: {srcHash}"

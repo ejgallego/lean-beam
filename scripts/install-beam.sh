@@ -34,12 +34,14 @@ runtime_writes_approved=0
 bin_writes_approved=0
 source_build_approved=0
 requested_toolchains=()
+requested_custom_toolchains=()
 installed_skill_targets=()
 registered_mcp_targets=()
 approved_skill_homes=()
 approved_skill_home_count=0
 prepared_repo_toolchain=""
 prepared_selected_toolchains=()
+prepared_custom_toolchains=()
 prepared_payload_id=""
 prepared_version_root=""
 prepared_source_commit=""
@@ -62,6 +64,7 @@ runtime_payload_spec=(
   "copy|rootFiles|lake-manifest.json|lake-manifest.json"
   "copy|rootFiles|lean-toolchain|lean-toolchain"
   "copy|rootFiles|supported-lean-toolchains|supported-lean-toolchains"
+  "generated|rootFiles|custom-lean-toolchains|custom-lean-toolchains"
   "copy|sourceDirs|RunAt|RunAt"
   "copy|sourceDirs|Beam|Beam"
   "copy|sourceDirs|ffi|ffi"
@@ -84,7 +87,7 @@ Usage:
 Installs the local beam command wrappers and self-contained runtime under:
   $install_root
 
-With no flags, an interactive install asks which supported Lean toolchains, agent skills, and MCP
+With no flags, an interactive install asks which Lean toolchains, agent skills, and MCP
 clients to set up before showing the write plan. Press Enter through the setup prompts for the
 minimal runtime install:
   - $bin_home/lean-beam
@@ -99,6 +102,8 @@ Optional flags:
   --don't-ask   alias for --dont-ask
   --yes         alias for --dont-ask
   --toolchain    prebuild one supported Lean toolchain; may be repeated
+  --custom-toolchain
+                prebuild and accept one explicit custom Lean toolchain; may be repeated
   --all-supported
                 prebuild every supported Lean toolchain
   --codex       install bundled Lean and Rocq skills into $codex_skills_home
@@ -116,6 +121,7 @@ Environment:
 
 Requirements:
   elan must be on PATH so the installer can prebuild the selected Lean bundle(s)
+  custom toolchains must already be known to elan, for example through elan toolchain link
 EOF
 }
 
@@ -260,7 +266,7 @@ path_edit_preapproved() {
     return 0
   fi
   if [ "$approved_skill_home_count" -gt 0 ]; then
-    for skill_home in "${approved_skill_homes[@]}"; do
+    for skill_home in ${approved_skill_homes[@]+"${approved_skill_homes[@]}"}; do
       if path_is_within "$path" "$skill_home"; then
         return 0
       fi
@@ -497,6 +503,14 @@ parse_args() {
         requested_toolchains+=("$2")
         shift
         ;;
+      --custom-toolchain)
+        if [ "$#" -lt 2 ]; then
+          die "missing value for --custom-toolchain"
+        fi
+        toolchain_selection_explicit=1
+        requested_custom_toolchains+=("$2")
+        shift
+        ;;
       --all-supported)
         toolchain_selection_explicit=1
         install_all_supported=1
@@ -598,27 +612,71 @@ array_contains() {
   return 1
 }
 
+load_supported_toolchains() {
+  supported_toolchains=()
+  local toolchain=""
+  while IFS= read -r toolchain; do
+    [ -n "$toolchain" ] || continue
+    supported_toolchains+=("$toolchain")
+  done < <(read_supported_toolchains)
+}
+
+require_supported_toolchains_loaded() {
+  if [ "${#supported_toolchains[@]}" -eq 0 ]; then
+    die "beam CLI reported no supported Lean toolchains"
+  fi
+}
+
+append_unique_selected_toolchain() {
+  local toolchain="$1"
+  if [ "${#selected[@]}" -eq 0 ] || ! array_contains "$toolchain" ${selected[@]+"${selected[@]}"}; then
+    selected+=("$toolchain")
+  fi
+}
+
+append_unique_custom_toolchain() {
+  local toolchain="$1"
+  if [ "${#custom_selected[@]}" -eq 0 ] || ! array_contains "$toolchain" ${custom_selected[@]+"${custom_selected[@]}"}; then
+    custom_selected+=("$toolchain")
+  fi
+}
+
+print_array_lines() {
+  if [ "$#" -gt 0 ]; then
+    printf '%s\n' "$@"
+  fi
+}
+
+validate_custom_toolchain_name() {
+  local toolchain="$1"
+  if [ -z "$toolchain" ]; then
+    die "custom Lean toolchain must not be empty"
+  fi
+  case "$toolchain" in
+    *[[:space:]]*)
+      die "custom Lean toolchain must not contain whitespace: $toolchain"
+      ;;
+  esac
+}
+
 prompt_toolchain_selection() {
   local repo_toolchain="$1"
   local supported_toolchains=()
   local selected=()
+  local custom_selected=()
   local toolchain=""
+  local custom_toolchain=""
   local reply=""
   local token=""
   local index=""
   local ordinal=1
 
-  while IFS= read -r toolchain; do
-    [ -n "$toolchain" ] || continue
-    supported_toolchains+=("$toolchain")
-  done < <(read_supported_toolchains)
-  if [ "${#supported_toolchains[@]}" -eq 0 ]; then
-    die "beam CLI reported no supported Lean toolchains"
-  fi
+  load_supported_toolchains
+  require_supported_toolchains_loaded
 
   print_section "$style_blue" "Lean Toolchains"
   printf 'Supported toolchains:\n' >&2
-  for toolchain in "${supported_toolchains[@]}"; do
+  for toolchain in ${supported_toolchains[@]+"${supported_toolchains[@]}"}; do
     if [ "$toolchain" = "$repo_toolchain" ]; then
       printf '  %d) %s (default)\n' "$ordinal" "$toolchain" >&2
     else
@@ -626,33 +684,30 @@ prompt_toolchain_selection() {
     fi
     ordinal=$((ordinal + 1))
   done
-  printf 'Prebuild toolchains [Enter: %s; numbers, names, or all]: ' "$repo_toolchain" >&2
+  printf 'Prebuild toolchains [Enter: %s; numbers, names, custom:<name>, or all]: ' "$repo_toolchain" >&2
   IFS= read -r reply
   reply="${reply//,/ }"
   if [ -z "$reply" ]; then
     requested_toolchains=("$repo_toolchain")
+    requested_custom_toolchains=()
     install_all_supported=0
-    return 0
-  fi
-  if [ "$reply" = "all" ] || [ "$reply" = "ALL" ] || [ "$reply" = "All" ]; then
-    requested_toolchains=()
-    install_all_supported=1
     return 0
   fi
   for token in $reply; do
     case "$token" in
       all|ALL|All)
-        requested_toolchains=()
         install_all_supported=1
-        return 0
+        ;;
+      custom:*)
+        custom_toolchain="${token#custom:}"
+        validate_custom_toolchain_name "$custom_toolchain"
+        append_unique_custom_toolchain "$custom_toolchain"
         ;;
       *[!0-9]*)
-        if ! array_contains "$token" "${supported_toolchains[@]}"; then
-          die "unsupported Lean toolchain selected for install: $token"
+        if ! array_contains "$token" ${supported_toolchains[@]+"${supported_toolchains[@]}"}; then
+          die "unsupported Lean toolchain selected for install: $token; use custom:$token for an explicit local toolchain"
         fi
-        if [ "${#selected[@]}" -eq 0 ] || ! array_contains "$token" "${selected[@]}"; then
-          selected+=("$token")
-        fi
+        append_unique_selected_toolchain "$token"
         ;;
       *)
         if [ "$token" -lt 1 ] || [ "$token" -gt "${#supported_toolchains[@]}" ]; then
@@ -660,17 +715,20 @@ prompt_toolchain_selection() {
         fi
         index=$((token - 1))
         toolchain="${supported_toolchains[$index]}"
-        if [ "${#selected[@]}" -eq 0 ] || ! array_contains "$toolchain" "${selected[@]}"; then
-          selected+=("$toolchain")
-        fi
+        append_unique_selected_toolchain "$toolchain"
         ;;
     esac
   done
-  if [ "${#selected[@]}" -eq 0 ]; then
+  if [ "$install_all_supported" -eq 1 ]; then
+    requested_toolchains=()
+  elif [ "${#selected[@]}" -gt 0 ]; then
+    requested_toolchains=(${selected[@]+"${selected[@]}"})
+  elif [ "${#custom_selected[@]}" -eq 0 ]; then
     die "no Lean toolchains selected"
+  else
+    requested_toolchains=()
   fi
-  requested_toolchains=("${selected[@]}")
-  install_all_supported=0
+  requested_custom_toolchains=(${custom_selected[@]+"${custom_selected[@]}"})
 }
 
 prompt_skill_selection() {
@@ -759,7 +817,7 @@ maybe_prompt_interactive_choices() {
   fi
 }
 
-resolve_install_toolchains() {
+resolve_supported_install_toolchains() {
   local repo_toolchain="$1"
   local supported_toolchains=()
   local selected=()
@@ -769,33 +827,78 @@ resolve_install_toolchains() {
     die "cannot combine --all-supported with --toolchain"
   fi
 
-  while IFS= read -r toolchain; do
-    [ -n "$toolchain" ] || continue
-    supported_toolchains+=("$toolchain")
-  done < <(read_supported_toolchains)
-  if [ "${#supported_toolchains[@]}" -eq 0 ]; then
-    die "beam CLI reported no supported Lean toolchains"
-  fi
+  load_supported_toolchains
+  require_supported_toolchains_loaded
 
   if [ "$install_all_supported" -eq 1 ]; then
-    selected=("${supported_toolchains[@]}")
+    selected=(${supported_toolchains[@]+"${supported_toolchains[@]}"})
   elif [ "${#requested_toolchains[@]}" -gt 0 ]; then
-    for toolchain in "${requested_toolchains[@]}"; do
-      if ! array_contains "$toolchain" "${supported_toolchains[@]}"; then
+    for toolchain in ${requested_toolchains[@]+"${requested_toolchains[@]}"}; do
+      if ! array_contains "$toolchain" ${supported_toolchains[@]+"${supported_toolchains[@]}"}; then
         die "unsupported Lean toolchain requested for install: $toolchain"
       fi
-      if [ "${#selected[@]}" -eq 0 ] || ! array_contains "$toolchain" "${selected[@]}"; then
-        selected+=("$toolchain")
+      append_unique_selected_toolchain "$toolchain"
+    done
+  elif [ "${#requested_custom_toolchains[@]}" -gt 0 ]; then
+    for toolchain in ${requested_custom_toolchains[@]+"${requested_custom_toolchains[@]}"}; do
+      if array_contains "$toolchain" ${supported_toolchains[@]+"${supported_toolchains[@]}"}; then
+        append_unique_selected_toolchain "$toolchain"
       fi
     done
   else
-    if ! array_contains "$repo_toolchain" "${supported_toolchains[@]}"; then
+    if ! array_contains "$repo_toolchain" ${supported_toolchains[@]+"${supported_toolchains[@]}"}; then
       die "pinned Lean toolchain is not in supported-lean-toolchains: $repo_toolchain"
     fi
     selected=("$repo_toolchain")
   fi
 
-  printf '%s\n' "${selected[@]}"
+  print_array_lines ${selected[@]+"${selected[@]}"}
+}
+
+resolve_custom_install_toolchains() {
+  local supported_toolchains=()
+  local selected=()
+  local toolchain=""
+
+  load_supported_toolchains
+
+  for toolchain in ${requested_custom_toolchains[@]+"${requested_custom_toolchains[@]}"}; do
+    validate_custom_toolchain_name "$toolchain"
+    if array_contains "$toolchain" ${supported_toolchains[@]+"${supported_toolchains[@]}"}; then
+      continue
+    fi
+    append_unique_selected_toolchain "$toolchain"
+  done
+
+  print_array_lines ${selected[@]+"${selected[@]}"}
+}
+
+combine_resolved_toolchains() {
+  local supported_toolchain_lines="$1"
+  local custom_toolchain_lines="$2"
+  local toolchain=""
+  while IFS= read -r toolchain; do
+    [ -n "$toolchain" ] || continue
+    printf '%s\n' "$toolchain"
+  done <<< "$supported_toolchain_lines"
+  while IFS= read -r toolchain; do
+    [ -n "$toolchain" ] || continue
+    printf '%s\n' "$toolchain"
+  done <<< "$custom_toolchain_lines"
+}
+
+resolve_install_toolchains() {
+  local repo_toolchain="$1"
+  local supported_toolchain_lines=""
+  local custom_toolchain_lines=""
+  local resolved=""
+  supported_toolchain_lines="$(resolve_supported_install_toolchains "$repo_toolchain")"
+  custom_toolchain_lines="$(resolve_custom_install_toolchains)"
+  resolved="$(combine_resolved_toolchains "$supported_toolchain_lines" "$custom_toolchain_lines")"
+  if [ -z "$resolved" ]; then
+    die "no Lean toolchains selected"
+  fi
+  printf '%s\n' "$resolved"
 }
 
 runtime_artifacts_ready() {
@@ -808,7 +911,14 @@ runtime_artifacts_ready() {
 
 print_install_plan() {
   local resolved_toolchains="$1"
+  local custom_toolchains="${2:-}"
+  local custom_selected=()
   local toolchain=""
+  local display_toolchain=""
+  while IFS= read -r toolchain; do
+    [ -n "$toolchain" ] || continue
+    custom_selected+=("$toolchain")
+  done <<< "$custom_toolchains"
   print_section "$style_blue" "Install Plan"
   print_field "runtime" "$install_root"
   print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
@@ -817,11 +927,15 @@ print_install_plan() {
     local first_toolchain=1
     while IFS= read -r toolchain; do
       [ -n "$toolchain" ] || continue
+      display_toolchain="$toolchain"
+      if array_contains "$toolchain" ${custom_selected[@]+"${custom_selected[@]}"}; then
+        display_toolchain="$toolchain (custom)"
+      fi
       if [ "$first_toolchain" -eq 1 ]; then
-        print_field "toolchains" "$toolchain"
+        print_field "toolchains" "$display_toolchain"
         first_toolchain=0
       else
-        print_field "" "$toolchain"
+        print_field "" "$display_toolchain"
       fi
     done <<< "$resolved_toolchains"
   fi
@@ -913,14 +1027,27 @@ stage_runtime_tree() {
   local mode=""
   local src_rel=""
   local dest_rel=""
+  local toolchain=""
   mkdir -p "$dest"
-  for entry in "${runtime_payload_spec[@]}"; do
+  for entry in ${runtime_payload_spec[@]+"${runtime_payload_spec[@]}"}; do
     IFS='|' read -r mode _ src_rel dest_rel <<< "$entry"
     case "$mode" in
       copy)
         copy_repo_path_if_present "$repo_root/$src_rel" "$dest/$dest_rel" "$dest"
         ;;
       generated)
+        case "$dest_rel" in
+          custom-lean-toolchains)
+            ensure_dir_for_install "$(dirname "$dest/$dest_rel")" "custom toolchain registry parent"
+            : > "$dest/$dest_rel"
+            for toolchain in ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; do
+              printf '%s\n' "$toolchain" >> "$dest/$dest_rel"
+            done
+            ;;
+          *)
+            die "unknown generated runtime payload: $dest_rel"
+            ;;
+        esac
         ;;
       *)
         die "unknown runtime payload mode: $mode"
@@ -1052,7 +1179,7 @@ verify_requested_mcp_clients() {
 
 remember_approved_skill_home() {
   local location="$1"
-  if [ "$approved_skill_home_count" -eq 0 ] || ! array_contains "$location" "${approved_skill_homes[@]}"; then
+  if [ "$approved_skill_home_count" -eq 0 ] || ! array_contains "$location" ${approved_skill_homes[@]+"${approved_skill_homes[@]}"}; then
     approved_skill_homes+=("$location")
     approved_skill_home_count=$((approved_skill_home_count + 1))
   fi
@@ -1160,14 +1287,17 @@ register_requested_mcp_servers() {
 
 prepare_install_environment() {
   local resolved_toolchains=""
+  local resolved_custom_toolchains=""
   local toolchain=""
   require_elan
   prepared_repo_toolchain="$(awk 'NR==1 {print $1}' "$repo_root/lean-toolchain")"
   require_repo_toolchain "$prepared_repo_toolchain"
   resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
+  resolved_custom_toolchains="$(resolve_custom_install_toolchains)"
   maybe_prompt_interactive_choices "$prepared_repo_toolchain"
   resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
-  print_install_plan "$resolved_toolchains"
+  resolved_custom_toolchains="$(resolve_custom_install_toolchains)"
+  print_install_plan "$resolved_toolchains" "$resolved_custom_toolchains"
   verify_requested_skill_targets
   verify_requested_mcp_clients
   ensure_install_root_claimable
@@ -1182,6 +1312,13 @@ prepare_install_environment() {
       [ -n "$toolchain" ] || continue
       prepared_selected_toolchains+=("$toolchain")
     done <<< "$resolved_toolchains"
+  fi
+  prepared_custom_toolchains=()
+  if [ -n "$resolved_custom_toolchains" ]; then
+    while IFS= read -r toolchain; do
+      [ -n "$toolchain" ] || continue
+      prepared_custom_toolchains+=("$toolchain")
+    done <<< "$resolved_custom_toolchains"
   fi
   ensure_dir_for_install "$bin_home" "bin home"
   ensure_dir_for_install "$versions_root" "versions root"
@@ -1198,7 +1335,7 @@ prepare_install_version() {
     "$staging_root/manifest.json" \
     "$prepared_payload_id" \
     "$prepared_source_commit" \
-    "${prepared_selected_toolchains[@]}"
+    ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
   if [ ! -d "$prepared_version_root" ]; then
     move_staging_dir_into_versions "$staging_root" "$prepared_version_root"
   else
@@ -1212,7 +1349,7 @@ prepare_install_version() {
       "$prepared_version_root/manifest.json" \
       "$prepared_payload_id" \
       "$prepared_source_commit" \
-      "${prepared_selected_toolchains[@]}"
+      ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
   fi
 }
 
@@ -1263,7 +1400,7 @@ print_install_summary() {
     path_status="ready for direct \`lean-beam\` and \`lean-beam-mcp\` use in this shell"
   fi
   if [ -n "${installed_skill_targets[*]-}" ]; then
-    for toolchain in "${installed_skill_targets[@]}"; do
+    for toolchain in ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; do
       case "$toolchain" in
         Codex:*)
           codex_skill_installed=1
@@ -1275,7 +1412,7 @@ print_install_summary() {
     done
   fi
   if [ -n "${registered_mcp_targets[*]-}" ]; then
-    for toolchain in "${registered_mcp_targets[@]}"; do
+    for toolchain in ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; do
       case "$toolchain" in
         Codex:*)
           codex_mcp_registered=1
@@ -1291,10 +1428,18 @@ print_install_summary() {
   print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
   print_field "runtime" "$current_root"
   if [ "$#" -gt 0 ]; then
-    print_field "prebuilt toolchains" "$1"
+    local first_prebuilt="$1"
+    if array_contains "$first_prebuilt" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
+      first_prebuilt="$first_prebuilt (custom)"
+    fi
+    print_field "prebuilt toolchains" "$first_prebuilt"
     shift
     for toolchain in "$@"; do
-      printf '  %s%-18s%s %s\n' "$style_dim" "" "$style_reset" "$toolchain" >&2
+      if array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
+        printf '  %s%-18s%s %s (custom)\n' "$style_dim" "" "$style_reset" "$toolchain" >&2
+      else
+        printf '  %s%-18s%s %s\n' "$style_dim" "" "$style_reset" "$toolchain" >&2
+      fi
     done
   else
     print_field "prebuilt toolchains" "none"
@@ -1354,11 +1499,11 @@ main() {
   staging_root=""
   trap 'release_install_lock' EXIT
 
-  prebuild_install_bundles "$prepared_version_root" "${prepared_selected_toolchains[@]}"
+  prebuild_install_bundles "$prepared_version_root" ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
   publish_runtime "$prepared_version_root"
   register_requested_mcp_servers
   install_requested_skills
-  print_install_summary "$prepared_version_root" "${prepared_selected_toolchains[@]}"
+  print_install_summary "$prepared_version_root" ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
   release_install_lock
   trap - EXIT
 }
