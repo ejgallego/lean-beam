@@ -20,14 +20,22 @@ structure BundlePaths where
   plugin : System.FilePath
   deriving Repr
 
-def bundleMetadataSchemaVersion : Nat := 1
+def bundleMetadataSchemaVersion : Nat := 2
 
 def bundleWorkspaceOwnerMarkerName : String :=
   ".lean-beam-bundle-workspace"
 
+structure ToolchainFingerprint where
+  leanVersion : String
+  leanPrefix : String
+  leanLibDir : String
+  lakeVersion : String
+  deriving BEq, Repr, FromJson, ToJson
+
 private structure BundleMetadata where
   schemaVersion : Nat
   toolchain : String
+  toolchainFingerprint : ToolchainFingerprint
   sourceHash : String
   workspace : String
   builtAt : String
@@ -279,14 +287,77 @@ def sourceHash (home : System.FilePath) : IO String := do
     acc ← mixFileHash acc root path
   pure s!"{acc.toNat}"
 
-def bundleIdFor (toolchain source platformKey : String) : String :=
-  s!"{mixField (mixField (mixField 14695981039346656037 toolchain) source) platformKey |>.toNat}"
+private def ensureElan : IO Unit := do
+  unless ← commandAvailable "elan" do
+    throw <| IO.userError "missing elan on PATH"
 
-def bundleDirFor (cacheRoot home : System.FilePath) (toolchain : String) : IO (System.FilePath × String × String) := do
+private def readRequiredToolchainCmdTrim (toolchain exe : String) (args : Array String := #[]) :
+    IO String := do
+  let out ← IO.Process.output {
+    cmd := "elan"
+    args := #["run", toolchain, exe] ++ args
+  }
+  if out.exitCode != 0 then
+    throw <| IO.userError <| String.intercalate "\n" [
+      s!"failed to fingerprint Lean toolchain {toolchain}",
+      s!"command: elan run {toolchain} {exe} {String.intercalate " " args.toList}",
+      "",
+      "stdout:",
+      if out.stdout.trimAscii.isEmpty then "(empty)" else out.stdout,
+      "",
+      "stderr:",
+      if out.stderr.trimAscii.isEmpty then "(empty)" else out.stderr
+    ]
+  let text := trimLine out.stdout
+  if text.isEmpty then
+    throw <| IO.userError
+      s!"failed to fingerprint Lean toolchain {toolchain}: `elan run {toolchain} {exe}` returned empty stdout"
+  pure text
+
+def toolchainFingerprintKey (fingerprint : ToolchainFingerprint) : String :=
+  String.intercalate "\n" [
+    "lean-version", fingerprint.leanVersion,
+    "lean-prefix", fingerprint.leanPrefix,
+    "lean-libdir", fingerprint.leanLibDir,
+    "lake-version", fingerprint.lakeVersion
+  ]
+
+def toolchainFingerprintHash (fingerprint : ToolchainFingerprint) : String :=
+  s!"{hashString (toolchainFingerprintKey fingerprint) |>.toNat}"
+
+def toolchainFingerprint (toolchain : String) : IO ToolchainFingerprint := do
+  ensureElan
+  let leanVersion ← readRequiredToolchainCmdTrim toolchain "lean" #["--version"]
+  let leanPrefix ← readRequiredToolchainCmdTrim toolchain "lean" #["--print-prefix"]
+  let leanLibDir ← readRequiredToolchainCmdTrim toolchain "lean" #["--print-libdir"]
+  let lakeVersion ← readRequiredToolchainCmdTrim toolchain "lake" #["--version"]
+  pure {
+    leanVersion
+    leanPrefix
+    leanLibDir
+    lakeVersion
+  }
+
+def bundleIdFor (toolchain : String) (fingerprint : ToolchainFingerprint) (source platformKey : String) :
+    String :=
+  let acc := mixField 14695981039346656037 toolchain
+  let acc := mixField acc (toolchainFingerprintKey fingerprint)
+  let acc := mixField acc source
+  let acc := mixField acc platformKey
+  s!"{acc.toNat}"
+
+def bundleDirForFingerprint (cacheRoot home : System.FilePath) (toolchain : String)
+    (fingerprint : ToolchainFingerprint) : IO (System.FilePath × String × String) := do
   let platformKey ← bundlePlatform
   let srcHash ← sourceHash home
-  let bundleId := bundleIdFor toolchain srcHash platformKey
+  let bundleId := bundleIdFor toolchain fingerprint srcHash platformKey
   pure (cacheRoot / platformKey / bundleId, bundleId, srcHash)
+
+def bundleDirFor (cacheRoot home : System.FilePath) (toolchain : String) :
+    IO (System.FilePath × String × String × ToolchainFingerprint) := do
+  let fingerprint ← toolchainFingerprint toolchain
+  let (bundleDir, bundleId, srcHash) ← bundleDirForFingerprint cacheRoot home toolchain fingerprint
+  pure (bundleDir, bundleId, srcHash, fingerprint)
 
 private def copyFileInto (srcRoot dstRoot srcPath : System.FilePath) : IO Unit := do
   let rel := Beam.pathRelativeToRootOrSelf srcRoot srcPath
@@ -327,11 +398,13 @@ def syncBundleWorkspace (home bundleDir workspace : System.FilePath) : IO Unit :
 
 def bundleMetadataJson
     (toolchain srcHash : String)
+    (fingerprint : ToolchainFingerprint)
     (workspace : System.FilePath)
     (builtAt : String) : Json :=
   toJson ({
     schemaVersion := bundleMetadataSchemaVersion
     toolchain
+    toolchainFingerprint := fingerprint
     sourceHash := srcHash
     workspace := workspace.toString
     builtAt
@@ -339,6 +412,7 @@ def bundleMetadataJson
 
 def checkBundleMetadataJson
     (toolchain srcHash : String)
+    (fingerprint : ToolchainFingerprint)
     (_workspace : System.FilePath)
     (json : Json) : Except String Unit := do
   let metadata : BundleMetadata ← fromJson? json
@@ -346,6 +420,8 @@ def checkBundleMetadataJson
     throw s!"unsupported bundle metadata schemaVersion {metadata.schemaVersion}"
   if metadata.toolchain != toolchain then
     throw s!"bundle metadata toolchain mismatch: expected {toolchain}, got {metadata.toolchain}"
+  if metadata.toolchainFingerprint != fingerprint then
+    throw "bundle metadata toolchain fingerprint mismatch"
   if metadata.sourceHash != srcHash then
     throw s!"bundle metadata sourceHash mismatch: expected {srcHash}, got {metadata.sourceHash}"
   if metadata.workspace.isEmpty then
@@ -356,42 +432,32 @@ def checkBundleMetadataJson
 def bundleMetadataReady
     (bundleDir : System.FilePath)
     (toolchain srcHash : String)
+    (fingerprint : ToolchainFingerprint)
     (workspace : System.FilePath) : IO Bool := do
   let path := bundleMetadataPath bundleDir
   unless ← path.pathExists do
     return false
   try
     let json ← IO.ofExcept <| Json.parse (← IO.FS.readFile path)
-    match checkBundleMetadataJson toolchain srcHash workspace json with
+    match checkBundleMetadataJson toolchain srcHash fingerprint workspace json with
     | .ok _ => return true
     | .error _ => return false
   catch _ =>
     return false
 
-def bundleReady (bundleDir : System.FilePath) (toolchain srcHash : String) : IO Bool := do
+def bundleReady (bundleDir : System.FilePath) (toolchain srcHash : String)
+    (fingerprint : ToolchainFingerprint) : IO Bool := do
   let workspace := bundleWorkspaceFor bundleDir
-  return (← bundleArtifactsReady workspace) && (← bundleMetadataReady bundleDir toolchain srcHash workspace)
+  return (← bundleArtifactsReady workspace) &&
+    (← bundleMetadataReady bundleDir toolchain srcHash fingerprint workspace)
 
-private def writeBundleMetadata (bundleDir : System.FilePath) (toolchain srcHash : String) (workspace : System.FilePath) : IO Unit := do
+private def writeBundleMetadata (bundleDir : System.FilePath) (toolchain srcHash : String)
+    (fingerprint : ToolchainFingerprint) (workspace : System.FilePath) : IO Unit := do
   let path := bundleMetadataPath bundleDir
   if let some parent := path.parent then
     IO.FS.createDirAll parent
-  IO.FS.writeFile path ((bundleMetadataJson toolchain srcHash workspace (← utcTimestamp)).pretty ++ "\n")
-
-private def ensureElan : IO Unit := do
-  unless ← commandAvailable "elan" do
-    throw <| IO.userError "missing elan on PATH"
-
-private def readToolchainCmdTrim (toolchain exe : String) (args : Array String := #[]) :
-    IO (Option String) := do
-  let out ← IO.Process.output {
-    cmd := "elan"
-    args := #["run", toolchain, exe] ++ args
-  }
-  if out.exitCode == 0 then
-    pure <| some <| trimLine out.stdout
-  else
-    pure none
+  IO.FS.writeFile path
+    ((bundleMetadataJson toolchain srcHash fingerprint workspace (← utcTimestamp)).pretty ++ "\n")
 
 private def samePath (left right : System.FilePath) : IO Bool := do
   try
@@ -452,18 +518,15 @@ private structure LakeBuildInvocation where
   args : Array String
   env : Array (String × Option String) := #[]
 
-private def lakeBuildInvocationFor (bundleDir : System.FilePath) (toolchain : String) :
+private def lakeBuildInvocationFor (bundleDir : System.FilePath) (toolchain : String)
+    (fingerprint : ToolchainFingerprint) :
     IO LakeBuildInvocation := do
   let default := {
     cmd := "elan",
     args := #["run", toolchain, "lake", "build", "RunAt:shared", "beam-daemon", "beam-client"]
   }
-  let some prefixText ← readToolchainCmdTrim toolchain "lean" #["--print-prefix"]
-    | pure default
-  let some libDirText ← readToolchainCmdTrim toolchain "lean" #["--print-libdir"]
-    | pure default
-  let leanPrefix := System.FilePath.mk prefixText
-  let libDir := System.FilePath.mk libDirText
+  let leanPrefix := System.FilePath.mk fingerprint.leanPrefix
+  let libDir := System.FilePath.mk fingerprint.leanLibDir
   let standardLibDir := leanPrefix / "lib" / "lean"
   if ← samePath libDir standardLibDir then
     pure default
@@ -495,11 +558,12 @@ private def fallbackBuildFailureMessage (toolchain : String) (cacheRoot bundleDi
   ]
 
 def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
+    (fingerprint : ToolchainFingerprint)
     (cacheRoot bundleDir workspace : System.FilePath) : IO Unit := do
   ensureElan
   syncBundleWorkspace home bundleDir workspace
   IO.eprintln s!"building beam bundle for {toolchain}"
-  let lakeBuild ← lakeBuildInvocationFor bundleDir toolchain
+  let lakeBuild ← lakeBuildInvocationFor bundleDir toolchain fingerprint
   let out ← IO.Process.output {
     cmd := lakeBuild.cmd
     args := lakeBuild.args
@@ -508,41 +572,61 @@ def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
   }
   if out.exitCode != 0 then
     throw <| IO.userError <| fallbackBuildFailureMessage toolchain cacheRoot bundleDir out.stdout out.stderr
-  writeBundleMetadata bundleDir toolchain srcHash workspace
+  writeBundleMetadata bundleDir toolchain srcHash fingerprint workspace
 
-def existingToolchainBundle? (cacheRoot home : System.FilePath) (toolchain : String) : IO (Option (BundlePaths × String)) := do
-  let (bundleDir, bundleId, srcHash) ← bundleDirFor cacheRoot home toolchain
+def existingToolchainBundleForFingerprint? (cacheRoot home : System.FilePath) (toolchain : String)
+    (fingerprint : ToolchainFingerprint) : IO (Option (BundlePaths × String)) := do
+  let (bundleDir, bundleId, srcHash) ← bundleDirForFingerprint cacheRoot home toolchain fingerprint
   let workspace := bundleWorkspaceFor bundleDir
-  if ← bundleReady bundleDir toolchain srcHash then
+  if ← bundleReady bundleDir toolchain srcHash fingerprint then
     pure <| some (bundlePathsFor workspace, bundleId)
   else
     pure none
+
+def existingToolchainBundle? (cacheRoot home : System.FilePath) (toolchain : String) : IO (Option (BundlePaths × String)) := do
+  let fingerprint ← toolchainFingerprint toolchain
+  existingToolchainBundleForFingerprint? cacheRoot home toolchain fingerprint
+
+partial def existingToolchainBundleInAnyForFingerprint? (cacheRoots : List System.FilePath)
+    (home : System.FilePath) (toolchain : String) (fingerprint : ToolchainFingerprint) :
+    IO (Option (BundlePaths × String)) := do
+  match cacheRoots with
+  | [] => pure none
+  | cacheRoot :: rest =>
+      match ← existingToolchainBundleForFingerprint? cacheRoot home toolchain fingerprint with
+      | some bundle => pure <| some bundle
+      | none => existingToolchainBundleInAnyForFingerprint? rest home toolchain fingerprint
 
 partial def existingToolchainBundleInAny? (cacheRoots : List System.FilePath) (home : System.FilePath)
     (toolchain : String) : IO (Option (BundlePaths × String)) := do
   match cacheRoots with
   | [] => pure none
-  | cacheRoot :: rest =>
-      match ← existingToolchainBundle? cacheRoot home toolchain with
-      | some bundle => pure <| some bundle
-      | none => existingToolchainBundleInAny? rest home toolchain
+  | _ =>
+      let fingerprint ← toolchainFingerprint toolchain
+      existingToolchainBundleInAnyForFingerprint? cacheRoots home toolchain fingerprint
+
+def ensureToolchainBundleInForFingerprint (cacheRoot home : System.FilePath) (toolchain : String)
+    (fingerprint : ToolchainFingerprint) : IO (BundlePaths × String) := do
+  let (bundleDir, bundleId, srcHash) ← bundleDirForFingerprint cacheRoot home toolchain fingerprint
+  let workspace := bundleWorkspaceFor bundleDir
+  withLock (bundleDir / "lock") do
+    unless ← bundleReady bundleDir toolchain srcHash fingerprint do
+      buildToolchainBundle home toolchain srcHash fingerprint cacheRoot bundleDir workspace
+  pure (bundlePathsFor workspace, bundleId)
 
 def ensureToolchainBundleIn (cacheRoot home : System.FilePath) (toolchain : String) : IO (BundlePaths × String) := do
   ensureAcceptedLeanToolchain home toolchain
-  let (bundleDir, bundleId, srcHash) ← bundleDirFor cacheRoot home toolchain
-  let workspace := bundleWorkspaceFor bundleDir
-  withLock (bundleDir / "lock") do
-    unless ← bundleReady bundleDir toolchain srcHash do
-      buildToolchainBundle home toolchain srcHash cacheRoot bundleDir workspace
-  pure (bundlePathsFor workspace, bundleId)
+  let fingerprint ← toolchainFingerprint toolchain
+  ensureToolchainBundleInForFingerprint cacheRoot home toolchain fingerprint
 
 def ensureToolchainBundle (root home : System.FilePath) (toolchain : String) : IO (BundlePaths × String) := do
   ensureAcceptedLeanToolchain home toolchain
-  match ← existingToolchainBundleInAny? (← installBundleCacheRoots) home toolchain with
+  let fingerprint ← toolchainFingerprint toolchain
+  match ← existingToolchainBundleInAnyForFingerprint? (← installBundleCacheRoots) home toolchain fingerprint with
   | some bundle => pure bundle
   | none =>
       let cacheRoot ← runtimeBundleCacheRoot root
-      ensureToolchainBundleIn cacheRoot home toolchain
+      ensureToolchainBundleInForFingerprint cacheRoot home toolchain fingerprint
 
 def ensureDefaultDaemonHelpers (home : System.FilePath) : IO BundlePaths := do
   let paths ← defaultBundlePaths home
@@ -559,9 +643,14 @@ def ensureDefaultDaemonHelpers (home : System.FilePath) : IO BundlePaths := do
     ensureBundleExists paths
     pure paths
 
+def predictedToolchainBundleForFingerprint (cacheRoot home : System.FilePath) (toolchain : String)
+    (fingerprint : ToolchainFingerprint) : IO (BundlePaths × String) := do
+  let (bundleDir, bundleId, _) ← bundleDirForFingerprint cacheRoot home toolchain fingerprint
+  pure (bundlePathsFor (bundleWorkspaceFor bundleDir), bundleId)
+
 def predictedToolchainBundle (cacheRoot home : System.FilePath) (toolchain : String) :
     IO (BundlePaths × String) := do
-  let (bundleDir, bundleId, _) ← bundleDirFor cacheRoot home toolchain
-  pure (bundlePathsFor (bundleWorkspaceFor bundleDir), bundleId)
+  let fingerprint ← toolchainFingerprint toolchain
+  predictedToolchainBundleForFingerprint cacheRoot home toolchain fingerprint
 
 end Beam.Cli
