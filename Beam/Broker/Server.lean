@@ -966,10 +966,20 @@ private def saveCompletedResponse
       saved.payload
   responseWithFileProgress (Response.success payload) saved.fileProgress?
 
+private def savePayloadWithSyncSummary (payload syncSummary : Json) : Json :=
+  payload.setObjVal! "sync" syncSummary
+
+private def syncSummaryErrorData (syncSummary : Json) : Json :=
+  Json.mkObj [("sync", syncSummary)]
+
+private def saveNotReadyMessage (readiness : SyncSaveReadiness) : String :=
+  readiness.saveReadyMessage?.getD "cannot save artifacts for a document with errors"
+
 private def fetchSyncSaveReadinessIO
     (server : ServerRuntime)
     (session : Session)
-    (uri : DocumentUri) : IO SyncSaveReadiness := do
+    (uri : DocumentUri)
+    (expectedVersion? : Option Nat := none) : IO SyncSaveReadiness := do
   if session.backend != .lean then
     pure {}
   else
@@ -980,6 +990,17 @@ private def fetchSyncSaveReadinessIO
     })
     let readiness : RunAt.Internal.SaveReadinessResult ←
       sendCurrentSessionRequestDecode server session method params
+    match expectedVersion? with
+    | some expectedVersion =>
+        if readiness.version != expectedVersion then
+          throwBrokerFailure {
+            code := .contentModified
+            message :=
+              s!"save readiness reported version {readiness.version}, " ++
+                s!"expected synced version {expectedVersion}"
+          }
+    | none =>
+        pure ()
     pure (syncSaveReadinessOfResult readiness)
 
 private def fetchDirectImportsIO
@@ -1038,7 +1059,16 @@ private def saveOleanIO
   mergeFileProgressIfCurrent server started.session started.uri barrierProgress?
   ensureSyncBarrierComplete started.uri started.version barrierProgress? barrier.diagnostics
   ensureRequestNotCancelled cancelRef?
+  let saveReadiness ←
+    fetchSyncSaveReadinessIO server started.session started.uri (expectedVersion? := some started.version)
+  let syncSummary := syncFileSuccessPayload started.version barrier.diagnostics saveReadiness
   let spec ← mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
+  unless saveReadiness.saveReady do
+    throwBrokerFailure {
+      code := .invalidParams
+      message := saveNotReadyMessage saveReadiness
+      data? := some (syncSummaryErrorData syncSummary)
+    }
   let method ← IO.ofExcept <| saveArtifactsMethod started.session.backend
   let params := toJson ({
     textDocument := ({ uri := started.uri : TextDocumentIdentifier })
@@ -1068,7 +1098,7 @@ private def saveOleanIO
     uri := started.uri
     version := started.version
     spec
-    payload := leanSavePayload spec started.version textTraceHash
+    payload := savePayloadWithSyncSummary (leanSavePayload spec started.version textTraceHash) syncSummary
     fileProgress? := barrierProgress?
   }
 
@@ -1100,7 +1130,8 @@ private def handleSyncFileOpIO
     server.withState do
       modifyCurrentSessionIfMatching started.session
         (fun current => markDocSyncedVersion current started.uri started.version)
-    let saveReadiness ← fetchSyncSaveReadinessIO server started.session started.uri
+    let saveReadiness ←
+      fetchSyncSaveReadinessIO server started.session started.uri (expectedVersion? := some started.version)
     pure (syncFileSuccessResponse started.version pending.diagnostics saveReadiness fileProgress?, false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)

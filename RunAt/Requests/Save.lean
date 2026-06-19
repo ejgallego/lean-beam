@@ -184,6 +184,7 @@ def collectSaveReadiness
       commandErrorCount := commandErrors.size
       saveReady := false
       saveReadyReason := saveReadinessNotElaboratedReason
+      saveReadyMessage? := some (saveArtifactsErrorMessage diagnosticErrors commandErrors)
       : RunAt.Internal.SaveReadinessResult
     }, none, diagnosticErrors, commandErrors)
   let saveReady := !frontendLog.hasErrors
@@ -195,6 +196,8 @@ def collectSaveReadiness
     commandErrorCount := commandErrors.size
     saveReady := saveReady
     saveReadyReason := if saveReady then "ok" else saveReadinessDocumentErrorsReason
+    saveReadyMessage? :=
+      if saveReady then none else some (saveArtifactsErrorMessage diagnosticErrors commandErrors)
   }
   pure (readiness, some cmdState, diagnosticErrors, commandErrors)
 

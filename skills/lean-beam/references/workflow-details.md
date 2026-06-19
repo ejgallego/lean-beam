@@ -144,8 +144,11 @@ What is not a valid checkpoint target:
 - the final JSON does not replay streamed diagnostics
 - streamed diagnostics are request events, not a since-last-sync diff; use final stdout JSON for
   current save-readiness and the request stream only for incremental diagnostic observations
+- successful `lean-beam save` includes the sync verdict it established in `result.sync`
+- successful `lean-beam close-save` includes the sync verdict in `result.saved.sync`
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
-  `error.message` includes a compact preview of underlying diagnostics and/or command messages
+  `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
+  `error.data.sync` contains the blocking sync verdict
 - wrapper `stderr` is the human-facing diagnostic surface
 - `beam-client request-stream ...` is the machine-facing streamed surface
 - do not parse wrapper `stderr` in tooling
