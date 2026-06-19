@@ -123,6 +123,10 @@ The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt 
 project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
 `--lean-plugin` explicitly.
 
+The MCP server advertises the MCP logging capability and forwards incremental Lean diagnostics from
+sync/save-style tools as structured `notifications/message` events. The final tool result remains a
+compact state summary and does not replay diagnostics.
+
 To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
 
 ```bash

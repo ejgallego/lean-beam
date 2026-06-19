@@ -6,9 +6,12 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Mcp.Server
 import RunAtTest.Broker.JsonAssert
+import RunAtTest.Broker.TestUtil
+import RunAtTest.TestHarness
 
 open Lean
 open RunAtTest.Broker.JsonAssert
+open RunAtTest.Broker.TestUtil
 
 namespace RunAtTest.Broker.McpProtocolTest
 
@@ -363,6 +366,18 @@ private def handleRpcRequest
   expectResponse label =<<
     Beam.Mcp.Server.handleJson state opts stdin (rpcRequest id method params?)
 
+private def handleRpcRequestWithNotifications
+    (state : IO.Ref Beam.Mcp.Server.ProtocolState)
+    (opts : Beam.Mcp.Server.Options)
+    (stdin : IO.FS.Stream)
+    (notifications : Beam.Mcp.Server.NotificationSink)
+    (label : String)
+    (id : Nat)
+    (method : String)
+    (params? : Option Json := none) : IO Json := do
+  expectResponse label =<<
+    Beam.Mcp.Server.handleJson state opts stdin (rpcRequest id method params?) notifications
+
 private def expectRpcErrorCode (label : String) (expected : Int) (resp : Json) : IO Json := do
   let err ← requireObjVal label "error" resp
   requireJsonInt label "code" expected err
@@ -392,8 +407,22 @@ private def checkServerBasics : IO Unit := do
   let initResult ← requireObjVal "initialize response" "result" initResp
   requireJsonString "initialize result" "protocolVersion" Beam.Mcp.protocolVersion initResult
   let capabilities ← requireObjVal "initialize result" "capabilities" initResult
+  discard <| requireObjVal "initialize capabilities" "logging" capabilities
   let toolsCapability ← requireObjVal "initialize capabilities" "tools" capabilities
   requireJsonBool "initialize tools capability" "listChanged" false toolsCapability
+
+  let setLogLevelResp ← handleRpcRequest state opts stdin "set log level" 12 "logging/setLevel" <| some <|
+    Json.mkObj [
+      ("level", toJson "warning")
+    ]
+  discard <| requireObjVal "set log level response" "result" setLogLevelResp
+  require "set log level should update protocol state" ((← state.get).logLevel == .warning)
+
+  let badLogLevelResp ← handleRpcRequest state opts stdin "bad log level" 13 "logging/setLevel" <| some <|
+    Json.mkObj [
+      ("level", toJson "verbose")
+    ]
+  discard <| expectRpcErrorCode "bad log level response" (-32602) badLogLevelResp
 
   let preReadyResp ← handleRpcRequest state opts stdin "pre-ready tools/list rejection" 11 "tools/list"
   discard <| expectRpcErrorCode "pre-ready tools/list response" (-32600) preReadyResp
@@ -437,6 +466,133 @@ private def checkServerBasics : IO Unit := do
       ]
   discard <| expectToolErrorCode "bad args" "invalidInput" badArgsResp
 
+private def diagnosticLogNotifications (notifications : Array Json) : Array Json :=
+  notifications.filter fun notification =>
+    (notification.getObjValAs? String "method").toOption == some "notifications/message" &&
+      ((notification.getObjVal? "params").toOption.bind fun params =>
+        (params.getObjValAs? String "logger").toOption) == some "lean.diagnostic"
+
+private def requireDiagnosticLog
+    (notifications : Array Json)
+    (level severity path : String) : IO Json := do
+  let logs := diagnosticLogNotifications notifications
+  let some notification := logs.find? fun notification =>
+      match notification.getObjVal? "params" with
+      | .error _ => false
+      | .ok params =>
+          (params.getObjValAs? String "level").toOption == some level &&
+          match params.getObjVal? "data" with
+          | .error _ => false
+          | .ok data =>
+              (data.getObjValAs? String "severity").toOption == some severity &&
+                (data.getObjValAs? String "path").toOption == some path
+    | throw <| IO.userError
+        s!"expected {level}/{severity} diagnostic log for {path}, got {(toJson notifications).compress}"
+  pure notification
+
+private def expectNoDiagnosticLogs (label : String) (notifications : Array Json) : IO Unit := do
+  let logs := diagnosticLogNotifications notifications
+  unless logs.isEmpty do
+    throw <| IO.userError s!"expected no {label} diagnostic logs, got {(toJson logs).compress}"
+
+private def mcpOptionsWithPlugin : IO Beam.Mcp.Server.Options := do
+  pure {
+    leanCmd? := some "lean"
+    leanPlugin? := some (← RunAtTest.TestHarness.pluginPath).toString
+  }
+
+private def initMcpSession
+    (state : IO.Ref Beam.Mcp.Server.ProtocolState)
+    (opts : Beam.Mcp.Server.Options)
+    (stdin : IO.FS.Stream)
+    (notifications : Beam.Mcp.Server.NotificationSink) : IO Unit := do
+  let _ ← handleRpcRequestWithNotifications state opts stdin notifications "initialize" 1 "initialize" <| some <|
+    Json.mkObj [
+      ("protocolVersion", toJson Beam.Mcp.protocolVersion),
+      ("capabilities", Json.mkObj [])
+    ]
+  let initializedResp ←
+    Beam.Mcp.Server.handleJson state opts stdin (rpcNotification "notifications/initialized") notifications
+  match initializedResp with
+  | (none, false) => pure ()
+  | (some json, stop) =>
+      throw <| IO.userError s!"initialized notification should not produce a response/stop: {json.compress}, {stop}"
+  | (none, true) =>
+      throw <| IO.userError "initialized notification should not stop the server"
+
+private def callLeanSync
+    (state : IO.Ref Beam.Mcp.Server.ProtocolState)
+    (opts : Beam.Mcp.Server.Options)
+    (stdin : IO.FS.Stream)
+    (notifications : Beam.Mcp.Server.NotificationSink)
+    (id : Nat)
+    (path : String)
+    (fullDiagnostics : Bool := true) : IO Json := do
+  handleRpcRequestWithNotifications state opts stdin notifications s!"lean_sync {path}" id "tools/call" <|
+    some <| toolCallParams "lean_sync" <| Json.mkObj [
+      ("path", toJson path),
+      ("full_diagnostics", toJson fullDiagnostics)
+    ]
+
+private def shutdownMcpRuntime (state : IO.Ref Beam.Mcp.Server.ProtocolState) : IO Unit := do
+  let current ← state.get
+  match current.runtime? with
+  | none => pure ()
+  | some runtime =>
+      discard <| runtime.dispatchRequest { op := .shutdown }
+
+private def checkDiagnosticLogForwarding : IO Unit := do
+  let root ← mkTempProjectRoot "lean-beam-mcp-diagnostic-log"
+  let state ← Beam.Mcp.Server.ProtocolState.create (some root)
+  try
+    copySaveProjectFixture root
+    let stdin ← IO.getStdin
+    let opts ← mcpOptionsWithPlugin
+    let notificationsRef ← IO.mkRef #[]
+    let notifications : Beam.Mcp.Server.NotificationSink := {
+      send := fun notification =>
+        notificationsRef.modify fun seen => seen.push notification
+    }
+    initMcpSession state opts stdin notifications
+
+    writeSaveWarningFile root "-- mcp diagnostic log"
+    let syncResp ← callLeanSync state opts stdin notifications 2 "SaveSmoke/B.lean"
+    let syncResult ← requireObjVal "lean_sync response" "result" syncResp
+    requireJsonBool "lean_sync result" "isError" false syncResult
+    let warningLog ← requireDiagnosticLog (← notificationsRef.get) "warning" "warning" "SaveSmoke/B.lean"
+    let params ← requireObjVal "warning log notification" "params" warningLog
+    let data ← requireObjVal "warning log params" "data" params
+    discard <| requireObjVal "warning log data" "range" data
+    discard <| requireObjVal "warning log data" "uri" data
+    discard <| requireObjVal "warning log data" "version" data
+    let message ← IO.ofExcept <| data.getObjValAs? String "message"
+    require "warning log should preserve diagnostic message" (!message.isEmpty)
+
+    let _ ← handleRpcRequestWithNotifications state opts stdin notifications "set error log level" 3
+      "logging/setLevel" <| some <| Json.mkObj [
+        ("level", toJson "error")
+      ]
+    notificationsRef.set #[]
+    writeSaveWarningFile root "-- mcp warning suppressed"
+    let suppressedResp ← callLeanSync state opts stdin notifications 4 "SaveSmoke/B.lean"
+    let suppressedResult ← requireObjVal "suppressed lean_sync response" "result" suppressedResp
+    requireJsonBool "suppressed lean_sync result" "isError" false suppressedResult
+    expectNoDiagnosticLogs "warning-only after error log level" (← notificationsRef.get)
+
+    notificationsRef.set #[]
+    IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
+    let errorResp ← callLeanSync state opts stdin notifications 5 "SaveSmoke/B.lean"
+    let errorResult ← requireObjVal "error lean_sync response" "result" errorResp
+    requireJsonBool "error lean_sync result" "isError" false errorResult
+    discard <| requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"
+  finally
+    shutdownMcpRuntime state
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
 def main : IO Unit := do
   checkJsonHelpers
   checkIncoming
@@ -445,6 +601,7 @@ def main : IO Unit := do
   checkRuntimeSetupErrors
   checkWorkspaceInitPolicy
   checkServerBasics
+  checkDiagnosticLogForwarding
 
 end RunAtTest.Broker.McpProtocolTest
 
