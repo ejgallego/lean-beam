@@ -365,22 +365,43 @@ private def writeFakeBundleArtifacts (workspace : System.FilePath) : IO Unit := 
       IO.FS.createDirAll parent
     IO.FS.writeFile path "fake artifact\n"
 
+private def sampleFingerprint : Beam.Cli.ToolchainFingerprint := {
+  leanVersion := "Lean (version 4.30.0, test, Release)"
+  leanPrefix := "/toolchains/a"
+  leanLibDir := "/toolchains/a/lib/lean"
+  lakeVersion := "Lake version 5.0.0-src (Lean version 4.30.0)"
+}
+
+private def sampleFingerprintB : Beam.Cli.ToolchainFingerprint := {
+  sampleFingerprint with
+  leanVersion := "Lean (version 4.30.0, rebuilt, Release)"
+}
+
 private def writeBundleMetadataFile
     (bundleDir : System.FilePath)
     (toolchain sourceHash : String)
+    (fingerprint : Beam.Cli.ToolchainFingerprint)
     (workspace : System.FilePath) : IO Unit := do
   IO.FS.writeFile
     (Beam.Cli.bundleMetadataPath bundleDir)
-    ((Beam.Cli.bundleMetadataJson toolchain sourceHash workspace "2026-06-05T00:00:00Z").pretty ++ "\n")
+    ((Beam.Cli.bundleMetadataJson toolchain sourceHash fingerprint workspace "2026-06-05T00:00:00Z").pretty ++ "\n")
 
 private def checkRuntimeBundleHelpers : IO Unit := do
-  let id := Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-a" "linux-x86_64"
+  let id := Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" sampleFingerprint "source-a" "linux-x86_64"
   require "bundle id should be deterministic"
-    (id == Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-a" "linux-x86_64")
+    (id == Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" sampleFingerprint "source-a" "linux-x86_64")
   require "bundle id should include platform"
-    (id != Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-a" "darwin-arm64")
+    (id != Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" sampleFingerprint "source-a" "darwin-arm64")
   require "bundle id should include source hash"
-    (id != Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" "source-b" "linux-x86_64")
+    (id != Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" sampleFingerprint "source-b" "linux-x86_64")
+  require "bundle id should include the resolved toolchain fingerprint"
+    (id != Beam.Cli.bundleIdFor "leanprover/lean4:v4.30.0" sampleFingerprintB "source-a" "linux-x86_64")
+  require "bundle fingerprint hash should be deterministic"
+    (Beam.Cli.toolchainFingerprintHash sampleFingerprint ==
+      Beam.Cli.toolchainFingerprintHash sampleFingerprint)
+  require "bundle fingerprint hash should change when Lean identity changes"
+    (Beam.Cli.toolchainFingerprintHash sampleFingerprint !=
+      Beam.Cli.toolchainFingerprintHash sampleFingerprintB)
 
   let workspace := System.FilePath.mk "/tmp/beam-runtime-bundle-workspace"
   let paths := Beam.Cli.bundlePathsFor workspace
@@ -396,15 +417,19 @@ private def checkRuntimeBundleHelpers : IO Unit := do
   let metadata := Beam.Cli.bundleMetadataJson
     "leanprover/lean4:v4.30.0"
     "source-a"
+    sampleFingerprint
     workspace
     "2026-06-05T00:00:00Z"
   let schemaVersion ← IO.ofExcept <| metadata.getObjValAs? Nat "schemaVersion"
   let toolchain ← IO.ofExcept <| metadata.getObjValAs? String "toolchain"
+  let toolchainFingerprint ← IO.ofExcept <| metadata.getObjValAs? Beam.Cli.ToolchainFingerprint "toolchainFingerprint"
   let sourceHash ← IO.ofExcept <| metadata.getObjValAs? String "sourceHash"
   let metadataWorkspace ← IO.ofExcept <| metadata.getObjValAs? String "workspace"
   require "bundle metadata schema version should remain explicit"
     (schemaVersion == Beam.Cli.bundleMetadataSchemaVersion)
   require "bundle metadata should include toolchain" (toolchain == "leanprover/lean4:v4.30.0")
+  require "bundle metadata should include toolchain fingerprint"
+    (toolchainFingerprint == sampleFingerprint)
   require "bundle metadata should include source hash" (sourceHash == "source-a")
   require "bundle metadata should include workspace" (metadataWorkspace == workspace.toString)
 
@@ -418,34 +443,39 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
     writeFakeBundleArtifacts workspace
 
     require "bundle should reject artifacts without metadata"
-      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
 
     let invalidSchema := Json.mkObj [
       ("schemaVersion", toJson 0),
       ("toolchain", toJson toolchain),
+      ("toolchainFingerprint", toJson sampleFingerprint),
       ("sourceHash", toJson sourceHash),
       ("workspace", toJson workspace.toString),
       ("builtAt", toJson "2026-06-05T00:00:00Z")
     ]
     IO.FS.writeFile (Beam.Cli.bundleMetadataPath bundleDir) (invalidSchema.pretty ++ "\n")
     require "bundle should reject unsupported metadata schema"
-      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
 
-    writeBundleMetadataFile bundleDir toolchain "source-b" workspace
+    writeBundleMetadataFile bundleDir toolchain "source-b" sampleFingerprint workspace
     require "bundle should reject stale source metadata"
-      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
 
-    writeBundleMetadataFile bundleDir toolchain sourceHash workspace
+    writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprintB workspace
+    require "bundle should reject stale toolchain fingerprint metadata"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
+
+    writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprint workspace
     require "bundle should accept matching artifacts and metadata"
-      (← Beam.Cli.bundleReady bundleDir toolchain sourceHash)
+      (← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint)
 
-    writeBundleMetadataFile bundleDir toolchain sourceHash (System.FilePath.mk <| "/private" ++ workspace.toString)
+    writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprint (System.FilePath.mk <| "/private" ++ workspace.toString)
     require "bundle should accept metadata with equivalent diagnostic workspace spelling"
-      (← Beam.Cli.bundleReady bundleDir toolchain sourceHash)
+      (← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint)
 
     IO.FS.removeFile (Beam.Cli.bundlePathsFor workspace).client
     require "bundle should reject matching metadata without required artifacts"
-      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash))
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
   finally
     try
       if ← root.pathExists then

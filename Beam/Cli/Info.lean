@@ -17,6 +17,66 @@ namespace Beam.Cli
 
 open Beam.Broker
 
+private def rejectedToolchainDiagnosticText : String :=
+  "(not resolved for rejected toolchain)"
+
+private structure LeanBundleDoctorInfo where
+  source : String
+  fingerprintHash : String
+  leanVersion : String
+  leanPrefix : String
+  leanLibDir : String
+  lakeVersion : String
+  bundleId : String
+  ready : Bool
+  daemon : String
+  client : String
+  plugin : String
+
+private def rejectedLeanBundleDoctorInfo : LeanBundleDoctorInfo := {
+  source := "rejected"
+  fingerprintHash := rejectedToolchainDiagnosticText
+  leanVersion := rejectedToolchainDiagnosticText
+  leanPrefix := rejectedToolchainDiagnosticText
+  leanLibDir := rejectedToolchainDiagnosticText
+  lakeVersion := rejectedToolchainDiagnosticText
+  bundleId := rejectedToolchainDiagnosticText
+  ready := false
+  daemon := rejectedToolchainDiagnosticText
+  client := rejectedToolchainDiagnosticText
+  plugin := rejectedToolchainDiagnosticText
+}
+
+private def acceptedLeanBundleDoctorInfo
+    (home runtimeRoot : System.FilePath)
+    (toolchain : String) : IO LeanBundleDoctorInfo := do
+  let fingerprint ← toolchainFingerprint toolchain
+  let installed? ← existingToolchainBundleInAnyForFingerprint?
+    (← installBundleCacheRoots) home toolchain fingerprint
+  let runtime? ← existingToolchainBundleForFingerprint? runtimeRoot home toolchain fingerprint
+  let (paths, bundleId, source, ready) ←
+    match installed? with
+    | some (paths, bundleId) => pure (paths, bundleId, "installed", true)
+    | none =>
+        match runtime? with
+        | some (paths, bundleId) => pure (paths, bundleId, "runtime", true)
+        | none =>
+            let (paths, bundleId) ← predictedToolchainBundleForFingerprint runtimeRoot home toolchain fingerprint
+            pure (paths, bundleId, "missing", false)
+  pure {
+    source
+    fingerprintHash := toolchainFingerprintHash fingerprint
+    leanVersion := fingerprint.leanVersion
+    leanPrefix := fingerprint.leanPrefix
+    leanLibDir := fingerprint.leanLibDir
+    lakeVersion := fingerprint.lakeVersion
+    bundleId
+    ready
+    daemon := paths.daemon.toString
+    client := paths.client.toString
+    plugin := paths.plugin.toString
+  }
+
 private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
   let toolchain ← leanToolchain root
   let support ← leanToolchainSupport home toolchain
@@ -32,34 +92,33 @@ private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
   let runtimeRoot ← runtimeBundleCacheRoot root
   let platform ← bundlePlatform
   let srcHash ← sourceHash home
-  let installed? ← existingToolchainBundleInAny? (← installBundleCacheRoots) home toolchain
-  let runtime? ← existingToolchainBundle? runtimeRoot home toolchain
-  let (paths, bundleId, source, ready) ←
-    match installed? with
-    | some (paths, bundleId) => pure (paths, bundleId, "installed", true)
-    | none =>
-        match runtime? with
-        | some (paths, bundleId) => pure (paths, bundleId, "runtime", true)
-        | none =>
-            let (paths, bundleId) ← predictedToolchainBundle runtimeRoot home toolchain
-            pure (paths, bundleId, "missing", false)
+  let bundleInfo ←
+    if toolchainAccepted then
+      acceptedLeanBundleDoctorInfo home runtimeRoot toolchain
+    else
+      pure rejectedLeanBundleDoctorInfo
   IO.println s!"project toolchain: {toolchain}"
   IO.println s!"project toolchain supported: {boolText toolchainSupported}"
   IO.println s!"project toolchain custom: {boolText toolchainCustom}"
   IO.println s!"project toolchain accepted: {boolText toolchainAccepted}"
   IO.println s!"supported toolchains registry: {support.supportedPath}"
   IO.println s!"custom toolchains registry: {support.customPath}"
-  IO.println s!"lean binary: {leanCmd?.getD "(not resolved for rejected toolchain)"}"
+  IO.println s!"lean binary: {leanCmd?.getD rejectedToolchainDiagnosticText}"
   IO.println s!"bundle platform: {platform}"
-  IO.println s!"bundle source: {source}"
+  IO.println s!"bundle source: {bundleInfo.source}"
   IO.println s!"bundle source hash: {srcHash}"
-  IO.println "bundle key inputs: toolchain, platform, source hash"
+  IO.println s!"bundle toolchain fingerprint: {bundleInfo.fingerprintHash}"
+  IO.println s!"bundle lean version: {bundleInfo.leanVersion}"
+  IO.println s!"bundle lean prefix: {bundleInfo.leanPrefix}"
+  IO.println s!"bundle lean libdir: {bundleInfo.leanLibDir}"
+  IO.println s!"bundle lake version: {bundleInfo.lakeVersion}"
+  IO.println "bundle key inputs: toolchain, toolchain fingerprint, platform, source hash"
   IO.println s!"bundle source inputs: {String.intercalate ", " bundleSourceHashInputLabels}"
-  IO.println s!"bundle id: {bundleId}"
-  IO.println s!"bundle ready: {boolText ready}"
-  IO.println s!"bundle daemon: {paths.daemon}"
-  IO.println s!"bundle client: {paths.client}"
-  IO.println s!"plugin: {paths.plugin}"
+  IO.println s!"bundle id: {bundleInfo.bundleId}"
+  IO.println s!"bundle ready: {boolText bundleInfo.ready}"
+  IO.println s!"bundle daemon: {bundleInfo.daemon}"
+  IO.println s!"bundle client: {bundleInfo.client}"
+  IO.println s!"plugin: {bundleInfo.plugin}"
 
 private def printRocqDoctorInfo (home root : System.FilePath) : IO Unit := do
   let paths ← defaultBundlePaths home

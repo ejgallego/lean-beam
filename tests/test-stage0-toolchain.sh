@@ -79,6 +79,11 @@ if ! grep -Fq 'bundle source: installed' "$doctor_out"; then
   cat "$doctor_out" >&2
   exit 1
 fi
+if ! grep -Fq 'bundle toolchain fingerprint: ' "$doctor_out"; then
+  echo "expected stage0 custom toolchain doctor to report the bundle toolchain fingerprint" >&2
+  cat "$doctor_out" >&2
+  exit 1
+fi
 
 ELAN_HOME="$host_elan_home" \
   "$install_home/.local/bin/lean-beam" --root "$project_root" ensure >/dev/null

@@ -166,8 +166,10 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
 - `lean-beam supported-toolchains` lists the validated toolchains, and `lean-beam doctor`
   reports validated support state, custom acceptance state, bundle source, and bundle key inputs.
 - Bundle rebuild keys intentionally exclude the full `.lake/packages` checkout tree and instead use
-  the runtime source tree plus `lean-toolchain`, `lake-manifest.json`, and
-  `supported-lean-toolchains` / `custom-lean-toolchains`.
+  the resolved toolchain fingerprint, the runtime source tree, `lean-toolchain`,
+  `lake-manifest.json`, and `supported-lean-toolchains` / `custom-lean-toolchains`. The fingerprint
+  records `lean --version`, `lean --print-prefix`, `lean --print-libdir`, and `lake --version` for
+  the requested elan toolchain.
 - The first use of a supported or explicitly custom but not-yet-prebuilt toolchain must still build
   a matching local fallback bundle.
 - On a cold machine, that local fallback build may need network access to fetch dependencies.

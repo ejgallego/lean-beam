@@ -289,8 +289,12 @@ assert_bundle_layout() {
       echo "bundle metadata does not mention expected toolchain $expected_toolchain under $bundle_root" >&2
       exit 1
     fi
-    if ! grep -F '"schemaVersion": 1' "$found" > /dev/null; then
-      echo "bundle metadata does not include schemaVersion 1 in $found" >&2
+    if ! grep -F '"schemaVersion": 2' "$found" > /dev/null; then
+      echo "bundle metadata does not include schemaVersion 2 in $found" >&2
+      exit 1
+    fi
+    if ! grep -F '"toolchainFingerprint"' "$found" > /dev/null; then
+      echo "bundle metadata does not include toolchainFingerprint in $found" >&2
       exit 1
     fi
     local workspace
@@ -666,6 +670,11 @@ run_custom_toolchain_install_test() (
     printf '%s\n' "$custom_doctor_out" >&2
     exit 1
   fi
+  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'bundle toolchain fingerprint: '; then
+    echo "expected custom toolchain doctor to report the bundle toolchain fingerprint" >&2
+    printf '%s\n' "$custom_doctor_out" >&2
+    exit 1
+  fi
   ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" ensure > /dev/null
   ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" shutdown > /dev/null
 )
@@ -806,6 +815,16 @@ if ! printf '%s\n' "$doctor_out" | grep -q 'supported toolchains registry: '; th
 fi
 if ! printf '%s\n' "$doctor_out" | grep -q 'bundle source inputs: '; then
   echo "expected installed wrapper doctor lean to report bundle source inputs" >&2
+  printf '%s\n' "$doctor_out" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$doctor_out" | grep -q 'bundle key inputs: toolchain, toolchain fingerprint, platform, source hash'; then
+  echo "expected installed wrapper doctor lean to report bundle key inputs" >&2
+  printf '%s\n' "$doctor_out" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$doctor_out" | grep -q 'bundle toolchain fingerprint: '; then
+  echo "expected installed wrapper doctor lean to report the bundle toolchain fingerprint" >&2
   printf '%s\n' "$doctor_out" >&2
   exit 1
 fi
@@ -973,6 +992,11 @@ printf 'leanprover/lean4:v4.26.0\n' > "$unsupported_project_root/lean-toolchain"
 unsupported_doctor_out="$("$installed_lean_beam" --root "$unsupported_project_root" doctor)"
 if ! printf '%s\n' "$unsupported_doctor_out" | grep -q 'project toolchain supported: false'; then
   echo "expected doctor lean to report unsupported toolchains explicitly" >&2
+  printf '%s\n' "$unsupported_doctor_out" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$unsupported_doctor_out" | grep -q 'bundle toolchain fingerprint: (not resolved for rejected toolchain)'; then
+  echo "expected doctor lean not to fingerprint unsupported toolchains" >&2
   printf '%s\n' "$unsupported_doctor_out" >&2
   exit 1
 fi

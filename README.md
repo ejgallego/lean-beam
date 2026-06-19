@@ -71,7 +71,10 @@ elan toolchain link lean4-dev /path/to/lean/build/release/stage1
 ```
 
 Custom toolchains are not validated release targets; Beam records them in the installed runtime's
-`custom-lean-toolchains` registry and will only serve the exact custom names you installed.
+`custom-lean-toolchains` registry and will only serve the exact custom names you installed. Bundle
+keys also include the resolved Lean/Lake identity for that name, so relinking to a different local
+build or changing the reported toolchain identity creates a different bundle instead of reusing
+stale helpers.
 
 ## MCP Setup
 
@@ -133,7 +136,9 @@ The self-check starts a child MCP server, supplies the root through MCP `roots/l
 Lean Beam serves validated Lean toolchains listed in
 [`supported-lean-toolchains`](supported-lean-toolchains). It can also serve explicit custom
 toolchains recorded at install time with `--custom-toolchain`; this is intended for local Lean
-development toolchains and does not make those toolchains validated release targets.
+development toolchains and does not make those toolchains validated release targets. Runtime bundle
+keys include the resolved Lean version, Lean prefix, Lean libdir, and Lake version for the requested
+toolchain.
 Inspect the validated allowlist with:
 
 ```bash
