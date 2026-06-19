@@ -7,6 +7,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=tests/lib/assertions.sh
+. tests/lib/assertions.sh
 
 toolchain="${BEAM_STAGE0_TOOLCHAIN:-lean4-stage0}"
 host_home="$HOME"
@@ -44,7 +46,7 @@ trap cleanup EXIT
 install_home="$tmp_root/home"
 install_root="$tmp_root/install-root"
 project_root="$tmp_root/project"
-doctor_out="$tmp_root/doctor.out"
+doctor_out=""
 
 mkdir -p "$install_home" "$install_root"
 
@@ -56,34 +58,14 @@ HOME="$install_home" \
 rsync -a tests/save_olean_project/ "$project_root"/
 printf '%s\n' "$toolchain" > "$project_root/lean-toolchain"
 
-ELAN_HOME="$host_elan_home" \
-  "$install_home/.local/bin/lean-beam" --root "$project_root" doctor > "$doctor_out"
+doctor_out="$(ELAN_HOME="$host_elan_home" \
+  "$install_home/.local/bin/lean-beam" --root "$project_root" doctor)"
 
-if ! grep -Fq 'project toolchain supported: false' "$doctor_out"; then
-  echo "expected stage0 custom toolchain to remain unsupported" >&2
-  cat "$doctor_out" >&2
-  exit 1
-fi
-if ! grep -Fq 'project toolchain custom: true' "$doctor_out"; then
-  echo "expected stage0 custom toolchain to be marked custom" >&2
-  cat "$doctor_out" >&2
-  exit 1
-fi
-if ! grep -Fq 'project toolchain accepted: true' "$doctor_out"; then
-  echo "expected stage0 custom toolchain to be accepted" >&2
-  cat "$doctor_out" >&2
-  exit 1
-fi
-if ! grep -Fq 'bundle source: installed' "$doctor_out"; then
-  echo "expected stage0 custom toolchain to use the installed bundle" >&2
-  cat "$doctor_out" >&2
-  exit 1
-fi
-if ! grep -Fq 'bundle toolchain fingerprint: ' "$doctor_out"; then
-  echo "expected stage0 custom toolchain doctor to report the bundle toolchain fingerprint" >&2
-  cat "$doctor_out" >&2
-  exit 1
-fi
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain supported: false'
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain custom: true'
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain accepted: true'
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'bundle source: installed'
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'bundle toolchain fingerprint: '
 
 ELAN_HOME="$host_elan_home" \
   "$install_home/.local/bin/lean-beam" --root "$project_root" ensure >/dev/null

@@ -233,7 +233,7 @@ for arg in "$@"; do
       ;;
   esac
 done
-exec "$real_bin" "${rewritten_args[@]}"
+	exec "$real_bin" ${rewritten_args[@]+"${rewritten_args[@]}"}
 EOF
       ;;
     mkdir)
@@ -384,7 +384,7 @@ if [ "$print_root" -eq 1 ]; then
 fi
 
 if [ "${#custom_command[@]}" -gt 0 ]; then
-  run_step "running custom command" "${custom_command[@]}"
+  run_step "running custom command" ${custom_command[@]+"${custom_command[@]}"}
 else
   run_step "lake build beam-cli" lake build beam-cli
   run_step "bash tests/test-install.sh" bash tests/test-install.sh

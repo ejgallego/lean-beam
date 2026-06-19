@@ -127,7 +127,7 @@ printf '%s\n' "$summary"
 
 if [ "${#changes[@]}" -gt 0 ]; then
   printf '\n'
-  for item in "${changes[@]}"; do
+  for item in ${changes[@]+"${changes[@]}"}; do
     printf -- '- %s\n' "$item"
   done
 else
