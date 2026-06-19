@@ -26,6 +26,8 @@ lake build \
   beam-daemon-smoke-test \
   beam-daemon-save-stream-test \
   beam-daemon-request-stream-test \
+  beam-sync-summary-test \
+  beam-sync-summary-delta-test \
   beam-daemon-startup-handshake-test \
   beam-cli-daemon-test \
   beam-mcp-projection-test \
@@ -42,6 +44,8 @@ lake build \
 .lake/build/bin/beam-daemon-smoke-test > /dev/null
 .lake/build/bin/beam-daemon-save-stream-test > /dev/null
 .lake/build/bin/beam-daemon-request-stream-test > /dev/null
+.lake/build/bin/beam-sync-summary-test > /dev/null
+.lake/build/bin/beam-sync-summary-delta-test > /dev/null
 .lake/build/bin/beam-daemon-startup-handshake-test > /dev/null
 
 python3 tests/test-mcp-stdio.py --iterations 1 --restart-cycles 1 > /dev/null

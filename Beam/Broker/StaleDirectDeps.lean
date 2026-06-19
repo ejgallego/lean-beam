@@ -43,19 +43,21 @@
      ("lastSaveSeq", toJson hint.lastSaveSeq)
    ]
 
- def staleSyncErrorData
-     (targetPath : String)
-     (hints : Array StaleDirectDepHint) : Json :=
-   let saveHints := hints.filter (·.needsSave)
-   let recoveryPlan :=
-     (saveHints.map fun hint => s!"lean-beam save \"{hint.path}\"") ++
-     #[s!"lean-beam refresh \"{targetPath}\"", "lake build"]
-   Json.mkObj [
-     ("targetPath", toJson targetPath),
-     ("staleDirectDeps", Json.arr <| hints.map staleDirectDepHintJson),
-     ("saveDeps", Json.arr <| saveHints.map (fun hint => toJson hint.path)),
-     ("recoveryPlan", Json.arr <| recoveryPlan.map toJson)
-   ]
+def staleSyncErrorData
+    (targetPath : String)
+    (hints : Array StaleDirectDepHint)
+    (completionBlockingDiagnostics : Array SyncBlockingDiagnostic := #[]) : Json :=
+  let saveHints := hints.filter (·.needsSave)
+  let recoveryPlan :=
+    (saveHints.map fun hint => s!"lean-beam save \"{hint.path}\"") ++
+    #[s!"lean-beam refresh \"{targetPath}\"", "lake build"]
+  Json.mkObj [
+    ("targetPath", toJson targetPath),
+    ("staleDirectDeps", Json.arr <| hints.map staleDirectDepHintJson),
+    ("saveDeps", Json.arr <| saveHints.map (fun hint => toJson hint.path)),
+    ("completionBlockingDiagnostics", toJson completionBlockingDiagnostics),
+    ("recoveryPlan", Json.arr <| recoveryPlan.map toJson)
+  ]
 
  def collectStaleDirectDepHints
      (importsResult : DirectImportsQueryResult)

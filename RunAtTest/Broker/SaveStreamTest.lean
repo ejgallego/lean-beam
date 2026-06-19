@@ -25,7 +25,7 @@ private def expectNoTrackedLeanDoc (payload : Json) (path : String) : IO Unit :=
     if trackedPath == path then
       throw <| IO.userError s!"expected {path} to be closed, but it is still tracked in {(toJson files).compress}"
 
-private def expectSyncSummary
+private def expectSyncVerdict
     (label : String)
     (payload : Json)
     (expectedVersion : Nat)
@@ -40,7 +40,7 @@ private def expectSyncSummary
       s!"expected {label} sync.saveReady = {expectedSaveReady}, got {(toJson sync).compress}"
   pure sync
 
-private def expectErrorSyncSummary
+private def expectErrorSyncVerdict
     (label : String)
     (error : Beam.Broker.Error)
     (expectedSaveReady : Bool) : IO Beam.Broker.SyncFileResult := do
@@ -73,10 +73,10 @@ def main : IO Unit := do
     let defaultVersion ← IO.ofExcept <| defaultPayload.getObjValAs? Nat "version"
     if defaultVersion != 1 then
       throw <| IO.userError s!"expected default save_olean version 1, got {defaultVersion}"
-    let defaultSync ← expectSyncSummary "default save_olean" defaultPayload defaultVersion true
-    if defaultSync.stateErrorCount != 0 || defaultSync.stateCommandErrorCount != 0 then
+    let defaultSyncVerdict ← expectSyncVerdict "default save_olean" defaultPayload defaultVersion true
+    if defaultSyncVerdict.stateErrorCount != 0 || defaultSyncVerdict.stateCommandErrorCount != 0 then
       throw <| IO.userError
-        s!"expected default save_olean sync summary to be clean, got {(toJson defaultSync).compress}"
+        s!"expected default save_olean sync verdict to be clean, got {(toJson defaultSyncVerdict).compress}"
     let defaultTop := ← requireFileProgress "default save_olean" defaultResp
     if !defaultTop.done then
       throw <| IO.userError s!"expected default save_olean top-level fileProgress.done = true, got {(toJson defaultTop).compress}"
@@ -99,10 +99,10 @@ def main : IO Unit := do
     let fullVersion ← IO.ofExcept <| fullPayload.getObjValAs? Nat "version"
     if fullVersion != 2 then
       throw <| IO.userError s!"expected full save_olean version 2 after a fresh edit, got {fullVersion}"
-    let fullSync ← expectSyncSummary "full save_olean" fullPayload fullVersion true
-    if fullSync.errorCount != 0 || fullSync.warningCount == 0 then
+    let fullSyncVerdict ← expectSyncVerdict "full save_olean" fullPayload fullVersion true
+    if fullSyncVerdict.errorCount != 0 || fullSyncVerdict.warningCount == 0 then
       throw <| IO.userError
-        s!"expected full save_olean sync summary to preserve warning-only verdict, got {(toJson fullSync).compress}"
+        s!"expected full save_olean sync verdict to preserve warning-only verdict, got {(toJson fullSyncVerdict).compress}"
     let fullTop := ← requireFileProgress "full save_olean" fullResp
     if !fullTop.done then
       throw <| IO.userError s!"expected full save_olean top-level fileProgress.done = true, got {(toJson fullTop).compress}"
@@ -126,7 +126,7 @@ def main : IO Unit := do
     let repeatVersion ← IO.ofExcept <| repeatPayload.getObjValAs? Nat "version"
     if repeatVersion != 2 then
       throw <| IO.userError s!"expected unchanged full save_olean version 2, got {repeatVersion}"
-    discard <| expectSyncSummary "unchanged full save_olean" repeatPayload repeatVersion true
+    discard <| expectSyncVerdict "unchanged full save_olean" repeatPayload repeatVersion true
     let repeatTop := ← requireFileProgress "unchanged full save_olean" repeatResp
     if !repeatTop.done then
       throw <| IO.userError
@@ -159,10 +159,18 @@ def main : IO Unit := do
     if !error.message.contains "commandMessages:" then
       throw <| IO.userError
         s!"expected save_olean error to include command-message details, got {error.message}"
-    let errorSync ← expectErrorSyncSummary "save_olean document error" error false
-    if errorSync.errorCount == 0 || errorSync.stateCommandErrorCount == 0 then
+    let errorSyncVerdict ← expectErrorSyncVerdict "save_olean document error" error false
+    if errorSyncVerdict.errorCount == 0 || errorSyncVerdict.stateCommandErrorCount == 0 then
       throw <| IO.userError
-        s!"expected save_olean error sync summary to describe document errors, got {(toJson errorSync).compress}"
+        s!"expected save_olean error sync verdict to describe document errors, got {(toJson errorSyncVerdict).compress}"
+    if errorSyncVerdict.blockingDiagnostics.isEmpty &&
+        errorSyncVerdict.blockingCommandMessages.isEmpty then
+      throw <| IO.userError
+        s!"expected save_olean error sync verdict to include save-blocking evidence, got {(toJson errorSyncVerdict).compress}"
+    unless errorSyncVerdict.blockingDiagnostics.all (·.saveBlocking) &&
+        errorSyncVerdict.blockingCommandMessages.all (·.saveBlocking) do
+      throw <| IO.userError
+        s!"expected save_olean error sync verdict blocking evidence to be flagged saveBlocking, got {(toJson errorSyncVerdict).compress}"
     unless errorDiagnostics.any (fun diagnostic =>
       diagnostic.path == "SaveSmoke/B.lean" && diagnostic.severity? == some .error) do
       throw <| IO.userError
@@ -185,10 +193,10 @@ def main : IO Unit := do
     let closeVersion ← IO.ofExcept <| savedPayload.getObjValAs? Nat "version"
     if closeVersion != 4 then
       throw <| IO.userError s!"expected close-save saved version 4 after a fresh edit, got {closeVersion}"
-    let closeSync ← expectSyncSummary "full close-save" savedPayload closeVersion true
-    if closeSync.errorCount != 0 || closeSync.warningCount == 0 then
+    let closeSyncVerdict ← expectSyncVerdict "full close-save" savedPayload closeVersion true
+    if closeSyncVerdict.errorCount != 0 || closeSyncVerdict.warningCount == 0 then
       throw <| IO.userError
-        s!"expected full close-save sync summary to preserve warning-only verdict, got {(toJson closeSync).compress}"
+        s!"expected full close-save sync verdict to preserve warning-only verdict, got {(toJson closeSyncVerdict).compress}"
     let closeTop := ← requireFileProgress "full close-save" closeResp
     if !closeTop.done then
       throw <| IO.userError s!"expected full close-save top-level fileProgress.done = true, got {(toJson closeTop).compress}"

@@ -1060,8 +1060,16 @@ EOF
     rm -f "$broken_sync_json" "$broken_sync_err"
     exit 1
   fi
+  broken_version="$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.version)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.syncSummary.currentVersion)" != "$broken_version" ]; then
+    echo "expected broken sync syncSummary.currentVersion to match result.version" >&2
+    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err"
+    exit 1
+  fi
   if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.errorCount)" -lt 1 ]; then
-    echo "expected broken sync final json to report at least one error diagnostic" >&2
+    echo "expected broken sync final json to report at least one save-blocking error" >&2
     printf '%s\n' "$broken_sync" >&2
     cat "$broken_sync_err" >&2
     rm -f "$broken_sync_json" "$broken_sync_err"
@@ -1095,7 +1103,7 @@ EOF
     rm -f "$broken_sync_json" "$broken_sync_err"
     exit 1
   fi
-  if printf '%s\n' "$broken_sync" | grep -q '"diagnostics"'; then
+  if RUNAT_JSON_PAYLOAD="$broken_sync" json_text_has_field result.diagnostics; then
     echo "expected broken sync final json to omit replayed diagnostics" >&2
     printf '%s\n' "$broken_sync" >&2
     cat "$broken_sync_err" >&2
@@ -1122,7 +1130,7 @@ EOF
     exit 1
   fi
   if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.errorCount)" -lt 1 ]; then
-    echo "expected unchanged broken sync final json to keep a nonzero errorCount" >&2
+    echo "expected unchanged broken sync final json to keep a nonzero save-blocking errorCount" >&2
     printf '%s\n' "$broken_resync" >&2
     cat "$broken_resync_err" >&2
     rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
@@ -1130,6 +1138,20 @@ EOF
   fi
   if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.stateErrorCount)" -lt 1 ]; then
     echo "expected unchanged broken sync final json to keep a nonzero stateErrorCount" >&2
+    printf '%s\n' "$broken_resync" >&2
+    cat "$broken_resync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.syncSummary.deltaBaseVersion)" != "$broken_version" ]; then
+    echo "expected unchanged broken sync summary to delta against first broken version" >&2
+    printf '%s\n' "$broken_resync" >&2
+    cat "$broken_resync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.syncSummary.sourceChangedSinceDeltaBase)" != "false" ]; then
+    echo "expected unchanged broken sync summary to report no source change since delta base" >&2
     printf '%s\n' "$broken_resync" >&2
     cat "$broken_resync_err" >&2
     rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
@@ -1149,14 +1171,14 @@ EOF
   fi
   close_save_failed="$(cat "$close_save_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.saveReady)" != "false" ]; then
-    echo "expected failed close-save to include blocking sync summary" >&2
+    echo "expected failed close-save to include blocking sync verdict" >&2
     cat "$close_save_json" >&2
     cat "$close_save_err" >&2
     rm -f "$close_save_json" "$close_save_err"
     exit 1
   fi
   if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.stateErrorCount)" -lt 1 ]; then
-    echo "expected failed close-save sync summary to report state errors" >&2
+    echo "expected failed close-save sync verdict to report state errors" >&2
     cat "$close_save_json" >&2
     cat "$close_save_err" >&2
     rm -f "$close_save_json" "$close_save_err"
@@ -1215,7 +1237,7 @@ EOF
     rm -f "$warn_sync_json" "$warn_sync_err"
     exit 1
   fi
-  if printf '%s\n' "$warn_sync" | grep -q '"diagnostics"'; then
+  if RUNAT_JSON_PAYLOAD="$warn_sync" json_text_has_field result.diagnostics; then
     echo "expected warning-only sync final json to omit replayed diagnostics" >&2
     printf '%s\n' "$warn_sync" >&2
     cat "$warn_sync_err" >&2
@@ -1241,14 +1263,14 @@ EOF
     exit 1
   fi
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.errorCount)" != "0" ]; then
-    echo "expected warning-only save sync summary to report zero errors" >&2
+    echo "expected warning-only save sync verdict to report zero errors" >&2
     printf '%s\n' "$warn_save" >&2
     cat "$warn_save_err" >&2
     rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
     exit 1
   fi
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.warningCount)" -lt 1 ]; then
-    echo "expected warning-only save sync summary to preserve warning count" >&2
+    echo "expected warning-only save sync verdict to preserve warning count" >&2
     printf '%s\n' "$warn_save" >&2
     cat "$warn_save_err" >&2
     rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
@@ -1301,7 +1323,7 @@ EOF
     rm -f "$warn_sync_full_json" "$warn_sync_full_err"
     exit 1
   fi
-  if printf '%s\n' "$warn_sync_full" | grep -q '"diagnostics"'; then
+  if RUNAT_JSON_PAYLOAD="$warn_sync_full" json_text_has_field result.diagnostics; then
     echo "expected warning-only sync +full final json to omit replayed diagnostics" >&2
     printf '%s\n' "$warn_sync_full" >&2
     cat "$warn_sync_full_err" >&2
@@ -1395,14 +1417,14 @@ EOF
     exit 1
   fi
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.errorCount)" != "0" ]; then
-    echo "expected warning-only close-save sync summary to report zero errors" >&2
+    echo "expected warning-only close-save sync verdict to report zero errors" >&2
     printf '%s\n' "$warn_close_save" >&2
     cat "$warn_close_save_err" >&2
     rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
     exit 1
   fi
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.warningCount)" -lt 1 ]; then
-    echo "expected warning-only close-save sync summary to preserve warning count" >&2
+    echo "expected warning-only close-save sync verdict to preserve warning count" >&2
     printf '%s\n' "$warn_close_save" >&2
     cat "$warn_close_save_err" >&2
     rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"

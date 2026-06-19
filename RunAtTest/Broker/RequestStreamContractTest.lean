@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Broker.Protocol
+import RunAtTest.Broker.RequestStreamUtil
 import RunAtTest.Broker.TestUtil
 import RunAtTest.TodoFixture
 import Lean
@@ -15,11 +16,6 @@ namespace RunAtTest.Broker.RequestStreamContractTest
 
 open RunAtTest.Broker.TestUtil
 
-private structure StreamRun where
-  exitCode : UInt32
-  stderr : String
-  messages : Array Beam.Broker.StreamMessage
-
 private def buildLakeTarget (root : System.FilePath) (target : String) : IO Unit := do
   let out ← IO.Process.output {
     cmd := "env"
@@ -28,47 +24,6 @@ private def buildLakeTarget (root : System.FilePath) (target : String) : IO Unit
   }
   if out.exitCode != 0 then
     throw <| IO.userError s!"failed to build {target} in {root}\n{out.stderr}"
-
-private def decodeStreamLines (output : String) : IO (Array Beam.Broker.StreamMessage) := do
-  let lines :=
-    output.split (· == '\n') |>.filterMap fun line =>
-      let line := line.trimAscii.toString
-      if line.isEmpty then none else some line
-  if lines.isEmpty then
-    throw <| IO.userError "expected request-stream output"
-  lines.toArray.mapM fun line =>
-    match Json.parse line with
-    | .error err => throw <| IO.userError s!"invalid request-stream json line: {err}\n{line}"
-    | .ok json =>
-        IO.ofExcept <| fromJson? json
-
-private def runRequestStream
-    (port : UInt16)
-    (req : Beam.Broker.Request) : IO StreamRun := do
-  let out ← IO.Process.output {
-    cmd := (← clientExe).toString
-    args := #["--port", toString port.toNat, "request-stream", (toJson req).compress]
-  }
-  let messages ← decodeStreamLines out.stdout
-  pure {
-    exitCode := out.exitCode
-    stderr := out.stderr
-    messages
-  }
-
-private def requireSuccessStream (label : String) (run : StreamRun) : IO (Array Beam.Broker.StreamMessage) := do
-  if run.exitCode != 0 then
-    throw <| IO.userError s!"expected {label} request-stream success, got exit {run.exitCode}\nstderr:\n{run.stderr}"
-  unless run.stderr.trimAscii.toString.isEmpty do
-    throw <| IO.userError s!"expected {label} request-stream stderr to stay empty, got:\n{run.stderr}"
-  pure run.messages
-
-private def requireFailedStream (label : String) (run : StreamRun) : IO (Array Beam.Broker.StreamMessage) := do
-  if run.exitCode == 0 then
-    throw <| IO.userError s!"expected {label} request-stream failure"
-  unless run.stderr.trimAscii.toString.isEmpty do
-    throw <| IO.userError s!"expected {label} request-stream stderr to stay empty, got:\n{run.stderr}"
-  pure run.messages
 
 private def expectErrorCode (label code : String) (resp : Beam.Broker.Response) : IO Unit := do
   if resp.ok then
@@ -204,60 +159,6 @@ def main : IO Unit := do
     expectStreamKindsOnly "standalone save_olean" standaloneSaveMessages
     let standaloneSaveResp ← requireFinalStreamResponse "standalone save_olean" standaloneSaveMessages
     expectErrorCode "standalone save_olean" Beam.Broker.saveTargetNotModuleCode standaloneSaveResp
-
-    IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
-    let brokenSyncMessages ← requireSuccessStream "broken sync_file" <| ← runRequestStream port {
-      op := .syncFile
-      root? := some root.toString
-      path? := some "SaveSmoke/B.lean"
-    }
-    expectStreamKindsOnly "broken sync_file" brokenSyncMessages
-    let brokenSyncResp ← requireFinalStreamResponse "broken sync_file" brokenSyncMessages
-    let brokenPayload ← expectOk brokenSyncResp
-    expectNoReplayDiagnosticsField "broken sync_file" brokenPayload
-    let brokenResult : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? brokenPayload
-    if brokenResult.errorCount == 0 || brokenResult.stateErrorCount == 0 then
-      throw <| IO.userError
-        s!"expected broken sync_file final counts to be nonzero, got {(toJson brokenResult).compress}"
-    if brokenResult.saveReady then
-      throw <| IO.userError s!"expected broken sync_file saveReady = false, got {(toJson brokenResult).compress}"
-    let brokenDiagnostics ← requireAnyStreamDiagnostics "broken sync_file" brokenSyncMessages
-    unless brokenDiagnostics.any (fun diagnostic => diagnostic.severity? == some .error) do
-      throw <| IO.userError
-        s!"expected broken sync_file stream to include an error diagnostic, got {(toJson brokenDiagnostics).compress}"
-
-    let brokenResyncMessages ← requireSuccessStream "unchanged broken sync_file" <| ← runRequestStream port {
-      op := .syncFile
-      root? := some root.toString
-      path? := some "SaveSmoke/B.lean"
-    }
-    expectStreamKindsOnly "unchanged broken sync_file" brokenResyncMessages
-    let brokenResyncResp ← requireFinalStreamResponse "unchanged broken sync_file" brokenResyncMessages
-    let brokenResyncPayload ← expectOk brokenResyncResp
-    expectNoReplayDiagnosticsField "unchanged broken sync_file" brokenResyncPayload
-    let brokenResyncResult : Beam.Broker.SyncFileResult ←
-      IO.ofExcept <| fromJson? brokenResyncPayload
-    if brokenResyncResult.errorCount == 0 || brokenResyncResult.stateErrorCount == 0 then
-      throw <| IO.userError
-        s!"expected unchanged broken sync_file final counts to stay nonzero, got {(toJson brokenResyncResult).compress}"
-    if brokenResyncResult.saveReady then
-      throw <| IO.userError
-        s!"expected unchanged broken sync_file saveReady = false, got {(toJson brokenResyncResult).compress}"
-
-    IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := 1\n"
-    let recoveredSyncMessages ← requireSuccessStream "recovered sync_file" <| ← runRequestStream port {
-      op := .syncFile
-      root? := some root.toString
-      path? := some "SaveSmoke/B.lean"
-    }
-    expectStreamKindsOnly "recovered sync_file" recoveredSyncMessages
-    let recoveredSyncResp ← requireFinalStreamResponse "recovered sync_file" recoveredSyncMessages
-    let recoveredPayload ← expectOk recoveredSyncResp
-    expectNoReplayDiagnosticsField "recovered sync_file" recoveredPayload
-    let recoveredResult : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? recoveredPayload
-    if recoveredResult.errorCount != 0 || recoveredResult.stateErrorCount != 0 || !recoveredResult.saveReady then
-      throw <| IO.userError
-        s!"expected recovered sync_file to be save-ready with zero errors, got {(toJson recoveredResult).compress}"
 
     buildLakeTarget root "SaveSmoke/A.lean"
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"

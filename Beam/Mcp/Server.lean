@@ -140,8 +140,12 @@ private def streamDiagnosticLogData (diagnostic : Beam.Broker.StreamDiagnostic) 
       ("uri", toJson diagnostic.uri),
       ("severity", toJson <| diagnosticSeverityName diagnostic.severity?),
       ("range", toJson diagnostic.range),
-      ("message", toJson diagnostic.message)
+      ("message", toJson diagnostic.message),
+      ("completionBlocking", toJson diagnostic.completionBlocking)
     ] ++
+    (match diagnostic.saveBlocking? with
+    | some saveBlocking => [("saveBlocking", toJson saveBlocking)]
+    | none => []) ++
     match diagnostic.version? with
     | some version => [("version", toJson version)]
     | none => []

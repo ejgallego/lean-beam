@@ -50,22 +50,74 @@ instance : Lean.Lsp.FileSource SaveArtifactsParams where
 instance : Lean.Lsp.FileSource SaveReadinessParams where
    fileSource p := Lean.Lsp.fileSource p.textDocument
 
- /-- Internal success payload for artifact serialization. -/
- structure SaveArtifactsResult where
-   written : Bool := true
-   version : Nat
-   textHash : UInt64
-   deriving FromJson, ToJson
+/-- Internal success payload for artifact serialization. -/
+structure SaveArtifactsResult where
+  written : Bool := true
+  version : Nat
+  textHash : UInt64
+  deriving FromJson, ToJson
 
- /-- Internal success payload for save-readiness checks. -/
- structure SaveReadinessResult where
-   version : Nat
-   saveBlockingErrorCount : Nat := 0
-   currentWarningCount : Nat := 0
-   commandErrorCount : Nat := 0
-   saveReady : Bool := true
-   saveReadyReason : String := "ok"
-   saveReadyMessage? : Option String := none
-   deriving FromJson, ToJson
+/-- Diagnostic-shaped evidence for an error that participates in save-readiness. -/
+structure SaveBlockingDiagnostic where
+  range : Lean.Lsp.Range
+  severity? : Option Lean.Lsp.DiagnosticSeverity := some .error
+  message : String
+  saveBlocking : Bool := true
+  completionBlocking : Bool := false
+  deriving FromJson, ToJson
 
- end RunAt.Internal
+/-- Frontend command-message evidence for an error that participates in save-readiness. -/
+structure SaveBlockingCommandMessage where
+  message : String
+  saveBlocking : Bool := true
+  completionBlocking : Bool := false
+  deriving FromJson, ToJson
+
+private def optionalField? [FromJson α] (json : Json) (field : String) : Except String (Option α) := do
+  match json.getObjVal? field with
+  | .ok value =>
+      match fromJson? value with
+      | .ok decoded => pure (some decoded)
+      | .error err => throw s!"invalid '{field}': {err}"
+  | .error _ =>
+      pure none
+
+/-- Internal success payload for save-readiness checks. -/
+structure SaveReadinessResult where
+  version : Nat
+  saveBlockingErrorCount : Nat := 0
+  currentWarningCount : Nat := 0
+  commandErrorCount : Nat := 0
+  saveReady : Bool := true
+  saveReadyReason : String := "ok"
+  saveReadyMessage? : Option String := none
+  blockingDiagnostics : Array SaveBlockingDiagnostic := #[]
+  blockingCommandMessages : Array SaveBlockingCommandMessage := #[]
+  deriving ToJson
+
+instance : FromJson SaveReadinessResult where
+  fromJson? json := do
+    let version ← json.getObjValAs? Nat "version"
+    let saveBlockingErrorCount? ← optionalField? (α := Nat) json "saveBlockingErrorCount"
+    let currentWarningCount? ← optionalField? (α := Nat) json "currentWarningCount"
+    let commandErrorCount? ← optionalField? (α := Nat) json "commandErrorCount"
+    let saveReady? ← optionalField? (α := Bool) json "saveReady"
+    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
+    let saveReadyMessage? ← optionalField? (α := String) json "saveReadyMessage"
+    let blockingDiagnostics? ←
+      optionalField? (α := Array SaveBlockingDiagnostic) json "blockingDiagnostics"
+    let blockingCommandMessages? ←
+      optionalField? (α := Array SaveBlockingCommandMessage) json "blockingCommandMessages"
+    pure {
+      version
+      saveBlockingErrorCount := saveBlockingErrorCount?.getD 0
+      currentWarningCount := currentWarningCount?.getD 0
+      commandErrorCount := commandErrorCount?.getD 0
+      saveReady := saveReady?.getD true
+      saveReadyReason := saveReadyReason?.getD "ok"
+      saveReadyMessage?
+      blockingDiagnostics := blockingDiagnostics?.getD #[]
+      blockingCommandMessages := blockingCommandMessages?.getD #[]
+    }
+
+end RunAt.Internal

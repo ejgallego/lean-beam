@@ -56,16 +56,18 @@ def syncBarrierIncompleteResponse
     (version : Nat)
     (targetPath : String)
     (hints : Array StaleDirectDepHint)
+    (diagnostics : Array Diagnostic)
     (fileProgress? : Option SyncFileProgress) : Response :=
   Response.error
     syncBarrierIncompleteCode
     (syncBarrierIncompleteMessage uri version fileProgress?)
-    (some <| staleSyncErrorData targetPath hints)
+    (some <| staleSyncErrorData targetPath hints (completionBlockingDiagnostics diagnostics))
 
 def syncFileSuccessPayload
     (version : Nat)
     (diagnostics : Array Diagnostic)
-    (readiness : SyncSaveReadiness) : Json :=
+    (readiness : SyncSaveReadiness)
+    (syncSummary? : Option SyncSummary := none) : Json :=
   toJson ({
     version
     errorCount := readiness.currentSaveBlockingErrorCount?.getD (syncErrorCount diagnostics)
@@ -74,6 +76,9 @@ def syncFileSuccessPayload
     stateCommandErrorCount := readiness.stateCommandErrorCount
     saveReady := readiness.saveReady
     saveReadyReason := readiness.saveReadyReason
+    blockingDiagnostics := readiness.blockingDiagnostics
+    blockingCommandMessages := readiness.blockingCommandMessages
+    syncSummary? := syncSummary?
     : SyncFileResult
   })
 
@@ -81,9 +86,10 @@ def syncFileSuccessResponse
     (version : Nat)
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness)
-    (fileProgress? : Option SyncFileProgress) : Response :=
+    (fileProgress? : Option SyncFileProgress)
+    (syncSummary? : Option SyncSummary := none) : Response :=
   responseWithFileProgress
-    (Response.success <| syncFileSuccessPayload version diagnostics readiness)
+    (Response.success <| syncFileSuccessPayload version diagnostics readiness syncSummary?)
     fileProgress?
 
 end Beam.Broker

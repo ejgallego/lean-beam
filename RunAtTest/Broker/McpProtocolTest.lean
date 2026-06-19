@@ -617,6 +617,8 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     discard <| requireObjVal "warning log data" "range" data
     discard <| requireObjVal "warning log data" "uri" data
     discard <| requireObjVal "warning log data" "version" data
+    requireJsonBool "warning log data" "completionBlocking" false data
+    requireFieldAbsent "warning log data" "saveBlocking" data
     let message ← IO.ofExcept <| data.getObjValAs? String "message"
     require "warning log should preserve diagnostic message" (!message.isEmpty)
 
@@ -636,7 +638,11 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let errorResp ← callLeanSync state opts stdin notifications 5 "SaveSmoke/B.lean"
     let errorResult ← requireObjVal "error lean_sync response" "result" errorResp
     requireJsonBool "error lean_sync result" "isError" false errorResult
-    discard <| requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"
+    let errorLog ← requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"
+    let errorParams ← requireObjVal "error log notification" "params" errorLog
+    let errorData ← requireObjVal "error log params" "data" errorParams
+    requireJsonBool "error log data" "completionBlocking" false errorData
+    requireFieldAbsent "error log data" "saveBlocking" errorData
   finally
     shutdownMcpRuntime state
     try

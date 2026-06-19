@@ -25,23 +25,33 @@ def effectiveSyncDiagnosticSeverity (diagnostic : Diagnostic) :
   else
     diagnostic.severity?
 
+def isSyncErrorDiagnostic (diagnostic : Diagnostic) : Bool :=
+  match effectiveSyncDiagnosticSeverity diagnostic with
+  | some .error => true
+  | _ => false
+
+def isSyncWarningDiagnostic (diagnostic : Diagnostic) : Bool :=
+  match effectiveSyncDiagnosticSeverity diagnostic with
+  | some .warning => true
+  | _ => false
+
 def filterSyncDiagnostics (fullDiagnostics : Bool) (diagnostics : Array Diagnostic) :
     Array Diagnostic :=
   if fullDiagnostics then
     diagnostics
   else
-    diagnostics.filter (fun diagnostic => effectiveSyncDiagnosticSeverity diagnostic == some .error)
+    diagnostics.filter isSyncErrorDiagnostic
 
 def syncErrorCount (diagnostics : Array Diagnostic) : Nat :=
   diagnostics.foldl (init := 0) fun count diagnostic =>
-    if effectiveSyncDiagnosticSeverity diagnostic == some .error then
+    if isSyncErrorDiagnostic diagnostic then
       count + 1
     else
       count
 
 def syncWarningCount (diagnostics : Array Diagnostic) : Nat :=
   diagnostics.foldl (init := 0) fun count diagnostic =>
-    if effectiveSyncDiagnosticSeverity diagnostic == some .warning then
+    if isSyncWarningDiagnostic diagnostic then
       count + 1
     else
       count
@@ -54,7 +64,25 @@ structure SyncSaveReadiness where
   saveReady : Bool := true
   saveReadyReason : String := "ok"
   saveReadyMessage? : Option String := none
+  blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
+  blockingCommandMessages : Array SyncBlockingCommandMessage := #[]
   deriving Inhabited
+
+private def syncBlockingDiagnosticOfResult
+    (diagnostic : RunAt.Internal.SaveBlockingDiagnostic) : SyncBlockingDiagnostic := {
+  range := diagnostic.range
+  severity? := diagnostic.severity?
+  message := diagnostic.message
+  saveBlocking := diagnostic.saveBlocking
+  completionBlocking := diagnostic.completionBlocking
+}
+
+private def syncBlockingCommandMessageOfResult
+    (message : RunAt.Internal.SaveBlockingCommandMessage) : SyncBlockingCommandMessage := {
+  message := message.message
+  saveBlocking := message.saveBlocking
+  completionBlocking := message.completionBlocking
+}
 
 def syncSaveReadinessOfResult
     (result : RunAt.Internal.SaveReadinessResult) : SyncSaveReadiness :=
@@ -66,7 +94,43 @@ def syncSaveReadinessOfResult
     saveReady := result.saveReady
     saveReadyReason := result.saveReadyReason
     saveReadyMessage? := result.saveReadyMessage?
+    blockingDiagnostics := result.blockingDiagnostics.map syncBlockingDiagnosticOfResult
+    blockingCommandMessages := result.blockingCommandMessages.map syncBlockingCommandMessageOfResult
   }
+
+def syncBlockingDiagnosticOfDiagnostic
+    (saveBlocking completionBlocking : Bool)
+    (diagnostic : Diagnostic) : SyncBlockingDiagnostic := {
+  range := diagnostic.fullRange
+  severity? := effectiveSyncDiagnosticSeverity diagnostic
+  message := diagnostic.message
+  saveBlocking
+  completionBlocking
+}
+
+def completionBlockingDiagnostics (diagnostics : Array Diagnostic) : Array SyncBlockingDiagnostic :=
+  diagnostics.filterMap fun diagnostic =>
+    if isIncompleteBarrierDiagnostic diagnostic then
+      some <| syncBlockingDiagnosticOfDiagnostic false true diagnostic
+    else
+      none
+
+def saveBlockingFallbackDiagnostics (diagnostics : Array Diagnostic) : Array SyncBlockingDiagnostic :=
+  diagnostics.filterMap fun diagnostic =>
+    if isSyncErrorDiagnostic diagnostic then
+      some <| syncBlockingDiagnosticOfDiagnostic true false diagnostic
+    else
+      none
+
+def withFallbackSaveBlockingEvidence
+    (diagnostics : Array Diagnostic)
+    (readiness : SyncSaveReadiness) : SyncSaveReadiness :=
+  if readiness.saveReady ||
+      !readiness.blockingDiagnostics.isEmpty ||
+      !readiness.blockingCommandMessages.isEmpty then
+    readiness
+  else
+    { readiness with blockingDiagnostics := saveBlockingFallbackDiagnostics diagnostics }
 
 def diagnosticsIndicateIncompleteBarrier (diagnostics : Array Diagnostic) : Bool :=
   diagnostics.any isIncompleteBarrierDiagnostic

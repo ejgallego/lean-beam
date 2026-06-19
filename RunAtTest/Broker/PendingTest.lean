@@ -34,12 +34,14 @@ private def mkPending
   let promise ← IO.Promise.new
   let progressRef ← IO.mkRef progress?
   let diagnosticsRef ← IO.mkRef #[]
+  let diagnosticsSeenRef ← IO.mkRef false
   let seenDiagnosticKeysRef ← IO.mkRef ({} : Std.TreeSet String compare)
   pure ({
     clientRequestId?
     promise
     progressRef
     diagnosticsRef
+    diagnosticsSeenRef
     seenDiagnosticKeysRef
   }, promise)
 
@@ -88,6 +90,8 @@ private def checkPendingStoreResolve : IO Unit := do
   requireJsonBool "pending response result" "value" true result.result
   require "pending response preserves progress"
     (result.progress? == some { updates := 3, done := false })
+  require "pending response records no diagnostics publication"
+    (!result.diagnosticsSeen)
   require "pending store is empty after remove"
     ((← PendingRequestStore.snapshot store).isEmpty)
 

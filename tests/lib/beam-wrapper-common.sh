@@ -51,6 +51,23 @@ else:
 PY
 }
 
+json_text_has_field() {
+  python3 - "$1" <<'PY'
+import json, os, sys
+payload = json.loads(os.environ["RUNAT_JSON_PAYLOAD"])
+value = payload
+try:
+    for part in sys.argv[1].split("."):
+        if isinstance(value, list):
+            value = value[int(part)]
+        else:
+            value = value[part]
+except (KeyError, IndexError, ValueError, TypeError):
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+}
+
 sed_in_place_portable() {
   local expr="$1"
   local path="$2"
