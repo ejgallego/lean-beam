@@ -47,6 +47,8 @@ def syncWarningCount (diagnostics : Array Diagnostic) : Nat :=
       count
 
 structure SyncSaveReadiness where
+  currentSaveBlockingErrorCount? : Option Nat := none
+  currentWarningCount? : Option Nat := none
   stateErrorCount : Nat := 0
   stateCommandErrorCount : Nat := 0
   saveReady : Bool := true
@@ -56,7 +58,9 @@ structure SyncSaveReadiness where
 def syncSaveReadinessOfResult
     (result : RunAt.Internal.SaveReadinessResult) : SyncSaveReadiness :=
   {
-    stateErrorCount := result.diagnosticErrorCount
+    currentSaveBlockingErrorCount? := some result.saveBlockingErrorCount
+    currentWarningCount? := some result.currentWarningCount
+    stateErrorCount := result.saveBlockingErrorCount
     stateCommandErrorCount := result.commandErrorCount
     saveReady := result.saveReady
     saveReadyReason := result.saveReadyReason

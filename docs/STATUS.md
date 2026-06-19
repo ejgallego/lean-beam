@@ -101,7 +101,16 @@ streams fresh diagnostics to clients such as the CLI without replaying them in t
 returns a compact `fileProgress` summary rather than exposing the full underlying LSP notification
 stream. By default `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` stream only errors for the
 current request; `+full` widens that stream to warnings, info, and hints. The Beam daemon now also
-forwards compact `fileProgress` updates live to streaming clients. For programmatic local consumers,
+forwards compact `fileProgress` updates live to streaming clients. The final `sync` result counts
+the current synced document state under save-readiness semantics: `errorCount` is the current
+save-blocking frontend error count, `warningCount` is the current warning count, and
+`saveReady` / `stateErrorCount` / `stateCommandErrorCount` describe whether Beam's save/checkpoint
+path should proceed. This is deliberately separate from streamed diagnostics: the stream reports
+diagnostic events observed while the current request was pending, whereas the final result reports
+the current synced state. The current sync result does not yet expose a full current diagnostic
+snapshot or a since-last-sync diff; consumers that need incremental diagnostics should use
+`beam-client request-stream` and treat the final result as the authoritative save-readiness summary.
+For programmatic local consumers,
 the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; the wrapper stderr format should be treated as human-facing.
 Beam broker responses include an explicit top-level `ok` boolean. Older response envelopes that omit
@@ -144,6 +153,45 @@ that handoff cheap by reusing speculative execution rather than replaying it fro
 `lean-beam save` is module-oriented, not file-oriented. `lean-beam sync` can operate on an arbitrary file the
 daemon can open, but `lean-beam save` requires a file that Lake resolves to a module in the current
 workspace package graph. Standalone `.lean` files outside that graph are not valid save targets.
+
+### Planned Progress And Sync Delta Reporting
+
+The next reporting step should keep progress, diagnostics, readiness, and deltas as separate typed
+concepts:
+
+- progress: request-scoped operation movement, not diagnostics and not final readiness
+- streamed diagnostics: Lean-published events observed while a request is pending
+- current summary: the stable synced-state verdict for one document version
+- delta summary: a comparison against one named previous sync boundary
+
+For MCP, Beam should parse tool-call `_meta.progressToken` and emit `notifications/progress` for
+coarse phases such as workspace setup, daemon start, sync waiting, save artifact generation, and
+completion. The numeric `progress` value must be monotonic for the token; where Lean only provides
+`fileProgress.updates` / `done`, Beam can use a per-request monotonic sequence and put the Lean
+progress detail in the human-readable message. Incremental Lean diagnostics should not be encoded
+as progress. They should be forwarded as structured MCP `notifications/message` log events with
+path, URI, version, range, severity, and message data, subject to rate limiting and client log-level
+support.
+
+For sync deltas, every delta-bearing payload should state both sides of the comparison:
+
+- `currentVersion`: the synced document version described by the current result
+- `deltaBaseVersion?`: the previous successful sync version used as the comparison base, absent on
+  the first successful sync for a document or after a reset/close boundary that discards history
+- `sourceChangedSinceDeltaBase`: whether the source text hash changed between `deltaBaseVersion`
+  and `currentVersion`
+- `diagnostics.current`: current Lean-published diagnostic counts by severity and total
+- `diagnostics.delta`: added / removed / persisted counts keyed by stable diagnostic identity, with
+  `baseVersion` and `currentVersion` repeated inside the delta object
+- `readiness.current`: save-blocking errors, command/frontend errors, warnings, `saveReady`, and
+  `saveReadyReason`
+- `readiness.delta`: count changes and readiness-state changes between the same base/current
+  versions
+
+`save` and `close-save` should either return this same sync summary or an explicit reference to the
+sync summary they established before checkpointing. They should require
+`readiness.current.saveReady = true` for that exact `currentVersion`, then save that version and
+report the saved source hash.
 
 ## Known Limitations
 
@@ -190,8 +238,8 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
 - `lean-beam-mcp` follows the `2025-11-25` tool-call error split: malformed or unknown tools are
   JSON-RPC protocol errors, while invalid inputs for known tools return MCP tool execution errors
   with `isError=true`.
-- `lean-beam-mcp` currently returns final tool results only; live MCP progress forwarding and MCP
-  cancellation notifications are still future work.
+- `lean-beam-mcp` currently returns final tool results only; live MCP progress forwarding,
+  incremental diagnostic/log forwarding, and MCP cancellation notifications are still future work.
 - `lean-beam-mcp` has local stdio protocol, Lean-backed restart/stress coverage, deterministic
   Streamable HTTP bridge smoke coverage, and official MCP conformance coverage in CI for the
   selected `server-initialize`, `ping`, and `tools-list` scenarios. The Streamable HTTP bridge is
@@ -219,6 +267,15 @@ Near-term work is mostly about hardening and simplifying:
 - replace broker-side diagnostics/fileProgress barrier inference with a stronger backend-facing
   readiness primitive, so `lean-beam sync` / `lean-beam save` can trust one authoritative completion signal
   instead of reconstructing barrier completeness from multiple LSP channels
+- track an upstream Lean API improvement for a pure frontend readiness/reporting helper, close to
+  `SnapshotTree.runAndReport` but returning the build-blocking decision and message counts without
+  printing, so Beam can delegate save-ready semantics instead of mirroring private frontend logic
+- project broker `fileProgress` and streamed Lean diagnostics into MCP notifications: use MCP
+  progress notifications for request-scoped operation progress, and structured MCP log messages for
+  incremental diagnostics rather than overloading the final tool result
+- add the explicit typed sync summary described above, including `currentVersion`,
+  `deltaBaseVersion?`, and versioned diagnostic/readiness deltas; project the same summary through
+  `save` / `close-save` so checkpointing relies on exactly the sync verdict it just established
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in

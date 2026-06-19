@@ -60,7 +60,8 @@ instance : Lean.Lsp.FileSource SaveReadinessParams where
  /-- Internal success payload for save-readiness checks. -/
  structure SaveReadinessResult where
    version : Nat
-   diagnosticErrorCount : Nat := 0
+   saveBlockingErrorCount : Nat := 0
+   currentWarningCount : Nat := 0
    commandErrorCount : Nat := 0
    saveReady : Bool := true
    saveReadyReason : String := "ok"

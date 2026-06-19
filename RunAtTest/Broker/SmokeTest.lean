@@ -87,6 +87,33 @@ private def runErrorOnlySyncSmoke
   unless errorDiagnostics.all (fun diagnostic => diagnostic.path == errorRel) do
     throw <| IO.userError s!"expected error-only sync_file paths to match {errorRel}, got {(toJson errorDiagnostics).compress}"
 
+private def runInteractiveOnlyDiagnosticSmoke
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath) : IO Unit := do
+  let path := "tests/scenario/docs/InteractiveOnlyDiagnostic.lean"
+  let (resp, progress, diagnostics) ← runClientWithStream endpoint {
+    op := .syncFile
+    root? := some root.toString
+    path? := some path
+  }
+  let res : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk resp)
+  if !res.saveReady then
+    throw <| IO.userError
+      s!"expected interactive-only diagnostic sync_file saveReady = true, got {(toJson res).compress}"
+  if res.errorCount != 0 || res.stateErrorCount != 0 || res.stateCommandErrorCount != 0 then
+    throw <| IO.userError
+      s!"expected interactive-only diagnostic counts to stay zero, got {(toJson res).compress}"
+  let some lastProgress := progress.back?
+    | throw <| IO.userError "expected interactive-only diagnostic sync_file to stream fileProgress"
+  if !lastProgress.done then
+    throw <| IO.userError
+      s!"expected interactive-only diagnostic sync_file progress to finish, got {(toJson lastProgress).compress}"
+  unless diagnostics.any (fun diagnostic =>
+      diagnostic.path == path && diagnostic.severity? == some .error &&
+        diagnostic.message.contains "interactive-only diagnostic") do
+    throw <| IO.userError
+      s!"expected interactive-only diagnostic sync_file to stream the fixture error, got {(toJson diagnostics).compress}"
+
 private def runPartialProgressSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
@@ -469,6 +496,7 @@ def smokeMain : IO Unit := do
     discard <| expectOk (← runClient endpoint { op := .resetStats })
     runSyncSmoke endpoint root
     runErrorOnlySyncSmoke endpoint root
+    runInteractiveOnlyDiagnosticSmoke endpoint root
     runPartialProgressSmoke endpoint root
     runConcurrentSmoke endpoint root
     runRequestAndGoalsSmoke endpoint root

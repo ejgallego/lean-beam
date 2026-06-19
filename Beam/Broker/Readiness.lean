@@ -68,8 +68,8 @@ def syncFileSuccessPayload
     (readiness : SyncSaveReadiness) : Json :=
   toJson ({
     version
-    errorCount := syncErrorCount diagnostics
-    warningCount := syncWarningCount diagnostics
+    errorCount := readiness.currentSaveBlockingErrorCount?.getD (syncErrorCount diagnostics)
+    warningCount := readiness.currentWarningCount?.getD (syncWarningCount diagnostics)
     stateErrorCount := readiness.stateErrorCount
     stateCommandErrorCount := readiness.stateCommandErrorCount
     saveReady := readiness.saveReady

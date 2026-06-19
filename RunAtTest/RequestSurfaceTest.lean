@@ -447,8 +447,8 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
   if broken.saveReadyReason != "documentErrors" then
     throw <| IO.userError
       s!"broken saveReadiness: expected reason = documentErrors, got {broken.saveReadyReason}"
-  if broken.diagnosticErrorCount == 0 then
-    throw <| IO.userError s!"broken saveReadiness: expected diagnosticErrorCount > 0, got {(toJson broken).compress}"
+  if broken.saveBlockingErrorCount == 0 then
+    throw <| IO.userError s!"broken saveReadiness: expected saveBlockingErrorCount > 0, got {(toJson broken).compress}"
 
   closeDoc doc
 

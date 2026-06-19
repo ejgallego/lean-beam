@@ -203,6 +203,14 @@ Read those flags like this:
   `lean_init_workspace` with `mode: "reset"`
 - deeper shell-oriented variants and debugging knobs live in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md) and the linked reference docs
 
+The final `lean-beam sync` JSON summarizes the current synced version rather than replaying the
+diagnostics streamed on stderr for that request. `result.errorCount` is the current save-blocking
+frontend error count, `result.warningCount` is the current warning count, and `result.saveReady`
+with `result.stateErrorCount` / `result.stateCommandErrorCount` reports whether the file is ready
+for Beam's save/checkpoint path. Streamed diagnostics are request events, not a since-last-sync
+diff. A successful sync transport can still have `saveReady=false` when Lean found build-blocking
+errors in the document.
+
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
 `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` to suggest a
 cheap direct-import recovery path before falling back to `lake build`.

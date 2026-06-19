@@ -1318,6 +1318,33 @@ EOF
     rm -f "$broken_sync_json" "$broken_sync_err"
     exit 1
   fi
+
+  broken_resync_json="$(mktemp /tmp/beam-wrapper-broken-resync-json-XXXXXX)"
+  broken_resync_err="$(mktemp /tmp/beam-wrapper-broken-resync-err-XXXXXX)"
+  "$beam_script" sync SaveSmoke/B.lean >"$broken_resync_json" 2>"$broken_resync_err"
+  broken_resync="$(cat "$broken_resync_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field ok)" != "true" ]; then
+    echo "expected unchanged broken sync to succeed even when Lean reports diagnostics" >&2
+    printf '%s\n' "$broken_resync" >&2
+    cat "$broken_resync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.errorCount)" -lt 1 ]; then
+    echo "expected unchanged broken sync final json to keep a nonzero errorCount" >&2
+    printf '%s\n' "$broken_resync" >&2
+    cat "$broken_resync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.stateErrorCount)" -lt 1 ]; then
+    echo "expected unchanged broken sync final json to keep a nonzero stateErrorCount" >&2
+    printf '%s\n' "$broken_resync" >&2
+    cat "$broken_resync_err" >&2
+    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
+    exit 1
+  fi
+  rm -f "$broken_resync_json" "$broken_resync_err"
   rm -f "$broken_sync_json" "$broken_sync_err"
 
   close_save_err="$(mktemp /tmp/beam-wrapper-close-save-XXXXXX)"
