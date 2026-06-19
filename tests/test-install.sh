@@ -8,6 +8,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 . scripts/shared-lib.sh
+# shellcheck source=tests/lib/assertions.sh
+. tests/lib/assertions.sh
 # shellcheck source=tests/lib/ci-steps.sh
 . tests/lib/ci-steps.sh
 
@@ -77,7 +79,7 @@ if [ -z "$toolchain" ]; then
   echo "missing pinned Lean toolchain in lean-toolchain" >&2
   exit 1
 fi
-if ! printf '%s\n' "${supported_toolchains[@]}" | grep -qxF "$toolchain"; then
+if ! printf '%s\n' ${supported_toolchains[@]+"${supported_toolchains[@]}"} | grep -qxF "$toolchain"; then
   echo "pinned Lean toolchain is not in supported-lean-toolchains: $toolchain" >&2
   exit 1
 fi
@@ -136,6 +138,20 @@ assert_not_contains() {
     cat "$path" >&2
     exit 1
   fi
+}
+
+assert_doctor_contains() {
+  local label="$1"
+  local output="$2"
+  local expected="$3"
+  assert_output_contains "$label doctor output" "$output" "$expected"
+}
+
+assert_doctor_not_contains() {
+  local label="$1"
+  local output="$2"
+  local unexpected="$3"
+  assert_output_not_contains "$label doctor output" "$output" "$unexpected"
 }
 
 assert_symlink_target() {
@@ -279,7 +295,7 @@ assert_bundle_layout() {
   fi
   for expected_toolchain in "$@"; do
     found=""
-    for metadata in "${metadata_files[@]}"; do
+    for metadata in ${metadata_files[@]+"${metadata_files[@]}"}; do
       if grep -F "\"toolchain\": \"$expected_toolchain\"" "$metadata" > /dev/null; then
         found="$metadata"
         break
@@ -650,31 +666,11 @@ run_custom_toolchain_install_test() (
   rsync -a tests/save_olean_project/ "$custom_project_root"/
   printf '%s\n' "$custom_toolchain" > "$custom_project_root/lean-toolchain"
   custom_doctor_out="$(ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" doctor)"
-  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'project toolchain supported: false'; then
-    echo "expected custom toolchain doctor to keep supported=false" >&2
-    printf '%s\n' "$custom_doctor_out" >&2
-    exit 1
-  fi
-  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'project toolchain custom: true'; then
-    echo "expected custom toolchain doctor to report custom=true" >&2
-    printf '%s\n' "$custom_doctor_out" >&2
-    exit 1
-  fi
-  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'project toolchain accepted: true'; then
-    echo "expected custom toolchain doctor to report accepted=true" >&2
-    printf '%s\n' "$custom_doctor_out" >&2
-    exit 1
-  fi
-  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'bundle source: installed'; then
-    echo "expected custom toolchain doctor to resolve the prebuilt installed bundle" >&2
-    printf '%s\n' "$custom_doctor_out" >&2
-    exit 1
-  fi
-  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'bundle toolchain fingerprint: '; then
-    echo "expected custom toolchain doctor to report the bundle toolchain fingerprint" >&2
-    printf '%s\n' "$custom_doctor_out" >&2
-    exit 1
-  fi
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain supported: false'
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain custom: true'
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain accepted: true'
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'bundle source: installed'
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'bundle toolchain fingerprint: '
   ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" ensure > /dev/null
   ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" shutdown > /dev/null
 )
@@ -685,7 +681,7 @@ run_step "prebuild all supported bundles" run_install_from_source --all-supporte
 
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
-assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" "${supported_toolchains[@]}"
+assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
 
 run_step "install skills" run_install_from_source --toolchain "$toolchain" --all-skills
 
@@ -803,56 +799,16 @@ if ! printf '%s\n' "$supported_out" | grep -qx "$toolchain"; then
 fi
 
 doctor_out="$("$installed_lean_beam" --root "$project_root" doctor)"
-if ! printf '%s\n' "$doctor_out" | grep -q 'project toolchain supported: true'; then
-  echo "expected installed wrapper doctor lean to report a supported project toolchain" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'supported toolchains registry: '; then
-  echo "expected installed wrapper doctor lean to report the support registry path" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'bundle source inputs: '; then
-  echo "expected installed wrapper doctor lean to report bundle source inputs" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'bundle key inputs: toolchain, toolchain fingerprint, platform, source hash'; then
-  echo "expected installed wrapper doctor lean to report bundle key inputs" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'bundle toolchain fingerprint: '; then
-  echo "expected installed wrapper doctor lean to report the bundle toolchain fingerprint" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'supported-lean-toolchains'; then
-  echo "expected installed wrapper doctor lean to include supported-lean-toolchains in the source-hash inputs" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'custom-lean-toolchains'; then
-  echo "expected installed wrapper doctor lean to include custom-lean-toolchains in the source-hash inputs" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if printf '%s\n' "$doctor_out" | grep -q '\.lake/packages'; then
-  echo "expected installed wrapper doctor lean to exclude .lake/packages from bundle source-hash inputs" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'bundle source: installed'; then
-  echo "expected installed wrapper doctor lean to resolve the installed bundle" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
-if ! printf '%s\n' "$doctor_out" | grep -q 'bundle ready: true'; then
-  echo "expected installed wrapper doctor lean to report bundle ready" >&2
-  printf '%s\n' "$doctor_out" >&2
-  exit 1
-fi
+assert_doctor_contains "installed wrapper" "$doctor_out" 'project toolchain supported: true'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'supported toolchains registry: '
+assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle source inputs: '
+assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle key inputs: toolchain, toolchain fingerprint, platform, source hash'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle toolchain fingerprint: '
+assert_doctor_contains "installed wrapper" "$doctor_out" 'supported-lean-toolchains'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'custom-lean-toolchains'
+assert_doctor_not_contains "installed wrapper" "$doctor_out" '.lake/packages'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle source: installed'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle ready: true'
 
 mcp_config_json="$(BEAM_HOME="$installed_runtime_root" "$installed_runtime_root/libexec/beam-cli" --root "$project_root" mcp-config)"
 MCP_CONFIG_JSON="$mcp_config_json" EXPECTED_TOOLCHAIN="$toolchain" python3 - <<'PY'

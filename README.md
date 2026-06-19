@@ -74,7 +74,8 @@ Custom toolchains are not validated release targets; Beam records them in the in
 `custom-lean-toolchains` registry and will only serve the exact custom names you installed. Bundle
 keys also include the resolved Lean/Lake identity for that name, so relinking to a different local
 build or changing the reported toolchain identity creates a different bundle instead of reusing
-stale helpers.
+stale helpers. See [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md) for the full custom
+toolchain and runtime-bundle model.
 
 ## MCP Setup
 
@@ -137,8 +138,8 @@ Lean Beam serves validated Lean toolchains listed in
 [`supported-lean-toolchains`](supported-lean-toolchains). It can also serve explicit custom
 toolchains recorded at install time with `--custom-toolchain`; this is intended for local Lean
 development toolchains and does not make those toolchains validated release targets. Runtime bundle
-keys include the resolved Lean version, Lean prefix, Lean libdir, and Lake version for the requested
-toolchain.
+identity and custom-toolchain rules are documented in
+[docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md).
 Inspect the validated allowlist with:
 
 ```bash

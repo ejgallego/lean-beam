@@ -312,12 +312,14 @@ and MCP config reporting live in [Beam/Cli/Info.lean](../Beam/Cli/Info.lean). Th
 table lives in [Beam/Cli/Commands.lean](../Beam/Cli/Commands.lean), and [Beam/Cli/Usage.lean](../Beam/Cli/Usage.lean)
 owns the help text. Lean command to broker-request projection lives in
 [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Install and bundle layout metadata lives in
-[Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle cache roots, source
-hashing, resolved toolchain fingerprinting, fallback bundle builds, versioned metadata payloads,
-metadata acceptance checks, and daemon/client/plugin helper resolution live in
-[Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean). Bundle IDs and metadata must include
-both the Beam runtime source hash and the resolved Lean/Lake fingerprint so local custom toolchain
-relinks and reported identity changes cannot silently reuse stale helpers.
+[Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle compatibility imports
+live in [Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean); implementation details are
+split under [Beam/Cli/RuntimeBundle](../Beam/Cli/RuntimeBundle). Keep source hashing, resolved
+toolchain fingerprinting, metadata acceptance, and fallback bundle builds in their focused
+submodules instead of growing the umbrella import. Bundle IDs and metadata must include both the
+Beam runtime source hash and the resolved Lean/Lake fingerprint so local custom toolchain relinks
+and reported identity changes cannot silently reuse stale helpers. The user-facing model is in
+[CUSTOM_TOOLCHAINS.md](CUSTOM_TOOLCHAINS.md).
 Keep [Beam/Cli.lean](../Beam/Cli.lean) as the executable entry point: parse top-level options,
 resolve `BEAM_HOME`, and delegate to `runCommand`.
 

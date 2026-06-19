@@ -236,14 +236,14 @@ fi
 
 if [ -n "${prefix[*]-}" ]; then
   if [ -n "${rest[*]-}" ]; then
-    exec "$beam_bin" "${prefix[@]}" "${mapped[@]}" "${rest[@]}"
+    exec "$beam_bin" ${prefix[@]+"${prefix[@]}"} ${mapped[@]+"${mapped[@]}"} ${rest[@]+"${rest[@]}"}
   else
-    exec "$beam_bin" "${prefix[@]}" "${mapped[@]}"
+    exec "$beam_bin" ${prefix[@]+"${prefix[@]}"} ${mapped[@]+"${mapped[@]}"}
   fi
 else
   if [ -n "${rest[*]-}" ]; then
-    exec "$beam_bin" "${mapped[@]}" "${rest[@]}"
+    exec "$beam_bin" ${mapped[@]+"${mapped[@]}"} ${rest[@]+"${rest[@]}"}
   else
-    exec "$beam_bin" "${mapped[@]}"
+    exec "$beam_bin" ${mapped[@]+"${mapped[@]}"}
   fi
 fi

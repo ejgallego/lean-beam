@@ -17,11 +17,11 @@ if [ -n "$output_path" ]; then
   mkdir -p "$(dirname "$output_path")"
   (
     cd "$repo_root"
-    "${cmd[@]}" | tee "$output_path"
+    ${cmd[@]+"${cmd[@]}"} | tee "$output_path"
   )
 else
   (
     cd "$repo_root"
-    "${cmd[@]}"
+    ${cmd[@]+"${cmd[@]}"}
   )
 fi

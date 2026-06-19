@@ -6,121 +6,24 @@ Most of the harness was built over March 10-11, 2026. Coverage is strongest arou
 visible behavior: request semantics, stale-state handling, cancellation, handle invalidation, and
 Beam daemon integration.
 
-## Current Coverage
+## Coverage Map
 
-- interactive file-anchored regressions through [tests/test.sh](../tests/test.sh)
-- multi-document and async behavior through the scenario DSL in [tests/scenario](../tests/scenario)
-- programmable scenario coverage through [RunAtTest/Scenario.lean](../RunAtTest/Scenario.lean)
-- shuffled concurrent workload coverage through
-  [RunAtTest/Scenario/StressTest.lean](../RunAtTest/Scenario/StressTest.lean)
-- follow-up handle coverage through [tests/scenario/handleDsl.scn](../tests/scenario/handleDsl.scn),
-  [tests/scenario/handleLinearDsl.scn](../tests/scenario/handleLinearDsl.scn),
-  [tests/scenario/handleNestedBranchDsl.scn](../tests/scenario/handleNestedBranchDsl.scn),
-  [tests/scenario/handleProofBranchDsl.scn](../tests/scenario/handleProofBranchDsl.scn),
-  [tests/scenario/handleSearchCancelDsl.scn](../tests/scenario/handleSearchCancelDsl.scn),
-  [tests/scenario/handleCancelDsl.scn](../tests/scenario/handleCancelDsl.scn), and
-  [tests/scenario/handleInvalidationDsl.scn](../tests/scenario/handleInvalidationDsl.scn)
-- handle-specific API assertions in
-  [RunAtTest/Handle/ApiTest.lean](../RunAtTest/Handle/ApiTest.lean) and
-  [RunAtTest/Handle/RestartTest.lean](../RunAtTest/Handle/RestartTest.lean)
-- nested handle failure-shape assertions in
-  [RunAtTest/Handle/NestedHandleFailureTest.lean](../RunAtTest/Handle/NestedHandleFailureTest.lean)
-- fast Beam daemon smoke coverage in [tests/test-broker-fast.sh](../tests/test-broker-fast.sh),
-  including completed barrier progress vs partial request progress expectations
-- broker protocol envelope coverage in
-  [RunAtTest/Broker/ProtocolTest.lean](../RunAtTest/Broker/ProtocolTest.lean), including explicit
-  `ok` fields on produced responses, legacy inferred-`ok` decoding, and rejection of inconsistent
-  error/result envelopes
-- CLI daemon helper coverage in
-  [RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean), including startup
-  retry policy, lock lifecycle, deterministic runtime bundle helper path / identity behavior, and
-  runtime bundle metadata schema versioning / acceptance rules. Bundle identity assertions cover the
-  resolved Lean/Lake toolchain fingerprint so stale helpers are rejected when a custom elan-linked
-  toolchain resolves differently.
-- MCP projection boundary coverage in
-  [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean), including
-  supported Lean and setup tool names, rejection of raw LSP method names and expert raw request
-  escape hatches, shared typed operation-to-broker adapters, root-free MCP inputs, explicit
-  non-broker setup tools, and normalized `next_handle` / `proof_state` output for runAt-style results
-- MCP protocol/server coverage in
-  [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), including
-  JSON-RPC request/notification decoding, initialize/tools-list response shape, generated tool
-  schemas, `lean_init_workspace` schema and shared `Beam.Workspace` setup-mode policy validation,
-  initialize / initialized lifecycle gating, raw LSP rejection, malformed-tool protocol errors,
-  known-tool input validation as MCP tool execution errors, roots capability detection, and
-  `roots/list` response decoding
-- Lean-backed `lean-beam-mcp` stdio coverage in
-  [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py), which runs initialize, initialized
-  notification, tools/list, raw-tool rejection, sync, runAt semantic success/failure, handle
-  mint/continue/linear/release, goals, close, shutdown, a table-driven lifecycle matrix,
-  explicit-root startup including relative `--root`, `lean_init_workspace` startup for clients without roots, recovery after a
-  missing-roots tool error, MCP `roots/list` project-root discovery, absolute-root and Lean/Lake
-  workspace validation, idempotent `set`/`verify` behavior, same-root and live-root reset with
-  handle invalidation, stale-root reset recovery, active-root diagnostics, root setup error cases, stdout JSON parsing, and stderr hygiene assertions against a copied Lean fixture project. Stderr hygiene is
-  a local regression check, not an MCP requirement; the `2025-11-25` stdio transport explicitly
-  permits server logging on stderr.
-- local Streamable HTTP bridge coverage in
-  [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py), which starts
-  [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) against a `lean-beam-mcp` stdio child and
-  checks HTTP status behavior, `Origin` rejection, unsupported `MCP-Protocol-Version` rejection,
-  initialize / initialized lifecycle, tools/list, raw-tool rejection, known-tool input errors, a real
-  `lean_sync` call, and shutdown
-- a lightweight `lean-beam-mcp` stdio smoke in
-  [tests/test-broker-fast.sh](../tests/test-broker-fast.sh), which keeps a cheap newline-delimited
-  protocol path check that does not require a Lean worker process
-- GitHub Actions main coverage in [.github/workflows/ci.yml](../.github/workflows/ci.yml), whose
-  Linux job set now also runs on `macos-latest`
-- GitHub Actions broker smoke coverage on both Ubuntu and macOS through the matrixed
-  `broker-fast` job in [.github/workflows/ci.yml](../.github/workflows/ci.yml)
-- GitHub Actions MCP conformance coverage on both Ubuntu and macOS through the matrixed
-  `mcp-conformance` job, which runs the pinned external conformance package against the local
-  Streamable HTTP bridge
-- CI workflow actions use Node 24-compatible first-party action majors; the `mcp-conformance`
-  `node-version` setting is the JavaScript test runtime, not the GitHub Action runtime
-- slower wrapper/install coverage in [tests/test-broker-slow.sh](../tests/test-broker-slow.sh)
-- focused wrapper daemon lifecycle coverage in
-  [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh), including
-  `lean-beam ensure --hold`, stale same-namespace wrapper lease cleanup, endpoint collisions with
-  another Beam root, stale registries that point at another root, and non-Beam busy-port rejection
-- shared wrapper shell helpers in
-  [tests/lib/beam-wrapper-common.sh](../tests/lib/beam-wrapper-common.sh), used by the broad
-  wrapper workflow, focused daemon lifecycle test, and PID-isolated sandbox wrapper test
-- experimental Lean broker `request_at` coverage through
-  [RunAtTest/Broker/SmokeTest.lean](../RunAtTest/Broker/SmokeTest.lean) and
-  [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), including whitelisted request
-  success, stdin JSON extras, stats accounting, and rejection of user-supplied `textDocument` /
-  `position` overrides
-- explicit `lean-beam sync` regression coverage for diagnostics-wait behavior and compact
-  `fileProgress.done` reporting in [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh),
-  including stale-import cases where the diagnostics barrier must fail instead of reporting a
-  partial success
-- wrapper coverage for alpha Lean handle mint / continue / linear-continue / release flows in
-  [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
-- wrapper coverage for the installed `lean-beam-search` helper in
-  [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh)
-- PID-isolated sandbox wrapper coverage in
-  [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh), which checks that a
-  later sandboxed wrapper invocation reuses a live daemon via its endpoint and that overlapping
-  wrapper requests on the same root do not kill each other's daemon mid-flight; this regression is
-  Linux-only because it depends on `bwrap`
-- zero-build save regression coverage in [tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh),
-  including exact-target replay, downstream importer reuse after daemon shutdown, and a
-  sentinel-driven race where a mid-save edit must leave the saved module stale for later
-  `lake build`. This script disables Lake's artifact cache for its direct Lake and broker-wrapper
-  probes so it can distinguish local rebuilds from broker-written trace replay on warmed developer
-  or CI machines
-- repo-local Codex worktree discipline coverage in [tests/test-codex-harness.sh](../tests/test-codex-harness.sh),
-  which checks maintainer workflow helpers that start new tasks in dedicated worktrees and reject
-  the primary checkout unless explicitly overridden
-- markdown documentation link coverage in
-  [scripts/check-markdown-links.sh](../scripts/check-markdown-links.sh), which checks git-tracked
-  `.md` files for repository-local links that point at missing files
-- optional local `lean4-stage0` custom-toolchain install smoke coverage in
-  [tests/test-stage0-toolchain.sh](../tests/test-stage0-toolchain.sh), which skips when the stage0
-  toolchain is not available through elan
-- lightweight search-workload latency reporting in
-  [RunAtTest/Scenario/SearchWorkloadReport.lean](../RunAtTest/Scenario/SearchWorkloadReport.lean)
-  and [scripts/search-workload-report.sh](../scripts/search-workload-report.sh)
+| Area | Primary checks | What they protect |
+| --- | --- | --- |
+| runAt semantics | [tests/test.sh](../tests/test.sh), [tests/scenario](../tests/scenario), [RunAtTest/Scenario.lean](../RunAtTest/Scenario.lean) | position selection, async edits, multi-document behavior, and externally visible request results |
+| follow-up handles | [tests/scenario/handleDsl.scn](../tests/scenario/handleDsl.scn), [RunAtTest/Handle](../RunAtTest/Handle), [RunAtTest/Scenario/MctsProofSearchTest.lean](../RunAtTest/Scenario/MctsProofSearchTest.lean) | handle minting, continuation, linear consumption, release, cancellation, invalidation, and search-style branching |
+| broker protocol | [RunAtTest/Broker/ProtocolTest.lean](../RunAtTest/Broker/ProtocolTest.lean), [RunAtTest/Broker/RequestStreamContractTest.lean](../RunAtTest/Broker/RequestStreamContractTest.lean), [tests/test-broker-fast.sh](../tests/test-broker-fast.sh) | response envelopes, stream contracts, progress semantics, startup smoke, and barrier failure shape |
+| CLI daemon and bundles | [RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean), [tests/test-install.sh](../tests/test-install.sh), [tests/test-toolchain-compat.sh](../tests/test-toolchain-compat.sh) | lock lifecycle, deterministic helper identity, bundle metadata schema, source hashing, toolchain acceptance, and stale bundle rejection |
+| wrapper workflows | [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh), [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh) | wrapper JSON, request cancellation, `sync`/`save`, daemon reuse, lease cleanup, port collision handling, and PID-isolated sandbox behavior |
+| zero-build save | [tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh), [RunAtTest/Broker/SaveStreamTest.lean](../RunAtTest/Broker/SaveStreamTest.lean) | exact-target replay, downstream importer reuse, cancellation, stale traces, and race behavior around saved `.olean` artifacts |
+| MCP | [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean), [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean), [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py), [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py), external conformance in CI | tool schemas, lifecycle gating, root setup, raw LSP rejection, stdio behavior, Streamable HTTP bridge behavior, and protocol conformance |
+| Rocq sidecar | [tests/test-broker-rocq.sh](../tests/test-broker-rocq.sh), [RunAtTest/Broker/RocqSmokeTest.lean](../RunAtTest/Broker/RocqSmokeTest.lean) | Rocq goal-probe setup, `coq-lsp` discovery, and keeping the Rocq path separate from Lean-specific workflow |
+| repo maintenance | [scripts/lint-shell.sh](../scripts/lint-shell.sh), [scripts/check-markdown-links.sh](../scripts/check-markdown-links.sh), [tests/test-codex-harness.sh](../tests/test-codex-harness.sh) | shell portability, Bash `set -u` array safety, repository-local markdown links, and dedicated worktree discipline |
+
+The optional [tests/test-stage0-toolchain.sh](../tests/test-stage0-toolchain.sh) smoke checks
+`--custom-toolchain lean4-stage0` on machines where that elan toolchain exists. It is intentionally
+local-only and skips elsewhere. See [CUSTOM_TOOLCHAINS.md](CUSTOM_TOOLCHAINS.md) for the custom
+toolchain and runtime-bundle model that test exercises.
 
 ## Race-Test Discipline
 

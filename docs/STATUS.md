@@ -169,7 +169,8 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   the resolved toolchain fingerprint, the runtime source tree, `lean-toolchain`,
   `lake-manifest.json`, and `supported-lean-toolchains` / `custom-lean-toolchains`. The fingerprint
   records `lean --version`, `lean --print-prefix`, `lean --print-libdir`, and `lake --version` for
-  the requested elan toolchain.
+  the requested elan toolchain. See [CUSTOM_TOOLCHAINS.md](CUSTOM_TOOLCHAINS.md) for the custom
+  toolchain and runtime-bundle model.
 - The first use of a supported or explicitly custom but not-yet-prebuilt toolchain must still build
   a matching local fallback bundle.
 - On a cold machine, that local fallback build may need network access to fetch dependencies.
