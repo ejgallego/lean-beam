@@ -34,7 +34,9 @@ Beam daemon integration.
 - CLI daemon helper coverage in
   [RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean), including startup
   retry policy, lock lifecycle, deterministic runtime bundle helper path / identity behavior, and
-  runtime bundle metadata schema versioning / acceptance rules
+  runtime bundle metadata schema versioning / acceptance rules. Bundle identity assertions cover the
+  resolved Lean/Lake toolchain fingerprint so stale helpers are rejected when a custom elan-linked
+  toolchain resolves differently.
 - MCP projection boundary coverage in
   [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean), including
   supported Lean and setup tool names, rejection of raw LSP method names and expert raw request
@@ -200,7 +202,10 @@ correctness regression, not yet a performance benchmark.
   or shell-based test harnesses; CI runs the same `shellcheck` pass
 - use [tests/test-stage0-toolchain.sh](../tests/test-stage0-toolchain.sh) for a local smoke of
   `--custom-toolchain lean4-stage0`; it is intentionally optional and skips on machines without that
-  linked elan toolchain
+  linked elan toolchain. This is the closest local check for Lean-development custom toolchains:
+  install should prebuild the custom bundle, `doctor` should resolve that installed bundle and report
+  a toolchain fingerprint, and `ensure` should start from the installed helpers rather than building
+  an unrelated fallback.
 
 ## MCP Coverage Plan
 
