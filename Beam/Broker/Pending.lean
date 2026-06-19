@@ -111,12 +111,55 @@ private def normalizePublishDiagnostics (params : PublishDiagnosticsParams) :
     sorted.toArray
 }
 
+private structure FileProgressLineInfo where
+  line : Nat
+  totalLines : Nat
+
+private def fileProgressTotalLines (range : Range) : Nat :=
+  let endPos := range.«end»
+  if endPos.line > 0 && endPos.character == 0 then
+    endPos.line
+  else
+    endPos.line + 1
+
+private def mergeFileProgressLineInfo
+    (info? : Option FileProgressLineInfo)
+    (range : Range) : Option FileProgressLineInfo :=
+  let line := range.start.line + 1
+  let totalLines := fileProgressTotalLines range
+  match info? with
+  | none => some { line, totalLines }
+  | some info =>
+      some {
+        line := Nat.min info.line line
+        totalLines := Nat.max info.totalLines totalLines
+      }
+
+private def fileProgressLineInfo? (params : LeanFileProgressParams) :
+    Option FileProgressLineInfo :=
+  params.processing.foldl
+    (init := none)
+    (fun info? processing => mergeFileProgressLineInfo info? processing.range)
+
 private def updateSyncFileProgress (progress : SyncFileProgress) (params : LeanFileProgressParams) :
     SyncFileProgress :=
   let processing := params.processing.size
+  let lineInfo? := fileProgressLineInfo? params
+  let done := processing == 0
+  let totalLines? := lineInfo?.map (·.totalLines) |>.or progress.totalLines?
+  let line? :=
+    match lineInfo? with
+    | some info => some info.line
+    | none =>
+        if done then
+          totalLines?
+        else
+          progress.line?
   {
     updates := progress.updates + 1
-    done := processing == 0
+    done
+    line?
+    totalLines?
   }
 
 private def matchesSyncFileProgress
