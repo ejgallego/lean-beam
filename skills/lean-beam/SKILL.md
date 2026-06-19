@@ -277,13 +277,17 @@ Diagnostic defaults on that path:
 - `lean-beam sync`, `lean-beam refresh`, `lean-beam save`, and `lean-beam close-save` always stream fresh diagnostics for the current request
 - by default they stream only errors
 - add `+full` to widen the current request to warnings, info, and hints
-- the final JSON does not replay streamed diagnostics
+- the final JSON does not replay streamed diagnostics, and its counts describe the current synced
+  document state under save-readiness semantics rather than the number of diagnostics emitted on
+  stderr in that request
+- streamed diagnostics are request events, not a since-last-sync diff; an unchanged still-broken
+  file may stream no new diagnostics while the final `result.errorCount` remains nonzero
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` as a cheap
   recovery hint based on direct imports whose saved checkpoint is newer than the target's last
   successful sync boundary
-- `lean-beam sync` final JSON reports fresh streamed counts in `result.errorCount` /
-  `result.warningCount`, and current save-readiness in `result.saveReady` plus
+- `lean-beam sync` final JSON reports current save-blocking errors in `result.errorCount`,
+  current warnings in `result.warningCount`, and current save-readiness in `result.saveReady` plus
   `result.stateErrorCount` / `result.stateCommandErrorCount`
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command

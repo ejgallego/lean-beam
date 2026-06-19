@@ -246,6 +246,34 @@ private def checkReadinessBoundary : IO Unit := do
   requireJsonBool "readiness success payload" "saveReady" false successResult
   requireJsonString "readiness success payload" "saveReadyReason" "documentErrors" successResult
 
+  let streamedErrorDiagnostic ← diagnostic 3 "streamed error only"
+  let stableCountsResp := syncFileSuccessResponse 10 #[streamedErrorDiagnostic, warningDiagnostic] {
+    currentSaveBlockingErrorCount? := some 4
+    currentWarningCount? := some 5
+    stateErrorCount := 4
+    stateCommandErrorCount := 1
+    saveReady := false
+    saveReadyReason := "documentErrors"
+  } none
+  let stableCountsResult ← requireResponseResult "readiness stable-count response" stableCountsResp
+  requireJsonInt "readiness stable-count payload" "errorCount" 4 stableCountsResult
+  requireJsonInt "readiness stable-count payload" "warningCount" 5 stableCountsResult
+  requireJsonInt "readiness stable-count payload" "stateErrorCount" 4 stableCountsResult
+
+  let interactiveOnlyResp := syncFileSuccessResponse 11 #[streamedErrorDiagnostic] {
+    currentSaveBlockingErrorCount? := some 0
+    currentWarningCount? := some 0
+    stateErrorCount := 0
+    stateCommandErrorCount := 0
+    saveReady := true
+    saveReadyReason := "ok"
+  } none
+  let interactiveOnlyResult ← requireResponseResult
+    "readiness interactive-only diagnostic response" interactiveOnlyResp
+  requireJsonInt "readiness interactive-only payload" "errorCount" 0 interactiveOnlyResult
+  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 0 interactiveOnlyResult
+  requireJsonBool "readiness interactive-only payload" "saveReady" true interactiveOnlyResult
+
 private def checkRequestArgsBoundary : IO Unit := do
   let runAtMissingText : Request := {
     op := .runAt

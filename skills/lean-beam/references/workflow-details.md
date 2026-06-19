@@ -109,8 +109,8 @@ What is not a valid checkpoint target:
   as one step, especially after saving an upstream dependency
 - treat `lean-beam sync` as the explicit supported boundary between real file edits and Beam daemon
   session state
-- `lean-beam sync` returns compact JSON on stdout, including final `result.errorCount` /
-  `result.warningCount`, and streams human diagnostics on stderr
+- `lean-beam sync` returns compact JSON on stdout, including current save-blocking
+  `result.errorCount` and current `result.warningCount`, and streams human diagnostics on stderr
 - if imported targets are stale or the Lean worker cannot finish that diagnostics barrier,
   `lean-beam sync` fails; do not treat a failed sync as safe to follow with `lean-beam save`
 - `lean-beam sync` keeps machine-readable JSON on stdout; interactive progress text goes to stderr
@@ -142,6 +142,8 @@ What is not a valid checkpoint target:
 - by default they stream only errors
 - add `+full` to widen the current request to warnings, info, and hints
 - the final JSON does not replay streamed diagnostics
+- streamed diagnostics are request events, not a since-last-sync diff; use final stdout JSON for
+  current save-readiness and the request stream only for incremental diagnostic observations
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages
 - wrapper `stderr` is the human-facing diagnostic surface
@@ -175,9 +177,9 @@ Interpretation:
 
 - after `lean-beam sync`, expect top-level `fileProgress.done = true`
 - successful `lean-beam sync` transport does not mean the file is error-free; inspect
-  `result.errorCount` / `result.warningCount` for fresh streamed diagnostics in this request, and
-  inspect `result.saveReady` plus `result.stateErrorCount` / `result.stateCommandErrorCount` for
-  current save-readiness
+  `result.errorCount` for current save-blocking errors, `result.warningCount` for current warnings,
+  and inspect `result.saveReady` plus `result.stateErrorCount` /
+  `result.stateCommandErrorCount` for current save-readiness
 - if `lean-beam sync` fails with an incomplete diagnostics barrier, inspect the JSON
   `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan`; those hints are
   based on direct imports whose saved checkpoint is newer than the target file's last successful

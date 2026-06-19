@@ -119,9 +119,9 @@ def main : IO Unit := do
     if !error.message.contains "cannot save artifacts for a document with errors;" then
       throw <| IO.userError
         s!"expected save_olean error to explain artifact rejection, got {error.message}"
-    if !error.message.contains "diagnostics:" then
+    if !error.message.contains "commandMessages:" then
       throw <| IO.userError
-        s!"expected save_olean error to include diagnostic details, got {error.message}"
+        s!"expected save_olean error to include command-message details, got {error.message}"
     unless errorDiagnostics.any (fun diagnostic =>
       diagnostic.path == "SaveSmoke/B.lean" && diagnostic.severity? == some .error) do
       throw <| IO.userError

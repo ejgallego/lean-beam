@@ -205,6 +205,60 @@ def main : IO Unit := do
     let standaloneSaveResp ← requireFinalStreamResponse "standalone save_olean" standaloneSaveMessages
     expectErrorCode "standalone save_olean" Beam.Broker.saveTargetNotModuleCode standaloneSaveResp
 
+    IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
+    let brokenSyncMessages ← requireSuccessStream "broken sync_file" <| ← runRequestStream port {
+      op := .syncFile
+      root? := some root.toString
+      path? := some "SaveSmoke/B.lean"
+    }
+    expectStreamKindsOnly "broken sync_file" brokenSyncMessages
+    let brokenSyncResp ← requireFinalStreamResponse "broken sync_file" brokenSyncMessages
+    let brokenPayload ← expectOk brokenSyncResp
+    expectNoReplayDiagnosticsField "broken sync_file" brokenPayload
+    let brokenResult : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? brokenPayload
+    if brokenResult.errorCount == 0 || brokenResult.stateErrorCount == 0 then
+      throw <| IO.userError
+        s!"expected broken sync_file final counts to be nonzero, got {(toJson brokenResult).compress}"
+    if brokenResult.saveReady then
+      throw <| IO.userError s!"expected broken sync_file saveReady = false, got {(toJson brokenResult).compress}"
+    let brokenDiagnostics ← requireAnyStreamDiagnostics "broken sync_file" brokenSyncMessages
+    unless brokenDiagnostics.any (fun diagnostic => diagnostic.severity? == some .error) do
+      throw <| IO.userError
+        s!"expected broken sync_file stream to include an error diagnostic, got {(toJson brokenDiagnostics).compress}"
+
+    let brokenResyncMessages ← requireSuccessStream "unchanged broken sync_file" <| ← runRequestStream port {
+      op := .syncFile
+      root? := some root.toString
+      path? := some "SaveSmoke/B.lean"
+    }
+    expectStreamKindsOnly "unchanged broken sync_file" brokenResyncMessages
+    let brokenResyncResp ← requireFinalStreamResponse "unchanged broken sync_file" brokenResyncMessages
+    let brokenResyncPayload ← expectOk brokenResyncResp
+    expectNoReplayDiagnosticsField "unchanged broken sync_file" brokenResyncPayload
+    let brokenResyncResult : Beam.Broker.SyncFileResult ←
+      IO.ofExcept <| fromJson? brokenResyncPayload
+    if brokenResyncResult.errorCount == 0 || brokenResyncResult.stateErrorCount == 0 then
+      throw <| IO.userError
+        s!"expected unchanged broken sync_file final counts to stay nonzero, got {(toJson brokenResyncResult).compress}"
+    if brokenResyncResult.saveReady then
+      throw <| IO.userError
+        s!"expected unchanged broken sync_file saveReady = false, got {(toJson brokenResyncResult).compress}"
+
+    IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := 1\n"
+    let recoveredSyncMessages ← requireSuccessStream "recovered sync_file" <| ← runRequestStream port {
+      op := .syncFile
+      root? := some root.toString
+      path? := some "SaveSmoke/B.lean"
+    }
+    expectStreamKindsOnly "recovered sync_file" recoveredSyncMessages
+    let recoveredSyncResp ← requireFinalStreamResponse "recovered sync_file" recoveredSyncMessages
+    let recoveredPayload ← expectOk recoveredSyncResp
+    expectNoReplayDiagnosticsField "recovered sync_file" recoveredPayload
+    let recoveredResult : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? recoveredPayload
+    if recoveredResult.errorCount != 0 || recoveredResult.stateErrorCount != 0 || !recoveredResult.saveReady then
+      throw <| IO.userError
+        s!"expected recovered sync_file to be save-ready with zero errors, got {(toJson recoveredResult).compress}"
+
     buildLakeTarget root "SaveSmoke/A.lean"
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
 

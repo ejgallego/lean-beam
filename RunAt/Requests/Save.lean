@@ -122,16 +122,15 @@ def saveArtifactsErrorMessage
     (diagnosticErrors : Array Lean.Widget.InteractiveDiagnostic)
     (commandErrors : Array String) : String :=
   let detailParts : List String :=
-    [
-      if !diagnosticErrors.isEmpty then
-        some s!"diagnostics: {summarizeErrorItems (diagnosticErrors.map formatErrorDiagnostic)}"
-      else
-        none,
-      if !commandErrors.isEmpty then
-        some s!"commandMessages: {summarizeErrorItems commandErrors}"
-      else
-        none
-    ].filterMap id
+    if !commandErrors.isEmpty then
+      [s!"commandMessages: {summarizeErrorItems commandErrors}"]
+    else
+      [
+        if !diagnosticErrors.isEmpty then
+          some s!"diagnostics: {summarizeErrorItems (diagnosticErrors.map formatErrorDiagnostic)}"
+        else
+          none
+      ].filterMap id
   if detailParts.isEmpty then
     "cannot save artifacts for a document with errors"
   else
@@ -143,8 +142,23 @@ def saveReadinessDocumentErrorsReason : String :=
 def saveReadinessNotElaboratedReason : String :=
   "documentDidNotElaborateSuccessfully"
 
+private def snapshotMessageLog (snaps : List Snapshots.Snapshot) : MessageLog :=
+  snaps.foldl (fun log snap => log ++ snap.msgLog) MessageLog.empty
+
+private def messageSeverityCount (severity : MessageSeverity) (messages : Array Lean.Message) : Nat :=
+  messages.foldl (init := 0) fun count msg =>
+    if msg.severity == severity then count + 1 else count
+
+private def commandErrorMessages (messages : Array Lean.Message) : RequestM (Array String) := do
+  let mut commandErrors : Array String := #[]
+  for msg in messages do
+    if msg.severity == MessageSeverity.error then
+      commandErrors := commandErrors.push (singleLineText (← msg.data.toString))
+  pure commandErrors
+
 def collectSaveReadiness
-    (doc : Lean.Server.FileWorker.EditableDocument) :
+    (doc : Lean.Server.FileWorker.EditableDocument)
+    (snaps : List Snapshots.Snapshot) :
     RequestM
       (RunAt.Internal.SaveReadinessResult ×
         Option Elab.Command.State ×
@@ -152,25 +166,33 @@ def collectSaveReadiness
         Array String) := do
   let diagnostics ← collectCurrentDiagnosticsCompat(doc)
   let diagnosticErrors := diagnostics.filter (fun diag => diag.severity? == some .error)
+  let diagnosticWarnings := diagnostics.filter (fun diag => diag.severity? == some .warning)
+  -- Mirror Lean server/frontend snapshot-log aggregation, and use the exported upstream
+  -- predicate for the boolean decision.
+  let frontendLog := snapshotMessageLog snaps
+  let frontendMessages := frontendLog.reportedPlusUnreported.toArray
+  let frontendErrorCount := messageSeverityCount MessageSeverity.error frontendMessages
+  let frontendWarningCount := messageSeverityCount MessageSeverity.warning frontendMessages
+  let commandErrors ← commandErrorMessages frontendMessages
   let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
     | return ({
       version := doc.meta.version
-      diagnosticErrorCount := diagnosticErrors.size
-      commandErrorCount := 0
+      saveBlockingErrorCount :=
+        if frontendErrorCount == 0 then diagnosticErrors.size else frontendErrorCount
+      currentWarningCount :=
+        if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
+      commandErrorCount := commandErrors.size
       saveReady := false
       saveReadyReason := saveReadinessNotElaboratedReason
       : RunAt.Internal.SaveReadinessResult
-    }, none, diagnosticErrors, #[])
-  let mut commandErrors : Array String := #[]
-  for msg in cmdState.messages.toList do
-    if msg.severity == MessageSeverity.error then
-      commandErrors := commandErrors.push (singleLineText (← msg.data.toString))
-  let commandErrorCount := commandErrors.size
-  let saveReady := diagnosticErrors.isEmpty && commandErrors.isEmpty
+    }, none, diagnosticErrors, commandErrors)
+  let saveReady := !frontendLog.hasErrors
   let readiness : RunAt.Internal.SaveReadinessResult := {
     version := doc.meta.version
-    diagnosticErrorCount := diagnosticErrors.size
-    commandErrorCount := commandErrorCount
+    saveBlockingErrorCount := frontendErrorCount
+    currentWarningCount :=
+      if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
+    commandErrorCount := commandErrors.size
     saveReady := saveReady
     saveReadyReason := if saveReady then "ok" else saveReadinessDocumentErrorsReason
   }
@@ -181,7 +203,7 @@ def saveCurrentArtifacts
     (snaps : List Snapshots.Snapshot)
     (p : RunAt.Internal.SaveArtifactsParams) : RequestM RunAt.Internal.SaveArtifactsResult := do
   checkRequestCancelled
-  let (readiness, cmdState?, diagnosticErrors, commandErrors) ← collectSaveReadiness doc
+  let (readiness, cmdState?, diagnosticErrors, commandErrors) ← collectSaveReadiness doc snaps
   unless readiness.saveReady do
     throw <| RequestError.invalidParams (saveArtifactsErrorMessage diagnosticErrors commandErrors)
   let some cmdState := cmdState?
@@ -220,8 +242,8 @@ def handleSaveReadiness
   syncHandleStoreForCurrentDoc
   let doc ← RequestM.readDoc
   let t := doc.cmdSnaps.waitAll
-  RequestM.mapTaskCostly t fun _ => do
-    let (readiness, _, _, _) ← collectSaveReadiness doc
+  RequestM.mapTaskCostly t fun (snaps, _) => do
+    let (readiness, _, _, _) ← collectSaveReadiness doc snaps
     pure readiness
 
 end RunAt.Requests
