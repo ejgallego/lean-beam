@@ -25,7 +25,7 @@ Run the installer from the repo root:
 ./scripts/install-beam.sh
 ```
 
-The default installer is interactive: it asks which supported Lean toolchains, agent skills, and
+The default installer is interactive: it asks which Lean toolchains, agent skills, and
 MCP client registrations to set up. It then shows a compact write summary and asks once for the Beam
 runtime/wrapper install area, selected skill locations, and selected MCP config locations. For
 non-interactive scripts, pass `--dont-ask`; this only skips prompts for requested Beam-owned
@@ -60,6 +60,18 @@ Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional valida
 ./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0
 ./scripts/install-beam.sh --all-supported
 ```
+
+If you are working on Lean itself or another local Lean build through an elan-linked toolchain, use
+`--custom-toolchain <toolchain>` to explicitly accept and prebuild that toolchain for this Beam
+install:
+
+```bash
+elan toolchain link lean4-dev /path/to/lean/build/release/stage1
+./scripts/install-beam.sh --custom-toolchain lean4-dev
+```
+
+Custom toolchains are not validated release targets; Beam records them in the installed runtime's
+`custom-lean-toolchains` registry and will only serve the exact custom names you installed.
 
 ## MCP Setup
 
@@ -118,7 +130,10 @@ The self-check starts a child MCP server, supplies the root through MCP `roots/l
 
 ## Supported Toolchains
 
-Lean Beam only serves Lean toolchains listed in [`supported-lean-toolchains`](supported-lean-toolchains).
+Lean Beam serves validated Lean toolchains listed in
+[`supported-lean-toolchains`](supported-lean-toolchains). It can also serve explicit custom
+toolchains recorded at install time with `--custom-toolchain`; this is intended for local Lean
+development toolchains and does not make those toolchains validated release targets.
 Inspect the validated allowlist with:
 
 ```bash

@@ -10,8 +10,9 @@ Beam daemon integration.
 
 - interactive file-anchored regressions through [tests/test.sh](../tests/test.sh)
 - multi-document and async behavior through the scenario DSL in [tests/scenario](../tests/scenario)
-- programmable scenario coverage through [RunAt/Scenario.lean](../RunAt/Scenario.lean)
-- shuffled concurrent workload coverage through [RunAt/ScenarioStressTest.lean](../RunAt/ScenarioStressTest.lean)
+- programmable scenario coverage through [RunAtTest/Scenario.lean](../RunAtTest/Scenario.lean)
+- shuffled concurrent workload coverage through
+  [RunAtTest/Scenario/StressTest.lean](../RunAtTest/Scenario/StressTest.lean)
 - follow-up handle coverage through [tests/scenario/handleDsl.scn](../tests/scenario/handleDsl.scn),
   [tests/scenario/handleLinearDsl.scn](../tests/scenario/handleLinearDsl.scn),
   [tests/scenario/handleNestedBranchDsl.scn](../tests/scenario/handleNestedBranchDsl.scn),
@@ -19,10 +20,11 @@ Beam daemon integration.
   [tests/scenario/handleSearchCancelDsl.scn](../tests/scenario/handleSearchCancelDsl.scn),
   [tests/scenario/handleCancelDsl.scn](../tests/scenario/handleCancelDsl.scn), and
   [tests/scenario/handleInvalidationDsl.scn](../tests/scenario/handleInvalidationDsl.scn)
-- handle-specific API assertions in [RunAt/HandleApiTest.lean](../RunAt/HandleApiTest.lean) and
-  [RunAt/HandleRestartTest.lean](../RunAt/HandleRestartTest.lean)
+- handle-specific API assertions in
+  [RunAtTest/Handle/ApiTest.lean](../RunAtTest/Handle/ApiTest.lean) and
+  [RunAtTest/Handle/RestartTest.lean](../RunAtTest/Handle/RestartTest.lean)
 - nested handle failure-shape assertions in
-  [RunAt/NestedHandleFailureTest.lean](../RunAt/NestedHandleFailureTest.lean)
+  [RunAtTest/Handle/NestedHandleFailureTest.lean](../RunAtTest/Handle/NestedHandleFailureTest.lean)
 - fast Beam daemon smoke coverage in [tests/test-broker-fast.sh](../tests/test-broker-fast.sh),
   including completed barrier progress vs partial request progress expectations
 - broker protocol envelope coverage in
@@ -108,6 +110,12 @@ Beam daemon integration.
 - repo-local Codex worktree discipline coverage in [tests/test-codex-harness.sh](../tests/test-codex-harness.sh),
   which checks maintainer workflow helpers that start new tasks in dedicated worktrees and reject
   the primary checkout unless explicitly overridden
+- markdown documentation link coverage in
+  [scripts/check-markdown-links.sh](../scripts/check-markdown-links.sh), which checks git-tracked
+  `.md` files for repository-local links that point at missing files
+- optional local `lean4-stage0` custom-toolchain install smoke coverage in
+  [tests/test-stage0-toolchain.sh](../tests/test-stage0-toolchain.sh), which skips when the stage0
+  toolchain is not available through elan
 - lightweight search-workload latency reporting in
   [RunAtTest/Scenario/SearchWorkloadReport.lean](../RunAtTest/Scenario/SearchWorkloadReport.lean)
   and [scripts/search-workload-report.sh](../scripts/search-workload-report.sh)
@@ -151,9 +159,9 @@ This sits on top of earlier search-enabling coverage:
 
 - non-linear proof branching in
   [tests/scenario/handleProofBranchDsl.scn](../tests/scenario/handleProofBranchDsl.scn)
-- programmable request orchestration through [RunAt/Scenario.lean](../RunAt/Scenario.lean)
+- programmable request orchestration through [RunAtTest/Scenario.lean](../RunAtTest/Scenario.lean)
 - shuffled concurrent workload coverage in
-  [RunAt/ScenarioStressTest.lean](../RunAt/ScenarioStressTest.lean)
+  [RunAtTest/Scenario/StressTest.lean](../RunAtTest/Scenario/StressTest.lean)
 - nested multi-goal cursor corner cases in
   [tests/interactive/proofNestedConstructorOrder.lean](../tests/interactive/proofNestedConstructorOrder.lean),
   [tests/interactive/proofNestedBulletWhitespace.lean](../tests/interactive/proofNestedBulletWhitespace.lean), and
@@ -174,7 +182,9 @@ correctness regression, not yet a performance benchmark.
 
 - start with [tests/test-broker-fast.sh](../tests/test-broker-fast.sh) for broker-stream, barrier,
   request-stream contract, MCP projection-boundary changes, protocol-only MCP checks, and one
-  Lean-backed MCP stdio pass; this is the quickest broker signal
+  Lean-backed MCP stdio pass; this is the quickest broker signal. It also runs
+  [scripts/check-markdown-links.sh](../scripts/check-markdown-links.sh), so stale repository-local
+  documentation links fail in CI.
 - add [tests/test-broker-slow.sh](../tests/test-broker-slow.sh) when the change touches wrapper,
   install, bundle-resolution behavior, or MCP server reliability; it repeats the MCP stdio harness
   across several server restarts before running focused daemon lifecycle checks and the broader
@@ -188,6 +198,9 @@ correctness regression, not yet a performance benchmark.
   landing a broader broker-facing change
 - use [scripts/lint-shell.sh](../scripts/lint-shell.sh) when you change shell wrappers, installer,
   or shell-based test harnesses; CI runs the same `shellcheck` pass
+- use [tests/test-stage0-toolchain.sh](../tests/test-stage0-toolchain.sh) for a local smoke of
+  `--custom-toolchain lean4-stage0`; it is intentionally optional and skips on machines without that
+  linked elan toolchain
 
 ## MCP Coverage Plan
 

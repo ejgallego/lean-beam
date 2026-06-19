@@ -21,7 +21,7 @@ structure InstallLayout where
 
 def bundleRootFiles : List String :=
   ["RunAt.lean", "Beam.lean", "lakefile.lean", "lakefile.toml", "lake-manifest.json", "lean-toolchain",
-    "supported-lean-toolchains"]
+    "supported-lean-toolchains", "custom-lean-toolchains"]
 
 def bundleSourceDirs : List String :=
   ["RunAt", "Beam", "ffi"]

@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 
 bash scripts/check-daemon-safety.sh
 bash scripts/check-task-priority.sh
+bash scripts/check-markdown-links.sh
 
 lake build \
   RunAt:shared \

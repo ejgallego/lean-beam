@@ -14,6 +14,10 @@ cd "$(dirname "$0")/.."
 BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-install}"
 
 tmp_root="$(mktemp -d /tmp/runat-install-XXXXXX)"
+host_elan_home="${ELAN_HOME:-}"
+if [ -z "$host_elan_home" ] && [ -d "$HOME/.elan" ]; then
+  host_elan_home="$HOME/.elan"
+fi
 
 expect_owned_tmp_dir() {
   case "$1" in
@@ -154,6 +158,7 @@ assert_runtime_layout() {
   assert_file "$runtime_root/RunAt/Internal/SaveSupport.lean"
   assert_file "$runtime_root/RunAt/Internal/DirectImports.lean"
   assert_file "$runtime_root/supported-lean-toolchains"
+  assert_file "$runtime_root/custom-lean-toolchains"
   assert_file "$runtime_root/libexec/beam-cli"
   assert_file "$runtime_root/libexec/beam-daemon"
   assert_file "$runtime_root/libexec/beam-client"
@@ -594,6 +599,79 @@ assert_contains "$blocked_bundle_err" 'refusing to remove unmarked existing bund
 remove_tmp_file "$blocked_bundle_err"
 assert_file "$blocked_bundle_workspace/user-file.txt"
 
+run_custom_toolchain_install_test() (
+  set -e
+
+  local custom_toolchain="beam-test-custom"
+  local custom_elan_home="$tmp_root/custom-elan"
+  local custom_install_home="$tmp_root/custom-home"
+  local custom_install_root="$tmp_root/custom-install-root"
+  local host_lean_path=""
+  local custom_toolchain_dir=""
+  local custom_installed_lean_beam=""
+  local custom_installed_runtime_root=""
+  local custom_installed_version_root=""
+  local custom_installed_payload_id=""
+  local custom_project_root=""
+  local custom_doctor_out=""
+
+  mkdir -p "$custom_elan_home" "$custom_install_home" "$custom_install_root"
+  if [ -n "$host_elan_home" ]; then
+    host_lean_path="$(ELAN_HOME="$host_elan_home" elan which lean)"
+  else
+    host_lean_path="$(elan which lean)"
+  fi
+  custom_toolchain_dir="$(dirname "$(dirname "$host_lean_path")")"
+  ELAN_HOME="$custom_elan_home" elan toolchain link "$custom_toolchain" "$custom_toolchain_dir" > /dev/null
+  (
+    cd "$source_checkout"
+    HOME="$custom_install_home" BEAM_INSTALL_ROOT="$custom_install_root" ELAN_HOME="$custom_elan_home" \
+      bash scripts/install-beam.sh --dont-ask --custom-toolchain "$custom_toolchain" > /dev/null
+  )
+  custom_installed_lean_beam="$custom_install_home/.local/bin/lean-beam"
+  custom_installed_runtime_root="$custom_install_root/current"
+  assert_runtime_layout "$custom_installed_runtime_root"
+  assert_contains_literal "$custom_installed_runtime_root/custom-lean-toolchains" "$custom_toolchain"
+  assert_version_count "$custom_install_root/versions" 1
+  custom_installed_version_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$custom_installed_runtime_root")"
+  custom_installed_payload_id="$(basename "$custom_installed_version_root")"
+  BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata \
+    "$custom_installed_runtime_root/manifest.json" \
+    "$custom_installed_payload_id" \
+    "$expected_source_commit" \
+    "$custom_toolchain"
+  assert_bundle_layout "$custom_install_root/state/install-bundles" "$custom_toolchain"
+
+  custom_project_root="$tmp_root/custom-project"
+  rsync -a tests/save_olean_project/ "$custom_project_root"/
+  printf '%s\n' "$custom_toolchain" > "$custom_project_root/lean-toolchain"
+  custom_doctor_out="$(ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" doctor)"
+  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'project toolchain supported: false'; then
+    echo "expected custom toolchain doctor to keep supported=false" >&2
+    printf '%s\n' "$custom_doctor_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'project toolchain custom: true'; then
+    echo "expected custom toolchain doctor to report custom=true" >&2
+    printf '%s\n' "$custom_doctor_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'project toolchain accepted: true'; then
+    echo "expected custom toolchain doctor to report accepted=true" >&2
+    printf '%s\n' "$custom_doctor_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$custom_doctor_out" | grep -q 'bundle source: installed'; then
+    echo "expected custom toolchain doctor to resolve the prebuilt installed bundle" >&2
+    printf '%s\n' "$custom_doctor_out" >&2
+    exit 1
+  fi
+  ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" ensure > /dev/null
+  ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" shutdown > /dev/null
+)
+
+run_step "install custom toolchain runtime" run_custom_toolchain_install_test
+
 run_step "prebuild all supported bundles" run_install_from_source --all-supported
 
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
@@ -733,6 +811,11 @@ if ! printf '%s\n' "$doctor_out" | grep -q 'bundle source inputs: '; then
 fi
 if ! printf '%s\n' "$doctor_out" | grep -q 'supported-lean-toolchains'; then
   echo "expected installed wrapper doctor lean to include supported-lean-toolchains in the source-hash inputs" >&2
+  printf '%s\n' "$doctor_out" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$doctor_out" | grep -q 'custom-lean-toolchains'; then
+  echo "expected installed wrapper doctor lean to include custom-lean-toolchains in the source-hash inputs" >&2
   printf '%s\n' "$doctor_out" >&2
   exit 1
 fi

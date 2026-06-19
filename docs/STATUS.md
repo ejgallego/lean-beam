@@ -156,16 +156,20 @@ workspace package graph. Standalone `.lean` files outside that graph are not val
   default.
 - The install script also accepts `--toolchain <toolchain>` for explicit supported bundles and
   `--all-supported` for the full validated allowlist.
+- The install script accepts `--custom-toolchain <toolchain>` for explicit elan-linked local Lean
+  development toolchains. These names are recorded in the installed runtime's
+  `custom-lean-toolchains` registry and are accepted but not validated.
 - Runtime requests first try that installed-skill bundle cache, then fall back to a project-local
-  runtime bundle under `.beam/bundles/` for supported toolchains.
-- Unsupported Lean toolchains fail early instead of attempting an opportunistic build.
+  runtime bundle under `.beam/bundles/` for supported or explicitly custom toolchains.
+- Unsupported Lean toolchains that are not explicitly custom fail early instead of attempting an
+  opportunistic build.
 - `lean-beam supported-toolchains` lists the validated toolchains, and `lean-beam doctor`
-  reports support state, bundle source, and bundle key inputs.
+  reports validated support state, custom acceptance state, bundle source, and bundle key inputs.
 - Bundle rebuild keys intentionally exclude the full `.lake/packages` checkout tree and instead use
   the runtime source tree plus `lean-toolchain`, `lake-manifest.json`, and
-  `supported-lean-toolchains`.
-- The first use of a supported but not-yet-prebuilt toolchain must still build a matching local
-  fallback bundle.
+  `supported-lean-toolchains` / `custom-lean-toolchains`.
+- The first use of a supported or explicitly custom but not-yet-prebuilt toolchain must still build
+  a matching local fallback bundle.
 - On a cold machine, that local fallback build may need network access to fetch dependencies.
 - In sandboxed agent environments, Beam daemon startup itself may require elevated permissions even when
   the installed bundle and project-local `.beam` paths resolve correctly.

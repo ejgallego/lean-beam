@@ -115,6 +115,9 @@ def runtimeBundleCacheRoot (root : System.FilePath) : IO System.FilePath := do
 def supportedLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
   home / "supported-lean-toolchains"
 
+def customLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
+  home / "custom-lean-toolchains"
+
 def nonCommentLines (text : String) : List String :=
   (text.splitOn "\n").filterMap fun raw =>
     let line := trimLine raw
@@ -126,13 +129,58 @@ def supportedLeanToolchains (home : System.FilePath) : IO (System.FilePath × Li
     throw <| IO.userError s!"missing supported Lean toolchain registry at {path}"
   pure (path, nonCommentLines (← IO.FS.readFile path))
 
-def ensureSupportedLeanToolchain (home : System.FilePath) (toolchain : String) : IO Unit := do
-  let (path, toolchains) ← supportedLeanToolchains home
-  unless toolchains.elem toolchain do
+def customLeanToolchains (home : System.FilePath) : IO (System.FilePath × List String) := do
+  let path := customLeanToolchainsPath home
+  unless ← path.pathExists do
+    return (path, [])
+  pure (path, nonCommentLines (← IO.FS.readFile path))
+
+inductive LeanToolchainAcceptance where
+  | supported
+  | custom
+  | unsupported
+  deriving BEq, Repr
+
+def LeanToolchainAcceptance.accepted : LeanToolchainAcceptance → Bool
+  | .supported => true
+  | .custom => true
+  | .unsupported => false
+
+structure LeanToolchainSupport where
+  supportedPath : System.FilePath
+  supportedToolchains : List String
+  customPath : System.FilePath
+  customToolchains : List String
+  acceptance : LeanToolchainAcceptance
+  deriving Repr
+
+def leanToolchainSupport (home : System.FilePath) (toolchain : String) : IO LeanToolchainSupport := do
+  let (supportedPath, supportedToolchains) ← supportedLeanToolchains home
+  let (customPath, customToolchains) ← customLeanToolchains home
+  let acceptance :=
+    if supportedToolchains.elem toolchain then
+      .supported
+    else if customToolchains.elem toolchain then
+      .custom
+    else
+      .unsupported
+  pure {
+    supportedPath
+    supportedToolchains
+    customPath
+    customToolchains
+    acceptance
+  }
+
+def ensureAcceptedLeanToolchain (home : System.FilePath) (toolchain : String) : IO Unit := do
+  let support ← leanToolchainSupport home toolchain
+  unless support.acceptance.accepted do
     throw <| IO.userError <| String.intercalate "\n" [
       s!"unsupported Lean toolchain: {toolchain}",
-      s!"supported toolchain registry: {path}",
-      "run `lean-beam supported-toolchains` to list the validated toolchains"
+      s!"supported toolchain registry: {support.supportedPath}",
+      s!"custom toolchain registry: {support.customPath}",
+      "run `lean-beam supported-toolchains` to list the validated toolchains",
+      "for local Lean development toolchains, reinstall Beam with `./scripts/install-beam.sh --custom-toolchain TOOLCHAIN`"
     ]
 
 def boolText (value : Bool) : String :=
@@ -334,17 +382,116 @@ private def ensureElan : IO Unit := do
   unless ← commandAvailable "elan" do
     throw <| IO.userError "missing elan on PATH"
 
+private def readToolchainCmdTrim (toolchain exe : String) (args : Array String := #[]) :
+    IO (Option String) := do
+  let out ← IO.Process.output {
+    cmd := "elan"
+    args := #["run", toolchain, exe] ++ args
+  }
+  if out.exitCode == 0 then
+    pure <| some <| trimLine out.stdout
+  else
+    pure none
+
+private def samePath (left right : System.FilePath) : IO Bool := do
+  try
+    let left ← IO.FS.realPath left
+    let right ← IO.FS.realPath right
+    pure (left.normalize == right.normalize)
+  catch _ =>
+    pure (left.normalize == right.normalize)
+
+private def symlinkForce (src dst : System.FilePath) : IO Unit := do
+  try
+    IO.FS.removeFile dst
+  catch _ =>
+    pure ()
+  let out ← IO.Process.output {
+    cmd := "ln"
+    args := #["-s", src.toString, dst.toString]
+  }
+  if out.exitCode != 0 then
+    throw <| IO.userError s!"failed to create symlink {dst} -> {src}\n{out.stderr}"
+
+private def copyExecutable (src dst : System.FilePath) : IO Unit := do
+  IO.FS.writeBinFile dst (← IO.FS.readBinFile src)
+  let x : IO.AccessRight := {read := true, write := true, execution := true}
+  let rx : IO.AccessRight := {read := true, write := false, execution := true}
+  IO.setAccessRights dst ⟨x, rx, rx⟩
+
+private def prepareNonstandardLakeHome
+    (bundleDir leanPrefix libDir : System.FilePath) : IO System.FilePath := do
+  if System.Platform.isWindows then
+    throw <| IO.userError
+      "nonstandard Lean libdir toolchains are not supported by the local bundle fallback on Windows"
+  let lakeHome := bundleDir / "lake-home"
+  let buildDir := lakeHome / ".lake" / "build"
+  let binDir := buildDir / "bin"
+  let sharedLibDir := buildDir / "lib"
+  let lakeLibDir := sharedLibDir / "lean"
+  IO.FS.createDirAll binDir
+  IO.FS.createDirAll sharedLibDir
+  IO.FS.createDirAll lakeLibDir
+  copyExecutable (leanPrefix / "bin" / "lake") (binDir / "lake")
+  for entry in ← libDir.readDir do
+    let name := entry.fileName
+    if name.startsWith "lib" then
+      pure ()
+    else
+      symlinkForce entry.path (lakeLibDir / name)
+  let standardLibDir := leanPrefix / "lib" / "lean"
+  for entry in ← standardLibDir.readDir do
+    let name := entry.fileName
+    if name.startsWith "lib" then
+      symlinkForce entry.path (sharedLibDir / name)
+      symlinkForce entry.path (lakeLibDir / name)
+  pure lakeHome
+
+private structure LakeBuildInvocation where
+  cmd : String
+  args : Array String
+  env : Array (String × Option String) := #[]
+
+private def lakeBuildInvocationFor (bundleDir : System.FilePath) (toolchain : String) :
+    IO LakeBuildInvocation := do
+  let default := {
+    cmd := "elan",
+    args := #["run", toolchain, "lake", "build", "RunAt:shared", "beam-daemon", "beam-client"]
+  }
+  let some prefixText ← readToolchainCmdTrim toolchain "lean" #["--print-prefix"]
+    | pure default
+  let some libDirText ← readToolchainCmdTrim toolchain "lean" #["--print-libdir"]
+    | pure default
+  let leanPrefix := System.FilePath.mk prefixText
+  let libDir := System.FilePath.mk libDirText
+  let standardLibDir := leanPrefix / "lib" / "lean"
+  if ← samePath libDir standardLibDir then
+    pure default
+  else
+    let lakeHome ← prepareNonstandardLakeHome bundleDir leanPrefix libDir
+    pure {
+      cmd := (lakeHome / ".lake" / "build" / "bin" / "lake").toString
+      args := #["build", "RunAt:shared", "beam-daemon", "beam-client"]
+      env := #[
+        ("LAKE_HOME", some lakeHome.toString),
+        ("LEAN", some (leanPrefix / "bin" / "lean").toString)
+      ]
+    }
+
 private def fallbackBuildFailureMessage (toolchain : String) (cacheRoot bundleDir : System.FilePath)
-    (stderr : String) : String :=
+    (stdout stderr : String) : String :=
   String.intercalate "\n" [
     s!"failed to build local beam fallback bundle for toolchain {toolchain}",
     s!"install bundle cache did not provide a matching bundle; attempted local fallback under {cacheRoot}",
     s!"bundle workspace: {bundleWorkspaceFor bundleDir}",
     "this fallback path runs `lake build` and may need network access on a cold machine if dependencies have not been fetched yet",
-    "if you want to avoid that at runtime, prebuild the installed skill bundle for the supported toolchain first",
+    "if you want to avoid that at runtime, prebuild the installed bundle for the accepted toolchain first",
+    "",
+    "lake stdout:",
+    if stdout.trimAscii.isEmpty then "(empty)" else stdout,
     "",
     "lake stderr:",
-    stderr
+    if stderr.trimAscii.isEmpty then "(empty)" else stderr
   ]
 
 def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
@@ -352,13 +499,15 @@ def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
   ensureElan
   syncBundleWorkspace home bundleDir workspace
   IO.eprintln s!"building beam bundle for {toolchain}"
+  let lakeBuild ← lakeBuildInvocationFor bundleDir toolchain
   let out ← IO.Process.output {
-    cmd := "elan"
-    args := #["run", toolchain, "lake", "build", "RunAt:shared", "beam-daemon", "beam-client"]
+    cmd := lakeBuild.cmd
+    args := lakeBuild.args
+    env := lakeBuild.env
     cwd := workspace.toString
   }
   if out.exitCode != 0 then
-    throw <| IO.userError <| fallbackBuildFailureMessage toolchain cacheRoot bundleDir out.stderr
+    throw <| IO.userError <| fallbackBuildFailureMessage toolchain cacheRoot bundleDir out.stdout out.stderr
   writeBundleMetadata bundleDir toolchain srcHash workspace
 
 def existingToolchainBundle? (cacheRoot home : System.FilePath) (toolchain : String) : IO (Option (BundlePaths × String)) := do
@@ -379,7 +528,7 @@ partial def existingToolchainBundleInAny? (cacheRoots : List System.FilePath) (h
       | none => existingToolchainBundleInAny? rest home toolchain
 
 def ensureToolchainBundleIn (cacheRoot home : System.FilePath) (toolchain : String) : IO (BundlePaths × String) := do
-  ensureSupportedLeanToolchain home toolchain
+  ensureAcceptedLeanToolchain home toolchain
   let (bundleDir, bundleId, srcHash) ← bundleDirFor cacheRoot home toolchain
   let workspace := bundleWorkspaceFor bundleDir
   withLock (bundleDir / "lock") do
@@ -388,7 +537,7 @@ def ensureToolchainBundleIn (cacheRoot home : System.FilePath) (toolchain : Stri
   pure (bundlePathsFor workspace, bundleId)
 
 def ensureToolchainBundle (root home : System.FilePath) (toolchain : String) : IO (BundlePaths × String) := do
-  ensureSupportedLeanToolchain home toolchain
+  ensureAcceptedLeanToolchain home toolchain
   match ← existingToolchainBundleInAny? (← installBundleCacheRoots) home toolchain with
   | some bundle => pure bundle
   | none =>

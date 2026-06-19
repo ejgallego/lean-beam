@@ -26,7 +26,8 @@ The installer puts `lean-beam` and `lean-beam-search` in `~/.local/bin`, stages 
 runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on `PATH`,
 prebuilds the pinned `lean-toolchain` bundle under `BEAM_INSTALL_ROOT/state/install-bundles` by
 default, supports `--toolchain <toolchain>` and `--all-supported` for explicit supported bundle
-selection, and installs the bundled skills only for the agent flags you request.
+selection, supports `--custom-toolchain <toolchain>` for explicit elan-linked local Lean
+development toolchains, and installs the bundled skills only for the agent flags you request.
 
 Restart Codex or Claude Code after installation.
 
@@ -195,11 +196,15 @@ Use `lean-beam`, not raw JSON and not raw LSP.
   - in sandboxed or read-only project trees, set `BEAM_CONTROL_DIR` to a writable directory; `lean-beam` uses a per-root subdirectory there
 - resolves a toolchain-keyed Lean bundle, preferring the installed beam bundle cache and
   falling back to a project-local runtime bundle under `<root>/.beam/bundles` or `BEAM_BUNDLE_DIR`
-- only serves Lean toolchains listed in `supported-lean-toolchains`
+- serves Lean toolchains listed in `supported-lean-toolchains` plus exact custom names recorded by
+  the installer in `custom-lean-toolchains`
 - owns Beam daemon startup, shutdown, and registry handling
 - resolves Lean with `elan which lean`
-- builds a local fallback bundle only when no matching installed bundle exists for the target supported Lean toolchain
-- fails early on unsupported Lean toolchains; use `lean-beam supported-toolchains` to inspect the allowlist
+- builds a local fallback bundle only when no matching installed bundle exists for the target
+  supported or explicitly custom Lean toolchain
+- fails early on Lean toolchains that are neither supported nor explicitly custom; use
+  `lean-beam supported-toolchains` to inspect the validated allowlist and `lean-beam doctor` to
+  inspect custom acceptance state
 - restarts the Beam daemon if the effective Lean startup configuration for that root changes
 - `lean-beam shutdown`, `lean-beam stats`, and `lean-beam reset-stats` apply to the current project only
 - wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Lean calls
