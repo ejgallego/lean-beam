@@ -155,51 +155,19 @@ fi
   fi
   rm -f "$cmd_err"
   alias_out="$("$beam_script" lean-run-at CommandA.lean 0 2 "#check answerA")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$alias_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected internal lean-run-at compatibility alias to keep working" >&2
-    printf '%s\n' "$alias_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "internal lean-run-at compatibility alias" "$alias_out" ok true
   multiline_stdin_out="$(printf 'def stdinProbe : Nat :=\n  42' | "$beam_script" run-at PositionEmptyLine.lean 1 0 --stdin)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_stdin_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper run-at --stdin probe to succeed" >&2
-    printf '%s\n' "$multiline_stdin_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_stdin_out" read_json_text_field result.success)" != "true" ]; then
-    echo "expected wrapper run-at --stdin payload success" >&2
-    printf '%s\n' "$multiline_stdin_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_stdin_out" read_json_array_len result.messages)" != "0" ]; then
-    echo "expected wrapper run-at --stdin multiline declaration to produce no messages" >&2
-    printf '%s\n' "$multiline_stdin_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper run-at --stdin probe" "$multiline_stdin_out" ok true
+  assert_json_field_equals "wrapper run-at --stdin payload" "$multiline_stdin_out" result.success true
+  assert_json_array_len_equals "wrapper run-at --stdin multiline declaration" "$multiline_stdin_out" result.messages 0
   probe_text_file="multiline-probe.lean"
   printf 'def fileProbe : Nat :=\n  42' > "$probe_text_file"
   multiline_file_out="$("$beam_script" run-at PositionEmptyLine.lean 1 0 --text-file "$probe_text_file")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_file_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper run-at --text-file probe to succeed" >&2
-    printf '%s\n' "$multiline_file_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_file_out" read_json_text_field result.success)" != "true" ]; then
-    echo "expected wrapper run-at --text-file payload success" >&2
-    printf '%s\n' "$multiline_file_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_file_out" read_json_array_len result.messages)" != "0" ]; then
-    echo "expected wrapper run-at --text-file multiline declaration to produce no messages" >&2
-    printf '%s\n' "$multiline_file_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper run-at --text-file probe" "$multiline_file_out" ok true
+  assert_json_field_equals "wrapper run-at --text-file payload" "$multiline_file_out" result.success true
+  assert_json_array_len_equals "wrapper run-at --text-file multiline declaration" "$multiline_file_out" result.messages 0
   delimiter_out="$("$beam_script" run-at PositionEmptyLine.lean 1 0 -- $'--stdin\n#check answer')"
-  if [ "$(RUNAT_JSON_PAYLOAD="$delimiter_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper run-at -- delimiter path to treat leading --stdin as text" >&2
-    printf '%s\n' "$delimiter_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper run-at -- delimiter path" "$delimiter_out" ok true
   if ! printf '%s\n' "$delimiter_out" | grep -q 'answer : Nat'; then
     echo "expected wrapper run-at -- delimiter path to keep the leading --stdin text as a comment" >&2
     printf '%s\n' "$delimiter_out" >&2
@@ -651,11 +619,7 @@ EOF
 (
   cd "$tmp3"
   deps_out="$("$beam_script" deps SaveSmoke/A.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$deps_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected lean-beam deps to succeed despite unrelated broken files" >&2
-    printf '%s\n' "$deps_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "lean-beam deps despite unrelated broken files" "$deps_out" ok true
   if ! printf '%s\n' "$deps_out" | grep -q '"name": "SaveSmoke.B"'; then
     echo "expected lean-beam deps imports to include SaveSmoke.B" >&2
     printf '%s\n' "$deps_out" >&2
@@ -667,41 +631,19 @@ EOF
     exit 1
   fi
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.active)" != "false" ]; then
-    echo "expected lean-beam deps not to start a live Lean session" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
-  session_starts="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.sessionStarts)"
-  if [ "${session_starts:-0}" -ne 0 ]; then
-    echo "expected lean-beam deps not to start any Lean sessions" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
-  deps_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.deps.count)"
-  if [ "${deps_count:-0}" -lt 1 ]; then
-    echo "expected lean-beam deps stats to record at least one deps request" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "lean-beam deps stats" "$stats_out" result.sessions.lean.active false
+  assert_json_field_equals "lean-beam deps stats" "$stats_out" result.byBackend.lean.sessionStarts 0
+  assert_json_field_int_ge "lean-beam deps stats" "$stats_out" result.byBackend.lean.ops.deps.count 1
 )
 
 (
   cd "$tmp4"
   "$beam_script" ensure lean > /dev/null
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
-    echo "expected ensure lean to start with zero open Beam daemon documents" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "ensure lean startup stats" "$stats_out" result.sessions.lean.openDocCount 0
 
   probe_before="$("$beam_script" run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$probe_before" read_json_text_field ok)" != "true" ]; then
-    echo "expected initial wrapper probe to succeed" >&2
-    printf '%s\n' "$probe_before" >&2
-    exit 1
-  fi
+  assert_json_field_equals "initial wrapper probe" "$probe_before" ok true
   if ! printf '%s\n' "$probe_before" | grep -q '"text": "1"'; then
     echo "expected initial wrapper probe to observe bVal = 1" >&2
     printf '%s\n' "$probe_before" >&2
@@ -709,93 +651,28 @@ EOF
   fi
 
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "1" ]; then
-    echo "expected initial wrapper probe to open exactly one Beam daemon document" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "initial wrapper probe stats" "$stats_out" result.sessions.lean.openDocCount 1
   open_files_initial="$("$beam_script" open-files)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field ok)" != "true" ]; then
-    echo "expected open-files after initial probe to succeed" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
-    echo "expected open-files after initial probe to report SaveSmoke/B.lean as saved" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files after initial probe to report savedOlean = false" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "true" ]; then
-    echo "expected open-files after initial probe to report saveEligible = true for SaveSmoke/B.lean" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveReason)" != "ok" ]; then
-    echo "expected open-files after initial probe to report saveReason = ok for SaveSmoke/B.lean" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
+  assert_json_field_equals "open-files after initial probe" "$open_files_initial" ok true
+  assert_json_field_equals "open-files after initial probe" "$open_files_initial" result.sessions.lean.files.0.status saved
+  assert_json_field_equals "open-files after initial probe" "$open_files_initial" result.sessions.lean.files.0.savedOlean false
+  assert_json_field_equals "open-files after initial probe" "$open_files_initial" result.sessions.lean.files.0.saveEligible true
+  assert_json_field_equals "open-files after initial probe" "$open_files_initial" result.sessions.lean.files.0.saveReason ok
 
   sed_in_place_portable 's/1/2/' SaveSmoke/B.lean
   sync_out="$("$beam_script" sync SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected sync after first edit to succeed" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.version)" != "2" ]; then
-    echo "expected sync after first edit to report version 2" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected sync after first edit to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.saveReady)" != "true" ]; then
-    echo "expected sync after first edit to report saveReady = true" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.stateErrorCount)" != "0" ]; then
-    echo "expected sync after first edit to report stateErrorCount = 0" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.stateCommandErrorCount)" != "0" ]; then
-    echo "expected sync after first edit to report stateCommandErrorCount = 0" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected sync output to include ok=true" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "sync after first edit" "$sync_out" ok true
+  assert_json_field_equals "sync after first edit" "$sync_out" result.version 2
+  assert_json_field_equals "sync after first edit" "$sync_out" fileProgress.done true
+  assert_json_field_equals "sync after first edit" "$sync_out" result.saveReady true
+  assert_json_field_equals "sync after first edit" "$sync_out" result.stateErrorCount 0
+  assert_json_field_equals "sync after first edit" "$sync_out" result.stateCommandErrorCount 0
   open_files_synced="$("$beam_script" open-files)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
-    echo "expected open-files after sync to retain completed fileProgress" >&2
-    printf '%s\n' "$open_files_synced" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files after sync to keep savedOlean = false before save" >&2
-    printf '%s\n' "$open_files_synced" >&2
-    exit 1
-  fi
+  assert_json_field_equals "open-files after sync" "$open_files_synced" result.sessions.lean.files.0.fileProgress.done true
+  assert_json_field_equals "open-files after sync" "$open_files_synced" result.sessions.lean.files.0.savedOlean false
 
   probe_after="$("$beam_script" run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$probe_after" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper probe after sync to succeed" >&2
-    printf '%s\n' "$probe_after" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper probe after sync" "$probe_after" ok true
   if ! printf '%s\n' "$probe_after" | grep -q '"text": "2"'; then
     echo "expected wrapper probe after sync to observe bVal = 2" >&2
     printf '%s\n' "$probe_after" >&2
@@ -803,114 +680,34 @@ EOF
   fi
 
   save_out="$("$beam_script" save SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected save to succeed after a synced good edit" >&2
-    printf '%s\n' "$save_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected save to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$save_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.version)" != "2" ]; then
-    echo "expected save to report saved version 2" >&2
-    printf '%s\n' "$save_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.sync.version)" != "2" ]; then
-    echo "expected save to include a sync summary for version 2" >&2
-    printf '%s\n' "$save_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.sync.saveReady)" != "true" ]; then
-    echo "expected save sync summary to report saveReady = true" >&2
-    printf '%s\n' "$save_out" >&2
-    exit 1
-  fi
-  if [ -z "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.sourceHash)" ]; then
-    echo "expected save to report a non-empty sourceHash" >&2
-    printf '%s\n' "$save_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "save after a synced good edit" "$save_out" ok true
+  assert_json_field_equals "save after a synced good edit" "$save_out" fileProgress.done true
+  assert_json_field_equals "save after a synced good edit" "$save_out" result.version 2
+  assert_json_field_equals "save after a synced good edit" "$save_out" result.sync.version 2
+  assert_json_field_equals "save after a synced good edit" "$save_out" result.sync.saveReady true
+  assert_json_field_nonempty "save after a synced good edit" "$save_out" result.sourceHash
   open_files_saved="$("$beam_script" open-files)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_saved" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "true" ]; then
-    echo "expected open-files after save to report savedOlean = true" >&2
-    printf '%s\n' "$open_files_saved" >&2
-    exit 1
-  fi
+  assert_json_field_equals "open-files after save" "$open_files_saved" result.sessions.lean.files.0.savedOlean true
 
   sed_in_place_portable 's/2/3/' SaveSmoke/B.lean
   open_files_dirty="$("$beam_script" open-files)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.status)" != "notSaved" ]; then
-    echo "expected open-files to detect an on-disk edit for an already known file incrementally" >&2
-    printf '%s\n' "$open_files_dirty" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files to clear savedOlean once the on-disk file diverges" >&2
-    printf '%s\n' "$open_files_dirty" >&2
-    exit 1
-  fi
+  assert_json_field_equals "open-files after on-disk edit" "$open_files_dirty" result.sessions.lean.files.0.status notSaved
+  assert_json_field_equals "open-files after on-disk edit" "$open_files_dirty" result.sessions.lean.files.0.savedOlean false
   sync_second="$("$beam_script" sync SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field ok)" != "true" ]; then
-    echo "expected second sync to succeed" >&2
-    printf '%s\n' "$sync_second" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field result.version)" != "3" ]; then
-    echo "expected second sync to report version 3" >&2
-    printf '%s\n' "$sync_second" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected second sync to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$sync_second" >&2
-    exit 1
-  fi
+  assert_json_field_equals "second sync" "$sync_second" ok true
+  assert_json_field_equals "second sync" "$sync_second" result.version 3
+  assert_json_field_equals "second sync" "$sync_second" fileProgress.done true
   open_files_second="$("$beam_script" open-files)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
-    echo "expected open-files after second sync to report the file as saved again" >&2
-    printf '%s\n' "$open_files_second" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
-    echo "expected open-files after second sync to retain completed fileProgress" >&2
-    printf '%s\n' "$open_files_second" >&2
-    exit 1
-  fi
+  assert_json_field_equals "open-files after second sync" "$open_files_second" result.sessions.lean.files.0.status saved
+  assert_json_field_equals "open-files after second sync" "$open_files_second" result.sessions.lean.files.0.fileProgress.done true
   sync_third="$("$beam_script" sync SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field ok)" != "true" ]; then
-    echo "expected unchanged third sync to succeed" >&2
-    printf '%s\n' "$sync_third" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field result.version)" != "3" ]; then
-    echo "expected unchanged third sync to preserve version 3" >&2
-    printf '%s\n' "$sync_third" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected unchanged third sync to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$sync_third" >&2
-    exit 1
-  fi
+  assert_json_field_equals "unchanged third sync" "$sync_third" ok true
+  assert_json_field_equals "unchanged third sync" "$sync_third" result.version 3
+  assert_json_field_equals "unchanged third sync" "$sync_third" fileProgress.done true
   refresh_out="$("$beam_script" refresh SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$refresh_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected refresh to succeed for a tracked Lean file" >&2
-    printf '%s\n' "$refresh_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$refresh_out" read_json_text_field result.saveReady)" != "true" ]; then
-    echo "expected refresh to report saveReady = true for an unchanged file" >&2
-    printf '%s\n' "$refresh_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$refresh_out" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected refresh to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$refresh_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "refresh for a tracked Lean file" "$refresh_out" ok true
+  assert_json_field_equals "refresh for a tracked Lean file" "$refresh_out" result.saveReady true
+  assert_json_field_equals "refresh for a tracked Lean file" "$refresh_out" fileProgress.done true
   sleep 1
   doctor_out="$("$beam_script" doctor lean)"
   if ! printf '%s\n' "$doctor_out" | grep -q 'daemon status: live'; then
@@ -920,11 +717,7 @@ EOF
   fi
 
   probe_second="$("$beam_script" run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$probe_second" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper probe after a second sync to succeed" >&2
-    printf '%s\n' "$probe_second" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper probe after a second sync" "$probe_second" ok true
   if ! printf '%s\n' "$probe_second" | grep -q '"text": "3"'; then
     echo "expected wrapper probe after a second sync to observe bVal = 3" >&2
     printf '%s\n' "$probe_second" >&2
@@ -932,25 +725,13 @@ EOF
   fi
 
   close_good_out="$("$beam_script" close SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_good_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected plain close to succeed after a synced good edit" >&2
-    printf '%s\n' "$close_good_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "plain close after a synced good edit" "$close_good_out" ok true
 
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
-    echo "expected close to leave zero open Beam daemon documents" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "stats after close" "$stats_out" result.sessions.lean.openDocCount 0
 
   probe_reopen="$("$beam_script" run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$probe_reopen" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper probe after close to reopen the document successfully" >&2
-    printf '%s\n' "$probe_reopen" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper probe after close" "$probe_reopen" ok true
   if ! printf '%s\n' "$probe_reopen" | grep -q '"text": "3"'; then
     echo "expected wrapper probe after close to observe bVal = 3" >&2
     printf '%s\n' "$probe_reopen" >&2
@@ -1830,14 +1611,7 @@ fi
     rm -f "$stale_sync_err"
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$stale_sync_json")" read_json_text_field error.code)" != "syncBarrierIncomplete" ]; then
-    echo "expected stale-import sync failure to expose syncBarrierIncomplete" >&2
-    cat "$stale_sync_json" >&2
-    cat "$stale_sync_err" >&2
-    rm -f "$stale_sync_json"
-    rm -f "$stale_sync_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "stale-import sync failure" "$stale_sync_json" error.code syncBarrierIncomplete "$stale_sync_err"
   if grep -q 'Beam daemon connection closed' "$stale_sync_err"; then
     echo "expected stale-import sync failure to stay structured instead of reporting a dropped daemon connection" >&2
     cat "$stale_sync_json" >&2
@@ -1846,14 +1620,7 @@ fi
     rm -f "$stale_sync_err"
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$stale_sync_json")" read_json_text_field error.data.recoveryPlan.1)" != "lake build" ]; then
-    echo "expected stale-import sync failure to include a lake build fallback plan" >&2
-    cat "$stale_sync_json" >&2
-    cat "$stale_sync_err" >&2
-    rm -f "$stale_sync_json"
-    rm -f "$stale_sync_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "stale-import sync failure" "$stale_sync_json" error.data.recoveryPlan.1 "lake build" "$stale_sync_err"
   rm -f "$stale_sync_json"
   rm -f "$stale_sync_err"
 
@@ -1907,38 +1674,10 @@ fi
     rm -f "$stale_after_save_err"
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$stale_after_save_json")" read_json_text_field error.data.staleDirectDeps.0.path)" != "SaveSmoke/B.lean" ]; then
-    echo "expected stale-import hint to name the direct dependency path" >&2
-    cat "$stale_after_save_json" >&2
-    cat "$stale_after_save_err" >&2
-    rm -f "$stale_after_save_json"
-    rm -f "$stale_after_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$stale_after_save_json")" read_json_text_field error.data.staleDirectDeps.0.needsSave)" != "false" ]; then
-    echo "expected stale-import hint to mark the saved dependency as not needing save" >&2
-    cat "$stale_after_save_json" >&2
-    cat "$stale_after_save_err" >&2
-    rm -f "$stale_after_save_json"
-    rm -f "$stale_after_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$stale_after_save_json")" read_json_array_len error.data.saveDeps)" != "0" ]; then
-    echo "expected stale-import hint to avoid recommending save for an already saved dependency" >&2
-    cat "$stale_after_save_json" >&2
-    cat "$stale_after_save_err" >&2
-    rm -f "$stale_after_save_json"
-    rm -f "$stale_after_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$stale_after_save_json")" read_json_text_field error.data.recoveryPlan.0)" != "lean-beam refresh \"SaveSmoke/A.lean\"" ]; then
-    echo "expected stale-import hint to recommend refresh first after a saved dependency change" >&2
-    cat "$stale_after_save_json" >&2
-    cat "$stale_after_save_err" >&2
-    rm -f "$stale_after_save_json"
-    rm -f "$stale_after_save_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "stale-import hint" "$stale_after_save_json" error.data.staleDirectDeps.0.path SaveSmoke/B.lean "$stale_after_save_err"
+  assert_json_file_field_equals "stale-import hint" "$stale_after_save_json" error.data.staleDirectDeps.0.needsSave false "$stale_after_save_err"
+  assert_json_file_array_len_equals "stale-import hint" "$stale_after_save_json" error.data.saveDeps 0 "$stale_after_save_err"
+  assert_json_file_field_equals "stale-import hint" "$stale_after_save_json" error.data.recoveryPlan.0 "lean-beam refresh \"SaveSmoke/A.lean\"" "$stale_after_save_err"
   rm -f "$stale_after_save_json"
   rm -f "$stale_after_save_err"
   refreshed_a="$("$beam_script" refresh SaveSmoke/A.lean)"
