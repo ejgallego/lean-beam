@@ -818,6 +818,16 @@ EOF
     printf '%s\n' "$save_out" >&2
     exit 1
   fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.sync.version)" != "2" ]; then
+    echo "expected save to include a sync summary for version 2" >&2
+    printf '%s\n' "$save_out" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.sync.saveReady)" != "true" ]; then
+    echo "expected save sync summary to report saveReady = true" >&2
+    printf '%s\n' "$save_out" >&2
+    exit 1
+  fi
   if [ -z "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.sourceHash)" ]; then
     echo "expected save to report a non-empty sourceHash" >&2
     printf '%s\n' "$save_out" >&2
@@ -1347,14 +1357,31 @@ EOF
   rm -f "$broken_resync_json" "$broken_resync_err"
   rm -f "$broken_sync_json" "$broken_sync_err"
 
-  close_save_err="$(mktemp /tmp/beam-wrapper-close-save-XXXXXX)"
-  if "$beam_script" close-save SaveSmoke/B.lean >"$close_save_err" 2>&1; then
+  close_save_json="$(mktemp /tmp/beam-wrapper-close-save-json-XXXXXX)"
+  close_save_err="$(mktemp /tmp/beam-wrapper-close-save-err-XXXXXX)"
+  if "$beam_script" close-save SaveSmoke/B.lean >"$close_save_json" 2>"$close_save_err"; then
     echo "expected close-save to fail on a file with Lean errors" >&2
+    cat "$close_save_json" >&2
     cat "$close_save_err" >&2
-    rm -f "$close_save_err"
+    rm -f "$close_save_json" "$close_save_err"
     exit 1
   fi
-  rm -f "$close_save_err"
+  close_save_failed="$(cat "$close_save_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.saveReady)" != "false" ]; then
+    echo "expected failed close-save to include blocking sync summary" >&2
+    cat "$close_save_json" >&2
+    cat "$close_save_err" >&2
+    rm -f "$close_save_json" "$close_save_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.stateErrorCount)" -lt 1 ]; then
+    echo "expected failed close-save sync summary to report state errors" >&2
+    cat "$close_save_json" >&2
+    cat "$close_save_err" >&2
+    rm -f "$close_save_json" "$close_save_err"
+    exit 1
+  fi
+  rm -f "$close_save_json" "$close_save_err"
 
   close_out="$("$beam_script" close SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$close_out" read_json_text_field ok)" != "true" ]; then
@@ -1427,6 +1454,20 @@ EOF
   warn_save="$(cat "$warn_save_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field ok)" != "true" ]; then
     echo "expected warning-only save to succeed" >&2
+    printf '%s\n' "$warn_save" >&2
+    cat "$warn_save_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.errorCount)" != "0" ]; then
+    echo "expected warning-only save sync summary to report zero errors" >&2
+    printf '%s\n' "$warn_save" >&2
+    cat "$warn_save_err" >&2
+    rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.warningCount)" -lt 1 ]; then
+    echo "expected warning-only save sync summary to preserve warning count" >&2
     printf '%s\n' "$warn_save" >&2
     cat "$warn_save_err" >&2
     rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
@@ -1567,6 +1608,20 @@ EOF
   warn_close_save="$(cat "$warn_close_save_json")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field ok)" != "true" ]; then
     echo "expected warning-only close-save +full to succeed" >&2
+    printf '%s\n' "$warn_close_save" >&2
+    cat "$warn_close_save_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.errorCount)" != "0" ]; then
+    echo "expected warning-only close-save sync summary to report zero errors" >&2
+    printf '%s\n' "$warn_close_save" >&2
+    cat "$warn_close_save_err" >&2
+    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.warningCount)" -lt 1 ]; then
+    echo "expected warning-only close-save sync summary to preserve warning count" >&2
     printf '%s\n' "$warn_close_save" >&2
     cat "$warn_close_save_err" >&2
     rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"

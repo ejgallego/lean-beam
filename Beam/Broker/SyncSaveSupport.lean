@@ -53,6 +53,7 @@ structure SyncSaveReadiness where
   stateCommandErrorCount : Nat := 0
   saveReady : Bool := true
   saveReadyReason : String := "ok"
+  saveReadyMessage? : Option String := none
   deriving Inhabited
 
 def syncSaveReadinessOfResult
@@ -64,6 +65,7 @@ def syncSaveReadinessOfResult
     stateCommandErrorCount := result.commandErrorCount
     saveReady := result.saveReady
     saveReadyReason := result.saveReadyReason
+    saveReadyMessage? := result.saveReadyMessage?
   }
 
 def diagnosticsIndicateIncompleteBarrier (diagnostics : Array Diagnostic) : Bool :=

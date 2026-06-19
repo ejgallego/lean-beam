@@ -65,6 +65,7 @@ instance : Lean.Lsp.FileSource SaveReadinessParams where
    commandErrorCount : Nat := 0
    saveReady : Bool := true
    saveReadyReason : String := "ok"
+   saveReadyMessage? : Option String := none
    deriving FromJson, ToJson
 
  end RunAt.Internal

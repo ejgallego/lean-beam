@@ -289,9 +289,11 @@ Diagnostic defaults on that path:
 - `lean-beam sync` final JSON reports current save-blocking errors in `result.errorCount`,
   current warnings in `result.warningCount`, and current save-readiness in `result.saveReady` plus
   `result.stateErrorCount` / `result.stateCommandErrorCount`
+- `lean-beam save` returns the sync verdict it established before checkpointing in `result.sync`;
+  `lean-beam close-save` returns it in `result.saved.sync`
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
-  messages
+  messages, and `error.data.sync` contains the blocking sync verdict
 
 Surface rule:
 

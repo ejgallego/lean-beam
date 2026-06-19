@@ -216,6 +216,11 @@ for Beam's save/checkpoint path. Streamed diagnostics are request events, not a 
 diff. A successful sync transport can still have `saveReady=false` when Lean found build-blocking
 errors in the document.
 
+`lean-beam save` includes the sync verdict it established before checkpointing in `result.sync`;
+`lean-beam close-save` includes the same verdict in `result.saved.sync`. Document-error save
+failures include that verdict in `error.data.sync`, so clients can inspect the exact synced version
+and save-readiness decision that blocked checkpointing.
+
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
 `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` to suggest a
 cheap direct-import recovery path before falling back to `lake build`.

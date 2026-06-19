@@ -110,6 +110,9 @@ diagnostic events observed while the current request was pending, whereas the fi
 the current synced state. The current sync result does not yet expose a full current diagnostic
 snapshot or a since-last-sync diff; consumers that need incremental diagnostics should use
 `beam-client request-stream` and treat the final result as the authoritative save-readiness summary.
+`lean-beam save` and `lean-beam close-save` project that same current summary into successful save
+payloads as `sync` / `saved.sync`, and document-error save failures include it in `error.data.sync`,
+so checkpointing decisions can be traced back to the synced version that was just established.
 For programmatic local consumers,
 the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; the wrapper stderr format should be treated as human-facing.
@@ -141,10 +144,11 @@ stdout as the machine-readable JSON response.
 unrelated commands: `lean-beam sync` establishes the synced diagnostics-complete saved file snapshot,
 `lean-beam save` checkpoints that snapshot for one module, and `lean-beam close-save` does the same
 checkpoint and then closes the tracked file. This remains a narrower contract than a full batch
-rebuild: the save path reports the saved `version` and `sourceHash`. For an unchanged file,
-`lake build Foo.lean` should replay that saved module, and Lake should be able to reuse it when
-rebuilding importers. If the file changes during the save, the resulting checkpoint remains
-coherent for the older snapshot and later `lake build` should rebuild it as stale.
+rebuild: the save path reports the saved `version`, `sourceHash`, and the `sync` verdict for the
+same version. For an unchanged file, `lake build Foo.lean` should replay that saved module, and Lake
+should be able to reuse it when rebuilding importers. If the file changes during the save, the
+resulting checkpoint remains coherent for the older snapshot and later `lake build` should rebuild
+it as stale.
 
 If a speculative probe looks right and should become real source, the current contract is still:
 make the real edit in the file, save it, then `lean-beam sync`. The intended future direction is to make
@@ -188,10 +192,11 @@ For sync deltas, every delta-bearing payload should state both sides of the comp
 - `readiness.delta`: count changes and readiness-state changes between the same base/current
   versions
 
-`save` and `close-save` should either return this same sync summary or an explicit reference to the
-sync summary they established before checkpointing. They should require
-`readiness.current.saveReady = true` for that exact `currentVersion`, then save that version and
-report the saved source hash.
+`save` and `close-save` already return the current sync verdict they established before
+checkpointing. Once the versioned sync summary above exists, those operations should project that
+new summary instead of the current flat `SyncFileResult`, still requiring
+`readiness.current.saveReady = true` for that exact `currentVersion` before saving that version and
+reporting the saved source hash.
 
 ## Known Limitations
 
@@ -276,8 +281,8 @@ Near-term work is mostly about hardening and simplifying:
   progress notifications for request-scoped operation progress, and structured MCP log messages for
   incremental diagnostics rather than overloading the final tool result
 - add the explicit typed sync summary described above, including `currentVersion`,
-  `deltaBaseVersion?`, and versioned diagnostic/readiness deltas; project the same summary through
-  `save` / `close-save` so checkpointing relies on exactly the sync verdict it just established
+  `deltaBaseVersion?`, and versioned diagnostic/readiness deltas; replace the current flat `sync`
+  projection in `save` / `close-save` with that richer summary
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in
