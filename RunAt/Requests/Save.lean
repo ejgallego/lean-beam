@@ -156,6 +156,40 @@ private def commandErrorMessages (messages : Array Lean.Message) : RequestM (Arr
       commandErrors := commandErrors.push (singleLineText (← msg.data.toString))
   pure commandErrors
 
+private def saveBlockingDiagnosticOfInteractive
+    (diagnostic : Lean.Widget.InteractiveDiagnostic) : RunAt.Internal.SaveBlockingDiagnostic :=
+  let plain := Lean.Widget.InteractiveDiagnostic.toDiagnostic diagnostic
+  {
+    range := diagnostic.fullRange
+    severity? := plain.severity?
+    message := singleLineText plain.message
+    saveBlocking := true
+    completionBlocking := false
+  }
+
+private def saveBlockingDiagnosticsOfMessages
+    (doc : Lean.Server.FileWorker.EditableDocument)
+    (messages : Array Lean.Message) : RequestM (Array RunAt.Internal.SaveBlockingDiagnostic) := do
+  let mut blockingDiagnostics := #[]
+  for msg in messages do
+    if msg.severity == MessageSeverity.error then
+      let diagnostic ← Lean.Widget.msgToInteractiveDiagnostic doc.meta.text msg false
+      blockingDiagnostics := blockingDiagnostics.push (saveBlockingDiagnosticOfInteractive diagnostic)
+  pure blockingDiagnostics
+
+private def saveBlockingDiagnosticsOfInteractive
+    (diagnostics : Array Lean.Widget.InteractiveDiagnostic) :
+    Array RunAt.Internal.SaveBlockingDiagnostic :=
+  diagnostics.map saveBlockingDiagnosticOfInteractive
+
+private def saveBlockingCommandMessages
+    (messages : Array String) : Array RunAt.Internal.SaveBlockingCommandMessage :=
+  messages.map fun message => {
+    message
+    saveBlocking := true
+    completionBlocking := false
+  }
+
 def collectSaveReadiness
     (doc : Lean.Server.FileWorker.EditableDocument)
     (snaps : List Snapshots.Snapshot) :
@@ -174,6 +208,15 @@ def collectSaveReadiness
   let frontendErrorCount := messageSeverityCount MessageSeverity.error frontendMessages
   let frontendWarningCount := messageSeverityCount MessageSeverity.warning frontendMessages
   let commandErrors ← commandErrorMessages frontendMessages
+  let frontendBlockingDiagnostics ← saveBlockingDiagnosticsOfMessages doc frontendMessages
+  let frontendBlockingCommandMessages := saveBlockingCommandMessages commandErrors
+  let fallbackBlockingDiagnostics :=
+    if frontendErrorCount == 0 then
+      saveBlockingDiagnosticsOfInteractive diagnosticErrors
+    else
+      frontendBlockingDiagnostics
+  let fallbackBlockingCommandMessages :=
+    if frontendErrorCount == 0 then #[] else frontendBlockingCommandMessages
   let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
     | return ({
       version := doc.meta.version
@@ -185,6 +228,8 @@ def collectSaveReadiness
       saveReady := false
       saveReadyReason := saveReadinessNotElaboratedReason
       saveReadyMessage? := some (saveArtifactsErrorMessage diagnosticErrors commandErrors)
+      blockingDiagnostics := fallbackBlockingDiagnostics
+      blockingCommandMessages := fallbackBlockingCommandMessages
       : RunAt.Internal.SaveReadinessResult
     }, none, diagnosticErrors, commandErrors)
   let saveReady := !frontendLog.hasErrors
@@ -198,6 +243,8 @@ def collectSaveReadiness
     saveReadyReason := if saveReady then "ok" else saveReadinessDocumentErrorsReason
     saveReadyMessage? :=
       if saveReady then none else some (saveArtifactsErrorMessage diagnosticErrors commandErrors)
+    blockingDiagnostics := if saveReady then #[] else frontendBlockingDiagnostics
+    blockingCommandMessages := if saveReady then #[] else frontendBlockingCommandMessages
   }
   pure (readiness, some cmdState, diagnosticErrors, commandErrors)
 

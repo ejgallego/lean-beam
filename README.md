@@ -124,8 +124,11 @@ project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass
 `--lean-plugin` explicitly.
 
 The MCP server advertises the MCP logging capability and forwards incremental Lean diagnostics from
-sync/save-style tools as structured `notifications/message` events. The final tool result remains a
-compact state summary and does not replay diagnostics.
+sync/save-style tools as structured `notifications/message` events. These events include
+`completionBlocking=true` when a diagnostic is known to block file completion. Save-blocking
+evidence is reported on the final sync/save verdict through `blockingDiagnostics` and
+`blockingCommandMessages`; the final tool result remains a compact state summary and does not
+replay diagnostics.
 
 Client-facing reporting surfaces stay intentionally separate:
 
@@ -236,17 +239,38 @@ diagnostics streamed on stderr for that request. `result.errorCount` is the curr
 frontend error count, `result.warningCount` is the current warning count, and `result.saveReady`
 with `result.stateErrorCount` / `result.stateCommandErrorCount` reports whether the file is ready
 for Beam's save/checkpoint path. Streamed diagnostics are request events, not a since-last-sync
-diff. A successful sync transport can still have `saveReady=false` when Lean found build-blocking
-errors in the document.
+diff. Successful sync responses include `result.syncSummary` with `currentVersion`, optional
+`deltaBaseVersion`, current diagnostic/readiness counts, and versioned deltas against the previous
+successful sync when one exists. Diagnostic deltas use Beam's diagnostic identity
+`(range, effective severity, message)`. A successful sync transport can still have
+`saveReady=false` when Lean found build-blocking errors in the document.
+
+For new tooling, treat `result.syncSummary.readiness.current.saveReady` and
+`saveBlockingErrorCount` as the canonical save/checkpoint decision. Treat
+`result.syncSummary.diagnostics.current.*` as Lean-published diagnostic severity counts only. Those
+diagnostic counts can include interactive diagnostics that do not block saving; a response may have
+`diagnostics.current.error > 0` while `readiness.current.saveReady = true`. The existing flat
+`result.errorCount`, `result.warningCount`, `result.saveReady`, `result.stateErrorCount`, and
+`result.stateCommandErrorCount` fields are compatibility projections of the current sync verdict;
+prefer the typed `syncSummary` fields in new clients.
+When `saveReady=false`, `result.syncSummary.readiness.current.blockingDiagnostics` and
+`blockingCommandMessages` identify the frontend diagnostics and command messages that blocked
+the save decision. Each entry carries `saveBlocking=true`; streamed diagnostics remain
+request-scoped observations and are not retroactively rewritten with save-readiness evidence. If a
+save-readiness payload reports blocking counts without explicit evidence, Beam falls back to the
+current completed-barrier error diagnostics and marks them `saveBlocking=true`.
 
 `lean-beam save` includes the sync verdict it established before checkpointing in `result.sync`;
 `lean-beam close-save` includes the same verdict in `result.saved.sync`. Document-error save
 failures include that verdict in `error.data.sync`, so clients can inspect the exact synced version
-and save-readiness decision that blocked checkpointing.
+and save-readiness decision that blocked checkpointing, including `blockingDiagnostics` and
+`blockingCommandMessages` on that sync verdict.
 
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
 `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` to suggest a
-cheap direct-import recovery path before falling back to `lake build`.
+cheap direct-import recovery path before falling back to `lake build`. It may also include
+`error.data.completionBlockingDiagnostics`; those entries carry `completionBlocking=true` because
+the file could not reach the diagnostics-complete barrier for that version.
 
 Detailed Lean workflow guidance lives in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md).
 The narrower Rocq surface lives in [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md).

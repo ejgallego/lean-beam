@@ -71,7 +71,12 @@ def formatStreamDiagnostic (diagnostic : StreamDiagnostic) : String :=
   let character := pos.character + 1
   let severity := diagnosticSeverityLabel diagnostic.severity?
   let message := condenseDiagnosticMessage diagnostic.message
-  s!"beam: diagnostic {severity} {diagnostic.path}:{line}:{character}: {message}"
+  let blocking :=
+    if diagnostic.completionBlocking then
+      " completionBlocking=true"
+    else
+      ""
+  s!"beam: diagnostic {severity}{blocking} {diagnostic.path}:{line}:{character}: {message}"
 
 partial def sendRequestWithStream
     (endpoint : Endpoint)

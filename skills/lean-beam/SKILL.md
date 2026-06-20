@@ -282,22 +282,41 @@ Diagnostic defaults on that path:
   stderr in that request
 - streamed diagnostics are request events, not a since-last-sync diff; an unchanged still-broken
   file may stream no new diagnostics while the final `result.errorCount` remains nonzero
+- `result.syncSummary` reports `currentVersion`, optional `deltaBaseVersion`, current diagnostic
+  and readiness counts, and versioned diagnostic/readiness deltas against the previous successful
+  sync boundary when one exists; diagnostic deltas use Beam's diagnostic identity
+  `(range, effective severity, message)`
+- in new tooling, treat `result.syncSummary.readiness.current.saveReady` and
+  `saveBlockingErrorCount` as the canonical save/checkpoint decision; treat
+  `result.syncSummary.diagnostics.current.*` as Lean-published diagnostic severity counts
+- diagnostic severity counts are not save-readiness counts: a document can report
+  `diagnostics.current.error > 0` for an interactive diagnostic while still reporting
+  `readiness.current.saveReady = true`
+- when `readiness.current.saveReady = false`, inspect
+  `result.syncSummary.readiness.current.blockingDiagnostics` and `blockingCommandMessages` to see
+  the diagnostics/messages that blocked saving; those entries carry `saveBlocking=true`, with the
+  current completed-barrier error diagnostics used as fallback evidence if save-readiness reports
+  counts without explicit blockers
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
-  `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` as a cheap
-  recovery hint based on direct imports whose saved checkpoint is newer than the target's last
-  successful sync boundary
+  `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
+  `error.data.completionBlockingDiagnostics`; entries in `completionBlockingDiagnostics` carry
+  `completionBlocking=true` because the file could not reach the diagnostics-complete barrier
 - `lean-beam sync` final JSON reports current save-blocking errors in `result.errorCount`,
   current warnings in `result.warningCount`, and current save-readiness in `result.saveReady` plus
-  `result.stateErrorCount` / `result.stateCommandErrorCount`
+  `result.stateErrorCount` / `result.stateCommandErrorCount`; these flat fields are compatibility
+  projections of the current sync verdict, so prefer `result.syncSummary` in new clients
 - `lean-beam save` returns the sync verdict it established before checkpointing in `result.sync`;
   `lean-beam close-save` returns it in `result.saved.sync`
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
-  messages, and `error.data.sync` contains the blocking sync verdict
+  messages, and `error.data.sync` contains the blocking sync verdict, including
+  `blockingDiagnostics` and `blockingCommandMessages`
 
 Surface rule:
 
 - wrapper `stderr` is the human-facing diagnostic surface
+- streamed diagnostics are request-scoped observations; they may carry `completionBlocking=true`,
+  but save-blocking evidence is attached to the final sync/save verdict
 - wrapper `stderr` may distinguish request-level failures from a completed request whose payload
   failed inside Lean; use stdout JSON for machine decisions
 - `beam-client request-stream ...` is the machine-facing streamed surface

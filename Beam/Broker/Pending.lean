@@ -25,6 +25,7 @@ structure PendingResult where
   result : Json
   progress? : Option SyncFileProgress := none
   diagnostics : Array Diagnostic := #[]
+  diagnosticsSeen : Bool := false
 
 structure PendingRequest where
   clientRequestId? : Option String := none
@@ -32,6 +33,7 @@ structure PendingRequest where
   tracked? : Option (DocumentUri × Nat) := none
   progressRef : IO.Ref (Option SyncFileProgress)
   diagnosticsRef : IO.Ref (Array Diagnostic)
+  diagnosticsSeenRef : IO.Ref Bool
   emitProgress? : Option (SyncFileProgress → IO Unit) := none
   fullDiagnostics : Bool := false
   seenDiagnosticKeysRef : IO.Ref (Std.TreeSet String compare)
@@ -75,8 +77,9 @@ namespace PendingRequest
 def resolveResponse (pending : PendingRequest) (result : Json) : IO Unit := do
   let progress? ← pending.progressRef.get
   let diagnostics ← pending.diagnosticsRef.get
+  let diagnosticsSeen ← pending.diagnosticsSeenRef.get
   try
-    pending.promise.resolve (.ok { result, progress?, diagnostics })
+    pending.promise.resolve (.ok { result, progress?, diagnostics, diagnosticsSeen })
   catch _ =>
     pure ()
 
@@ -240,6 +243,7 @@ private def emitNewTrackedDiagnostics
             severity? := effectiveSyncDiagnosticSeverity diagnostic
             range := diagnostic.fullRange
             message := diagnostic.message
+            completionBlocking := isIncompleteBarrierDiagnostic diagnostic
           }
       | none =>
           pure ()
@@ -271,6 +275,7 @@ def observeDiagnostics
   | none =>
       pure ()
   | some diagnosticParam =>
+      pending.diagnosticsSeenRef.set true
       pending.diagnosticsRef.set diagnosticParam.diagnostics
       let seen ← pending.seenDiagnosticKeysRef.get
       let seen ←

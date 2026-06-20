@@ -416,6 +416,9 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
     throw <| IO.userError s!"saveReadiness: expected saveReady = true, got {(toJson readiness).compress}"
   if readiness.saveReadyReason != "ok" then
     throw <| IO.userError s!"saveReadiness: expected reason = ok, got {readiness.saveReadyReason}"
+  unless readiness.blockingDiagnostics.isEmpty && readiness.blockingCommandMessages.isEmpty do
+    throw <| IO.userError
+      s!"saveReadiness: expected clean file to omit save-blocking evidence, got {(toJson readiness).compress}"
 
   let outDir ← mkTmpDir "runat-request-surface"
   let saveReq ← sendSaveArtifacts doc {
@@ -449,6 +452,13 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
       s!"broken saveReadiness: expected reason = documentErrors, got {broken.saveReadyReason}"
   if broken.saveBlockingErrorCount == 0 then
     throw <| IO.userError s!"broken saveReadiness: expected saveBlockingErrorCount > 0, got {(toJson broken).compress}"
+  if broken.blockingDiagnostics.isEmpty && broken.blockingCommandMessages.isEmpty then
+    throw <| IO.userError
+      s!"broken saveReadiness: expected save-blocking evidence, got {(toJson broken).compress}"
+  unless broken.blockingDiagnostics.all (·.saveBlocking) &&
+      broken.blockingCommandMessages.all (·.saveBlocking) do
+    throw <| IO.userError
+      s!"broken saveReadiness: expected blocking evidence to carry saveBlocking=true, got {(toJson broken).compress}"
 
   closeDoc doc
 

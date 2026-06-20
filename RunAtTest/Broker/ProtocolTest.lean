@@ -210,7 +210,8 @@ private def checkReadinessBoundary : IO Unit := do
     lastSaveSeq := 3
   }]
   let incompleteResp :=
-    syncBarrierIncompleteResponse uri 7 "SaveSmoke/A.lean" hints diagnosticBarrier.fileProgress?
+    syncBarrierIncompleteResponse uri 7 "SaveSmoke/A.lean" hints #[incompleteDiagnostic]
+      diagnosticBarrier.fileProgress?
   let err ← requireError
     "readiness incomplete response"
     syncBarrierIncompleteCode
@@ -218,6 +219,14 @@ private def checkReadinessBoundary : IO Unit := do
     incompleteResp
   let data ← requireErrorData "readiness incomplete response" err
   requireJsonString "readiness incomplete response data" "targetPath" "SaveSmoke/A.lean" data
+  let completionBlocking ← requireObjVal
+    "readiness incomplete response data" "completionBlockingDiagnostics" data
+  let completionBlockingItems ← expectOk "readiness completion-blocking diagnostics decode"
+    (fromJson? (α := Array SyncBlockingDiagnostic) completionBlocking)
+  require "readiness incomplete response should flag completion-blocking diagnostics"
+    (completionBlockingItems.any (fun diagnostic =>
+      diagnostic.completionBlocking &&
+        diagnostic.message.contains "Failed to build module dependencies."))
   let recoveryPlanJson ← requireObjVal "readiness incomplete response data" "recoveryPlan" data
   let recoveryPlan ← expectOk "readiness recovery plan decode"
     (fromJson? (α := Array String) recoveryPlanJson)

@@ -13,6 +13,12 @@ open Lean.Lsp
 
 namespace Beam.Broker
 
+structure LastSyncSummary where
+  version : Nat
+  textHash : UInt64
+  diagnostics : Array Diagnostic := #[]
+  readiness : SyncReadinessCurrent := {}
+
 structure DocState where
   version : Nat
   textHash : UInt64
@@ -26,6 +32,7 @@ structure DocState where
   fileProgress? : Option SyncFileProgress := none
   lastSyncSeq : Nat := 0
   lastSaveSeq : Nat := 0
+  lastSyncSummary? : Option LastSyncSummary := none
 
 structure ModuleHistory where
   path : String
@@ -166,6 +173,7 @@ def syncFileDecision
             fileProgress? := none
             lastSyncSeq := docState.lastSyncSeq
             lastSaveSeq := docState.lastSaveSeq
+            lastSyncSummary? := docState.lastSyncSummary?
           }
         }
 
@@ -230,6 +238,19 @@ def markSyncedVersion
         { docs, moduleHistory }
   | none =>
       { docs, moduleHistory }
+
+def recordSyncSummary
+    (docs : Docs)
+    (uri : DocumentUri)
+    (summary : LastSyncSummary) : Docs :=
+  match docs.get? uri with
+  | some docState =>
+      if docState.version == summary.version then
+        docs.insert uri { docState with lastSyncSummary? := some summary }
+      else
+        docs
+  | none =>
+      docs
 
 def markSavedVersion
     (docs : Docs)

@@ -11,6 +11,14 @@ open Lean
 
 namespace Beam.Broker
 
+instance : Repr Lsp.DiagnosticSeverity where
+  reprPrec severity _ :=
+    match severity with
+    | .error => "error"
+    | .warning => "warning"
+    | .information => "information"
+    | .hint => "hint"
+
 inductive Op where
   | ensure
   | openDocs
@@ -242,6 +250,123 @@ def displayDetails (progress : SyncFileProgress) (includeDoneTrue : Bool := true
 
 end SyncFileProgress
 
+structure SyncDiagnosticCounts where
+  error : Nat := 0
+  warning : Nat := 0
+  information : Nat := 0
+  hint : Nat := 0
+  unknown : Nat := 0
+  total : Nat := 0
+  deriving Inhabited, FromJson, ToJson, BEq, Repr
+
+structure SyncDiagnosticDelta where
+  baseVersion : Nat
+  currentVersion : Nat
+  added : Nat := 0
+  removed : Nat := 0
+  persisted : Nat := 0
+  deriving Inhabited, FromJson, ToJson, BEq, Repr
+
+structure SyncBlockingDiagnostic where
+  range : Lsp.Range
+  severity? : Option Lsp.DiagnosticSeverity := some .error
+  message : String
+  saveBlocking : Bool := false
+  completionBlocking : Bool := false
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncBlockingDiagnostic where
+  fromJson? json := do
+    let range ← json.getObjValAs? Lsp.Range "range"
+    let severity? ← optionalField? (α := Lsp.DiagnosticSeverity) json "severity"
+    let message ← json.getObjValAs? String "message"
+    let saveBlocking? ← optionalField? (α := Bool) json "saveBlocking"
+    let completionBlocking? ← optionalField? (α := Bool) json "completionBlocking"
+    pure {
+      range
+      severity?
+      message
+      saveBlocking := saveBlocking?.getD false
+      completionBlocking := completionBlocking?.getD false
+    }
+
+structure SyncBlockingCommandMessage where
+  message : String
+  saveBlocking : Bool := true
+  completionBlocking : Bool := false
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncBlockingCommandMessage where
+  fromJson? json := do
+    let message ← json.getObjValAs? String "message"
+    let saveBlocking? ← optionalField? (α := Bool) json "saveBlocking"
+    let completionBlocking? ← optionalField? (α := Bool) json "completionBlocking"
+    pure {
+      message
+      saveBlocking := saveBlocking?.getD true
+      completionBlocking := completionBlocking?.getD false
+    }
+
+structure SyncDiagnosticsSummary where
+  current : SyncDiagnosticCounts := {}
+  delta? : Option SyncDiagnosticDelta := none
+  deriving Inhabited, FromJson, ToJson, BEq, Repr
+
+structure SyncReadinessCurrent where
+  saveBlockingErrorCount : Nat := 0
+  warningCount : Nat := 0
+  commandErrorCount : Nat := 0
+  saveReady : Bool := true
+  saveReadyReason : String := "ok"
+  blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
+  blockingCommandMessages : Array SyncBlockingCommandMessage := #[]
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncReadinessCurrent where
+  fromJson? json := do
+    let saveBlockingErrorCount? ← optionalField? (α := Nat) json "saveBlockingErrorCount"
+    let warningCount? ← optionalField? (α := Nat) json "warningCount"
+    let commandErrorCount? ← optionalField? (α := Nat) json "commandErrorCount"
+    let saveReady? ← optionalField? (α := Bool) json "saveReady"
+    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
+    let blockingDiagnostics? ←
+      optionalField? (α := Array SyncBlockingDiagnostic) json "blockingDiagnostics"
+    let blockingCommandMessages? ←
+      optionalField? (α := Array SyncBlockingCommandMessage) json "blockingCommandMessages"
+    pure {
+      saveBlockingErrorCount := saveBlockingErrorCount?.getD 0
+      warningCount := warningCount?.getD 0
+      commandErrorCount := commandErrorCount?.getD 0
+      saveReady := saveReady?.getD true
+      saveReadyReason := saveReadyReason?.getD "ok"
+      blockingDiagnostics := blockingDiagnostics?.getD #[]
+      blockingCommandMessages := blockingCommandMessages?.getD #[]
+    }
+
+structure SyncReadinessDelta where
+  baseVersion : Nat
+  currentVersion : Nat
+  saveBlockingErrorCountDelta : Int := 0
+  warningCountDelta : Int := 0
+  commandErrorCountDelta : Int := 0
+  saveReadyChanged : Bool := false
+  baseSaveReady : Bool := true
+  currentSaveReady : Bool := true
+  deriving Inhabited, FromJson, ToJson, BEq, Repr
+
+structure SyncReadinessSummary where
+  current : SyncReadinessCurrent := {}
+  delta? : Option SyncReadinessDelta := none
+  deriving Inhabited, FromJson, ToJson, BEq, Repr
+
+structure SyncSummary where
+  currentVersion : Nat
+  deltaBaseVersion? : Option Nat := none
+  sourceChangedSinceDeltaBase : Bool := false
+  diagnostics : SyncDiagnosticsSummary := {}
+  readiness : SyncReadinessSummary := {}
+  deriving Inhabited, FromJson, ToJson, BEq, Repr
+
 structure SyncFileResult where
   version : Nat
   errorCount : Nat := 0
@@ -250,7 +375,37 @@ structure SyncFileResult where
   stateCommandErrorCount : Nat := 0
   saveReady : Bool := true
   saveReadyReason : String := "ok"
-  deriving Inhabited, FromJson, ToJson
+  blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
+  blockingCommandMessages : Array SyncBlockingCommandMessage := #[]
+  syncSummary? : Option SyncSummary := none
+  deriving Inhabited, ToJson
+
+instance : FromJson SyncFileResult where
+  fromJson? json := do
+    let version ← json.getObjValAs? Nat "version"
+    let errorCount? ← optionalField? (α := Nat) json "errorCount"
+    let warningCount? ← optionalField? (α := Nat) json "warningCount"
+    let stateErrorCount? ← optionalField? (α := Nat) json "stateErrorCount"
+    let stateCommandErrorCount? ← optionalField? (α := Nat) json "stateCommandErrorCount"
+    let saveReady? ← optionalField? (α := Bool) json "saveReady"
+    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
+    let blockingDiagnostics? ←
+      optionalField? (α := Array SyncBlockingDiagnostic) json "blockingDiagnostics"
+    let blockingCommandMessages? ←
+      optionalField? (α := Array SyncBlockingCommandMessage) json "blockingCommandMessages"
+    let syncSummary? ← optionalField? (α := SyncSummary) json "syncSummary"
+    pure {
+      version
+      errorCount := errorCount?.getD 0
+      warningCount := warningCount?.getD 0
+      stateErrorCount := stateErrorCount?.getD 0
+      stateCommandErrorCount := stateCommandErrorCount?.getD 0
+      saveReady := saveReady?.getD true
+      saveReadyReason := saveReadyReason?.getD "ok"
+      blockingDiagnostics := blockingDiagnostics?.getD #[]
+      blockingCommandMessages := blockingCommandMessages?.getD #[]
+      syncSummary?
+    }
 
 structure StreamDiagnostic where
   path : String
@@ -259,7 +414,30 @@ structure StreamDiagnostic where
   severity? : Option Lsp.DiagnosticSeverity := none
   range : Lsp.Range
   message : String
-  deriving Inhabited, FromJson, ToJson
+  saveBlocking? : Option Bool := none
+  completionBlocking : Bool := false
+  deriving Inhabited, ToJson
+
+instance : FromJson StreamDiagnostic where
+  fromJson? json := do
+    let path ← json.getObjValAs? String "path"
+    let uri ← json.getObjValAs? String "uri"
+    let version? ← optionalField? (α := Int) json "version"
+    let severity? ← optionalField? (α := Lsp.DiagnosticSeverity) json "severity"
+    let range ← json.getObjValAs? Lsp.Range "range"
+    let message ← json.getObjValAs? String "message"
+    let saveBlocking? ← optionalField? (α := Bool) json "saveBlocking"
+    let completionBlocking? ← optionalField? (α := Bool) json "completionBlocking"
+    pure {
+      path
+      uri
+      version?
+      severity?
+      range
+      message
+      saveBlocking?
+      completionBlocking := completionBlocking?.getD false
+    }
 
 structure Response where
   ok : Bool := true
