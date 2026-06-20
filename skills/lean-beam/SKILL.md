@@ -282,25 +282,15 @@ Diagnostic defaults on that path:
   stderr in that request
 - streamed diagnostics are request events, not a since-last-sync diff; an unchanged still-broken
   file may stream no new diagnostics while the final `result.errorCount` remains nonzero
-- `result.syncSummary` reports `currentVersion`, optional `deltaBaseVersion`, current diagnostic
-  and readiness counts, and versioned diagnostic/readiness deltas against the previous successful
-  sync boundary when one exists; diagnostic deltas use Beam's diagnostic identity
-  `(range, effective severity, message)`
 - in new tooling, treat `result.syncSummary.readiness.current.saveReady` and
   `saveBlockingErrorCount` as the canonical save/checkpoint decision; treat
   `result.syncSummary.diagnostics.current.*` as Lean-published diagnostic severity counts
 - diagnostic severity counts are not save-readiness counts: a document can report
   `diagnostics.current.error > 0` for an interactive diagnostic while still reporting
   `readiness.current.saveReady = true`
-- when `readiness.current.saveReady = false`, inspect
-  `result.syncSummary.readiness.current.blockingDiagnostics` and `blockingCommandMessages` to see
-  the diagnostics/messages that blocked saving; those entries carry `saveBlocking=true`, with the
-  current completed-barrier error diagnostics used as fallback evidence if save-readiness reports
-  counts without explicit blockers
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
-  `error.data.completionBlockingDiagnostics`; entries in `completionBlockingDiagnostics` carry
-  `completionBlocking=true` because the file could not reach the diagnostics-complete barrier
+  `error.data.completionBlockingDiagnostics`
 - `lean-beam sync` final JSON reports current save-blocking errors in `result.errorCount`,
   current warnings in `result.warningCount`, and current save-readiness in `result.saveReady` plus
   `result.stateErrorCount` / `result.stateCommandErrorCount`; these flat fields are compatibility
@@ -310,8 +300,9 @@ Diagnostic defaults on that path:
   `syncSummary` plus the flat compatibility fields
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
-  messages, and `error.data.sync` contains the blocking sync verdict, including `syncSummary`,
-  `blockingDiagnostics`, and `blockingCommandMessages`
+  messages, and `error.data.sync` contains the blocking sync verdict
+- the field-level progress, diagnostic, readiness, and delta contract lives in
+  [../../docs/STATUS.md](../../docs/STATUS.md#progress-and-sync-delta-reporting)
 
 Surface rule:
 

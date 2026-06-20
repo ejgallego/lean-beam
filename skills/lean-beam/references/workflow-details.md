@@ -148,29 +148,21 @@ What is not a valid checkpoint target:
 - successful `lean-beam save` includes the sync verdict it established in `result.sync`
 - successful `lean-beam close-save` includes the sync verdict in `result.saved.sync`
 - those save verdicts include `syncSummary` plus the flat compatibility fields
-- `result.syncSummary` carries the versioned current/delta summary for `lean-beam sync`, including
-  `currentVersion`, optional `deltaBaseVersion`, current diagnostic/readiness counts, and
-  diagnostic/readiness deltas when a previous successful sync boundary exists; diagnostic deltas use
-  Beam's diagnostic identity `(range, effective severity, message)`
 - in new tooling, use `result.syncSummary.readiness.current.saveReady` and
   `saveBlockingErrorCount` for the save/checkpoint verdict, and use
   `result.syncSummary.diagnostics.current.*` only for Lean-published diagnostic severity counts
 - diagnostic error counts and save-blocking error counts can differ; for example, an interactive
   diagnostic from a child snapshot can make `diagnostics.current.error > 0` while
   `readiness.current.saveReady = true`
-- when `readiness.current.saveReady = false`, inspect
-  `result.syncSummary.readiness.current.blockingDiagnostics` and `blockingCommandMessages` to see
-  the diagnostics/messages that blocked saving; those entries carry `saveBlocking=true`, with the
-  current completed-barrier error diagnostics used as fallback evidence if save-readiness reports
-  counts without explicit blockers
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
-  `error.data.sync` contains the blocking sync verdict, including `syncSummary`,
-  `blockingDiagnostics`, and `blockingCommandMessages`
+  `error.data.sync` contains the blocking sync verdict
 - wrapper `stderr` is the human-facing diagnostic surface
 - `beam-client request-stream ...` is the machine-facing streamed surface
 - streamed diagnostics are request-scoped observations; they may carry `completionBlocking=true`,
   but save-blocking evidence is attached to the final sync/save verdict
+- the field-level progress, diagnostic, readiness, and delta contract lives in
+  [../../../docs/STATUS.md](../../../docs/STATUS.md#progress-and-sync-delta-reporting)
 - do not parse wrapper `stderr` in tooling
 - `BEAM_PROGRESS` controls stderr progress output for slow calls
 - by default, progress prints when stderr is a TTY
