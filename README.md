@@ -127,6 +127,14 @@ The MCP server advertises the MCP logging capability and forwards incremental Le
 sync/save-style tools as structured `notifications/message` events. The final tool result remains a
 compact state summary and does not replay diagnostics.
 
+Client-facing reporting surfaces stay intentionally separate:
+
+| Surface | Transport | Meaning |
+| --- | --- | --- |
+| Progress | `notifications/progress` | Request-scoped operation movement for clients that pass `_meta.progressToken`. |
+| Diagnostics | `notifications/message` with logger `lean.diagnostic` | Incremental Lean diagnostics observed while a sync/save-style request is pending. |
+| Readiness | Final structured tool result | Stable synced-state verdict for the document version, including save readiness and counts. |
+
 To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
 
 ```bash
@@ -135,6 +143,16 @@ lean-beam-mcp --root /path/to/lean/project --self-check MyPkg/Sub/Module.lean
 
 The self-check starts a child MCP server, supplies the root through MCP `roots/list`, calls
 `lean_sync` on the file, and shuts the child server down.
+
+MCP clients can opt into live operation progress for `tools/call` requests by including
+`params._meta.progressToken` as a string or integer. The server emits monotonic
+`notifications/progress` updates for request setup, execution phases, and throttled Lean
+`fileProgress` details before the final response is sent. File-progress messages use the form
+`<tool> fileProgress line=<current>/<total> updates=<n> done=<true|false>` when Lean reports a
+processing range, and omit the line segment when no range is available. They are emitted on the
+first observed update, periodically while the update count advances, and when the final `done=true`
+state is observed. The final structured tool result also includes these fields in `file_progress`
+when Lean file progress was observed. Lean diagnostics are not encoded as progress notifications.
 
 ## Supported Toolchains
 

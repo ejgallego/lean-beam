@@ -266,6 +266,29 @@ def toolsListResult : Json :=
 structure CallToolParams where
   name : ToolName
   arguments : Json := Json.mkObj []
+  progressToken? : Option Json := none
+
+def validProgressToken : Json → Bool
+  | .str _ => true
+  | token@(.num _) =>
+      match token.getInt? with
+      | .ok _ => true
+      | .error _ => false
+  | _ => false
+
+private def parseProgressToken? (params : Json) : Except String (Option Json) := do
+  let metaJson ←
+    match params.getObjVal? "_meta" with
+    | .ok rawMeta => requireObject "tools/call params _meta" rawMeta
+    | .error _ => pure (Json.mkObj [])
+  match metaJson.getObjVal? "progressToken" with
+  | .ok token =>
+      if validProgressToken token then
+        pure <| some token
+      else
+        throw "tools/call params _meta.progressToken must be a string or integer"
+  | .error _ =>
+      pure none
 
 def parseCallToolParams (params? : Option Json) : Except String CallToolParams := do
   let params ←
@@ -274,11 +297,33 @@ def parseCallToolParams (params? : Option Json) : Except String CallToolParams :
     | none => throw "tools/call params are required"
   let rawName ← params.getObjVal? "name"
   let name ← fromJson? (α := ToolName) rawName
+  let progressToken? ← parseProgressToken? params
   let arguments ←
     match params.getObjVal? "arguments" with
     | .ok arguments => requireObject "tools/call arguments" arguments
     | .error _ => pure (Json.mkObj [])
-  pure { name, arguments }
+  pure { name, arguments, progressToken? }
+
+def progressNotification
+    (progressToken : Json)
+    (progress : Nat)
+    (message? : Option String := none)
+    (total? : Option Nat := none) : Json :=
+  Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("method", toJson "notifications/progress"),
+    ("params", Json.mkObj <|
+      [
+        ("progressToken", progressToken),
+        ("progress", toJson progress)
+      ] ++
+      (match total? with
+      | some total => [("total", toJson total)]
+      | none => []) ++
+      (match message? with
+      | some message => [("message", toJson message)]
+      | none => []))
+  ]
 
 private def textContent (text : String) : Json :=
   Json.mkObj [

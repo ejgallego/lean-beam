@@ -33,6 +33,13 @@ def ProtocolState.create (root? : Option System.FilePath := none) : IO (IO.Ref P
 structure NotificationSink where
   send : Json → IO Unit := fun _ => pure ()
 
+private structure Notifier where
+  state : IO.Ref ProtocolState
+  sink : NotificationSink
+
+private def Notifier.send (notifier : Notifier) (json : Json) : IO Unit :=
+  notifier.sink.send json
+
 private def ProtocolState.initState (state : ProtocolState) : Beam.Workspace.InitState := {
   root? := state.root?
   runtimeReady := state.runtime?.isSome
@@ -42,6 +49,66 @@ abbrev Options := Beam.Mcp.Options
 
 private def writeJsonLine (json : Json) : IO Unit := do
   Beam.Mcp.Stdio.writeStdoutJsonLine json
+
+private structure ProgressEmitter where
+  progressToken : Json
+  nextProgress : IO.Ref Nat
+  lastFileProgress : IO.Ref (Option Beam.Broker.SyncFileProgress)
+  emitNotification : Json → IO Unit
+
+private def fileProgressUpdateStride : Nat :=
+  25
+
+private def fileProgressMessage (tool : ToolName) (progress : Beam.Broker.SyncFileProgress) : String :=
+  s!"{tool.key} fileProgress {Beam.Broker.SyncFileProgress.displayDetails progress}"
+
+private def shouldEmitFileProgress
+    (last? : Option Beam.Broker.SyncFileProgress)
+    (progress : Beam.Broker.SyncFileProgress) : Bool :=
+  match last? with
+  | none => true
+  | some last =>
+      (progress.done && progress != last) ||
+        progress.updates >= last.updates + fileProgressUpdateStride
+
+private def ProgressEmitter.create?
+    (progressToken? : Option Json)
+    (emitNotification : Json → IO Unit) : IO (Option ProgressEmitter) := do
+  match progressToken? with
+  | none => pure none
+  | some progressToken =>
+      pure <| some {
+        progressToken
+        nextProgress := ← IO.mkRef 0
+        lastFileProgress := ← IO.mkRef none
+        emitNotification
+      }
+
+private def ProgressEmitter.emit
+    (emitter : ProgressEmitter)
+    (message : String)
+    (total? : Option Nat := none) : IO Unit := do
+  let current ← emitter.nextProgress.get
+  let next := current + 1
+  emitter.nextProgress.set next
+  emitter.emitNotification <| progressNotification emitter.progressToken next (some message) total?
+
+private def ProgressEmitter.emitFileProgress
+    (emitter : ProgressEmitter)
+    (tool : ToolName)
+    (fileProgress : Beam.Broker.SyncFileProgress) : IO Unit := do
+  let last? ← emitter.lastFileProgress.get
+  if shouldEmitFileProgress last? fileProgress then
+    emitter.lastFileProgress.set (some fileProgress)
+    emitter.emit (fileProgressMessage tool fileProgress)
+
+private def emitProgress?
+    (progress? : Option ProgressEmitter)
+    (message : String)
+    (total? : Option Nat := none) : IO Unit := do
+  match progress? with
+  | some progress => progress.emit message total?
+  | none => pure ()
 
 private def invalidRequestId (json : Json) : Json :=
   match json.getObjVal? "id" with
@@ -80,13 +147,12 @@ private def streamDiagnosticLogData (diagnostic : Beam.Broker.StreamDiagnostic) 
     | none => []
 
 private def emitDiagnosticLog
-    (state : IO.Ref ProtocolState)
-    (notifications : NotificationSink)
+    (notifier : Notifier)
     (diagnostic : Beam.Broker.StreamDiagnostic) : IO Unit := do
   let level := diagnosticLogLevel diagnostic.severity?
-  let currentState ← state.get
+  let currentState ← notifier.state.get
   if currentState.logLevel.allows level then
-    notifications.send <|
+    notifier.send <|
       logMessageNotification level "lean.diagnostic" (streamDiagnosticLogData diagnostic)
 
 private def runtimeOptions (opts : Options) : Runtime.Options := {
@@ -111,7 +177,8 @@ private def createRuntimeForRoot
 
 private def ensureRoot
     (state : IO.Ref ProtocolState)
-    (stdin : IO.FS.Stream) : IO (Except RpcError System.FilePath) := do
+    (stdin : IO.FS.Stream)
+    (notifier : Notifier) : IO (Except RpcError System.FilePath) := do
   let currentState ← state.get
   match currentState.rootError? with
   | some err =>
@@ -122,7 +189,7 @@ private def ensureRoot
       | none =>
           let root? ←
             if currentState.clientSupportsRoots then
-              Roots.requestClientRoot stdin writeJsonLine
+              Roots.requestClientRoot stdin notifier.send
             else
               pure <| .error Roots.unsupportedMessage
           match root? with
@@ -136,13 +203,14 @@ private def ensureRoot
 private def ensureRuntime
     (state : IO.Ref ProtocolState)
     (opts : Options)
-    (stdin : IO.FS.Stream) : IO (Except RpcError (Beam.Broker.ServerRuntime × System.FilePath)) := do
+    (stdin : IO.FS.Stream)
+    (notifier : Notifier) : IO (Except RpcError (Beam.Broker.ServerRuntime × System.FilePath)) := do
   let currentState ← state.get
   match currentState.runtime?, currentState.root? with
   | some runtime, some root =>
       pure <| .ok (runtime, root)
   | _, _ =>
-      match ← ensureRoot state stdin with
+      match ← ensureRoot state stdin notifier with
       | .error err => pure <| .error err
       | .ok root =>
           match ← createRuntimeForRoot opts root with
@@ -181,37 +249,52 @@ private def resetRuntimeHandoff
 private def handleInitWorkspace
     (state : IO.Ref ProtocolState)
     (opts : Options)
-    (arguments : Json) : IO Json := do
+    (arguments : Json)
+    (progress? : Option ProgressEmitter) : IO Json := do
   let input ←
     match fromJson? (α := InitWorkspaceInput) arguments with
     | .ok input => pure input
-    | .error err => return callToolErrorResult <| ToolError.invalidInput err
+    | .error err =>
+        emitProgress? progress? "lean_init_workspace failed"
+        return callToolErrorResult <| ToolError.invalidInput err
   let requestedRoot ←
     match ← Beam.Lean.Workspace.resolveRoot input.root with
     | .ok root => pure root
-    | .error err => return callToolErrorResult <| workspaceErrorToToolError err
+    | .error err =>
+        emitProgress? progress? "lean_init_workspace failed"
+        return callToolErrorResult <| workspaceErrorToToolError err
   let mode := input.mode
   let currentState ← state.get
   let plan ←
     match Beam.Workspace.planInit currentState.initState requestedRoot mode with
     | .ok plan => pure plan
-    | .error err => return callToolErrorResult <| workspaceErrorToToolError err
+    | .error err =>
+        emitProgress? progress? "lean_init_workspace failed"
+        return callToolErrorResult <| workspaceErrorToToolError err
   if !plan.createRuntime then
+    emitProgress? progress? "workspace runtime already active"
+    emitProgress? progress? "completed lean_init_workspace"
     return callToolResult <| toJson <| Beam.Workspace.initResult plan
+  emitProgress? progress? "starting workspace runtime"
   match ← createRuntimeForRoot opts requestedRoot with
   | .error err =>
+      emitProgress? progress? "lean_init_workspace failed"
       return callToolErrorResult <| ToolError.runtimeSetup err.message
   | .ok (runtime, root) =>
       if plan.resetCurrent then
+        emitProgress? progress? "resetting previous workspace runtime"
         match ← resetRuntimeHandoff currentState.runtime? runtime with
         | .ok () => pure ()
-        | .error err => return callToolErrorResult err
+        | .error err =>
+            emitProgress? progress? "lean_init_workspace failed"
+            return callToolErrorResult err
       state.set {
         currentState with
           root? := some root
           rootError? := none
           runtime? := some runtime
       }
+      emitProgress? progress? "completed lean_init_workspace"
       pure <| callToolResult <| toJson <| Beam.Workspace.initResult plan root
 
 private def brokerRequestForTool
@@ -227,27 +310,44 @@ private def handleToolCall
     (stdin : IO.FS.Stream)
     (req : Request)
     (notifications : NotificationSink) : IO (Except RpcError Json) := do
+  let notifier : Notifier := { state, sink := notifications }
   let params ←
     match parseCallToolParams req.params? with
     | .ok params => pure params
     | .error err => return .error <| RpcError.invalidParams err
+  let progress? ← ProgressEmitter.create? params.progressToken? notifier.send
   if params.name == .leanInitWorkspace then
-    return .ok (← handleInitWorkspace state opts params.arguments)
+    emitProgress? progress? s!"starting {params.name.key}"
+    return .ok (← handleInitWorkspace state opts params.arguments progress?)
   let root ←
-    match ← ensureRoot state stdin with
+    match ← ensureRoot state stdin notifier with
     | .ok root => pure root
-    | .error err => return .error err
+    | .error err =>
+        emitProgress? progress? s!"failed {params.name.key}"
+        return .error err
+  emitProgress? progress? s!"starting {params.name.key}"
+  emitProgress? progress? s!"preparing {params.name.key}"
   let brokerReq ←
     match brokerRequestForTool root params (brokerClientRequestId req) with
     | .ok brokerReq => pure brokerReq
-    | .error err => return .ok <| callToolErrorResult <| ToolError.invalidInput err
+    | .error err =>
+        emitProgress? progress? s!"failed {params.name.key}"
+        return .ok <| callToolErrorResult <| ToolError.invalidInput err
   let (runtime, _root) ←
-    match ← ensureRuntime state opts stdin with
+    match ← ensureRuntime state opts stdin notifier with
     | .ok runtimeAndRoot => pure runtimeAndRoot
-    | .error err => return .error err
+    | .error err =>
+        emitProgress? progress? s!"failed {params.name.key}"
+        return .error err
   let emitDiagnostic : Beam.Broker.StreamDiagnostic → IO Unit := fun diagnostic =>
-    emitDiagnosticLog state notifications diagnostic
-  let (brokerResp, _) ← runtime.dispatchRequest brokerReq (emitDiagnostic? := some emitDiagnostic)
+    emitDiagnosticLog notifier diagnostic
+  let emitBrokerProgress? : Option (Beam.Broker.SyncFileProgress → IO Unit) :=
+    progress?.map fun progress => fun fileProgress =>
+      progress.emitFileProgress params.name fileProgress
+  emitProgress? progress? s!"running {params.name.key}"
+  let (brokerResp, _) ← runtime.dispatchRequest brokerReq
+    (emitProgress? := emitBrokerProgress?)
+    (emitDiagnostic? := some emitDiagnostic)
   match normalizeBrokerResponse params.name brokerResp with
   | .ok result =>
       pure <| .ok <| callToolResult <| Beam.Workspace.addActiveRoot root result

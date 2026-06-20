@@ -355,6 +355,58 @@ private def toolCallParams (name : String) (arguments : Json := Json.mkObj []) :
     ("arguments", arguments)
   ]
 
+private def toolCallParamsWithProgress
+    (name : String)
+    (progressToken : Json)
+    (arguments : Json := Json.mkObj []) : Json :=
+  Json.mkObj [
+    ("name", toJson name),
+    ("arguments", arguments),
+    ("_meta", Json.mkObj [
+      ("progressToken", progressToken)
+    ])
+  ]
+
+private def checkProgressProtocol : IO Unit := do
+  let stringToken := Json.str "sync-token"
+  let stringParams ← expectOk "decode string progressToken" <|
+    Beam.Mcp.parseCallToolParams <| some <|
+      toolCallParamsWithProgress "lean_sync" stringToken <|
+        Json.mkObj [("path", toJson "Demo.lean")]
+  require "string progressToken should decode" (stringParams.progressToken? == some stringToken)
+
+  let numberToken := toJson (7 : Nat)
+  let numberParams ← expectOk "decode numeric progressToken" <|
+    Beam.Mcp.parseCallToolParams <| some <|
+      toolCallParamsWithProgress "lean_sync" numberToken <|
+        Json.mkObj [("path", toJson "Demo.lean")]
+  require "numeric progressToken should decode" (numberParams.progressToken? == some numberToken)
+
+  match Beam.Mcp.parseCallToolParams <| some <|
+      toolCallParamsWithProgress "lean_sync" (toJson true) <|
+        Json.mkObj [("path", toJson "Demo.lean")] with
+  | .ok params =>
+      throw <| IO.userError s!"invalid progressToken decoded unexpectedly: {(toJson params.progressToken?).compress}"
+  | .error err =>
+      require "invalid progressToken error should name progressToken" (err.contains "progressToken")
+
+  let decimalToken := Json.num { mantissa := 15, exponent := 1 }
+  match Beam.Mcp.parseCallToolParams <| some <|
+      toolCallParamsWithProgress "lean_sync" decimalToken <|
+        Json.mkObj [("path", toJson "Demo.lean")] with
+  | .ok params =>
+      throw <| IO.userError s!"decimal progressToken decoded unexpectedly: {(toJson params.progressToken?).compress}"
+  | .error err =>
+      require "decimal progressToken error should require integer" (err.contains "integer")
+
+  let notification := Beam.Mcp.progressNotification stringToken 3 (some "syncing") (some 8)
+  requireJsonString "progress notification" "method" "notifications/progress" notification
+  let params ← requireObjVal "progress notification" "params" notification
+  requireJsonString "progress notification params" "progressToken" "sync-token" params
+  requireJsonInt "progress notification params" "progress" 3 params
+  requireJsonInt "progress notification params" "total" 8 params
+  requireJsonString "progress notification params" "message" "syncing" params
+
 private def handleRpcRequest
     (state : IO.Ref Beam.Mcp.Server.ProtocolState)
     (opts : Beam.Mcp.Server.Options)
@@ -598,6 +650,7 @@ def main : IO Unit := do
   checkIncoming
   checkToolsListShape
   checkRootsProtocol
+  checkProgressProtocol
   checkRuntimeSetupErrors
   checkWorkspaceInitPolicy
   checkServerBasics

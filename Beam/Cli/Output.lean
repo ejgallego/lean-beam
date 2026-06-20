@@ -147,11 +147,6 @@ def syncFileProgressSuffix (progress? : Option SyncFileProgress) : String :=
   match progress? with
   | none => ""
   | some progress =>
-      let doneSuffix :=
-        if progress.done then
-          ""
-        else
-          " done=false"
-      s!", fp updates={progress.updates}{doneSuffix}"
+      s!", fp {SyncFileProgress.displayDetails progress (includeDoneTrue := false)}"
 
 end Beam.Cli

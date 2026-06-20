@@ -212,7 +212,35 @@ structure Error where
 structure SyncFileProgress where
   updates : Nat := 0
   done : Bool := true
+  line? : Option Nat := none
+  totalLines? : Option Nat := none
   deriving Inhabited, FromJson, ToJson, BEq, Repr
+
+namespace SyncFileProgress
+
+def lineText? (progress : SyncFileProgress) : Option String :=
+  match progress.line?, progress.totalLines? with
+  | some line, some total => some s!"line={line}/{total}"
+  | some line, none => some s!"line={line}"
+  | none, some total => some s!"totalLines={total}"
+  | none, none => none
+
+def displayDetails (progress : SyncFileProgress) (includeDoneTrue : Bool := true) : String :=
+  let linePrefix :=
+    match progress.lineText? with
+    | some text => text ++ " "
+    | none => ""
+  let doneSuffix :=
+    if progress.done then
+      if includeDoneTrue then
+        " done=true"
+      else
+        ""
+    else
+      " done=false"
+  s!"{linePrefix}updates={progress.updates}{doneSuffix}"
+
+end SyncFileProgress
 
 structure SyncFileResult where
   version : Nat

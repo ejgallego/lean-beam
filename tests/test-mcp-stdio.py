@@ -27,6 +27,20 @@ def require(condition, message):
         fail(message)
 
 
+def notifications_by_method(notifications, method):
+    return [notification for notification in notifications if notification.get("method") == method]
+
+
+def notification_params(notification, method, label):
+    require(
+        notification.get("method") == method,
+        f"{label}: unexpected notification method: {notification}",
+    )
+    params = notification.get("params")
+    require(isinstance(params, dict), f"{label}: notification missing params: {notification}")
+    return params
+
+
 def shared_lib_name():
     system = platform.system()
     if system == "Darwin":
@@ -61,9 +75,9 @@ class McpClient:
         self.roots_request_count = 0
         self.pending_extra_response_ids = set()
         self.extra_responses = []
-        self.notifications = []
         self.pending_requests = {}
         self.completed_requests = collections.deque(maxlen=20)
+        self.notifications = []
         self.stderr_lines = collections.deque(maxlen=80)
         exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
         plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
@@ -315,6 +329,14 @@ class McpClient:
         require(isinstance(structured, dict), f"tool {name} missing structuredContent: {result}")
         return structured
 
+    def progress_notifications(self, token):
+        rows = []
+        for notification in notifications_by_method(self.notifications, "notifications/progress"):
+            params = notification_params(notification, "notifications/progress", "progress notification")
+            if params.get("progressToken") == token:
+                rows.append(notification)
+        return rows
+
 
 def expect_result(response):
     if "error" in response:
@@ -351,18 +373,16 @@ def write_save_warning_file(project_root, marker):
 
 def diagnostic_log_notifications(client):
     rows = []
-    for notification in client.notifications:
-        if notification.get("method") != "notifications/message":
-            continue
-        params = notification.get("params")
-        if isinstance(params, dict) and params.get("logger") == "lean.diagnostic":
+    for notification in notifications_by_method(client.notifications, "notifications/message"):
+        params = notification_params(notification, "notifications/message", "diagnostic log notification")
+        if params.get("logger") == "lean.diagnostic":
             rows.append(notification)
     return rows
 
 
 def expect_diagnostic_log(client, *, level, severity, path):
     for notification in diagnostic_log_notifications(client):
-        params = notification.get("params", {})
+        params = notification_params(notification, "notifications/message", "diagnostic log notification")
         data = params.get("data", {})
         if (
             params.get("level") == level
@@ -457,6 +477,56 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
             f"init workspace returned wrong previous_root {previous_root}: {structured}",
         )
     return structured
+
+
+def require_progress_sequence(notifications, token, label):
+    require(notifications, f"{label}: expected progress notifications for {token!r}")
+    previous = None
+    for notification in notifications:
+        params = notification_params(notification, "notifications/progress", label)
+        require(params.get("progressToken") == token, f"{label}: wrong progress token: {notification}")
+        progress = params.get("progress")
+        require(isinstance(progress, (int, float)), f"{label}: progress is not numeric: {notification}")
+        if previous is not None:
+            require(progress > previous, f"{label}: progress is not strictly increasing: {notifications}")
+        previous = progress
+        message = params.get("message")
+        require(message is None or isinstance(message, str), f"{label}: progress message is not a string: {notification}")
+    return [notification["params"]["progress"] for notification in notifications]
+
+
+def progress_messages(notifications):
+    return [
+        notification_params(notification, "notifications/progress", "progress notification").get("message")
+        for notification in notifications
+    ]
+
+
+def require_progress_message_contains(notifications, label, *needles):
+    messages = [message for message in progress_messages(notifications) if isinstance(message, str)]
+    for needle in needles:
+        require(
+            any(needle in message for message in messages),
+            f"{label}: expected a progress message containing {needle!r}, got {messages}",
+        )
+
+
+def require_file_progress_line(structured, label):
+    progress = structured.get("file_progress")
+    require(isinstance(progress, dict), f"{label}: missing file_progress metadata: {structured}")
+    line = progress.get("line")
+    total = progress.get("totalLines")
+    require(isinstance(line, int) and line >= 1, f"{label}: invalid file_progress line: {progress}")
+    require(isinstance(total, int) and total >= line, f"{label}: invalid file_progress totalLines: {progress}")
+
+
+def require_file_progress_position(structured, label, line, total):
+    require_file_progress_line(structured, label)
+    progress = structured["file_progress"]
+    require(
+        progress.get("line") == line and progress.get("totalLines") == total,
+        f"{label}: expected file_progress line={line}/{total}, got {progress}",
+    )
 
 
 def expect_stale_handle(client, handle, label):
@@ -675,6 +745,124 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             expect_diagnostic_log(client, level="error", severity="error", path="SaveSmoke/B.lean")
         finally:
             client.close()
+
+
+def run_progress_notification_smoke(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-progress-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(repo_root, project_root, timeout)
+        try:
+            client.initialize()
+
+            invalid_token = client.request(
+                "tools/call",
+                {
+                    "name": "lean_sync",
+                    "arguments": {"path": "PositionEmptyLine.lean"},
+                    "_meta": {"progressToken": True},
+                },
+            )
+            expect_error_code(invalid_token, -32602)
+            decimal_token = client.request(
+                "tools/call",
+                {
+                    "name": "lean_sync",
+                    "arguments": {"path": "PositionEmptyLine.lean"},
+                    "_meta": {"progressToken": 1.5},
+                },
+            )
+            expect_error_code(decimal_token, -32602)
+
+            before_no_token = len(client.notifications)
+            no_token = client.request(
+                "tools/call",
+                {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+            )
+            result = expect_result(no_token)
+            require(result.get("isError") is not True, f"lean_sync without progress token failed: {result}")
+            no_token_notifications = client.notifications[before_no_token:]
+            require(
+                not notifications_by_method(no_token_notifications, "notifications/progress"),
+                f"lean_sync without progress token emitted progress notifications: {no_token_notifications}",
+            )
+
+            token = "sync-progress-token"
+            before_token = len(client.notifications)
+            with_token = client.request(
+                "tools/call",
+                {
+                    "name": "lean_sync",
+                    "arguments": {"path": "CommandA.lean"},
+                    "_meta": {"progressToken": token},
+                },
+            )
+            result = expect_result(with_token)
+            require(result.get("isError") is not True, f"lean_sync with progress token failed: {result}")
+            structured = result.get("structuredContent")
+            require(isinstance(structured, dict), f"lean_sync with progress token missing structuredContent: {result}")
+            require_file_progress_position(structured, "lean_sync progress", 1, 1)
+            token_notifications = [
+                notification
+                for notification in notifications_by_method(
+                    client.notifications[before_token:],
+                    "notifications/progress",
+                )
+            ]
+            require_progress_sequence(token_notifications, token, "lean_sync progress")
+            require_progress_message_contains(
+                token_notifications,
+                "lean_sync progress",
+                "running lean_sync",
+                "lean_sync fileProgress",
+                "line=1/1",
+                "done=true",
+            )
+
+            progress_count_after_response = len(client.progress_notifications(token))
+            ping = client.request("ping")
+            expect_result(ping)
+            require(
+                len(client.progress_notifications(token)) == progress_count_after_response,
+                f"progress notifications continued after final response: {client.progress_notifications(token)}",
+            )
+        finally:
+            client.close()
+
+        roots_client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            use_root_arg=False,
+            advertise_roots=True,
+        )
+        try:
+            roots_client.initialize()
+            token = "roots-sync-progress-token"
+            response = roots_client.request(
+                "tools/call",
+                {
+                    "name": "lean_sync",
+                    "arguments": {"path": "PositionEmptyLine.lean"},
+                    "_meta": {"progressToken": token},
+                },
+            )
+            result = expect_result(response)
+            require(result.get("isError") is not True, f"root-negotiated lean_sync failed: {result}")
+            require_roots_requests(roots_client, 1, "progress during roots/list")
+            notifications = roots_client.progress_notifications(token)
+            require_progress_sequence(notifications, token, "root-negotiated lean_sync progress")
+            require_progress_message_contains(
+                notifications,
+                "root-negotiated lean_sync progress",
+                "preparing lean_sync",
+                "running lean_sync",
+                "lean_sync fileProgress",
+                "line=",
+                "done=true",
+            )
+        finally:
+            roots_client.close()
 
 
 def run_root_setup_matrix(repo_root, fixture_root, timeout):
@@ -1191,6 +1379,7 @@ def main():
         )
     run_relative_root_arg(repo_root, fixture_root, args.timeout)
     run_diagnostic_logging(repo_root, fixture_root, args.timeout)
+    run_progress_notification_smoke(repo_root, fixture_root, args.timeout)
     run_root_setup_matrix(repo_root, fixture_root, args.timeout)
     run_init_workspace_mode_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)

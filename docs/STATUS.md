@@ -158,23 +158,29 @@ that handoff cheap by reusing speculative execution rather than replaying it fro
 daemon can open, but `lean-beam save` requires a file that Lake resolves to a module in the current
 workspace package graph. Standalone `.lean` files outside that graph are not valid save targets.
 
-### Planned Progress And Sync Delta Reporting
+### MCP Progress And Planned Sync Delta Reporting
 
 The next reporting step should keep progress, diagnostics, readiness, and deltas as separate typed
 concepts:
 
-- progress: request-scoped operation movement, not diagnostics and not final readiness
-- streamed diagnostics: Lean-published events observed while a request is pending
-- current summary: the stable synced-state verdict for one document version
-- delta summary: a comparison against one named previous sync boundary
+| Concept | Scope | Current surface |
+| --- | --- | --- |
+| Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `progress` events; CLI progress text. |
+| Streamed diagnostics | Lean-published events observed while a request is pending. | MCP `notifications/message` with logger `lean.diagnostic`; Beam stream `diagnostic` events; CLI stderr diagnostics. |
+| Current summary | Stable synced-state verdict for one document version. | Final structured tool result and broker response fields such as `saveReady`, `errorCount`, and `file_progress`. |
+| Delta summary | Comparison against one named previous sync boundary. | Planned typed sync summary fields. |
 
 For MCP, Beam forwards incremental Lean diagnostics as structured `notifications/message` log
 events with path, URI, version, range, severity, and message data. These diagnostics are deliberately
-not encoded as progress. Beam should still parse tool-call `_meta.progressToken` and emit
-`notifications/progress` for coarse phases such as workspace setup, daemon start, sync waiting, save
-artifact generation, and completion. The numeric `progress` value must be monotonic for the token;
-where Lean only provides `fileProgress.updates` / `done`, Beam can use a per-request monotonic
-sequence and put the Lean progress detail in the human-readable message.
+not encoded as progress. Beam also parses tool-call `_meta.progressToken` and emits
+`notifications/progress` for request-scoped setup and execution phases, plus throttled Lean
+`fileProgress.line` / `totalLines` / `updates` / `done` details, before the final JSON-RPC response.
+The numeric `progress` value is a per-request monotonic sequence. File-progress messages use
+`<tool> fileProgress line=<current>/<total> updates=<n> done=<true|false>` when Lean reports a
+processing range, omit the line segment when no range is available, and are emitted on the first
+observed update, periodically while the update count advances, and when the final `done=true` state
+is observed. The final structured tool result also includes these fields in `file_progress` when
+Lean file progress was observed.
 
 For sync deltas, every delta-bearing payload should state both sides of the comparison:
 
@@ -245,9 +251,9 @@ reporting the saved source hash.
 - `lean-beam-mcp` follows the `2025-11-25` tool-call error split: malformed or unknown tools are
   JSON-RPC protocol errors, while invalid inputs for known tools return MCP tool execution errors
   with `isError=true`.
-- `lean-beam-mcp` currently returns final tool results and forwards incremental Lean diagnostics as
-  MCP log notifications. Live MCP progress forwarding and MCP cancellation notifications are still
-  future work.
+- `lean-beam-mcp` emits live MCP progress notifications for tool calls that include
+  `_meta.progressToken`, forwards incremental Lean diagnostics as MCP log notifications, and still
+  leaves MCP cancellation notifications as future work.
 - `lean-beam-mcp` has local stdio protocol, Lean-backed restart/stress coverage, deterministic
   Streamable HTTP bridge smoke coverage, and official MCP conformance coverage in CI for the
   selected `server-initialize`, `ping`, and `tools-list` scenarios. The Streamable HTTP bridge is
@@ -278,9 +284,9 @@ Near-term work is mostly about hardening and simplifying:
 - track an upstream Lean API improvement for a pure frontend readiness/reporting helper, close to
   `SnapshotTree.runAndReport` but returning the build-blocking decision and message counts without
   printing, so Beam can delegate save-ready semantics instead of mirroring private frontend logic
-- project broker `fileProgress` into MCP progress notifications for request-scoped operation
-  progress; keep structured MCP log messages for incremental diagnostics rather than overloading
-  the final tool result
+- add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
+  structured MCP log messages for incremental diagnostics rather than overloading progress
+  notifications or the final tool result
 - add the explicit typed sync summary described above, including `currentVersion`,
   `deltaBaseVersion?`, and versioned diagnostic/readiness deltas; replace the current flat `sync`
   projection in `save` / `close-save` with that richer summary
