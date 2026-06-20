@@ -12,6 +12,7 @@ import Lean.Util.Sorry
 import RunAt.Lib.Goals
 import RunAt.Lib.Handles
 import RunAt.Lib.Support
+import RunAt.Requests.DiagnosticsCompat
 
 open Lean
 open Lean.Elab
@@ -20,21 +21,6 @@ open Lean.Server.RequestM
 open RunAt.Lib
 
 namespace RunAt.Requests
-
-private def collectCurrentDiagnosticsName : Name :=
-  .str (.str (.str (.str (.str .anonymous "Lean") "Server") "FileWorker")
-    "EditableDocumentCore") "collectCurrentDiagnostics"
-
--- Lean v4.31 replaced `EditableDocument.diagnosticsRef` with a diagnostics mutex and
--- `EditableDocumentCore.collectCurrentDiagnostics`.
-elab "collectTodoCurrentDiagnosticsCompat(" doc:term ")" : term => do
-  if (← getEnv).contains collectCurrentDiagnosticsName then
-    Lean.Elab.Term.elabTerm (← `(term| (do
-      let diagnostics ← Lean.Server.FileWorker.EditableDocumentCore.collectCurrentDiagnostics
-        (($doc).toEditableDocumentCore)
-      pure diagnostics.toArray))) none
-  else
-    Lean.Elab.Term.elabTerm (← `(term| (($doc).diagnosticsRef.get))) none
 
 private def positionLE (a b : Lsp.Position) : Bool :=
   a.line < b.line || (a.line == b.line && a.character <= b.character)
@@ -513,7 +499,7 @@ private def todoResult
   let suggestBasic := shouldSuggestBasic p.suggest?
   let mut items ← collectDocumentItems doc snaps requestedSyntaxRange p.range p.kinds? suggestBasic
   if wantsKind p.kinds? .diagnostic then
-    let diagnostics ← collectTodoCurrentDiagnosticsCompat(doc)
+    let diagnostics ← collectCurrentDiagnosticsCompat(doc)
     items := items ++ collectDiagnosticItems p.range diagnostics
   if wantsKind p.kinds? .codeAction then
     items := items ++ collectCodeActionItems p.range codeActions
@@ -534,7 +520,7 @@ def handleTodo (p : TodoParams) : RequestM (RequestTask TodoResult) := do
     checkRequestCancelled
     let codeActionTask ←
       if wantsKind p.kinds? .codeAction then
-        let diagnostics ← collectTodoCurrentDiagnosticsCompat(doc)
+        let diagnostics ← collectCurrentDiagnosticsCompat(doc)
         let plainDiagnostics :=
           diagnostics.filterMap fun diagnostic =>
             if rangeMatchesQuery diagnostic.fullRange p.range then
