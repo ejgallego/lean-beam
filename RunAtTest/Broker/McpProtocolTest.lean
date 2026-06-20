@@ -126,6 +126,14 @@ private def checkToolsListShape : IO Unit := do
     let tool ← requireTool tools toolName
     let schema ← requireClosedInputSchema s!"{toolName} input schema" tool
     requireSchemaRequiredFields s!"{toolName} input schema" requiredFields schema
+  let syncTool ← requireTool tools "lean_sync"
+  let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
+  let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
+  requireFieldPresent "lean_sync input schema" "include_diagnostics" syncProperties
+  let saveTool ← requireTool tools "lean_save"
+  let saveSchema ← requireClosedInputSchema "lean_save input schema" saveTool
+  let saveProperties ← requireObjVal "lean_save input schema" "properties" saveSchema
+  requireFieldAbsent "lean_save input schema" "include_diagnostics" saveProperties
 
   let rawExposed := tools.any fun tool =>
     (tool.getObjValAs? String "name").toOption == some RunAt.method ||
@@ -579,12 +587,19 @@ private def callLeanSync
     (notifications : Beam.Mcp.Server.NotificationSink)
     (id : Nat)
     (path : String)
-    (fullDiagnostics : Bool := true) : IO Json := do
-  handleRpcRequestWithNotifications state opts stdin notifications s!"lean_sync {path}" id "tools/call" <|
-    some <| toolCallParams "lean_sync" <| Json.mkObj [
+    (fullDiagnostics : Bool := true)
+    (includeDiagnostics : Bool := false) : IO Json := do
+  let arguments := Json.mkObj <|
+    [
       ("path", toJson path),
       ("full_diagnostics", toJson fullDiagnostics)
-    ]
+    ] ++
+    if includeDiagnostics then
+      [("include_diagnostics", toJson true)]
+    else
+      []
+  handleRpcRequestWithNotifications state opts stdin notifications s!"lean_sync {path}" id "tools/call" <|
+    some <| toolCallParams "lean_sync" arguments
 
 private def shutdownMcpRuntime (state : IO.Ref Beam.Mcp.Server.ProtocolState) : IO Unit := do
   let current ← state.get
@@ -609,8 +624,25 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
     writeSaveWarningFile root "-- mcp diagnostic log"
     let syncResp ← callLeanSync state opts stdin notifications 2 "SaveSmoke/B.lean"
+      (includeDiagnostics := true)
     let syncResult ← requireObjVal "lean_sync response" "result" syncResp
     requireJsonBool "lean_sync result" "isError" false syncResult
+    let syncStructured ← requireObjVal "lean_sync result" "structuredContent" syncResult
+    let replyDiagnosticsJson ← requireObjVal "lean_sync structured result" "diagnostics" syncStructured
+    let replyDiagnostics ←
+      match replyDiagnosticsJson with
+      | Json.arr diagnostics => pure diagnostics
+      | other =>
+          throw <| IO.userError
+            s!"expected lean_sync include_diagnostics diagnostics array, got {other.compress}"
+    if replyDiagnostics.isEmpty then
+      throw <| IO.userError
+        s!"expected lean_sync include_diagnostics to replay diagnostics, got {syncStructured.compress}"
+    unless replyDiagnostics.any (fun diagnostic =>
+        (diagnostic.getObjValAs? String "path").toOption == some "SaveSmoke/B.lean" &&
+        (diagnostic.getObjValAs? String "severity").toOption == some "warning") do
+      throw <| IO.userError
+        s!"expected lean_sync include_diagnostics warning diagnostic, got {syncStructured.compress}"
     let warningLog ← requireDiagnosticLog (← notificationsRef.get) "warning" "warning" "SaveSmoke/B.lean"
     let params ← requireObjVal "warning log notification" "params" warningLog
     let data ← requireObjVal "warning log params" "data" params
@@ -631,6 +663,8 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let suppressedResp ← callLeanSync state opts stdin notifications 4 "SaveSmoke/B.lean"
     let suppressedResult ← requireObjVal "suppressed lean_sync response" "result" suppressedResp
     requireJsonBool "suppressed lean_sync result" "isError" false suppressedResult
+    let suppressedStructured ← requireObjVal "suppressed lean_sync result" "structuredContent" suppressedResult
+    requireFieldAbsent "suppressed lean_sync result" "diagnostics" suppressedStructured
     expectNoDiagnosticLogs "warning-only after error log level" (← notificationsRef.get)
 
     notificationsRef.set #[]

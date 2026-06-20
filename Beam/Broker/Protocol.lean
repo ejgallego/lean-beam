@@ -163,6 +163,7 @@ structure Request where
   compact? : Option Bool := none
   ppFormat? : Option GoalPpFormat := none
   fullDiagnostics? : Option Bool := none
+  includeDiagnostics? : Option Bool := none
   saveArtifacts? : Option Bool := none
   handle? : Option Handle := none
   deriving Inhabited, ToJson
@@ -202,13 +203,15 @@ instance : FromJson Request where
     let compact? ← optionalField? (α := Bool) j "compact"
     let ppFormat? ← optionalField? (α := GoalPpFormat) j "ppFormat"
     let fullDiagnostics? ← optionalField? (α := Bool) j "fullDiagnostics"
+    let includeDiagnostics? ← optionalField? (α := Bool) j "includeDiagnostics"
     let saveArtifacts? ← optionalField? (α := Bool) j "saveArtifacts"
     let handle? ← optionalField? (α := Handle) j "handle"
     pure {
       op, backend, clientRequestId?, cancelRequestId?,
       root?, path?, line?, character?, endLine?, endCharacter?,
       method?, params?, text?, kinds?, suggest?, storeHandle?,
-      linear?, mode?, compact?, ppFormat?, fullDiagnostics?, saveArtifacts?, handle?
+      linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
+      saveArtifacts?, handle?
     }
 
 structure Error where
@@ -367,46 +370,6 @@ structure SyncSummary where
   readiness : SyncReadinessSummary := {}
   deriving Inhabited, FromJson, ToJson, BEq, Repr
 
-structure SyncFileResult where
-  version : Nat
-  errorCount : Nat := 0
-  warningCount : Nat := 0
-  stateErrorCount : Nat := 0
-  stateCommandErrorCount : Nat := 0
-  saveReady : Bool := true
-  saveReadyReason : String := "ok"
-  blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
-  blockingCommandMessages : Array SyncBlockingCommandMessage := #[]
-  syncSummary? : Option SyncSummary := none
-  deriving Inhabited, ToJson
-
-instance : FromJson SyncFileResult where
-  fromJson? json := do
-    let version ← json.getObjValAs? Nat "version"
-    let errorCount? ← optionalField? (α := Nat) json "errorCount"
-    let warningCount? ← optionalField? (α := Nat) json "warningCount"
-    let stateErrorCount? ← optionalField? (α := Nat) json "stateErrorCount"
-    let stateCommandErrorCount? ← optionalField? (α := Nat) json "stateCommandErrorCount"
-    let saveReady? ← optionalField? (α := Bool) json "saveReady"
-    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
-    let blockingDiagnostics? ←
-      optionalField? (α := Array SyncBlockingDiagnostic) json "blockingDiagnostics"
-    let blockingCommandMessages? ←
-      optionalField? (α := Array SyncBlockingCommandMessage) json "blockingCommandMessages"
-    let syncSummary? ← optionalField? (α := SyncSummary) json "syncSummary"
-    pure {
-      version
-      errorCount := errorCount?.getD 0
-      warningCount := warningCount?.getD 0
-      stateErrorCount := stateErrorCount?.getD 0
-      stateCommandErrorCount := stateCommandErrorCount?.getD 0
-      saveReady := saveReady?.getD true
-      saveReadyReason := saveReadyReason?.getD "ok"
-      blockingDiagnostics := blockingDiagnostics?.getD #[]
-      blockingCommandMessages := blockingCommandMessages?.getD #[]
-      syncSummary?
-    }
-
 structure StreamDiagnostic where
   path : String
   uri : String
@@ -437,6 +400,49 @@ instance : FromJson StreamDiagnostic where
       message
       saveBlocking?
       completionBlocking := completionBlocking?.getD false
+    }
+
+structure SyncFileResult where
+  version : Nat
+  errorCount : Nat := 0
+  warningCount : Nat := 0
+  stateErrorCount : Nat := 0
+  stateCommandErrorCount : Nat := 0
+  saveReady : Bool := true
+  saveReadyReason : String := "ok"
+  blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
+  blockingCommandMessages : Array SyncBlockingCommandMessage := #[]
+  syncSummary? : Option SyncSummary := none
+  diagnostics? : Option (Array StreamDiagnostic) := none
+  deriving Inhabited, ToJson
+
+instance : FromJson SyncFileResult where
+  fromJson? json := do
+    let version ← json.getObjValAs? Nat "version"
+    let errorCount? ← optionalField? (α := Nat) json "errorCount"
+    let warningCount? ← optionalField? (α := Nat) json "warningCount"
+    let stateErrorCount? ← optionalField? (α := Nat) json "stateErrorCount"
+    let stateCommandErrorCount? ← optionalField? (α := Nat) json "stateCommandErrorCount"
+    let saveReady? ← optionalField? (α := Bool) json "saveReady"
+    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
+    let blockingDiagnostics? ←
+      optionalField? (α := Array SyncBlockingDiagnostic) json "blockingDiagnostics"
+    let blockingCommandMessages? ←
+      optionalField? (α := Array SyncBlockingCommandMessage) json "blockingCommandMessages"
+    let syncSummary? ← optionalField? (α := SyncSummary) json "syncSummary"
+    let diagnostics? ← optionalField? (α := Array StreamDiagnostic) json "diagnostics"
+    pure {
+      version
+      errorCount := errorCount?.getD 0
+      warningCount := warningCount?.getD 0
+      stateErrorCount := stateErrorCount?.getD 0
+      stateCommandErrorCount := stateCommandErrorCount?.getD 0
+      saveReady := saveReady?.getD true
+      saveReadyReason := saveReadyReason?.getD "ok"
+      blockingDiagnostics := blockingDiagnostics?.getD #[]
+      blockingCommandMessages := blockingCommandMessages?.getD #[]
+      syncSummary?
+      diagnostics?
     }
 
 structure Response where

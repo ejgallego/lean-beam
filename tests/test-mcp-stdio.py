@@ -362,6 +362,23 @@ def expect_diagnostic_log(client, *, level, severity, path):
     fail(f"missing {level}/{severity} diagnostic log for {path}: {client.notifications}")
 
 
+def expect_reply_diagnostic(sync, *, severity, path):
+    diagnostics = sync.get("diagnostics")
+    require(isinstance(diagnostics, list) and diagnostics, f"sync reply missing diagnostics: {sync}")
+    for diagnostic in diagnostics:
+        if (
+            isinstance(diagnostic, dict)
+            and diagnostic.get("severity") == severity
+            and diagnostic.get("path") == path
+        ):
+            require(isinstance(diagnostic.get("uri"), str), f"reply diagnostic missing uri: {diagnostic}")
+            require(isinstance(diagnostic.get("version"), int), f"reply diagnostic missing version: {diagnostic}")
+            require(isinstance(diagnostic.get("range"), dict), f"reply diagnostic missing range: {diagnostic}")
+            require(isinstance(diagnostic.get("message"), str) and diagnostic["message"], f"reply diagnostic missing message: {diagnostic}")
+            return diagnostic
+    fail(f"missing {severity} reply diagnostic for {path}: {sync}")
+
+
 def expect_error_message_contains(response, code, needle):
     error = expect_error_code(response, code)
     message = error.get("message")
@@ -672,8 +689,12 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
         try:
             client.initialize()
             write_save_warning_file(project_root, "-- mcp stdio diagnostic log")
-            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
+            sync = client.call_tool(
+                "lean_sync",
+                {"path": "SaveSmoke/B.lean", "full_diagnostics": True, "include_diagnostics": True},
+            )
             require(sync.get("saveReady") is True, f"warning-only sync should be save-ready: {sync}")
+            expect_reply_diagnostic(sync, severity="warning", path="SaveSmoke/B.lean")
             expect_diagnostic_log(client, level="warning", severity="warning", path="SaveSmoke/B.lean")
 
             expect_result(client.request("logging/setLevel", {"level": "error"}))
@@ -681,6 +702,7 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             write_save_warning_file(project_root, "-- mcp stdio warning suppressed")
             sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
             require(sync.get("saveReady") is True, f"suppressed warning sync should be save-ready: {sync}")
+            require("diagnostics" not in sync, f"sync reply should omit diagnostics without include_diagnostics: {sync}")
             require(
                 diagnostic_log_notifications(client) == [],
                 f"warning-only sync should not log diagnostics at error level: {client.notifications}",

@@ -67,7 +67,8 @@ def syncFileSuccessPayload
     (version : Nat)
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness)
-    (syncSummary? : Option SyncSummary := none) : Json :=
+    (syncSummary? : Option SyncSummary := none)
+    (replyDiagnostics? : Option (Array StreamDiagnostic) := none) : Json :=
   toJson ({
     version
     errorCount := readiness.currentSaveBlockingErrorCount?.getD (syncErrorCount diagnostics)
@@ -79,6 +80,7 @@ def syncFileSuccessPayload
     blockingDiagnostics := readiness.blockingDiagnostics
     blockingCommandMessages := readiness.blockingCommandMessages
     syncSummary? := syncSummary?
+    diagnostics? := replyDiagnostics?
     : SyncFileResult
   })
 
@@ -87,9 +89,10 @@ def syncFileSuccessResponse
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness)
     (fileProgress? : Option SyncFileProgress)
-    (syncSummary? : Option SyncSummary := none) : Response :=
+    (syncSummary? : Option SyncSummary := none)
+    (replyDiagnostics? : Option (Array StreamDiagnostic) := none) : Response :=
   responseWithFileProgress
-    (Response.success <| syncFileSuccessPayload version diagnostics readiness syncSummary?)
+    (Response.success <| syncFileSuccessPayload version diagnostics readiness syncSummary? replyDiagnostics?)
     fileProgress?
 
 def savePayloadWithSyncVerdict (payload syncVerdict : Json) : Json :=

@@ -120,7 +120,14 @@ def Operation.inputSchema : Operation → Json
         ("path", string "Lean file path, relative to the server root unless absolute."),
         ("handle", object "Opaque broker-wrapped Lean handle to release.")
       ] #["path", "handle"]
-  | .sync | .save =>
+  | .sync =>
+      inputObject [
+        ("path", string "Lean file path, relative to the server root unless absolute."),
+        ("full_diagnostics", bool "When true, include full diagnostics in broker diagnostic streams."),
+        ("include_diagnostics", bool
+          "When true, include the current request diagnostics in the final sync result; the full_diagnostics setting controls the severity filter.")
+      ] #["path"]
+  | .save =>
       inputObject [
         ("path", string "Lean file path, relative to the server root unless absolute."),
         ("full_diagnostics", bool "When true, include full diagnostics in broker diagnostic streams.")
@@ -217,20 +224,25 @@ structure PathInput where
 structure SyncInput where
   path : String
   fullDiagnostics? : Option Bool := none
+  includeDiagnostics? : Option Bool := none
 
 instance : ToJson SyncInput where
   toJson input :=
     Json.mkObj <|
       [("path", toJson input.path)] ++
-      match input.fullDiagnostics? with
+      (match input.fullDiagnostics? with
       | some fullDiagnostics => [("full_diagnostics", toJson fullDiagnostics)]
-      | none => []
+      | none => []) ++
+      (match input.includeDiagnostics? with
+      | some includeDiagnostics => [("include_diagnostics", toJson includeDiagnostics)]
+      | none => [])
 
 instance : FromJson SyncInput where
   fromJson? j := do
     let path ← j.getObjValAs? String "path"
     let fullDiagnostics? ← optionalField? (α := Bool) j "full_diagnostics"
-    pure { path, fullDiagnostics? }
+    let includeDiagnostics? ← optionalField? (α := Bool) j "include_diagnostics"
+    pure { path, fullDiagnostics?, includeDiagnostics? }
 
 def RunAtInput.toBrokerRequest
     (input : RunAtInput)
@@ -324,6 +336,7 @@ def SyncInput.toSyncBrokerRequest (input : SyncInput) (root : String) : Beam.Bro
   root? := some root
   path? := some input.path
   fullDiagnostics? := input.fullDiagnostics?
+  includeDiagnostics? := input.includeDiagnostics?
 }
 
 def SyncInput.toSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {

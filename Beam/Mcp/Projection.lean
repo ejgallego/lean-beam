@@ -271,6 +271,43 @@ private def normalizeTodoResult (result : Json) : Except ToolError Json := do
   | .error err =>
       throw <| ToolError.invalidResult s!"todo result missing 'items': {err}"
 
+private def diagnosticSeverityName : Option Lean.Lsp.DiagnosticSeverity → String
+  | some .error => "error"
+  | some .warning => "warning"
+  | some .information => "information"
+  | some .hint => "hint"
+  | none => "unknown"
+
+private def mcpDiagnosticJson (diagnostic : Beam.Broker.StreamDiagnostic) : Json :=
+  Json.mkObj <|
+    [
+      ("path", toJson diagnostic.path),
+      ("uri", toJson diagnostic.uri),
+      ("severity", toJson <| diagnosticSeverityName diagnostic.severity?),
+      ("range", toJson diagnostic.range),
+      ("message", toJson diagnostic.message),
+      ("completionBlocking", toJson diagnostic.completionBlocking)
+    ] ++
+    (match diagnostic.saveBlocking? with
+    | some saveBlocking => [("saveBlocking", toJson saveBlocking)]
+    | none => []) ++
+    match diagnostic.version? with
+    | some version => [("version", toJson version)]
+    | none => []
+
+private def normalizeSyncResult (result : Json) : Except ToolError Json := do
+  match result.getObjVal? "diagnostics" with
+  | .ok (Json.arr diagnostics) =>
+      let diagnostics ← diagnostics.mapM fun diagnosticJson =>
+        match fromJson? (α := Beam.Broker.StreamDiagnostic) diagnosticJson with
+        | .ok diagnostic => pure <| mcpDiagnosticJson diagnostic
+        | .error err => throw <| ToolError.invalidResult s!"sync diagnostic result is invalid: {err}"
+      pure <| result.setObjVal! "diagnostics" (Json.arr diagnostics)
+  | .ok _ =>
+      throw <| ToolError.invalidResult "sync result 'diagnostics' must be an array"
+  | .error _ =>
+      pure result
+
 private def normalizeResult? (tool : ToolName) : Option Json → Except ToolError (Option Json)
   | none => pure none
   | some result =>
@@ -279,6 +316,9 @@ private def normalizeResult? (tool : ToolName) : Option Json → Except ToolErro
         pure <| some normalized
       else if tool == .leanTodo then do
         let normalized ← normalizeTodoResult result
+        pure <| some normalized
+      else if tool == .leanSync then do
+        let normalized ← normalizeSyncResult result
         pure <| some normalized
       else
         pure <| some result

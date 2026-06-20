@@ -101,6 +101,24 @@ def main : IO Unit := do
     let syncDiagnostics ← requireAnyStreamDiagnostics "sync_file" syncMessages
     expectDiagnosticsForPath "sync_file" "SaveSmoke/B.lean" syncDiagnostics
 
+    let syncReplyMessages ← requireSuccessStream "sync_file include diagnostics" <| ← runRequestStream port {
+      op := .syncFile
+      root? := some root.toString
+      path? := some "SaveSmoke/B.lean"
+      fullDiagnostics? := some true
+      includeDiagnostics? := some true
+    }
+    expectStreamKindsOnly "sync_file include diagnostics" syncReplyMessages
+    let syncReplyResp ← requireFinalStreamResponse "sync_file include diagnostics" syncReplyMessages
+    let syncReplyPayload ← expectOk syncReplyResp
+    let replyDiagnostics ← IO.ofExcept <|
+      syncReplyPayload.getObjValAs? (Array Beam.Broker.StreamDiagnostic) "diagnostics"
+    if replyDiagnostics.isEmpty then
+      throw <| IO.userError
+        s!"expected sync_file include diagnostics to replay diagnostics, got {syncReplyPayload.compress}"
+    expectDiagnosticsForPath "sync_file include diagnostics" "SaveSmoke/B.lean" replyDiagnostics
+    expectWarningDiagnosticPresent "sync_file include diagnostics" replyDiagnostics
+
     writeSaveWarningFile root "-- request-stream save"
     let saveMessages ← requireSuccessStream "save_olean" <| ← runRequestStream port {
       op := .saveOlean
