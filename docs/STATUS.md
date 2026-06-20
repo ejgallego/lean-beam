@@ -96,35 +96,13 @@ long-term contract. Current handle behavior is:
   through hidden state
 
 The local Beam daemon convenience layer is also still alpha. In particular, `lean-beam sync` is now the
-supported on-disk edit barrier for Lean files: it waits for diagnostics for the synced version and
-streams fresh diagnostics to clients such as the CLI without replaying them in the final JSON, and
-returns a compact `fileProgress` summary rather than exposing the full underlying LSP notification
-stream. By default `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` stream only errors for the
-current request; `+full` widens that stream to warnings, info, and hints. The Beam daemon now also
-forwards compact `fileProgress` updates live to streaming clients. The final `sync` result counts
-the current synced document state under save-readiness semantics: `errorCount` is the current
-save-blocking frontend error count, not a count of Lean diagnostics whose severity is `error`.
-`warningCount` is the current warning count, and `saveReady` / `stateErrorCount` /
-`stateCommandErrorCount` describe whether Beam's save/checkpoint path should proceed. This is
-deliberately separate from streamed diagnostics: the stream reports diagnostic events observed
-while the current request was pending, whereas the final result reports the current synced state.
-Successful sync responses also include `result.syncSummary`, a typed versioned summary with
-`currentVersion`, optional `deltaBaseVersion`, current diagnostic/readiness counts, and
-diagnostic/readiness deltas against the previous successful sync boundary when one is available.
-Consumers that need incremental diagnostics should still use `beam-client request-stream` and treat
-`result.syncSummary.readiness.current.saveReady` / `saveBlockingErrorCount` as the authoritative
-save-readiness summary. When the current sync verdict is not save-ready,
-`result.syncSummary.readiness.current.blockingDiagnostics` and `blockingCommandMessages` contain the
-frontend diagnostics and command messages that blocked saving; each entry carries
-`saveBlocking=true`. If the save-readiness payload reports blocking counts without explicit
-evidence, Beam falls back to the current completed-barrier error diagnostics and marks them
-`saveBlocking=true`.
-`lean-beam save` and `lean-beam close-save` project the same sync verdict into successful save
-payloads as `sync` / `saved.sync`, and document-error save failures include it in
-`error.data.sync`, so checkpointing decisions can be traced back to the synced version that was just
-established. Those verdicts include the compatibility flat fields and the typed
-`syncSummary`, including `blockingDiagnostics` and `blockingCommandMessages` when a document error
-blocks checkpointing.
+supported on-disk edit barrier for Lean files: it waits for diagnostics for the synced version,
+streams fresh request diagnostics to clients such as the CLI, and returns a compact JSON verdict
+instead of replaying those diagnostics in the final response. By default `lean-beam sync`,
+`lean-beam save`, and `lean-beam close-save` stream only errors for the current request; `+full`
+widens that stream to warnings, info, and hints. The detailed progress, diagnostics,
+save-readiness, and sync-delta contract is documented below in
+[Progress And Sync Delta Reporting](#progress-and-sync-delta-reporting).
 For programmatic local consumers,
 the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; the wrapper stderr format should be treated as human-facing.
@@ -184,8 +162,11 @@ Progress, diagnostics, readiness, and deltas are separate typed concepts:
 | Delta summary | Comparison against one named previous sync boundary. | `result.syncSummary` diagnostic/readiness deltas when a previous sync boundary exists. |
 
 For MCP, Beam forwards incremental Lean diagnostics as structured `notifications/message` log
-events with path, URI, version, range, severity, and message data. These diagnostics are deliberately
-not encoded as progress. Beam also parses tool-call `_meta.progressToken` and emits
+events with path, URI, version, range, severity, message data, and `completionBlocking=true` when
+the diagnostic is known to block file completion. Streamed diagnostics remain request-scoped
+observations; save-readiness evidence is attached to the final sync/save verdict instead of being
+retroactively added to earlier stream events. These diagnostics are deliberately not encoded as
+progress. Beam also parses tool-call `_meta.progressToken` and emits
 `notifications/progress` for request-scoped setup and execution phases, plus throttled Lean
 `fileProgress.line` / `totalLines` / `updates` / `done` details, before the final JSON-RPC response.
 The numeric `progress` value is a per-request monotonic sequence. File-progress messages use
@@ -211,13 +192,6 @@ snapshots that do not block saving, so a valid sync summary may have
 `readiness.current.blockingDiagnostics` and `readiness.current.blockingCommandMessages` identify the
 errors that caused that decision and carry `saveBlocking=true`; if the save-readiness payload has no
 explicit evidence, Beam uses the current completed-barrier error diagnostics as fallback evidence.
-
-For MCP, Beam forwards incremental Lean diagnostics as structured `notifications/message` log
-events with path, URI, version, range, severity, message data, and `completionBlocking=true` when
-the diagnostic is known to block file completion. Streamed diagnostics remain request-scoped
-observations; save-readiness evidence is attached to the final sync/save verdict instead of being
-retroactively added to earlier stream events. These diagnostic logs are deliberately separate from
-MCP `notifications/progress`.
 
 For sync deltas, every delta-bearing payload states both sides of the comparison:
 

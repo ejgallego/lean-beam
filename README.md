@@ -148,14 +148,9 @@ The self-check starts a child MCP server, supplies the root through MCP `roots/l
 `lean_sync` on the file, and shuts the child server down.
 
 MCP clients can opt into live operation progress for `tools/call` requests by including
-`params._meta.progressToken` as a string or integer. The server emits monotonic
-`notifications/progress` updates for request setup, execution phases, and throttled Lean
-`fileProgress` details before the final response is sent. File-progress messages use the form
-`<tool> fileProgress line=<current>/<total> updates=<n> done=<true|false>` when Lean reports a
-processing range, and omit the line segment when no range is available. They are emitted on the
-first observed update, periodically while the update count advances, and when the final `done=true`
-state is observed. The final structured tool result also includes these fields in `file_progress`
-when Lean file progress was observed. Lean diagnostics are not encoded as progress notifications.
+`params._meta.progressToken` as a string or integer. The field-level progress, diagnostic, and
+sync-summary contract is maintained in
+[docs/STATUS.md](docs/STATUS.md#progress-and-sync-delta-reporting).
 
 ## Supported Toolchains
 
@@ -234,38 +229,20 @@ Read those flags like this:
   `lean_init_workspace` with `mode: "reset"`
 - deeper shell-oriented variants and debugging knobs live in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md) and the linked reference docs
 
-The final `lean-beam sync` JSON summarizes the current synced version rather than replaying the
-diagnostics streamed on stderr for that request. `result.errorCount` is the current save-blocking
-frontend error count, `result.warningCount` is the current warning count, and `result.saveReady`
-with `result.stateErrorCount` / `result.stateCommandErrorCount` reports whether the file is ready
-for Beam's save/checkpoint path. Streamed diagnostics are request events, not a since-last-sync
-diff. Successful sync responses include `result.syncSummary` with `currentVersion`, optional
-`deltaBaseVersion`, current diagnostic/readiness counts, and versioned deltas against the previous
-successful sync when one exists. Diagnostic deltas use Beam's diagnostic identity
-`(range, effective severity, message)`. A successful sync transport can still have
-`saveReady=false` when Lean found build-blocking errors in the document.
-
-For new tooling, treat `result.syncSummary.readiness.current.saveReady` and
-`saveBlockingErrorCount` as the canonical save/checkpoint decision. Treat
-`result.syncSummary.diagnostics.current.*` as Lean-published diagnostic severity counts only. Those
-diagnostic counts can include interactive diagnostics that do not block saving; a response may have
-`diagnostics.current.error > 0` while `readiness.current.saveReady = true`. The existing flat
+The final `lean-beam sync` JSON summarizes the current synced version rather than replaying
+diagnostics streamed on stderr for that request. Streamed diagnostics are request events, not a
+since-last-sync diff. New tooling should prefer `result.syncSummary`: use
+`readiness.current.saveReady` plus `saveBlockingErrorCount` for the save/checkpoint decision, and
+use `diagnostics.current.*` only for Lean-published diagnostic severity counts. The flat
 `result.errorCount`, `result.warningCount`, `result.saveReady`, `result.stateErrorCount`, and
-`result.stateCommandErrorCount` fields are compatibility projections of the current sync verdict;
-prefer the typed `syncSummary` fields in new clients.
-When `saveReady=false`, `result.syncSummary.readiness.current.blockingDiagnostics` and
-`blockingCommandMessages` identify the frontend diagnostics and command messages that blocked
-the save decision. Each entry carries `saveBlocking=true`; streamed diagnostics remain
-request-scoped observations and are not retroactively rewritten with save-readiness evidence. If a
-save-readiness payload reports blocking counts without explicit evidence, Beam falls back to the
-current completed-barrier error diagnostics and marks them `saveBlocking=true`.
+`result.stateCommandErrorCount` fields remain compatibility projections of that current verdict.
 
 `lean-beam save` includes the sync verdict it established before checkpointing in `result.sync`;
-`lean-beam close-save` includes the same verdict in `result.saved.sync`. Those verdicts include the
-typed `syncSummary` as well as the flat compatibility fields. Document-error save failures include
-that verdict in `error.data.sync`, so clients can inspect the exact synced version and
-save-readiness decision that blocked checkpointing, including `blockingDiagnostics` and
-`blockingCommandMessages` on that sync verdict.
+`lean-beam close-save` includes the same verdict in `result.saved.sync`. Document-error save
+failures include that verdict in `error.data.sync`, so clients can inspect the synced version and
+save-readiness decision that blocked checkpointing. See
+[docs/STATUS.md](docs/STATUS.md#progress-and-sync-delta-reporting) for the exact progress,
+diagnostic, readiness, and delta fields.
 
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
 `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` to suggest a
