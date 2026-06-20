@@ -4,7 +4,6 @@ import argparse
 import collections
 import json
 import os
-import platform
 import select
 import shutil
 import subprocess
@@ -14,40 +13,19 @@ import threading
 import time
 from pathlib import Path
 
+from mcp_test_util import (
+    fail,
+    notification_params,
+    notifications_by_method,
+    progress_messages,
+    require,
+    require_file_progress_line,
+    save_warning_text,
+    shared_lib_name,
+)
+
 
 SUPPORTED_PROTOCOL_VERSION = "2025-11-25"
-
-
-def fail(message):
-    raise RuntimeError(message)
-
-
-def require(condition, message):
-    if not condition:
-        fail(message)
-
-
-def notifications_by_method(notifications, method):
-    return [notification for notification in notifications if notification.get("method") == method]
-
-
-def notification_params(notification, method, label):
-    require(
-        notification.get("method") == method,
-        f"{label}: unexpected notification method: {notification}",
-    )
-    params = notification.get("params")
-    require(isinstance(params, dict), f"{label}: notification missing params: {notification}")
-    return params
-
-
-def shared_lib_name():
-    system = platform.system()
-    if system == "Darwin":
-        return "librunAt_RunAt.dylib"
-    if system.startswith("Windows") or system in {"MSYS_NT", "MINGW_NT"}:
-        return "runAt_RunAt.dll"
-    return "librunAt_RunAt.so"
 
 
 class McpClient:
@@ -353,20 +331,6 @@ def expect_error_code(response, code):
     return error
 
 
-def save_warning_text(marker):
-    return "\n".join(
-        [
-            "def bVal : Nat := 1",
-            "",
-            "set_option linter.unusedVariables true in",
-            "theorem warnOnly (n : Nat) : True := by",
-            "  trivial",
-            "",
-            marker,
-        ]
-    ) + "\n"
-
-
 def write_save_warning_file(project_root, marker):
     (project_root / "SaveSmoke" / "B.lean").write_text(save_warning_text(marker), encoding="utf-8")
 
@@ -495,13 +459,6 @@ def require_progress_sequence(notifications, token, label):
     return [notification["params"]["progress"] for notification in notifications]
 
 
-def progress_messages(notifications):
-    return [
-        notification_params(notification, "notifications/progress", "progress notification").get("message")
-        for notification in notifications
-    ]
-
-
 def require_progress_message_contains(notifications, label, *needles):
     messages = [message for message in progress_messages(notifications) if isinstance(message, str)]
     for needle in needles:
@@ -509,15 +466,6 @@ def require_progress_message_contains(notifications, label, *needles):
             any(needle in message for message in messages),
             f"{label}: expected a progress message containing {needle!r}, got {messages}",
         )
-
-
-def require_file_progress_line(structured, label):
-    progress = structured.get("file_progress")
-    require(isinstance(progress, dict), f"{label}: missing file_progress metadata: {structured}")
-    line = progress.get("line")
-    total = progress.get("totalLines")
-    require(isinstance(line, int) and line >= 1, f"{label}: invalid file_progress line: {progress}")
-    require(isinstance(total, int) and total >= line, f"{label}: invalid file_progress totalLines: {progress}")
 
 
 def require_file_progress_position(structured, label, line, total):

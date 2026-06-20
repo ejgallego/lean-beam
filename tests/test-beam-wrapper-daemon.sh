@@ -79,12 +79,7 @@ if ! kill -0 "$hold_pid" 2>/dev/null; then
   exit 1
 fi
 hold_json="$(cat "$tmp9/hold.out")"
-if [ "$(RUNAT_JSON_PAYLOAD="$hold_json" read_json_text_field ok)" != "true" ]; then
-  echo "expected ensure --hold response to succeed" >&2
-  printf '%s\n' "$hold_json" >&2
-  cat "$tmp9/hold.err" >&2
-  exit 1
-fi
+assert_json_field_equals "ensure --hold response" "$hold_json" ok true "$tmp9/hold.err"
 stop_hold_process
 "$beam_script" --root "$tmp9" shutdown > /dev/null
 

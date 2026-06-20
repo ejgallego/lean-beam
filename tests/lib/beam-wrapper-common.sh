@@ -127,16 +127,55 @@ print_json_file_assertion_context() {
   done
 }
 
+print_json_payload_assertion_context() {
+  local payload="$1"
+  local context_file
+  shift
+  printf '%s\n' "$payload" >&2
+  for context_file in "$@"; do
+    if [ -f "$context_file" ]; then
+      cat "$context_file" >&2
+    fi
+  done
+}
+
 assert_json_field_equals() {
   local label="$1"
   local payload="$2"
   local field="$3"
   local expected="$4"
   local actual
+  shift 4
   actual="$(json_text_field "$payload" "$field")"
   if [ "$actual" != "$expected" ]; then
     echo "expected $label to report $field = $expected, got ${actual:-<empty>}" >&2
-    printf '%s\n' "$payload" >&2
+    print_json_payload_assertion_context "$payload" "$@"
+    exit 1
+  fi
+}
+
+assert_json_field_bool() {
+  local label="$1"
+  local payload="$2"
+  local field="$3"
+  local actual
+  shift 3
+  actual="$(json_text_field "$payload" "$field")"
+  if [ "$actual" != "true" ] && [ "$actual" != "false" ]; then
+    echo "expected $label to report boolean $field, got ${actual:-<empty>}" >&2
+    print_json_payload_assertion_context "$payload" "$@"
+    exit 1
+  fi
+}
+
+assert_json_field_absent() {
+  local label="$1"
+  local payload="$2"
+  local field="$3"
+  shift 3
+  if RUNAT_JSON_PAYLOAD="$payload" json_text_has_field "$field"; then
+    echo "expected $label to omit $field" >&2
+    print_json_payload_assertion_context "$payload" "$@"
     exit 1
   fi
 }
@@ -161,10 +200,11 @@ assert_json_field_nonempty() {
   local payload="$2"
   local field="$3"
   local actual
+  shift 3
   actual="$(json_text_field "$payload" "$field")"
   if [ -z "$actual" ]; then
     echo "expected $label to report a non-empty $field" >&2
-    printf '%s\n' "$payload" >&2
+    print_json_payload_assertion_context "$payload" "$@"
     exit 1
   fi
 }
@@ -175,17 +215,52 @@ assert_json_field_int_ge() {
   local field="$3"
   local minimum="$4"
   local actual
+  shift 4
   actual="$(json_text_field "$payload" "$field")"
   case "$actual" in
     ""|*[!0-9]*)
       echo "expected $label to report numeric $field >= $minimum, got ${actual:-<empty>}" >&2
-      printf '%s\n' "$payload" >&2
+      print_json_payload_assertion_context "$payload" "$@"
       exit 1
       ;;
   esac
   if [ "${actual:-0}" -lt "$minimum" ]; then
     echo "expected $label to report $field >= $minimum, got ${actual:-<empty>}" >&2
-    printf '%s\n' "$payload" >&2
+    print_json_payload_assertion_context "$payload" "$@"
+    exit 1
+  fi
+}
+
+assert_json_file_field_int_ge() {
+  local label="$1"
+  local payload_file="$2"
+  local field="$3"
+  local minimum="$4"
+  local actual
+  shift 4
+  actual="$(json_file_text_field "$payload_file" "$field")"
+  case "$actual" in
+    ""|*[!0-9]*)
+      echo "expected $label to report numeric $field >= $minimum, got ${actual:-<empty>}" >&2
+      print_json_file_assertion_context "$payload_file" "$@"
+      exit 1
+      ;;
+  esac
+  if [ "${actual:-0}" -lt "$minimum" ]; then
+    echo "expected $label to report $field >= $minimum, got ${actual:-<empty>}" >&2
+    print_json_file_assertion_context "$payload_file" "$@"
+    exit 1
+  fi
+}
+
+assert_json_file_field_absent() {
+  local label="$1"
+  local payload_file="$2"
+  local field="$3"
+  shift 3
+  if RUNAT_JSON_PAYLOAD="$(cat "$payload_file")" json_text_has_field "$field"; then
+    echo "expected $label to omit $field" >&2
+    print_json_file_assertion_context "$payload_file" "$@"
     exit 1
   fi
 }
@@ -196,10 +271,11 @@ assert_json_array_len_equals() {
   local field="$3"
   local expected="$4"
   local actual
+  shift 4
   actual="$(json_array_len "$payload" "$field")"
   if [ "$actual" != "$expected" ]; then
     echo "expected $label to report $field length = $expected, got ${actual:-<empty>}" >&2
-    printf '%s\n' "$payload" >&2
+    print_json_payload_assertion_context "$payload" "$@"
     exit 1
   fi
 }
