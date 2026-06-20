@@ -38,6 +38,14 @@ private def expectSyncVerdict
   if sync.saveReady != expectedSaveReady then
     throw <| IO.userError
       s!"expected {label} sync.saveReady = {expectedSaveReady}, got {(toJson sync).compress}"
+  let some summary := sync.syncSummary?
+    | throw <| IO.userError s!"expected {label} sync.syncSummary, got {(toJson sync).compress}"
+  if summary.currentVersion != expectedVersion then
+    throw <| IO.userError
+      s!"expected {label} sync.syncSummary.currentVersion = {expectedVersion}, got {(toJson summary).compress}"
+  if summary.readiness.current.saveReady != expectedSaveReady then
+    throw <| IO.userError
+      s!"expected {label} sync.syncSummary readiness saveReady = {expectedSaveReady}, got {(toJson summary).compress}"
   pure sync
 
 private def expectErrorSyncVerdict
@@ -51,6 +59,14 @@ private def expectErrorSyncVerdict
   if sync.saveReady != expectedSaveReady then
     throw <| IO.userError
       s!"expected {label} sync.saveReady = {expectedSaveReady}, got {(toJson sync).compress}"
+  let some summary := sync.syncSummary?
+    | throw <| IO.userError s!"expected {label} error.data.sync.syncSummary, got {(toJson sync).compress}"
+  if summary.currentVersion != sync.version then
+    throw <| IO.userError
+      s!"expected {label} syncSummary.currentVersion to match sync.version, got {(toJson summary).compress}"
+  if summary.readiness.current.saveReady != expectedSaveReady then
+    throw <| IO.userError
+      s!"expected {label} syncSummary readiness saveReady = {expectedSaveReady}, got {(toJson summary).compress}"
   pure sync
 
 def main : IO Unit := do
