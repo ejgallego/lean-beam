@@ -113,28 +113,9 @@ fi
   "$beam_script" ensure lean > /dev/null
   cmd_err="$(mktemp /tmp/beam-wrapper-progress-XXXXXX)"
   cmd_out="$(BEAM_PROGRESS=1 "$beam_script" run-at CommandA.lean 0 2 "#check answerA" 2>"$cmd_err")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper run-at to succeed" >&2
-    printf '%s\n' "$cmd_out" >&2
-    cat "$cmd_err" >&2
-    rm -f "$cmd_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field result.success)" != "true" ]; then
-    echo "expected wrapper run-at payload success" >&2
-    printf '%s\n' "$cmd_out" >&2
-    cat "$cmd_err" >&2
-    rm -f "$cmd_err"
-    exit 1
-  fi
-  run_at_progress_done="$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field fileProgress.done)"
-  if [ "$run_at_progress_done" != "true" ] && [ "$run_at_progress_done" != "false" ]; then
-    echo "expected wrapper run-at to expose top-level fileProgress" >&2
-    printf '%s\n' "$cmd_out" >&2
-    cat "$cmd_err" >&2
-    rm -f "$cmd_err"
-    exit 1
-  fi
+  assert_json_field_equals "wrapper run-at" "$cmd_out" ok true
+  assert_json_field_equals "wrapper run-at payload" "$cmd_out" result.success true
+  assert_json_field_bool "wrapper run-at top-level progress" "$cmd_out" fileProgress.done
   if ! grep -q 'waiting for a ready Lean snapshot' "$cmd_err"; then
     echo "expected wrapper run-at progress stderr output" >&2
     cat "$cmd_err" >&2
@@ -175,13 +156,7 @@ fi
   fi
   debug_text_err="$(mktemp /tmp/beam-wrapper-debug-text-XXXXXX)"
   debug_text_out="$(printf 'def debugProbe : Nat :=\n  42' | BEAM_DEBUG_TEXT=1 "$beam_script" run-at PositionEmptyLine.lean 1 0 --stdin 2>"$debug_text_err")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$debug_text_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper debug-text probe to succeed" >&2
-    printf '%s\n' "$debug_text_out" >&2
-    cat "$debug_text_err" >&2
-    rm -f "$debug_text_err"
-    exit 1
-  fi
+  assert_json_field_equals "wrapper debug-text probe" "$debug_text_out" ok true
   if ! grep -q 'debug text for run-at: source=stdin' "$debug_text_err"; then
     echo "expected wrapper debug-text mode to report stdin as the text source" >&2
     cat "$debug_text_err" >&2
@@ -215,20 +190,8 @@ fi
   rm -f "$debug_text_err"
   literal_newline_err="$(mktemp /tmp/beam-wrapper-literal-newline-XXXXXX)"
   literal_newline_out="$("$beam_script" run-at PositionEmptyLine.lean 1 0 'def _probe_tmp : Nat := 0\n' 2>"$literal_newline_err")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$literal_newline_out" read_json_text_field ok)" != "true" ]; then
-    printf '%s\n' "expected wrapper literal-\\n probe to stay a payload failure, not a transport error" >&2
-    printf '%s\n' "$literal_newline_out" >&2
-    cat "$literal_newline_err" >&2
-    rm -f "$literal_newline_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$literal_newline_out" read_json_text_field result.success)" != "false" ]; then
-    printf '%s\n' "expected wrapper literal-\\n probe to fail in the run-at payload" >&2
-    printf '%s\n' "$literal_newline_out" >&2
-    cat "$literal_newline_err" >&2
-    rm -f "$literal_newline_err"
-    exit 1
-  fi
+  assert_json_field_equals "wrapper literal-\\n probe" "$literal_newline_out" ok true
+  assert_json_field_equals "wrapper literal-\\n probe payload" "$literal_newline_out" result.success false
   if ! grep -q "literal characters '\\\\n'" "$literal_newline_err"; then
     printf '%s\n' "expected wrapper literal-\\n probe to print a newline hint" >&2
     cat "$literal_newline_err" >&2
@@ -243,11 +206,7 @@ fi
   fi
   rm -f "$literal_newline_err"
   blank_ok_out="$("$beam_script" run-at PositionEmptyLine.lean 1 0 "#check answer")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$blank_ok_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper blank-line probe at character 0 to succeed" >&2
-    printf '%s\n' "$blank_ok_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper blank-line probe at character 0" "$blank_ok_out" ok true
   if ! printf '%s\n' "$blank_ok_out" | grep -q 'answer : Nat'; then
     echo "expected wrapper blank-line probe at character 0 to expose answer type information" >&2
     printf '%s\n' "$blank_ok_out" >&2
@@ -274,11 +233,7 @@ fi
   fi
   rm -f "$blank_err"
   utf16_ok_out="$("$beam_script" run-at PositionUtf16.lean 1 5 "#check Nat")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$utf16_ok_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper UTF-16 boundary probe to succeed" >&2
-    printf '%s\n' "$utf16_ok_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper UTF-16 boundary probe" "$utf16_ok_out" ok true
   if ! printf '%s\n' "$utf16_ok_out" | grep -q 'Nat : Type'; then
     echo "expected wrapper UTF-16 boundary probe to expose Nat type information" >&2
     printf '%s\n' "$utf16_ok_out" >&2
@@ -299,63 +254,24 @@ fi
   fi
   rm -f "$utf16_err"
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper stats to succeed" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
-  run_at_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.run_at.count)"
-  if [ "${run_at_count:-0}" -lt 1 ]; then
-    echo "expected wrapper stats to record at least one run_at request" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper stats" "$stats_out" ok true
+  assert_json_field_int_ge "wrapper stats" "$stats_out" result.byBackend.lean.ops.run_at.count 1
   hover_out="$("$beam_script" hover CommandA.lean 0 4)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$hover_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper hover probe to succeed" >&2
-    printf '%s\n' "$hover_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper hover probe" "$hover_out" ok true
   if ! printf '%s\n' "$hover_out" | grep -q 'answerA : Nat'; then
     echo "expected wrapper hover probe to expose answerA type information" >&2
     printf '%s\n' "$hover_out" >&2
     exit 1
   fi
   goals_prev_out="$("$beam_script" goals-prev GoalSmoke.lean 1 2)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_prev_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper goals-prev probe to succeed" >&2
-    printf '%s\n' "$goals_prev_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_prev_out" read_json_text_field result.goals.0.target)" != "True" ]; then
-    echo "expected wrapper goals-prev probe to expose the open True goal" >&2
-    printf '%s\n' "$goals_prev_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper goals-prev probe" "$goals_prev_out" ok true
+  assert_json_field_equals "wrapper goals-prev probe" "$goals_prev_out" result.goals.0.target True
   goals_after_out="$("$beam_script" goals-after GoalSmoke.lean 1 2)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_after_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper goals-after probe to succeed" >&2
-    printf '%s\n' "$goals_after_out" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_after_out" read_json_array_len result.goals)" != "0" ]; then
-    echo "expected wrapper goals-after probe to expose no remaining goals" >&2
-    printf '%s\n' "$goals_after_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper goals-after probe" "$goals_after_out" ok true
+  assert_json_array_len_equals "wrapper goals-after probe" "$goals_after_out" result.goals 0
   stats_out="$("$beam_script" stats)"
-  request_at_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.request_at.count)"
-  if [ "${request_at_count:-0}" -lt 1 ]; then
-    echo "expected wrapper stats to record at least one request_at-backed hover request" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
-  goals_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.goals.count)"
-  if [ "${goals_count:-0}" -lt 2 ]; then
-    echo "expected wrapper stats to record at least two goals requests" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_int_ge "wrapper stats" "$stats_out" result.byBackend.lean.ops.request_at.count 1
+  assert_json_field_int_ge "wrapper stats" "$stats_out" result.byBackend.lean.ops.goals.count 2
   references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$beam_script" request-at CommandA.lean 0 4 textDocument/references -)"
   if [ "$(RUNAT_JSON_PAYLOAD="$references_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper request-at references probe from stdin json to succeed" >&2
@@ -743,61 +659,25 @@ example : True ∧ True := by
 EOF
 
   mint_handle_stdin="$(printf 'constructor' | "$beam_script" run-at-handle HandleSmoke.lean 0 27 --stdin)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle_stdin" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper handle mint via --stdin to succeed" >&2
-    printf '%s\n' "$mint_handle_stdin" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle_stdin" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected wrapper handle mint via --stdin to return a lean handle" >&2
-    printf '%s\n' "$mint_handle_stdin" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper handle mint via --stdin" "$mint_handle_stdin" ok true
+  assert_json_field_equals "wrapper handle mint via --stdin" "$mint_handle_stdin" result.handle.backend lean
 
   handle_mint_file="handle-mint.txt"
   printf 'constructor' > "$handle_mint_file"
   mint_handle_file="$("$beam_script" run-at-handle HandleSmoke.lean 0 27 --text-file "$handle_mint_file")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle_file" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper handle mint via --text-file to succeed" >&2
-    printf '%s\n' "$mint_handle_file" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle_file" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected wrapper handle mint via --text-file to return a lean handle" >&2
-    printf '%s\n' "$mint_handle_file" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper handle mint via --text-file" "$mint_handle_file" ok true
+  assert_json_field_equals "wrapper handle mint via --text-file" "$mint_handle_file" result.handle.backend lean
   branch_handle_file="branch-handle.json"
   printf '%s\n' "$mint_handle_file" > "$branch_handle_file"
 
   mint_handle="$("$beam_script" run-at-handle HandleSmoke.lean 0 27 "constructor")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper handle mint to succeed" >&2
-    printf '%s\n' "$mint_handle" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected wrapper handle mint to return a lean handle" >&2
-    printf '%s\n' "$mint_handle" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper handle mint" "$mint_handle" ok true
+  assert_json_field_equals "wrapper handle mint" "$mint_handle" result.handle.backend lean
 
   branch_step_stdin_err="$(mktemp /tmp/beam-wrapper-run-with-stdin-XXXXXX)"
   branch_step_stdin="$(printf 'exact trivial' | BEAM_DEBUG_TEXT=1 "$beam_script" run-with HandleSmoke.lean "$mint_handle_stdin" --stdin 2>"$branch_step_stdin_err")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step_stdin" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper non-linear handle continuation via --stdin to succeed" >&2
-    printf '%s\n' "$branch_step_stdin" >&2
-    cat "$branch_step_stdin_err" >&2
-    rm -f "$branch_step_stdin_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step_stdin" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected wrapper non-linear handle continuation via --stdin to return a successor handle" >&2
-    printf '%s\n' "$branch_step_stdin" >&2
-    cat "$branch_step_stdin_err" >&2
-    rm -f "$branch_step_stdin_err"
-    exit 1
-  fi
+  assert_json_field_equals "wrapper non-linear handle continuation via --stdin" "$branch_step_stdin" ok true "$branch_step_stdin_err"
+  assert_json_field_equals "wrapper non-linear handle continuation via --stdin" "$branch_step_stdin" result.handle.backend lean "$branch_step_stdin_err"
   if ! grep -q 'debug text for run-with: source=stdin' "$branch_step_stdin_err"; then
     echo "expected wrapper run-with debug-text mode to report stdin as the continuation text source" >&2
     cat "$branch_step_stdin_err" >&2
@@ -807,16 +687,8 @@ EOF
   rm -f "$branch_step_stdin_err"
 
   branch_step_file="$(printf 'exact trivial' | "$beam_script" run-with HandleSmoke.lean --handle-file "$branch_handle_file" --stdin)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step_file" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper non-linear handle continuation via --handle-file to succeed" >&2
-    printf '%s\n' "$branch_step_file" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step_file" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected wrapper non-linear handle continuation via --handle-file to return a successor handle" >&2
-    printf '%s\n' "$branch_step_file" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper non-linear handle continuation via --handle-file" "$branch_step_file" ok true
+  assert_json_field_equals "wrapper non-linear handle continuation via --handle-file" "$branch_step_file" result.handle.backend lean
 
   stdin_conflict_err="$(mktemp /tmp/beam-wrapper-run-with-stdin-conflict-XXXXXX)"
   if printf '%s\n' "$mint_handle" | "$beam_script" run-with HandleSmoke.lean - --stdin >"$stdin_conflict_err" 2>&1; then
@@ -834,23 +706,11 @@ EOF
   rm -f "$stdin_conflict_err"
 
   branch_step="$(printf '%s\n' "$mint_handle" | "$beam_script" run-with HandleSmoke.lean - "exact trivial")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper non-linear handle continuation to succeed" >&2
-    printf '%s\n' "$branch_step" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$branch_step" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected wrapper non-linear handle continuation to return a successor handle" >&2
-    printf '%s\n' "$branch_step" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper non-linear handle continuation" "$branch_step" ok true
+  assert_json_field_equals "wrapper non-linear handle continuation" "$branch_step" result.handle.backend lean
 
   branch_done="$(printf '%s\n' "$branch_step" | "$beam_script" run-with HandleSmoke.lean - "exact trivial")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$branch_done" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper second non-linear handle continuation to succeed" >&2
-    printf '%s\n' "$branch_done" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper second non-linear handle continuation" "$branch_done" ok true
   if ! printf '%s\n' "$branch_done" | grep -q '"goals": \[\]'; then
     echo "expected wrapper non-linear handle chain to solve the proof" >&2
     printf '%s\n' "$branch_done" >&2
@@ -858,27 +718,15 @@ EOF
   fi
 
   mint_linear="$("$beam_script" run-at-handle HandleSmoke.lean 0 27 "constructor")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$mint_linear" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper linear handle mint to succeed" >&2
-    printf '%s\n' "$mint_linear" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper linear handle mint" "$mint_linear" ok true
 
   linear_text_file="linear-continuation.txt"
   printf 'exact trivial' > "$linear_text_file"
   linear_handle_file="linear-handle.json"
   printf '%s\n' "$mint_linear" > "$linear_handle_file"
   linear_step="$("$beam_script" run-with-linear HandleSmoke.lean --handle-file "$linear_handle_file" --text-file "$linear_text_file")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$linear_step" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper linear handle continuation via --handle-file and --text-file to succeed" >&2
-    printf '%s\n' "$linear_step" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$linear_step" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected wrapper linear handle continuation via --handle-file and --text-file to return a successor handle" >&2
-    printf '%s\n' "$linear_step" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper linear handle continuation via --handle-file and --text-file" "$linear_step" ok true
+  assert_json_field_equals "wrapper linear handle continuation via --handle-file and --text-file" "$linear_step" result.handle.backend lean
 
   linear_reuse_err="$(mktemp /tmp/beam-wrapper-linear-reuse-XXXXXX)"
   if printf '%s\n' "$mint_linear" | "$beam_script" run-with HandleSmoke.lean - "exact trivial" >"$linear_reuse_err" 2>&1; then
@@ -898,11 +746,7 @@ EOF
   release_handle_file="release-handle.json"
   printf '%s\n' "$linear_step" > "$release_handle_file"
   release_out="$("$beam_script" release HandleSmoke.lean --handle-file "$release_handle_file")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$release_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper handle release via --handle-file to succeed" >&2
-    printf '%s\n' "$release_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "wrapper handle release via --handle-file" "$release_out" ok true
 
   release_reuse_err="$(mktemp /tmp/beam-wrapper-release-reuse-XXXXXX)"
   if printf '%s\n' "$linear_step" | "$beam_script" run-with HandleSmoke.lean - "exact trivial" >"$release_reuse_err" 2>&1; then
@@ -919,11 +763,7 @@ EOF
   fi
   rm -f "$release_reuse_err"
   close_handle_out="$("$beam_script" close HandleSmoke.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_handle_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected handle smoke file close to succeed" >&2
-    printf '%s\n' "$close_handle_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "handle smoke file close" "$close_handle_out" ok true
 
   portable_wrapper_bin="$tmp1/portable-wrapper-bin"
   system_readlink="$(command -v readlink)"
@@ -944,23 +784,11 @@ EOF
   chmod +x "$portable_wrapper_bin/readlink"
 
   portable_stats_out="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/lean-beam" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$portable_stats_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected symlinked wrapper to work when readlink -f is unavailable" >&2
-    printf '%s\n' "$portable_stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "symlinked wrapper when readlink -f is unavailable" "$portable_stats_out" ok true
 
   portable_helper_root="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/lean-beam-search" mint HandleSmoke.lean 0 27 "constructor")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$portable_helper_root" read_json_text_field ok)" != "true" ]; then
-    echo "expected symlinked helper to work when readlink -f is unavailable" >&2
-    printf '%s\n' "$portable_helper_root" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$portable_helper_root" read_json_text_field result.handle.backend)" != "lean" ]; then
-    echo "expected symlinked helper mint to return a lean handle" >&2
-    printf '%s\n' "$portable_helper_root" >&2
-    exit 1
-  fi
+  assert_json_field_equals "symlinked helper when readlink -f is unavailable" "$portable_helper_root" ok true
+  assert_json_field_equals "symlinked helper mint" "$portable_helper_root" result.handle.backend lean
 
   wrapper_shadow_root="$tmp1/wrapper-shadow-root"
   mkdir -p "$wrapper_shadow_root/scripts" "$wrapper_shadow_root/.lake/build/bin" "$wrapper_shadow_root/libexec"
@@ -992,34 +820,18 @@ EOF
   fi
 
   helper_root="$("$search_helper" mint HandleSmoke.lean 0 27 "constructor")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$helper_root" read_json_text_field ok)" != "true" ]; then
-    echo "expected helper mint to succeed" >&2
-    printf '%s\n' "$helper_root" >&2
-    exit 1
-  fi
+  assert_json_field_equals "helper mint" "$helper_root" ok true
   helper_branch="$(printf '%s\n' "$helper_root" | "$search_helper" branch HandleSmoke.lean "exact trivial")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$helper_branch" read_json_text_field ok)" != "true" ]; then
-    echo "expected helper branch to succeed" >&2
-    printf '%s\n' "$helper_branch" >&2
-    exit 1
-  fi
+  assert_json_field_equals "helper branch" "$helper_branch" ok true
   helper_playout="$(printf '%s\n' "$helper_branch" | "$search_helper" playout HandleSmoke.lean "exact trivial")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$helper_playout" read_json_text_field ok)" != "true" ]; then
-    echo "expected helper playout to succeed" >&2
-    printf '%s\n' "$helper_playout" >&2
-    exit 1
-  fi
+  assert_json_field_equals "helper playout" "$helper_playout" ok true
   if ! printf '%s\n' "$helper_playout" | grep -q '"goals": \[\]'; then
     echo "expected helper playout to solve the proof" >&2
     printf '%s\n' "$helper_playout" >&2
     exit 1
   fi
   helper_release="$(printf '%s\n' "$helper_root" | "$search_helper" release HandleSmoke.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$helper_release" read_json_text_field ok)" != "true" ]; then
-    echo "expected helper release to succeed" >&2
-    printf '%s\n' "$helper_release" >&2
-    exit 1
-  fi
+  assert_json_field_equals "helper release" "$helper_release" ok true
   helper_release_reuse_err="$(mktemp /tmp/beam-helper-release-reuse-XXXXXX)"
   if printf '%s\n' "$helper_root" | "$search_helper" branch HandleSmoke.lean "exact trivial" >"$helper_release_reuse_err" 2>&1; then
     echo "expected released helper root to fail when reused" >&2
@@ -1035,84 +847,25 @@ EOF
   fi
   rm -f "$helper_release_reuse_err"
   close_helper_handle_out="$("$beam_script" close HandleSmoke.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_helper_handle_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected helper handle smoke file close to succeed" >&2
-    printf '%s\n' "$close_helper_handle_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "helper handle smoke file close" "$close_helper_handle_out" ok true
 
   printf 'def bVal : Nat := "broken"\n' > SaveSmoke/B.lean
   broken_sync_json="$(mktemp /tmp/beam-wrapper-broken-sync-json-XXXXXX)"
   broken_sync_err="$(mktemp /tmp/beam-wrapper-broken-sync-err-XXXXXX)"
   "$beam_script" sync SaveSmoke/B.lean >"$broken_sync_json" 2>"$broken_sync_err"
-  broken_sync="$(cat "$broken_sync_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field ok)" != "true" ]; then
-    echo "expected sync to succeed even when Lean reports diagnostics" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected broken sync to report completed top-level fileProgress" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  broken_version="$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.version)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.syncSummary.currentVersion)" != "$broken_version" ]; then
-    echo "expected broken sync syncSummary.currentVersion to match result.version" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.errorCount)" -lt 1 ]; then
-    echo "expected broken sync final json to report at least one save-blocking error" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.warningCount)" != "0" ]; then
-    echo "expected broken sync final json to report zero warnings" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.saveReady)" != "false" ]; then
-    echo "expected broken sync final json to report saveReady = false" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.stateErrorCount)" -lt 1 ]; then
-    echo "expected broken sync final json to report stateErrorCount >= 1" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.saveReadyReason)" != "documentErrors" ]; then
-    echo "expected broken sync final json to report saveReadyReason = documentErrors" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
-  if RUNAT_JSON_PAYLOAD="$broken_sync" json_text_has_field result.diagnostics; then
-    echo "expected broken sync final json to omit replayed diagnostics" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "broken sync" "$broken_sync_json" ok true "$broken_sync_err"
+  assert_json_file_field_equals "broken sync" "$broken_sync_json" fileProgress.done true "$broken_sync_err"
+  broken_version="$(json_file_text_field "$broken_sync_json" result.version)"
+  assert_json_file_field_equals "broken sync" "$broken_sync_json" result.syncSummary.currentVersion "$broken_version" "$broken_sync_err"
+  assert_json_file_field_int_ge "broken sync final json" "$broken_sync_json" result.errorCount 1 "$broken_sync_err"
+  assert_json_file_field_equals "broken sync final json" "$broken_sync_json" result.warningCount 0 "$broken_sync_err"
+  assert_json_file_field_equals "broken sync final json" "$broken_sync_json" result.saveReady false "$broken_sync_err"
+  assert_json_file_field_int_ge "broken sync final json" "$broken_sync_json" result.stateErrorCount 1 "$broken_sync_err"
+  assert_json_file_field_equals "broken sync final json" "$broken_sync_json" result.saveReadyReason documentErrors "$broken_sync_err"
+  assert_json_file_field_absent "broken sync final json" "$broken_sync_json" result.diagnostics "$broken_sync_err"
   if ! grep -Eq '^beam: diagnostic error SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$broken_sync_err"; then
     echo "expected broken sync to stream an error diagnostic on stderr" >&2
-    printf '%s\n' "$broken_sync" >&2
+    cat "$broken_sync_json" >&2
     cat "$broken_sync_err" >&2
     rm -f "$broken_sync_json" "$broken_sync_err"
     exit 1
@@ -1121,42 +874,11 @@ EOF
   broken_resync_json="$(mktemp /tmp/beam-wrapper-broken-resync-json-XXXXXX)"
   broken_resync_err="$(mktemp /tmp/beam-wrapper-broken-resync-err-XXXXXX)"
   "$beam_script" sync SaveSmoke/B.lean >"$broken_resync_json" 2>"$broken_resync_err"
-  broken_resync="$(cat "$broken_resync_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field ok)" != "true" ]; then
-    echo "expected unchanged broken sync to succeed even when Lean reports diagnostics" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.errorCount)" -lt 1 ]; then
-    echo "expected unchanged broken sync final json to keep a nonzero save-blocking errorCount" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.stateErrorCount)" -lt 1 ]; then
-    echo "expected unchanged broken sync final json to keep a nonzero stateErrorCount" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.syncSummary.deltaBaseVersion)" != "$broken_version" ]; then
-    echo "expected unchanged broken sync summary to delta against first broken version" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.syncSummary.sourceChangedSinceDeltaBase)" != "false" ]; then
-    echo "expected unchanged broken sync summary to report no source change since delta base" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    rm -f "$broken_sync_json" "$broken_sync_err" "$broken_resync_json" "$broken_resync_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "unchanged broken sync" "$broken_resync_json" ok true "$broken_resync_err"
+  assert_json_file_field_int_ge "unchanged broken sync final json" "$broken_resync_json" result.errorCount 1 "$broken_resync_err"
+  assert_json_file_field_int_ge "unchanged broken sync final json" "$broken_resync_json" result.stateErrorCount 1 "$broken_resync_err"
+  assert_json_file_field_equals "unchanged broken sync summary" "$broken_resync_json" result.syncSummary.deltaBaseVersion "$broken_version" "$broken_resync_err"
+  assert_json_file_field_equals "unchanged broken sync summary" "$broken_resync_json" result.syncSummary.sourceChangedSinceDeltaBase false "$broken_resync_err"
   rm -f "$broken_resync_json" "$broken_resync_err"
   rm -f "$broken_sync_json" "$broken_sync_err"
 
@@ -1169,36 +891,15 @@ EOF
     rm -f "$close_save_json" "$close_save_err"
     exit 1
   fi
-  close_save_failed="$(cat "$close_save_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.saveReady)" != "false" ]; then
-    echo "expected failed close-save to include blocking sync verdict" >&2
-    cat "$close_save_json" >&2
-    cat "$close_save_err" >&2
-    rm -f "$close_save_json" "$close_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.stateErrorCount)" -lt 1 ]; then
-    echo "expected failed close-save sync verdict to report state errors" >&2
-    cat "$close_save_json" >&2
-    cat "$close_save_err" >&2
-    rm -f "$close_save_json" "$close_save_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "failed close-save" "$close_save_json" error.data.sync.saveReady false "$close_save_err"
+  assert_json_file_field_int_ge "failed close-save sync verdict" "$close_save_json" error.data.sync.stateErrorCount 1 "$close_save_err"
   rm -f "$close_save_json" "$close_save_err"
 
   close_out="$("$beam_script" close SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected plain close to succeed after a broken speculative session" >&2
-    printf '%s\n' "$close_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "plain close after a broken speculative session" "$close_out" ok true
 
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
-    echo "expected final close to leave zero open Beam daemon documents" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
+  assert_json_field_equals "final close" "$stats_out" result.sessions.lean.openDocCount 0
 )
 
 (
@@ -1215,38 +916,13 @@ EOF
   warn_sync_json="$(mktemp /tmp/beam-wrapper-warn-sync-json-XXXXXX)"
   warn_sync_err="$(mktemp /tmp/beam-wrapper-warn-sync-err-XXXXXX)"
   "$beam_script" sync SaveSmoke/B.lean >"$warn_sync_json" 2>"$warn_sync_err"
-  warn_sync="$(cat "$warn_sync_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field ok)" != "true" ]; then
-    echo "expected warning-only sync to succeed" >&2
-    printf '%s\n' "$warn_sync" >&2
-    cat "$warn_sync_err" >&2
-    rm -f "$warn_sync_json" "$warn_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field result.errorCount)" != "0" ]; then
-    echo "expected warning-only sync final json to report zero errors" >&2
-    printf '%s\n' "$warn_sync" >&2
-    cat "$warn_sync_err" >&2
-    rm -f "$warn_sync_json" "$warn_sync_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field result.warningCount)" -lt 1 ]; then
-    echo "expected warning-only sync final json to report at least one warning" >&2
-    printf '%s\n' "$warn_sync" >&2
-    cat "$warn_sync_err" >&2
-    rm -f "$warn_sync_json" "$warn_sync_err"
-    exit 1
-  fi
-  if RUNAT_JSON_PAYLOAD="$warn_sync" json_text_has_field result.diagnostics; then
-    echo "expected warning-only sync final json to omit replayed diagnostics" >&2
-    printf '%s\n' "$warn_sync" >&2
-    cat "$warn_sync_err" >&2
-    rm -f "$warn_sync_json" "$warn_sync_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "warning-only sync" "$warn_sync_json" ok true "$warn_sync_err"
+  assert_json_file_field_equals "warning-only sync final json" "$warn_sync_json" result.errorCount 0 "$warn_sync_err"
+  assert_json_file_field_int_ge "warning-only sync final json" "$warn_sync_json" result.warningCount 1 "$warn_sync_err"
+  assert_json_file_field_absent "warning-only sync final json" "$warn_sync_json" result.diagnostics "$warn_sync_err"
   if grep -Eq '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_err"; then
     echo "expected warning-only sync without +full to suppress warning diagnostics" >&2
-    printf '%s\n' "$warn_sync" >&2
+    cat "$warn_sync_json" >&2
     cat "$warn_sync_err" >&2
     rm -f "$warn_sync_json" "$warn_sync_err"
     exit 1
@@ -1254,31 +930,12 @@ EOF
   warn_save_json="$(mktemp /tmp/beam-wrapper-warn-save-json-XXXXXX)"
   warn_save_err="$(mktemp /tmp/beam-wrapper-warn-save-err-XXXXXX)"
   "$beam_script" save SaveSmoke/B.lean >"$warn_save_json" 2>"$warn_save_err"
-  warn_save="$(cat "$warn_save_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field ok)" != "true" ]; then
-    echo "expected warning-only save to succeed" >&2
-    printf '%s\n' "$warn_save" >&2
-    cat "$warn_save_err" >&2
-    rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.errorCount)" != "0" ]; then
-    echo "expected warning-only save sync verdict to report zero errors" >&2
-    printf '%s\n' "$warn_save" >&2
-    cat "$warn_save_err" >&2
-    rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.warningCount)" -lt 1 ]; then
-    echo "expected warning-only save sync verdict to preserve warning count" >&2
-    printf '%s\n' "$warn_save" >&2
-    cat "$warn_save_err" >&2
-    rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "warning-only save" "$warn_save_json" ok true "$warn_save_err"
+  assert_json_file_field_equals "warning-only save sync verdict" "$warn_save_json" result.sync.errorCount 0 "$warn_save_err"
+  assert_json_file_field_int_ge "warning-only save sync verdict" "$warn_save_json" result.sync.warningCount 1 "$warn_save_err"
   if grep -Eq '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_save_err"; then
     echo "expected warning-only save without +full to suppress warning diagnostics" >&2
-    printf '%s\n' "$warn_save" >&2
+    cat "$warn_save_json" >&2
     cat "$warn_save_err" >&2
     rm -f "$warn_sync_json" "$warn_sync_err" "$warn_save_json" "$warn_save_err"
     exit 1
@@ -1301,39 +958,14 @@ EOF
   warn_sync_full_json="$(mktemp /tmp/beam-wrapper-warn-sync-full-json-XXXXXX)"
   warn_sync_full_err="$(mktemp /tmp/beam-wrapper-warn-sync-full-err-XXXXXX)"
   "$beam_script" sync SaveSmoke/B.lean +full >"$warn_sync_full_json" 2>"$warn_sync_full_err"
-  warn_sync_full="$(cat "$warn_sync_full_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field ok)" != "true" ]; then
-    echo "expected warning-only sync +full to succeed" >&2
-    printf '%s\n' "$warn_sync_full" >&2
-    cat "$warn_sync_full_err" >&2
-    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field result.errorCount)" != "0" ]; then
-    echo "expected warning-only sync +full final json to report zero errors" >&2
-    printf '%s\n' "$warn_sync_full" >&2
-    cat "$warn_sync_full_err" >&2
-    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field result.warningCount)" -lt 1 ]; then
-    echo "expected warning-only sync +full final json to report at least one warning" >&2
-    printf '%s\n' "$warn_sync_full" >&2
-    cat "$warn_sync_full_err" >&2
-    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
-    exit 1
-  fi
-  if RUNAT_JSON_PAYLOAD="$warn_sync_full" json_text_has_field result.diagnostics; then
-    echo "expected warning-only sync +full final json to omit replayed diagnostics" >&2
-    printf '%s\n' "$warn_sync_full" >&2
-    cat "$warn_sync_full_err" >&2
-    rm -f "$warn_sync_full_json" "$warn_sync_full_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "warning-only sync +full" "$warn_sync_full_json" ok true "$warn_sync_full_err"
+  assert_json_file_field_equals "warning-only sync +full final json" "$warn_sync_full_json" result.errorCount 0 "$warn_sync_full_err"
+  assert_json_file_field_int_ge "warning-only sync +full final json" "$warn_sync_full_json" result.warningCount 1 "$warn_sync_full_err"
+  assert_json_file_field_absent "warning-only sync +full final json" "$warn_sync_full_json" result.diagnostics "$warn_sync_full_err"
   warn_count="$(grep -Ec '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_full_err" || true)"
   if [ "$warn_count" -eq 0 ]; then
     echo "expected warning-only sync +full to stream warning diagnostics" >&2
-    printf '%s\n' "$warn_sync_full" >&2
+    cat "$warn_sync_full_json" >&2
     cat "$warn_sync_full_err" >&2
     rm -f "$warn_sync_full_json" "$warn_sync_full_err"
     exit 1
@@ -1408,32 +1040,13 @@ EOF
   warn_close_save_json="$(mktemp /tmp/beam-wrapper-warn-close-save-json-XXXXXX)"
   warn_close_save_err="$(mktemp /tmp/beam-wrapper-warn-close-save-err-XXXXXX)"
   "$beam_script" close-save SaveSmoke/B.lean +full >"$warn_close_save_json" 2>"$warn_close_save_err"
-  warn_close_save="$(cat "$warn_close_save_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field ok)" != "true" ]; then
-    echo "expected warning-only close-save +full to succeed" >&2
-    printf '%s\n' "$warn_close_save" >&2
-    cat "$warn_close_save_err" >&2
-    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.errorCount)" != "0" ]; then
-    echo "expected warning-only close-save sync verdict to report zero errors" >&2
-    printf '%s\n' "$warn_close_save" >&2
-    cat "$warn_close_save_err" >&2
-    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.warningCount)" -lt 1 ]; then
-    echo "expected warning-only close-save sync verdict to preserve warning count" >&2
-    printf '%s\n' "$warn_close_save" >&2
-    cat "$warn_close_save_err" >&2
-    rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
-    exit 1
-  fi
+  assert_json_file_field_equals "warning-only close-save +full" "$warn_close_save_json" ok true "$warn_close_save_err"
+  assert_json_file_field_equals "warning-only close-save sync verdict" "$warn_close_save_json" result.saved.sync.errorCount 0 "$warn_close_save_err"
+  assert_json_file_field_int_ge "warning-only close-save sync verdict" "$warn_close_save_json" result.saved.sync.warningCount 1 "$warn_close_save_err"
   warn_close_count="$(grep -Ec '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_close_save_err" || true)"
   if [ "$warn_close_count" -eq 0 ]; then
     echo "expected warning-only close-save +full to stream warning diagnostics" >&2
-    printf '%s\n' "$warn_close_save" >&2
+    cat "$warn_close_save_json" >&2
     cat "$warn_close_save_err" >&2
     rm -f "$warn_sync_full_json" "$warn_sync_full_err" "$warn_close_save_json" "$warn_close_save_err"
     exit 1

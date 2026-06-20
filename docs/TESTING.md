@@ -31,7 +31,8 @@ Race and concurrency regressions should wait for observable state, not for guess
 delays. Prefer request IDs plus cancellation acknowledgements, wrapper progress text, registry
 files, non-empty response files, and Lean-side sentinel files that prove a slow command reached the
 intended phase. Use [tests/lib/beam-wrapper-common.sh](../tests/lib/beam-wrapper-common.sh) helpers
-for repeated shell polling patterns.
+for repeated shell polling patterns. Prefer its JSON assertion helpers for wrapper response checks
+so failures print payloads and captured context consistently.
 
 Keep `fileProgress` and readiness distinct in assertions. For `lean-beam sync`, `lean-beam save`,
 and `lean-beam close-save`, completed progress is part of the diagnostics/save barrier contract.

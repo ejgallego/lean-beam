@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import platform
 import shutil
 import subprocess
 import sys
@@ -12,26 +11,16 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from mcp_test_util import (
+    fail,
+    require,
+    require_file_progress_line,
+    save_warning_text,
+    shared_lib_name,
+)
+
 
 PROTOCOL_VERSION = "2025-11-25"
-
-
-def fail(message):
-    raise RuntimeError(message)
-
-
-def require(condition, message):
-    if not condition:
-        fail(message)
-
-
-def shared_lib_name():
-    system = platform.system()
-    if system == "Darwin":
-        return "librunAt_RunAt.dylib"
-    if system.startswith("Windows") or system in {"MSYS_NT", "MINGW_NT"}:
-        return "runAt_RunAt.dll"
-    return "librunAt_RunAt.so"
 
 
 def wait_for_ready(ready_file, timeout):
@@ -110,29 +99,6 @@ def expect_tool_error(response, code):
     structured = result.get("structuredContent")
     require(isinstance(structured, dict), f"tool error missing structuredContent: {result}")
     require(structured.get("code") == code, f"expected tool error code {code}, got {structured}")
-
-
-def require_file_progress_line(structured, label):
-    progress = structured.get("file_progress")
-    require(isinstance(progress, dict), f"{label}: missing file_progress: {structured}")
-    line = progress.get("line")
-    total = progress.get("totalLines")
-    require(type(line) is int and line >= 1, f"{label}: invalid file_progress line: {progress}")
-    require(type(total) is int and total >= line, f"{label}: invalid file_progress totalLines: {progress}")
-
-
-def save_warning_text(marker):
-    return "\n".join(
-        [
-            "def bVal : Nat := 1",
-            "",
-            "set_option linter.unusedVariables true in",
-            "theorem warnOnly (n : Nat) : True := by",
-            "  trivial",
-            "",
-            marker,
-        ]
-    ) + "\n"
 
 
 def main():
