@@ -36,6 +36,7 @@ class StdioMcpServer:
             encoding="utf-8",
             bufsize=1,
         )
+        self.notifications = []
         self.stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self.stderr_thread.start()
 
@@ -84,9 +85,13 @@ class StdioMcpServer:
             if line == "":
                 raise BridgeError("lean-beam-mcp closed stdout")
             try:
-                return json.loads(line)
+                message = json.loads(line)
             except json.JSONDecodeError as err:
                 raise BridgeError(f"lean-beam-mcp wrote invalid JSON: {err}: {line!r}") from err
+            if "method" in message and "id" not in message:
+                self.notifications.append(message)
+                continue
+            return message
 
 
 class BridgeHttpServer(HTTPServer):

@@ -22,12 +22,16 @@ structure ProtocolState where
   initializeComplete : Bool := false
   initializedNotificationSeen : Bool := false
   clientSupportsRoots : Bool := false
+  logLevel : LogLevel := .debug
   root? : Option System.FilePath := none
   rootError? : Option String := none
   runtime? : Option Beam.Broker.ServerRuntime := none
 
 def ProtocolState.create (root? : Option System.FilePath := none) : IO (IO.Ref ProtocolState) :=
   IO.mkRef { root? }
+
+structure NotificationSink where
+  send : Json → IO Unit := fun _ => pure ()
 
 private def ProtocolState.initState (state : ProtocolState) : Beam.Workspace.InitState := {
   root? := state.root?
@@ -47,6 +51,43 @@ private def invalidRequestId (json : Json) : Json :=
 
 private def brokerClientRequestId (req : Request) : String :=
   s!"mcp:{requestIdLabel req.id}"
+
+private def diagnosticSeverityName : Option Lean.Lsp.DiagnosticSeverity → String
+  | some .error => "error"
+  | some .warning => "warning"
+  | some .information => "information"
+  | some .hint => "hint"
+  | none => "unknown"
+
+private def diagnosticLogLevel : Option Lean.Lsp.DiagnosticSeverity → LogLevel
+  | some .error => .error
+  | some .warning => .warning
+  | some .information => .info
+  | some .hint => .debug
+  | none => .info
+
+private def streamDiagnosticLogData (diagnostic : Beam.Broker.StreamDiagnostic) : Json :=
+  Json.mkObj <|
+    [
+      ("path", toJson diagnostic.path),
+      ("uri", toJson diagnostic.uri),
+      ("severity", toJson <| diagnosticSeverityName diagnostic.severity?),
+      ("range", toJson diagnostic.range),
+      ("message", toJson diagnostic.message)
+    ] ++
+    match diagnostic.version? with
+    | some version => [("version", toJson version)]
+    | none => []
+
+private def emitDiagnosticLog
+    (state : IO.Ref ProtocolState)
+    (notifications : NotificationSink)
+    (diagnostic : Beam.Broker.StreamDiagnostic) : IO Unit := do
+  let level := diagnosticLogLevel diagnostic.severity?
+  let currentState ← state.get
+  if currentState.logLevel.allows level then
+    notifications.send <|
+      logMessageNotification level "lean.diagnostic" (streamDiagnosticLogData diagnostic)
 
 private def runtimeOptions (opts : Options) : Runtime.Options := {
   leanCmd? := opts.leanCmd?
@@ -184,7 +225,8 @@ private def handleToolCall
     (state : IO.Ref ProtocolState)
     (opts : Options)
     (stdin : IO.FS.Stream)
-    (req : Request) : IO (Except RpcError Json) := do
+    (req : Request)
+    (notifications : NotificationSink) : IO (Except RpcError Json) := do
   let params ←
     match parseCallToolParams req.params? with
     | .ok params => pure params
@@ -203,7 +245,9 @@ private def handleToolCall
     match ← ensureRuntime state opts stdin with
     | .ok runtimeAndRoot => pure runtimeAndRoot
     | .error err => return .error err
-  let (brokerResp, _) ← runtime.dispatchRequest brokerReq
+  let emitDiagnostic : Beam.Broker.StreamDiagnostic → IO Unit := fun diagnostic =>
+    emitDiagnosticLog state notifications diagnostic
+  let (brokerResp, _) ← runtime.dispatchRequest brokerReq (emitDiagnostic? := some emitDiagnostic)
   match normalizeBrokerResponse params.name brokerResp with
   | .ok result =>
       pure <| .ok <| callToolResult <| Beam.Workspace.addActiveRoot root result
@@ -214,22 +258,34 @@ private def handleReadyOperationRequest
     (state : IO.Ref ProtocolState)
     (opts : Options)
     (stdin : IO.FS.Stream)
-    (req : Request) : IO (Json × Bool) := do
+    (req : Request)
+    (notifications : NotificationSink) : IO (Json × Bool) := do
   match req.method with
   | "tools/list" =>
       pure (successResponse req.id toolsListResult, false)
   | "tools/call" =>
-      match ← handleToolCall state opts stdin req with
+      match ← handleToolCall state opts stdin req notifications with
       | .ok result => pure (successResponse req.id result, false)
       | .error err => pure (errorResponse req.id err, false)
   | method =>
       pure (errorResponse req.id (RpcError.methodNotFound method), false)
 
+private def handleSetLogLevel
+    (state : IO.Ref ProtocolState)
+    (req : Request) : IO (Json × Bool) := do
+  match parseSetLogLevelParams req.params? with
+  | .ok level =>
+      state.modify fun currentState => { currentState with logLevel := level }
+      pure (successResponse req.id (Json.mkObj []), false)
+  | .error err =>
+      pure (errorResponse req.id (RpcError.invalidParams err), false)
+
 def handleRequest
     (state : IO.Ref ProtocolState)
     (opts : Options)
     (stdin : IO.FS.Stream)
-    (req : Request) : IO (Json × Bool) := do
+    (req : Request)
+    (notifications : NotificationSink := {}) : IO (Json × Bool) := do
   let currentState ← state.get
   match req.method with
   | "initialize" =>
@@ -244,6 +300,11 @@ def handleRequest
         pure (successResponse req.id initializeResult, false)
   | "ping" =>
       pure (successResponse req.id (Json.mkObj []), false)
+  | "logging/setLevel" =>
+      if !currentState.initializeComplete then
+        pure (errorResponse req.id (RpcError.invalidRequest "initialize must complete before MCP logging requests"), false)
+      else
+        handleSetLogLevel state req
   | "shutdown" =>
       match currentState.runtime? with
       | none =>
@@ -261,7 +322,7 @@ def handleRequest
       else if !currentState.initializedNotificationSeen then
         pure (errorResponse req.id (RpcError.invalidRequest "notifications/initialized is required before MCP operation requests"), false)
       else
-        handleReadyOperationRequest state opts stdin req
+        handleReadyOperationRequest state opts stdin req notifications
   | method =>
       if !currentState.initializeComplete then
         pure (errorResponse req.id (RpcError.invalidRequest "initialize must be the first MCP operation"), false)
@@ -284,10 +345,11 @@ def handleJson
     (state : IO.Ref ProtocolState)
     (opts : Options)
     (stdin : IO.FS.Stream)
-    (json : Json) : IO (Option Json × Bool) := do
+    (json : Json)
+    (notifications : NotificationSink := {}) : IO (Option Json × Bool) := do
   match Incoming.fromJson? json with
   | .ok (.request req) =>
-      let (resp, stop) ← handleRequest state opts stdin req
+      let (resp, stop) ← handleRequest state opts stdin req notifications
       pure (some resp, stop)
   | .ok (.notification notification) =>
       let stop ← handleNotification state notification
@@ -308,7 +370,7 @@ partial def runStdio (opts : Options) (root? : Option System.FilePath) : IO Unit
           writeJsonLine <| errorResponse Json.null (RpcError.parseError err)
           loop
       | .ok json =>
-          let (response?, stop) ← handleJson state opts stdin json
+          let (response?, stop) ← handleJson state opts stdin json { send := writeJsonLine }
           match response? with
           | some response => writeJsonLine response
           | none => pure ()

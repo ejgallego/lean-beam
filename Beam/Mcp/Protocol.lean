@@ -128,6 +128,85 @@ def rootsListRequest : Json :=
     ("method", toJson "roots/list")
   ]
 
+def requireObject (label : String) : Json → Except String Json
+  | obj@(.obj _) => pure obj
+  | other => throw s!"{label} must be an object, got {other.compress}"
+
+inductive LogLevel where
+  | debug
+  | info
+  | notice
+  | warning
+  | error
+  | critical
+  | alert
+  | emergency
+  deriving BEq, Repr
+
+def LogLevel.key : LogLevel → String
+  | .debug => "debug"
+  | .info => "info"
+  | .notice => "notice"
+  | .warning => "warning"
+  | .error => "error"
+  | .critical => "critical"
+  | .alert => "alert"
+  | .emergency => "emergency"
+
+def LogLevel.severityRank : LogLevel → Nat
+  | .emergency => 0
+  | .alert => 1
+  | .critical => 2
+  | .error => 3
+  | .warning => 4
+  | .notice => 5
+  | .info => 6
+  | .debug => 7
+
+def LogLevel.allows (minimum event : LogLevel) : Bool :=
+  event.severityRank <= minimum.severityRank
+
+instance : ToJson LogLevel where
+  toJson level := toJson level.key
+
+instance : FromJson LogLevel where
+  fromJson?
+    | .str "debug" => .ok .debug
+    | .str "info" => .ok .info
+    | .str "notice" => .ok .notice
+    | .str "warning" => .ok .warning
+    | .str "error" => .ok .error
+    | .str "critical" => .ok .critical
+    | .str "alert" => .ok .alert
+    | .str "emergency" => .ok .emergency
+    | j => .error s!"expected MCP log level, got {j.compress}"
+
+structure SetLogLevelParams where
+  level : LogLevel
+  deriving FromJson
+
+def parseSetLogLevelParams (params? : Option Json) : Except String LogLevel := do
+  let params ←
+    match params? with
+    | some params => requireObject "logging/setLevel params" params
+    | none => throw "logging/setLevel params are required"
+  let decoded ← fromJson? (α := SetLogLevelParams) params
+  pure decoded.level
+
+def notification (method : String) (params : Json) : Json :=
+  Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("method", toJson method),
+    ("params", params)
+  ]
+
+def logMessageNotification (level : LogLevel) (logger : String) (data : Json) : Json :=
+  notification "notifications/message" <| Json.mkObj [
+    ("level", toJson level),
+    ("logger", toJson logger),
+    ("data", data)
+  ]
+
 def parseRootsListResponse (json : Json) : Except String ListRootsResult := do
   let version ← json.getObjValAs? String "jsonrpc"
   if version != "2.0" then
@@ -161,6 +240,7 @@ def initializeResult : Json :=
   Json.mkObj [
     ("protocolVersion", toJson protocolVersion),
     ("capabilities", Json.mkObj [
+      ("logging", Json.mkObj []),
       ("tools", Json.mkObj [
         ("listChanged", toJson false)
       ])
@@ -186,10 +266,6 @@ def toolsListResult : Json :=
 structure CallToolParams where
   name : ToolName
   arguments : Json := Json.mkObj []
-
-def requireObject (label : String) : Json → Except String Json
-  | obj@(.obj _) => pure obj
-  | other => throw s!"{label} must be an object, got {other.compress}"
 
 def parseCallToolParams (params? : Option Json) : Except String CallToolParams := do
   let params ←

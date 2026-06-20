@@ -61,6 +61,7 @@ class McpClient:
         self.roots_request_count = 0
         self.pending_extra_response_ids = set()
         self.extra_responses = []
+        self.notifications = []
         self.pending_requests = {}
         self.completed_requests = collections.deque(maxlen=20)
         self.stderr_lines = collections.deque(maxlen=80)
@@ -228,6 +229,9 @@ class McpClient:
             if "method" in response and "id" in response:
                 self.handle_server_request(response)
                 continue
+            if "method" in response:
+                self.notifications.append(response)
+                continue
             if response.get("id") in self.pending_extra_response_ids:
                 self.extra_responses.append(response)
                 self.pending_extra_response_ids.remove(response.get("id"))
@@ -286,6 +290,8 @@ class McpClient:
         )
         tools = result.get("capabilities", {}).get("tools")
         require(isinstance(tools, dict), f"initialize did not advertise tools capability: {result}")
+        logging = result.get("capabilities", {}).get("logging")
+        require(isinstance(logging, dict), f"initialize did not advertise logging capability: {result}")
         self.notify("notifications/initialized")
 
     def shutdown(self):
@@ -323,6 +329,53 @@ def expect_error_code(response, code):
     require(isinstance(error, dict), f"expected JSON-RPC error response, got {response}")
     require(error.get("code") == code, f"expected JSON-RPC error code {code}, got {response}")
     return error
+
+
+def save_warning_text(marker):
+    return "\n".join(
+        [
+            "def bVal : Nat := 1",
+            "",
+            "set_option linter.unusedVariables true in",
+            "theorem warnOnly (n : Nat) : True := by",
+            "  trivial",
+            "",
+            marker,
+        ]
+    ) + "\n"
+
+
+def write_save_warning_file(project_root, marker):
+    (project_root / "SaveSmoke" / "B.lean").write_text(save_warning_text(marker), encoding="utf-8")
+
+
+def diagnostic_log_notifications(client):
+    rows = []
+    for notification in client.notifications:
+        if notification.get("method") != "notifications/message":
+            continue
+        params = notification.get("params")
+        if isinstance(params, dict) and params.get("logger") == "lean.diagnostic":
+            rows.append(notification)
+    return rows
+
+
+def expect_diagnostic_log(client, *, level, severity, path):
+    for notification in diagnostic_log_notifications(client):
+        params = notification.get("params", {})
+        data = params.get("data", {})
+        if (
+            params.get("level") == level
+            and isinstance(data, dict)
+            and data.get("severity") == severity
+            and data.get("path") == path
+        ):
+            require(isinstance(data.get("uri"), str), f"diagnostic log missing uri: {notification}")
+            require(isinstance(data.get("version"), int), f"diagnostic log missing version: {notification}")
+            require(isinstance(data.get("range"), dict), f"diagnostic log missing range: {notification}")
+            require(isinstance(data.get("message"), str) and data["message"], f"diagnostic log missing message: {notification}")
+            return notification
+    fail(f"missing {level}/{severity} diagnostic log for {path}: {client.notifications}")
 
 
 def expect_error_message_contains(response, code, needle):
@@ -589,6 +642,37 @@ def run_relative_root_arg(repo_root, fixture_root, timeout):
                 f"relative --root returned wrong active_root: {sync}",
             )
             require_roots_requests(client, 0, "relative --root")
+        finally:
+            client.close()
+
+
+def run_diagnostic_logging(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-diagnostic-logs-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(repo_root, project_root, timeout)
+        try:
+            client.initialize()
+            write_save_warning_file(project_root, "-- mcp stdio diagnostic log")
+            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
+            require(sync.get("saveReady") is True, f"warning-only sync should be save-ready: {sync}")
+            expect_diagnostic_log(client, level="warning", severity="warning", path="SaveSmoke/B.lean")
+
+            expect_result(client.request("logging/setLevel", {"level": "error"}))
+            client.notifications.clear()
+            write_save_warning_file(project_root, "-- mcp stdio warning suppressed")
+            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
+            require(sync.get("saveReady") is True, f"suppressed warning sync should be save-ready: {sync}")
+            require(
+                diagnostic_log_notifications(client) == [],
+                f"warning-only sync should not log diagnostics at error level: {client.notifications}",
+            )
+
+            client.notifications.clear()
+            (project_root / "SaveSmoke" / "B.lean").write_text('def bVal : Nat := "broken"\n', encoding="utf-8")
+            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
+            require(sync.get("saveReady") is False, f"broken sync should not be save-ready: {sync}")
+            expect_diagnostic_log(client, level="error", severity="error", path="SaveSmoke/B.lean")
         finally:
             client.close()
 
@@ -1106,6 +1190,7 @@ def main():
             expected_roots_requests=1,
         )
     run_relative_root_arg(repo_root, fixture_root, args.timeout)
+    run_diagnostic_logging(repo_root, fixture_root, args.timeout)
     run_root_setup_matrix(repo_root, fixture_root, args.timeout)
     run_init_workspace_mode_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)

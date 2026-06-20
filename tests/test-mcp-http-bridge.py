@@ -112,6 +112,20 @@ def expect_tool_error(response, code):
     require(structured.get("code") == code, f"expected tool error code {code}, got {structured}")
 
 
+def save_warning_text(marker):
+    return "\n".join(
+        [
+            "def bVal : Nat := 1",
+            "",
+            "set_option linter.unusedVariables true in",
+            "theorem warnOnly (n : Nat) : True := by",
+            "  trivial",
+            "",
+            marker,
+        ]
+    ) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Smoke-test the local MCP stdio-to-HTTP bridge.")
     parser.add_argument("--timeout", type=float, default=30.0)
@@ -253,7 +267,30 @@ def main():
             structured = sync.get("structuredContent")
             require(isinstance(structured, dict) and isinstance(structured.get("file_progress"), dict), f"sync missing progress: {sync}")
 
-            expect_result(http_json(url, {"jsonrpc": "2.0", "id": 6, "method": "shutdown"}, timeout=args.timeout))
+            (project_root / "SaveSmoke" / "B.lean").write_text(
+                save_warning_text("-- mcp http diagnostic log"),
+                encoding="utf-8",
+            )
+            warning_sync = expect_result(http_json(
+                url,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 7,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "lean_sync",
+                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                    },
+                },
+                timeout=args.timeout,
+            ))
+            warning_structured = warning_sync.get("structuredContent")
+            require(
+                isinstance(warning_structured, dict) and warning_structured.get("saveReady") is True,
+                f"warning-only sync should return the response after diagnostic notifications: {warning_sync}",
+            )
+
+            expect_result(http_json(url, {"jsonrpc": "2.0", "id": 8, "method": "shutdown"}, timeout=args.timeout))
             bridge.wait(timeout=5)
             require(bridge.returncode == 0, f"bridge exited with {bridge.returncode}\n{bridge.stderr.read()}")
         finally:

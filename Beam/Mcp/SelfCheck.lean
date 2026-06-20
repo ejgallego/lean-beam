@@ -156,7 +156,11 @@ private partial def readResponse
       respondToRootsList stdin json root
       readResponse child stdin stdout root expectedId phase timeoutMs
   | .ok method =>
-      throw <| IO.userError s!"lean-beam-mcp self-check child sent unexpected request '{method}' during {phase}: {json.compress}"
+      match json.getObjVal? "id" with
+      | .ok _ =>
+          throw <| IO.userError s!"lean-beam-mcp self-check child sent unexpected request '{method}' during {phase}: {json.compress}"
+      | .error _ =>
+          readResponse child stdin stdout root expectedId phase timeoutMs
   | .error _ =>
       let id ← requireObjVal "self-check response" "id" json
       if id == expectedId then
