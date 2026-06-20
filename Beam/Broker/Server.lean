@@ -787,6 +787,19 @@ private def withCurrentMatchingSession
           message := "broker backend session exited while request was in flight"
         }
 
+private def recordCompletedSyncSummaryIO
+    (server : ServerRuntime)
+    (session : Session)
+    (uri : DocumentUri)
+    (version : Nat)
+    (syncSummaryRecord : LastSyncSummary) : IO Unit := do
+  withCurrentMatchingSession server session fun current => do
+    let current := markDocSyncedVersion current uri version
+    updateSession {
+      current with
+      docs := DocumentState.recordSyncSummary current.docs uri syncSummaryRecord
+    }
+
 private def sendCurrentSessionRequestDecode [FromJson α]
     (server : ServerRuntime)
     (session : Session)
@@ -969,15 +982,6 @@ private def saveCompletedResponse
       saved.payload
   responseWithFileProgress (Response.success payload) saved.fileProgress?
 
-private def savePayloadWithSyncVerdict (payload syncVerdict : Json) : Json :=
-  payload.setObjVal! "sync" syncVerdict
-
-private def syncVerdictErrorData (syncVerdict : Json) : Json :=
-  Json.mkObj [("sync", syncVerdict)]
-
-private def saveNotReadyMessage (readiness : SyncSaveReadiness) : String :=
-  readiness.saveReadyMessage?.getD "cannot save artifacts for a document with errors"
-
 private def fetchSyncSaveReadinessIO
     (server : ServerRuntime)
     (session : Session)
@@ -1050,9 +1054,15 @@ private def saveOleanIO
   ensureRequestNotCancelled cancelRef?
   let path ← resolvePath ((← server.withState do pure (← get).config.root)) path
   let started ← startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
-  let (textHash, textTraceHash, textMTime, leanCmd?) ← server.withState do
+  let (textHash, textTraceHash, textMTime, priorSummary?, leanCmd?) ← server.withState do
     let docState ← requireDocState started.session started.uri
-    pure (docState.textHash, docState.textTraceHash, docState.textMTime, (← get).config.leanCmd?)
+    pure (
+      docState.textHash,
+      docState.textTraceHash,
+      docState.textMTime,
+      docState.lastSyncSummary?,
+      (← get).config.leanCmd?
+    )
   propagatePendingCancellation started.session req.clientRequestId? cancelRef?
   let barrier ← PendingRequest.awaitResult started.promise
   let barrierDecision :=
@@ -1064,8 +1074,14 @@ private def saveOleanIO
   ensureRequestNotCancelled cancelRef?
   let saveReadiness ←
     fetchSyncSaveReadinessIO server started.session started.uri (expectedVersion? := some started.version)
-  let saveReadiness := withFallbackSaveBlockingEvidence barrier.diagnostics saveReadiness
-  let syncVerdict := syncFileSuccessPayload started.version barrier.diagnostics saveReadiness
+  let currentDiagnostics :=
+    currentSyncDiagnostics started.version barrier.diagnostics barrier.diagnosticsSeen priorSummary?
+  let saveReadiness := withFallbackSaveBlockingEvidence currentDiagnostics saveReadiness
+  let (syncSummary, syncSummaryRecord) :=
+    mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
+  let syncVerdict :=
+    syncFileSuccessPayload started.version currentDiagnostics saveReadiness (some syncSummary)
+  recordCompletedSyncSummaryIO server started.session started.uri started.version syncSummaryRecord
   let spec ← mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
   unless saveReadiness.saveReady do
     throwBrokerFailure {
@@ -1143,12 +1159,7 @@ private def handleSyncFileOpIO
     let saveReadiness := withFallbackSaveBlockingEvidence currentDiagnostics saveReadiness
     let (syncSummary, syncSummaryRecord) :=
       mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
-    server.withState do
-      modifyCurrentSessionIfMatching started.session fun current =>
-        let current := markDocSyncedVersion current started.uri started.version
-        { current with
-          docs := DocumentState.recordSyncSummary current.docs started.uri syncSummaryRecord
-        }
+    recordCompletedSyncSummaryIO server started.session started.uri started.version syncSummaryRecord
     pure (syncFileSuccessResponse
       started.version currentDiagnostics saveReadiness fileProgress? (some syncSummary), false)
   catch e =>

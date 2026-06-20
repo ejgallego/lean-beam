@@ -893,6 +893,9 @@ EOF
   fi
   assert_json_file_field_equals "failed close-save" "$close_save_json" error.data.sync.saveReady false "$close_save_err"
   assert_json_file_field_int_ge "failed close-save sync verdict" "$close_save_json" error.data.sync.stateErrorCount 1 "$close_save_err"
+  close_save_failed_version="$(json_file_text_field "$close_save_json" error.data.sync.version)"
+  assert_json_file_field_equals "failed close-save sync summary" "$close_save_json" error.data.sync.syncSummary.currentVersion "$close_save_failed_version" "$close_save_err"
+  assert_json_file_field_equals "failed close-save sync summary" "$close_save_json" error.data.sync.syncSummary.readiness.current.saveReady false "$close_save_err"
   rm -f "$close_save_json" "$close_save_err"
 
   close_out="$("$beam_script" close SaveSmoke/B.lean)"
@@ -933,6 +936,9 @@ EOF
   assert_json_file_field_equals "warning-only save" "$warn_save_json" ok true "$warn_save_err"
   assert_json_file_field_equals "warning-only save sync verdict" "$warn_save_json" result.sync.errorCount 0 "$warn_save_err"
   assert_json_file_field_int_ge "warning-only save sync verdict" "$warn_save_json" result.sync.warningCount 1 "$warn_save_err"
+  warn_save_version="$(json_file_text_field "$warn_save_json" result.sync.version)"
+  assert_json_file_field_equals "warning-only save sync summary" "$warn_save_json" result.sync.syncSummary.currentVersion "$warn_save_version" "$warn_save_err"
+  assert_json_file_field_equals "warning-only save sync summary" "$warn_save_json" result.sync.syncSummary.readiness.current.saveReady true "$warn_save_err"
   if grep -Eq '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_save_err"; then
     echo "expected warning-only save without +full to suppress warning diagnostics" >&2
     cat "$warn_save_json" >&2
@@ -1043,6 +1049,9 @@ EOF
   assert_json_file_field_equals "warning-only close-save +full" "$warn_close_save_json" ok true "$warn_close_save_err"
   assert_json_file_field_equals "warning-only close-save sync verdict" "$warn_close_save_json" result.saved.sync.errorCount 0 "$warn_close_save_err"
   assert_json_file_field_int_ge "warning-only close-save sync verdict" "$warn_close_save_json" result.saved.sync.warningCount 1 "$warn_close_save_err"
+  warn_close_save_version="$(json_file_text_field "$warn_close_save_json" result.saved.sync.version)"
+  assert_json_file_field_equals "warning-only close-save sync summary" "$warn_close_save_json" result.saved.sync.syncSummary.currentVersion "$warn_close_save_version" "$warn_close_save_err"
+  assert_json_file_field_equals "warning-only close-save sync summary" "$warn_close_save_json" result.saved.sync.syncSummary.readiness.current.saveReady true "$warn_close_save_err"
   warn_close_count="$(grep -Ec '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_close_save_err" || true)"
   if [ "$warn_close_count" -eq 0 ]; then
     echo "expected warning-only close-save +full to stream warning diagnostics" >&2

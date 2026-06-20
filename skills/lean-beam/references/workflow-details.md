@@ -147,6 +147,7 @@ What is not a valid checkpoint target:
   current save-readiness and the request stream only for incremental diagnostic observations
 - successful `lean-beam save` includes the sync verdict it established in `result.sync`
 - successful `lean-beam close-save` includes the sync verdict in `result.saved.sync`
+- those save verdicts include `syncSummary` plus the flat compatibility fields
 - `result.syncSummary` carries the versioned current/delta summary for `lean-beam sync`, including
   `currentVersion`, optional `deltaBaseVersion`, current diagnostic/readiness counts, and
   diagnostic/readiness deltas when a previous successful sync boundary exists; diagnostic deltas use
@@ -164,8 +165,8 @@ What is not a valid checkpoint target:
   counts without explicit blockers
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
-  `error.data.sync` contains the blocking sync verdict, including `blockingDiagnostics` and
-  `blockingCommandMessages`
+  `error.data.sync` contains the blocking sync verdict, including `syncSummary`,
+  `blockingDiagnostics`, and `blockingCommandMessages`
 - wrapper `stderr` is the human-facing diagnostic surface
 - `beam-client request-stream ...` is the machine-facing streamed surface
 - streamed diagnostics are request-scoped observations; they may carry `completionBlocking=true`,

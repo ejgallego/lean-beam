@@ -92,4 +92,13 @@ def syncFileSuccessResponse
     (Response.success <| syncFileSuccessPayload version diagnostics readiness syncSummary?)
     fileProgress?
 
+def savePayloadWithSyncVerdict (payload syncVerdict : Json) : Json :=
+  payload.setObjVal! "sync" syncVerdict
+
+def syncVerdictErrorData (syncVerdict : Json) : Json :=
+  Json.mkObj [("sync", syncVerdict)]
+
+def saveNotReadyMessage (readiness : SyncSaveReadiness) : String :=
+  readiness.saveReadyMessage?.getD "cannot save artifacts for a document with errors"
+
 end Beam.Broker

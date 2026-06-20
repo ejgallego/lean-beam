@@ -306,11 +306,12 @@ Diagnostic defaults on that path:
   `result.stateErrorCount` / `result.stateCommandErrorCount`; these flat fields are compatibility
   projections of the current sync verdict, so prefer `result.syncSummary` in new clients
 - `lean-beam save` returns the sync verdict it established before checkpointing in `result.sync`;
-  `lean-beam close-save` returns it in `result.saved.sync`
+  `lean-beam close-save` returns it in `result.saved.sync`; those verdicts include
+  `syncSummary` plus the flat compatibility fields
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
-  messages, and `error.data.sync` contains the blocking sync verdict, including
-  `blockingDiagnostics` and `blockingCommandMessages`
+  messages, and `error.data.sync` contains the blocking sync verdict, including `syncSummary`,
+  `blockingDiagnostics`, and `blockingCommandMessages`
 
 Surface rule:
 

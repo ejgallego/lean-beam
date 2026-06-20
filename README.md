@@ -261,9 +261,10 @@ save-readiness payload reports blocking counts without explicit evidence, Beam f
 current completed-barrier error diagnostics and marks them `saveBlocking=true`.
 
 `lean-beam save` includes the sync verdict it established before checkpointing in `result.sync`;
-`lean-beam close-save` includes the same verdict in `result.saved.sync`. Document-error save
-failures include that verdict in `error.data.sync`, so clients can inspect the exact synced version
-and save-readiness decision that blocked checkpointing, including `blockingDiagnostics` and
+`lean-beam close-save` includes the same verdict in `result.saved.sync`. Those verdicts include the
+typed `syncSummary` as well as the flat compatibility fields. Document-error save failures include
+that verdict in `error.data.sync`, so clients can inspect the exact synced version and
+save-readiness decision that blocked checkpointing, including `blockingDiagnostics` and
 `blockingCommandMessages` on that sync verdict.
 
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include

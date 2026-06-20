@@ -119,10 +119,12 @@ frontend diagnostics and command messages that blocked saving; each entry carrie
 `saveBlocking=true`. If the save-readiness payload reports blocking counts without explicit
 evidence, Beam falls back to the current completed-barrier error diagnostics and marks them
 `saveBlocking=true`.
-`lean-beam save` and `lean-beam close-save` project the current flat sync verdict into successful
-save payloads as `sync` / `saved.sync`, and document-error save failures include it in
+`lean-beam save` and `lean-beam close-save` project the same sync verdict into successful save
+payloads as `sync` / `saved.sync`, and document-error save failures include it in
 `error.data.sync`, so checkpointing decisions can be traced back to the synced version that was just
-established, including its `blockingDiagnostics` and `blockingCommandMessages`.
+established. Those verdicts include the compatibility flat fields and the typed
+`syncSummary`, including `blockingDiagnostics` and `blockingCommandMessages` when a document error
+blocks checkpointing.
 For programmatic local consumers,
 the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; the wrapper stderr format should be treated as human-facing.
@@ -233,12 +235,10 @@ For sync deltas, every delta-bearing payload states both sides of the comparison
 - `readiness.delta`: count changes and readiness-state changes between the same base/current
   versions
 
-`save` and `close-save` already return the current flat sync verdict they established before
-checkpointing, including save-blocking diagnostic/message evidence on failures. They do not yet
-return the typed versioned sync summary above. A follow-up should project that summary, or an
-explicit reference to it, while still requiring
-`readiness.current.saveReady = true` for that exact `currentVersion` before saving that version and
-reporting the saved source hash.
+`save` and `close-save` return the sync verdict they established before checkpointing, including the
+typed versioned sync summary and save-blocking diagnostic/message evidence on failures. They still
+require `readiness.current.saveReady = true` for that exact `currentVersion` before saving that
+version and reporting the saved source hash.
 
 ## Known Limitations
 
@@ -324,8 +324,6 @@ Near-term work is mostly about hardening and simplifying:
 - add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
   structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result
-- project the typed versioned sync summary, or an explicit reference to it, through `save` /
-  `close-save` alongside the flat sync verdict that checkpointing already establishes
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in
