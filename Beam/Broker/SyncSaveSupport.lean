@@ -42,6 +42,44 @@ def filterSyncDiagnostics (fullDiagnostics : Bool) (diagnostics : Array Diagnost
   else
     diagnostics.filter isSyncErrorDiagnostic
 
+def diagnosticDisplayPath (root : System.FilePath) (uri : DocumentUri) : String :=
+  match System.Uri.fileUriToPath? uri with
+  | some path =>
+      let rootStr := root.toString
+      let pathStr := path.toString
+      let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
+      if pathStr.startsWith rootPrefix then
+        (pathStr.drop rootPrefix.length).toString
+      else if pathStr == rootStr then
+        "."
+      else
+        pathStr
+  | none =>
+      uri
+
+def streamDiagnosticOfDiagnostic
+    (root : System.FilePath)
+    (uri : DocumentUri)
+    (version? : Option Int)
+    (diagnostic : Diagnostic) : StreamDiagnostic := {
+  path := diagnosticDisplayPath root uri
+  uri
+  version?
+  severity? := effectiveSyncDiagnosticSeverity diagnostic
+  range := diagnostic.fullRange
+  message := diagnostic.message
+  completionBlocking := isIncompleteBarrierDiagnostic diagnostic
+}
+
+def streamDiagnosticsForReply
+    (root : System.FilePath)
+    (uri : DocumentUri)
+    (version : Nat)
+    (fullDiagnostics : Bool)
+    (diagnostics : Array Diagnostic) : Array StreamDiagnostic :=
+  (filterSyncDiagnostics fullDiagnostics diagnostics).map fun diagnostic =>
+    streamDiagnosticOfDiagnostic root uri (some (Int.ofNat version)) diagnostic
+
 def syncErrorCount (diagnostics : Array Diagnostic) : Nat :=
   diagnostics.foldl (init := 0) fun count diagnostic =>
     if isSyncErrorDiagnostic diagnostic then

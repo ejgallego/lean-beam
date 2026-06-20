@@ -23,6 +23,8 @@ Lean, with a thin local Beam daemon around it for low-cost experimentation.
 - installed experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set through
   MCP `initialize`, `tools/list`, and `tools/call`, backed directly by the broker runtime rather
   than a second daemon/client connection
+- MCP `lean_sync` `include_diagnostics` option for clients that need sync diagnostics replayed in
+  the final structured tool result instead of collecting only interleaved log notifications
 - MCP `lean_init_workspace` setup tool for clients that can register only a generic global server
   command and do not advertise MCP roots. It requires an absolute Lean/Lake project root and keeps
   root switching explicit; see [MCP Workspace Initialization](#mcp-workspace-initialization).
@@ -166,7 +168,10 @@ events with path, URI, version, range, severity, message data, and `completionBl
 the diagnostic is known to block file completion. Streamed diagnostics remain request-scoped
 observations; save-readiness evidence is attached to the final sync/save verdict instead of being
 retroactively added to earlier stream events. These diagnostics are deliberately not encoded as
-progress. Beam also parses tool-call `_meta.progressToken` and emits
+progress. As an MCP compatibility workaround, `lean_sync` also accepts `include_diagnostics: true`
+to replay the current request diagnostics under `structuredContent.diagnostics`; the
+`full_diagnostics` option controls whether that replay uses the default error-only filter or includes
+warnings, information, and hints too. Beam also parses tool-call `_meta.progressToken` and emits
 `notifications/progress` for request-scoped setup and execution phases, plus throttled Lean
 `fileProgress.line` / `totalLines` / `updates` / `done` details, before the final JSON-RPC response.
 The numeric `progress` value is a per-request monotonic sequence. File-progress messages use

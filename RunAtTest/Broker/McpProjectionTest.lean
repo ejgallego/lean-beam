@@ -200,21 +200,30 @@ private def checkBrokerRequestAdapters : IO Unit := do
     Beam.Mcp.ToolName.leanClose.toBrokerRequest root (toJson pathInput)
   require "close op" (closeReq.op == .close)
 
-  let syncInput : Beam.Mcp.SyncInput := { path := "Demo.lean", fullDiagnostics? := some true }
+  let syncInput : Beam.Mcp.SyncInput := {
+    path := "Demo.lean",
+    fullDiagnostics? := some true,
+    includeDiagnostics? := some true
+  }
   let syncReq ← expectOk "sync tool request" <|
     Beam.Mcp.ToolName.leanSync.toBrokerRequest root (toJson syncInput)
   require "sync op" (syncReq.op == .syncFile)
   require "sync full diagnostics" (syncReq.fullDiagnostics? == some true)
+  require "sync include diagnostics" (syncReq.includeDiagnostics? == some true)
   let saveReq ← expectOk "save tool request" <|
     Beam.Mcp.ToolName.leanSave.toBrokerRequest root (toJson syncInput)
   require "save op" (saveReq.op == .saveOlean)
   require "save full diagnostics" (saveReq.fullDiagnostics? == some true)
+  require "save should not request reply diagnostics" saveReq.includeDiagnostics?.isNone
   let syncJson := toJson syncInput
   requireJsonBool "sync input json" "full_diagnostics" true syncJson
+  requireJsonBool "sync input json" "include_diagnostics" true syncJson
   requireFieldAbsent "sync input json" "fullDiagnostics" syncJson
+  requireFieldAbsent "sync input json" "includeDiagnostics" syncJson
   requireFieldAbsent "sync input json" "root" syncJson
   let decodedSync ← expectOk "decode sync input" <| fromJson? (α := Beam.Mcp.SyncInput) syncJson
   require "decoded sync full diagnostics" (decodedSync.fullDiagnostics? == some true)
+  require "decoded sync include diagnostics" (decodedSync.includeDiagnostics? == some true)
 
 private def checkRunAtNormalization : IO Unit := do
   let semanticFailure := Json.mkObj [("success", toJson false)]

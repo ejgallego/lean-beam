@@ -202,21 +202,6 @@ private def trackedPublishDiagnostics?
   | _, _ =>
       none
 
-private def diagnosticDisplayPath (root : System.FilePath) (uri : DocumentUri) : String :=
-  match System.Uri.fileUriToPath? uri with
-  | some path =>
-      let rootStr := root.toString
-      let pathStr := path.toString
-      let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-      if pathStr.startsWith rootPrefix then
-        (pathStr.drop rootPrefix.length).toString
-      else if pathStr == rootStr then
-        "."
-      else
-        pathStr
-  | none =>
-      uri
-
 private def diagnosticStreamKey (diagnostic : Diagnostic) : String :=
   (toJson diagnostic).compress
 
@@ -228,7 +213,6 @@ private def emitNewTrackedDiagnostics
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO (Std.TreeSet String compare) := do
   let mut seen := seen
-  let path := diagnosticDisplayPath root diagnosticParam.uri
   let diagnostics := filterSyncDiagnostics fullDiagnostics diagnosticParam.diagnostics
   for diagnostic in diagnostics do
     let key := diagnosticStreamKey diagnostic
@@ -236,15 +220,8 @@ private def emitNewTrackedDiagnostics
       seen := seen.insert key
       match emitDiagnostic? with
       | some emitDiagnostic =>
-          emitDiagnostic {
-            path
-            uri := diagnosticParam.uri
-            version? := diagnosticParam.version?
-            severity? := effectiveSyncDiagnosticSeverity diagnostic
-            range := diagnostic.fullRange
-            message := diagnostic.message
-            completionBlocking := isIncompleteBarrierDiagnostic diagnostic
-          }
+          emitDiagnostic <|
+            streamDiagnosticOfDiagnostic root diagnosticParam.uri diagnosticParam.version? diagnostic
       | none =>
           pure ()
   pure seen

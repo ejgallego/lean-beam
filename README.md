@@ -127,8 +127,11 @@ The MCP server advertises the MCP logging capability and forwards incremental Le
 sync/save-style tools as structured `notifications/message` events. These events include
 `completionBlocking=true` when a diagnostic is known to block file completion. Save-blocking
 evidence is reported on the final sync/save verdict through `blockingDiagnostics` and
-`blockingCommandMessages`; the final tool result remains a compact state summary and does not
-replay diagnostics.
+`blockingCommandMessages`; the final tool result remains a compact state summary by default.
+MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
+`include_diagnostics: true` to also include the current request diagnostics in
+`structuredContent.diagnostics`. Combine it with `full_diagnostics: true` when the reply should
+include warnings, information, and hints instead of the default error-only diagnostic filter.
 
 Client-facing reporting surfaces stay intentionally separate:
 

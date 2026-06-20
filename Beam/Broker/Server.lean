@@ -1160,8 +1160,15 @@ private def handleSyncFileOpIO
     let (syncSummary, syncSummaryRecord) :=
       mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
     recordCompletedSyncSummaryIO server started.session started.uri started.version syncSummaryRecord
+    let replyDiagnostics? :=
+      if req.includeDiagnostics?.getD false then
+        some <| streamDiagnosticsForReply started.session.root started.uri started.version
+          (req.fullDiagnostics?.getD false) currentDiagnostics
+      else
+        none
     pure (syncFileSuccessResponse
-      started.version currentDiagnostics saveReadiness fileProgress? (some syncSummary), false)
+      started.version currentDiagnostics saveReadiness fileProgress? (some syncSummary) replyDiagnostics?,
+      false)
   catch e =>
     pure (responseForExceptionMessage e.toString, false)
 
