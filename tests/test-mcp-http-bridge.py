@@ -112,6 +112,15 @@ def expect_tool_error(response, code):
     require(structured.get("code") == code, f"expected tool error code {code}, got {structured}")
 
 
+def require_file_progress_line(structured, label):
+    progress = structured.get("file_progress")
+    require(isinstance(progress, dict), f"{label}: missing file_progress: {structured}")
+    line = progress.get("line")
+    total = progress.get("totalLines")
+    require(type(line) is int and line >= 1, f"{label}: invalid file_progress line: {progress}")
+    require(type(total) is int and total >= line, f"{label}: invalid file_progress totalLines: {progress}")
+
+
 def save_warning_text(marker):
     return "\n".join(
         [
@@ -265,7 +274,8 @@ def main():
             ))
             require(sync.get("isError") is not True, f"lean_sync returned tool error: {sync}")
             structured = sync.get("structuredContent")
-            require(isinstance(structured, dict) and isinstance(structured.get("file_progress"), dict), f"sync missing progress: {sync}")
+            require(isinstance(structured, dict), f"sync missing structuredContent: {sync}")
+            require_file_progress_line(structured, "lean_sync")
 
             (project_root / "SaveSmoke" / "B.lean").write_text(
                 save_warning_text("-- mcp http diagnostic log"),

@@ -906,6 +906,13 @@ if not isinstance(result, dict) or result.get("isError") is True:
 structured = result.get("structuredContent")
 if not isinstance(structured, dict) or not isinstance(structured.get("file_progress"), dict):
     raise RuntimeError(f"lean_sync result missing structured file_progress: {sync}")
+progress = structured["file_progress"]
+line = progress.get("line")
+total = progress.get("totalLines")
+if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+    raise RuntimeError(f"lean_sync result has invalid file_progress line: {progress}")
+if not isinstance(total, int) or isinstance(total, bool) or total < line:
+    raise RuntimeError(f"lean_sync result has invalid file_progress totalLines: {progress}")
 
 send({"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
 shutdown = recv(3)
@@ -916,7 +923,7 @@ proc.wait(timeout=5)
 stderr = proc.stderr.read()
 if stderr.strip():
     raise RuntimeError(f"lean-beam-mcp wrote stderr: {stderr}")
-print(json.dumps({"ok": True, "progress": structured["file_progress"]}, sort_keys=True))
+print(json.dumps({"ok": True, "progress": progress}, sort_keys=True))
 PY
 then
   echo "expected installed MCP wrapper smoke to succeed" >&2

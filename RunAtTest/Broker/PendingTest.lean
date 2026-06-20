@@ -9,6 +9,7 @@ import RunAtTest.Broker.JsonAssert
 
 open Lean
 open Lean.JsonRpc
+open Lean.Lsp
 open Beam.Broker
 open RunAtTest.Broker.JsonAssert
 
@@ -29,7 +30,8 @@ private def expectIoErrorContains (label needle : String) (act : IO α) : IO Uni
 
 private def mkPending
     (clientRequestId? : Option String := none)
-    (progress? : Option SyncFileProgress := none) :
+    (progress? : Option SyncFileProgress := none)
+    (tracked? : Option (DocumentUri × Nat) := none) :
     IO (PendingRequest × IO.Promise (Except String PendingResult)) := do
   let promise ← IO.Promise.new
   let progressRef ← IO.mkRef progress?
@@ -39,6 +41,7 @@ private def mkPending
   pure ({
     clientRequestId?
     promise
+    tracked?
     progressRef
     diagnosticsRef
     diagnosticsSeenRef
@@ -107,10 +110,80 @@ private def checkPendingStoreFailAll : IO Unit := do
   require "failAll clears pending store"
     ((← PendingRequestStore.snapshot store).isEmpty)
 
+private def mkRange (startLine startCharacter endLine endCharacter : Nat) : Range := {
+  start := { line := startLine, character := startCharacter }
+  «end» := { line := endLine, character := endCharacter }
+}
+
+private def mkFileProgress (ranges : Array Range) : LeanFileProgressParams := {
+  textDocument := { uri := "file:///workspace/Foo.lean", version? := some 1 }
+  processing := ranges.map fun range => { range }
+}
+
+private def observeFileProgress
+    (progress : SyncFileProgress)
+    (ranges : Array Range) : IO SyncFileProgress := do
+  let (pending, _) ← mkPending
+    (progress? := some progress)
+    (tracked? := some ("file:///workspace/Foo.lean", 1))
+  PendingRequest.observeProgress pending (mkFileProgress ranges)
+  let some next ← pending.progressRef.get
+    | throw <| IO.userError "observeProgress cleared fileProgress"
+  pure next
+
+private def checkSyncFileProgressDisplay : IO Unit := do
+  require "display includes line and done=false"
+    (SyncFileProgress.displayDetails {
+      updates := 4
+      done := false
+      line? := some 3
+      totalLines? := some 13
+    } == "line=3/13 updates=4 done=false")
+  require "display can omit done=true"
+    (SyncFileProgress.displayDetails {
+      updates := 5
+      done := true
+      line? := some 13
+      totalLines? := some 13
+    } (includeDoneTrue := false) == "line=13/13 updates=5")
+
+private def checkSyncFileProgressLines : IO Unit := do
+  let trailingNewline ← observeFileProgress {} #[mkRange 0 0 1 0]
+  require "progress trailing newline reports one physical line"
+    (trailingNewline == {
+      updates := 1
+      done := false
+      line? := some 1
+      totalLines? := some 1
+    })
+
+  let multipleRanges ← observeFileProgress {} #[
+    mkRange 5 0 10 0,
+    mkRange 2 0 12 3
+  ]
+  require "progress multiple ranges use earliest active line and max total"
+    (multipleRanges == {
+      updates := 1
+      done := false
+      line? := some 3
+      totalLines? := some 13
+    })
+
+  let finished ← observeFileProgress multipleRanges #[]
+  require "progress final empty processing preserves total and marks line complete"
+    (finished == {
+      updates := 2
+      done := true
+      line? := some 13
+      totalLines? := some 13
+    })
+
 def main : IO Unit := do
   checkActiveRegistry
   checkPendingStoreResolve
   checkPendingStoreFailAll
+  checkSyncFileProgressDisplay
+  checkSyncFileProgressLines
 
 end RunAtTest.Broker.PendingTest
 
