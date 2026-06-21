@@ -48,9 +48,21 @@ lake build \
 .lake/build/bin/beam-sync-summary-delta-test > /dev/null
 .lake/build/bin/beam-daemon-startup-handshake-test > /dev/null
 
-python3 tests/test-mcp-stdio.py --iterations 1 --restart-cycles 1 > /dev/null
+mcp_stdio_timeout="${BEAM_MCP_STDIO_TIMEOUT:-60}"
+mcp_stdio_env=()
+if [ "${BEAM_MCP_STDIO_SERVER_TRACE:-1}" != "0" ]; then
+  mcp_stdio_env+=("BEAM_MCP_SERVER_TRACE=1")
+  mcp_stdio_env+=("LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS=${BEAM_MCP_STDIO_WAIT_DIAGNOSTICS_WATCHDOG_MS:-10000}")
+fi
+env ${mcp_stdio_env[@]+"${mcp_stdio_env[@]}"} \
+  python3 tests/test-mcp-stdio.py \
+    --iterations 1 \
+    --restart-cycles 1 \
+    --timeout "$mcp_stdio_timeout" \
+    > /dev/null
 python3 tests/test-mcp-http-bridge.py > /dev/null
-LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=60000 \
+mcp_self_check_timeout="${BEAM_MCP_SELF_CHECK_TIMEOUT_MS:-120000}"
+LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS="$mcp_self_check_timeout" \
   scripts/lean-beam-mcp --root tests/save_olean_project --self-check PositionEmptyLine.lean > /dev/null
 
 self_check_timeout_dir="$(mktemp -d /tmp/lean-beam-mcp-self-check-timeout-XXXXXX)"

@@ -58,7 +58,17 @@ run_step "build" lake build \
   beam-client \
   lean-beam-mcp
 
-run_step "MCP stdio stress" python3 tests/test-mcp-stdio.py --iterations 4 --restart-cycles 3
+mcp_stdio_timeout="${BEAM_MCP_STDIO_TIMEOUT:-60}"
+mcp_stdio_env=()
+if [ "${BEAM_MCP_STDIO_SERVER_TRACE:-1}" != "0" ]; then
+  mcp_stdio_env+=("BEAM_MCP_SERVER_TRACE=1")
+  mcp_stdio_env+=("LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS=${BEAM_MCP_STDIO_WAIT_DIAGNOSTICS_WATCHDOG_MS:-10000}")
+fi
+run_step "MCP stdio stress" env ${mcp_stdio_env[@]+"${mcp_stdio_env[@]}"} \
+  python3 tests/test-mcp-stdio.py \
+    --iterations 4 \
+    --restart-cycles 3 \
+    --timeout "$mcp_stdio_timeout"
 
 run_step "bundle install" env BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
   ./.lake/build/bin/beam-cli bundle-install "$toolchain"

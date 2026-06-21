@@ -255,6 +255,62 @@ private def resetMetrics (startMonoNanos : Nat) : M Unit := do
     startMonoNanos := startMonoNanos
   }
 
+private def traceEnabled (envName : String) : IO Bool := do
+  match ← IO.getEnv envName with
+  | some value => pure (!value.isEmpty && value != "0")
+  | none => pure false
+
+private def emitBrokerTrace (message : String) : IO Unit := do
+  let now ← IO.monoNanosNow
+  IO.eprintln s!"beam-broker trace {now}: {message}"
+
+private def traceBroker (message : String) : IO Unit := do
+  if ← traceEnabled "LEAN_BEAM_BROKER_TRACE" then
+    emitBrokerTrace message
+
+private def optionLabel (value? : Option String) : String :=
+  value?.getD "<none>"
+
+private def waitDiagnosticsWatchdogMs? : IO (Option Nat) := do
+  match ← IO.getEnv "LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS" with
+  | none => pure none
+  | some value =>
+      if value.isEmpty || value == "0" then
+        pure none
+      else
+        match value.toNat? with
+        | some ms => pure (some ms)
+        | none =>
+            emitBrokerTrace
+              s!"invalid LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS={value}; watchdog disabled"
+            pure none
+
+private def startWaitDiagnosticsWatchdog
+    (label : String)
+    (doneRef : IO.Ref Bool) : IO Unit := do
+  match ← waitDiagnosticsWatchdogMs? with
+  | none => pure ()
+  | some timeoutMs =>
+      let _ ← IO.asTask (prio := Task.Priority.dedicated) do
+        IO.sleep timeoutMs.toUInt32
+        unless (← doneRef.get) do
+          emitBrokerTrace
+            s!"waitForDiagnostics watchdog after {timeoutMs}ms: {label}"
+      pure ()
+
+private def awaitWaitForDiagnosticsBarrier
+    (label : String)
+    (promise : IO.Promise (Except String PendingResult)) : IO PendingResult := do
+  let doneRef ← IO.mkRef false
+  startWaitDiagnosticsWatchdog label doneRef
+  try
+    let pending ← PendingRequest.awaitResult promise
+    doneRef.set true
+    pure pending
+  catch e =>
+    doneRef.set true
+    throw e
+
 private def nextRequestId (session : Session) : Session × RequestID :=
   let id : RequestID := session.nextId
   ({ session with nextId := session.nextId + 1 }, id)
@@ -282,17 +338,23 @@ partial def sessionReaderLoop (session : Session) : IO Unit := do
     let msg ← session.stdout.readLspMessage
     match msg with
     | .response id result =>
-        if let some pending ← PendingRequestStore.remove session.pending id then
+        let pending? ← PendingRequestStore.remove session.pending id
+        traceBroker s!"lsp response id={id} matched={pending?.isSome}"
+        if let some pending := pending? then
           PendingRequest.resolveResponse pending result
     | .responseError id code message data? =>
-        if let some pending ← PendingRequestStore.remove session.pending id then
+        let pending? ← PendingRequestStore.remove session.pending id
+        traceBroker s!"lsp responseError id={id} matched={pending?.isSome} code={(toJson code).compress} message={message}"
+        if let some pending := pending? then
           PendingRequest.resolveError pending code message data?
     | .notification "$/lean/fileProgress" (some param) =>
         let pending ← PendingRequestStore.snapshot session.pending
+        traceBroker s!"lsp fileProgress pending={pending.size} params={(toJson param).compress}"
         for req in pending do
           PendingRequest.observeProgress req param
     | .notification "textDocument/publishDiagnostics" (some param) =>
         let pending ← PendingRequestStore.snapshot session.pending
+        traceBroker s!"lsp publishDiagnostics pending={pending.size} params={(toJson param).compress}"
         for req in pending do
           PendingRequest.observeDiagnostics session.root req param
     | _ =>
@@ -348,11 +410,15 @@ private def startRequestJsonTrackedDetailed
       emitDiagnostic? := emitDiagnostic?
       : PendingRequest
     }
+  traceBroker
+    s!"lsp request inserted id={id} method={method} clientRequestId={optionLabel clientRequestId?} tracked={tracked.isSome}"
   try
     writeLspRequest session.stdin ({ id, method, param : Lean.JsonRpc.Request Json })
+    traceBroker s!"lsp request sent id={id} method={method}"
     pure (session, promise)
   catch e =>
     discard <| PendingRequestStore.remove session.pending id
+    traceBroker s!"lsp request send failed id={id} method={method} error={e.toString}"
     try
       promise.resolve (.error e.toString)
     catch _ =>
@@ -1088,7 +1154,9 @@ private def saveOleanIO
       (← get).config.leanCmd?
     )
   propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-  let barrier ← PendingRequest.awaitResult started.promise
+  let barrier ← awaitWaitForDiagnosticsBarrier
+    s!"save_olean sync barrier clientRequestId={optionLabel req.clientRequestId?} uri={started.uri} version={started.version}"
+    started.promise
   let barrierDecision :=
     decideSyncBarrier started.uri started.version started.priorProgress? barrier.progress? barrier.diagnostics
   let barrierProgress? := barrierDecision.fileProgress?
@@ -1161,8 +1229,14 @@ private def handleSyncFileOpIO
     ensureRequestNotCancelled cancelRef?
     let path ← resolvePath ((← server.withState do pure (← get).config.root)) path
     let started ← startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
+    traceBroker
+      s!"sync_file await barrier clientRequestId={optionLabel req.clientRequestId?} uri={started.uri} version={started.version}"
     propagatePendingCancellation started.session req.clientRequestId? cancelRef?
-    let pending ← PendingRequest.awaitResult started.promise
+    let pending ← awaitWaitForDiagnosticsBarrier
+      s!"sync_file clientRequestId={optionLabel req.clientRequestId?} uri={started.uri} version={started.version}"
+      started.promise
+    traceBroker
+      s!"sync_file barrier completed clientRequestId={optionLabel req.clientRequestId?} progress={pending.progress?.isSome} diagnostics={pending.diagnostics.size} diagnosticsSeen={pending.diagnosticsSeen}"
     let barrierDecision :=
       decideSyncBarrier started.uri started.version started.priorProgress? pending.progress? pending.diagnostics
     let fileProgress? := barrierDecision.fileProgress?
@@ -1190,10 +1264,13 @@ private def handleSyncFileOpIO
           (req.fullDiagnostics?.getD false) currentDiagnostics
       else
         none
+    traceBroker
+      s!"sync_file response ready clientRequestId={optionLabel req.clientRequestId?} version={started.version} saveReady={saveReadiness.saveReady}"
     pure (syncFileSuccessResponse
       started.version currentDiagnostics saveReadiness fileProgress? (some syncSummary) replyDiagnostics?,
       false)
   catch e =>
+    traceBroker s!"sync_file failed clientRequestId={optionLabel req.clientRequestId?} error={e.toString}"
     pure (responseForExceptionMessage e.toString, false)
 
 private def handleCloseOpIO
@@ -1536,6 +1613,8 @@ def ServerRuntime.dispatchRequest
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) : IO (Response × Bool) := do
   let startedAt ← IO.monoNanosNow
+  traceBroker
+    s!"dispatch start op={req.op.key} clientRequestId={optionLabel req.clientRequestId?}"
   try
     let active? ←
       if requestTracksActiveRequest req.op then
@@ -1552,12 +1631,16 @@ def ServerRuntime.dispatchRequest
       let (resp, shouldStop) ←
         handleRequestIO server req (active?.map (·.cancelRef)) emitProgress? emitDiagnostic?
       let resp := resp.withClientRequestId req.clientRequestId?
+      traceBroker
+        s!"dispatch complete op={req.op.key} clientRequestId={optionLabel req.clientRequestId?} ok={resp.ok}"
       recordDispatchMetrics server req resp startedAt
       pure (resp, shouldStop)
     finally
       ActiveRequestRegistry.unregister server.activeRequests active?
   catch e =>
     let resp := (Response.error "internalError" e.toString).withClientRequestId req.clientRequestId?
+    traceBroker
+      s!"dispatch exception op={req.op.key} clientRequestId={optionLabel req.clientRequestId?} error={e.toString}"
     recordDispatchMetrics server req resp startedAt
     pure (resp, false)
 

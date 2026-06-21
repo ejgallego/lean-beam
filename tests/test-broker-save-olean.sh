@@ -104,16 +104,117 @@ path.write_text("def bVal : Nat := 3\n")
 PY
 }
 
+print_diag_section() {
+  printf '\n--- %s ---\n' "$1" >&2
+}
+
+dump_file() {
+  local label="$1"
+  local path="$2"
+  print_diag_section "$label: $path"
+  if [ -e "$path" ]; then
+    ls -l "$path" >&2 || true
+    cat "$path" >&2 || true
+  else
+    echo "(missing)" >&2
+  fi
+}
+
+dump_file_head() {
+  local label="$1"
+  local path="$2"
+  print_diag_section "$label: $path"
+  if [ -e "$path" ]; then
+    ls -l "$path" >&2 || true
+    sed -n '1,120p' "$path" >&2 || true
+  else
+    echo "(missing)" >&2
+  fi
+}
+
+dump_file_tail() {
+  local label="$1"
+  local path="$2"
+  print_diag_section "$label: $path"
+  if [ -e "$path" ]; then
+    ls -l "$path" >&2 || true
+    tail -n 120 "$path" >&2 || true
+  else
+    echo "(missing)" >&2
+  fi
+}
+
+dump_runtime_context() {
+  print_diag_section "runtime context"
+  uname -a >&2 || true
+  if command -v sysctl >/dev/null 2>&1; then
+    printf 'hw.logicalcpu=' >&2
+    sysctl -n hw.logicalcpu >&2 2>/dev/null || true
+  fi
+  if command -v nproc >/dev/null 2>&1; then
+    printf 'nproc=' >&2
+    nproc >&2 || true
+  fi
+  uptime >&2 || true
+  printf 'GITHUB_ACTIONS=%s\n' "${GITHUB_ACTIONS:-<unset>}" >&2
+  printf 'RUNNER_OS=%s\n' "${RUNNER_OS:-<unset>}" >&2
+  printf 'RUNNER_ARCH=%s\n' "${RUNNER_ARCH:-<unset>}" >&2
+  printf 'LEAN_NUM_THREADS=%s\n' "${LEAN_NUM_THREADS:-<unset>}" >&2
+  printf 'LEAN_OPTIONS=%s\n' "${LEAN_OPTIONS:-<unset>}" >&2
+  printf 'BEAM_SAVE_RACE_SENTINEL_TIMEOUT=%s\n' "${BEAM_SAVE_RACE_SENTINEL_TIMEOUT:-<unset>}" >&2
+}
+
+dump_process_snapshot() {
+  print_diag_section "Beam/Lean process snapshot"
+  # shellcheck disable=SC2009 # Keep full command lines for CI failure diagnostics.
+  ps -ef | grep -E 'beam-daemon|beam-cli|lean --server|scripts/lean-beam' | grep -v grep >&2 || true
+}
+
+dump_save_sentinel_context() {
+  local label="$1"
+  local root="$2"
+  local sentinel="$3"
+  local save_pid="$4"
+  local save_out="$5"
+  local save_err="$6"
+  print_diag_section "$label"
+  printf 'root=%s\n' "$root" >&2
+  printf 'sentinel=%s\n' "$sentinel" >&2
+  printf 'save_pid=%s\n' "$save_pid" >&2
+  if kill -0 "$save_pid" 2>/dev/null; then
+    echo "save process is still running" >&2
+  else
+    echo "save process is not running" >&2
+  fi
+  dump_runtime_context
+  dump_process_snapshot
+  dump_file "sentinel file" "$sentinel"
+  dump_file_head "SaveSmoke/B.lean" "$root/SaveSmoke/B.lean"
+  dump_file "daemon registry" "$root/.beam/beam-daemon.json"
+  dump_file_tail "daemon startup log" "$root/.beam/beam-daemon-startup.log"
+  dump_file_tail "save stdout" "$save_out"
+  dump_file_tail "save stderr" "$save_err"
+}
+
 wait_for_file() {
   local path="$1"
-  local deadline=$((SECONDS + 15))
+  local label="${2:-$path}"
+  local timeout="${3:-${BEAM_SAVE_RACE_SENTINEL_TIMEOUT:-60}}"
+  case "$timeout" in
+    ''|*[!0-9]*)
+      echo "invalid sentinel timeout '$timeout' for $label" >&2
+      return 1
+      ;;
+  esac
+  local deadline=$((SECONDS + timeout))
   while [ ! -e "$path" ]; do
     if [ "$SECONDS" -ge "$deadline" ]; then
-      echo "timed out waiting for $path" >&2
-      exit 1
+      echo "timed out after ${timeout}s waiting for $label at $path" >&2
+      return 1
     fi
     sleep 0.05
   done
+  return 0
 }
 
 wait_for_file_text() {
@@ -146,6 +247,10 @@ log2="$(mktemp /tmp/runat-save-olean-broker-log-XXXXXX)"
 log3="$(mktemp /tmp/runat-save-olean-race-log-XXXXXX)"
 log4="$(mktemp /tmp/runat-save-olean-exact-log-XXXXXX)"
 log5="$(mktemp /tmp/runat-save-olean-downstream-log-XXXXXX)"
+race_save_out="$(mktemp /tmp/runat-save-olean-race-save-out-XXXXXX)"
+race_save_err="$(mktemp /tmp/runat-save-olean-race-save-err-XXXXXX)"
+save_race_broker_trace="${BEAM_SAVE_RACE_BROKER_TRACE:-1}"
+save_race_watchdog_ms="${BEAM_SAVE_RACE_WAIT_DIAGNOSTICS_WATCHDOG_MS:-10000}"
 
 cleanup() {
   remove_owned_tmp_tree "$tmp1"
@@ -161,6 +266,8 @@ cleanup() {
   remove_owned_tmp_file "$log3"
   remove_owned_tmp_file "$log4"
   remove_owned_tmp_file "$log5"
+  remove_owned_tmp_file "$race_save_out"
+  remove_owned_tmp_file "$race_save_err"
 }
 trap cleanup EXIT
 
@@ -244,18 +351,32 @@ fi
   cd "$tmp3"
   beam --root "$tmp3" shutdown > /dev/null 2>&1 || true
   remove_owned_tmp_file "$race_sentinel"
-  LEAN_BEAM_SAVE_RACE_SENTINEL="$race_sentinel" beam --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
+  LEAN_BEAM_BROKER_TRACE="$save_race_broker_trace" \
+    LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS="$save_race_watchdog_ms" \
+    LEAN_BEAM_SAVE_RACE_SENTINEL="$race_sentinel" \
+    beam --root "$tmp3" lean-sync SaveSmoke/B.lean > /dev/null
 )
 edit_b_slow "$tmp3"
 (
   cd "$tmp3"
-  (
-    wait_for_file "$race_sentinel"
-    edit_b_final "$tmp3"
-  ) &
-  racer_pid="$!"
-  LEAN_BEAM_SAVE_RACE_SENTINEL="$race_sentinel" beam --root "$tmp3" lean-close-save SaveSmoke/B.lean > /dev/null
-  wait "$racer_pid"
+  : > "$race_save_out"
+  : > "$race_save_err"
+  LEAN_BEAM_SAVE_RACE_SENTINEL="$race_sentinel" \
+    beam --root "$tmp3" lean-close-save SaveSmoke/B.lean >"$race_save_out" 2>"$race_save_err" &
+  save_pid=$!
+  if ! wait_for_file "$race_sentinel" "save_olean race sentinel"; then
+    dump_save_sentinel_context "save_olean race sentinel timeout" \
+      "$tmp3" "$race_sentinel" "$save_pid" "$race_save_out" "$race_save_err"
+    kill "$save_pid" 2>/dev/null || true
+    wait "$save_pid" 2>/dev/null || true
+    exit 1
+  fi
+  edit_b_final "$tmp3"
+  if ! wait "$save_pid"; then
+    dump_save_sentinel_context "save_olean race save command failed" \
+      "$tmp3" "$race_sentinel" "$save_pid" "$race_save_out" "$race_save_err"
+    exit 1
+  fi
   lake_build -v SaveSmoke/A.lean >"$log3" 2>&1
   beam --root "$tmp3" shutdown > /dev/null 2>&1 || true
 )
@@ -273,11 +394,21 @@ edit_b_slow "$tmp4"
   close_out="$(mktemp /tmp/runat-close-save-cancel-out-XXXXXX)"
   close_err="$(mktemp /tmp/runat-close-save-cancel-err-XXXXXX)"
   remove_owned_tmp_file "$cancel_sentinel"
-  LEAN_BEAM_SAVE_RACE_SENTINEL="$cancel_sentinel" beam --root "$tmp4" ensure lean > /dev/null
+  LEAN_BEAM_BROKER_TRACE="$save_race_broker_trace" \
+    LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS="$save_race_watchdog_ms" \
+    LEAN_BEAM_SAVE_RACE_SENTINEL="$cancel_sentinel" \
+    beam --root "$tmp4" ensure lean > /dev/null
   LEAN_BEAM_SAVE_RACE_SENTINEL="$cancel_sentinel" BEAM_REQUEST_ID=cancel-close-save \
     beam --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
   close_pid=$!
-  wait_for_file "$cancel_sentinel"
+  if ! wait_for_file "$cancel_sentinel" "cancel save sentinel"; then
+    dump_save_sentinel_context "cancel save sentinel timeout" \
+      "$tmp4" "$cancel_sentinel" "$close_pid" "$close_out" "$close_err"
+    kill "$close_pid" 2>/dev/null || true
+    wait "$close_pid" 2>/dev/null || true
+    rm -f "$close_out" "$close_err"
+    exit 1
+  fi
   cancel_json="$(beam --root "$tmp4" cancel cancel-close-save)"
   if ! printf '%s\n' "$cancel_json" | grep -q '"cancelled": true'; then
     echo "expected explicit cancel to report cancelled=true for lean-close-save" >&2
