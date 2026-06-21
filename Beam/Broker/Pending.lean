@@ -98,6 +98,12 @@ def resolveError
   catch _ =>
     pure ()
 
+def resolveErrorJson (pending : PendingRequest) (errJson : Json) : IO Unit := do
+  try
+    pending.promise.resolve (.error s!"jsonrpcerr:{errJson.compress}")
+  catch _ =>
+    pure ()
+
 def awaitResult (promise : IO.Promise (Except String PendingResult)) : IO PendingResult := do
   let some result ← IO.wait promise.result?
     | throw <| IO.userError "pending broker request promise dropped"

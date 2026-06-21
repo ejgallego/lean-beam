@@ -25,7 +25,7 @@ Run the installer from the repo root:
 ./scripts/install-beam.sh
 ```
 
-The default installer is interactive: it asks which Lean toolchains, agent skills, and
+The default installer is interactive: it asks which Lean toolchains, Lean agent skills, and
 MCP client registrations to set up. It then shows a compact write summary and asks once for the Beam
 runtime/wrapper install area, selected skill locations, and selected MCP config locations. For
 non-interactive scripts, pass `--dont-ask`; this only skips prompts for requested Beam-owned
@@ -37,7 +37,7 @@ That installs:
 - an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
 - a prebuilt bundle for the repo-pinned supported Lean toolchain
 
-Use `--codex`, `--claude`, or `--all-skills` to install the bundled agent skills:
+Use `--codex`, `--claude`, or `--all-skills` to install the bundled Lean agent skill:
 
 ```bash
 ./scripts/install-beam.sh --codex
@@ -254,7 +254,6 @@ cheap direct-import recovery path before falling back to `lake build`. It may al
 the file could not reach the diagnostics-complete barrier for that version.
 
 Detailed Lean workflow guidance lives in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md).
-The narrower Rocq surface lives in [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md).
 
 ## Which Layer To Use
 
@@ -270,7 +269,6 @@ plugin implementation lives in [RunAt/Plugin.lean](RunAt/Plugin.lean).
 - `RunAt`: Lean LSP server plugin providing the `$/lean/runAt` request for speculative execution at arbitrary document points
 - `Beam`: local broker, daemon/client pair, and CLI wrappers exposing a narrower agent-facing surface over LSP and Beam-specific extensions
 - `skills`: installed Claude/Codex workflow guidance built around `lean-beam`
-- Rocq support: a narrow auxiliary goal-probe surface through the same `lean-beam` wrapper, useful when porting from Rocq to Lean
 - `tests`: scenario-DSL coverage for LSP-level behavior, concurrent stress coverage, broker and wrapper regression suites, and install/runtime validation
 
 ## Local Build And Test (for development)
@@ -292,7 +290,6 @@ Broker and wrapper suites:
 ```bash
 bash tests/test-broker-fast.sh
 bash tests/test-broker-slow.sh
-bash tests/test-broker-rocq.sh
 bash tests/test-broker.sh
 bash scripts/lint-shell.sh
 ```
@@ -305,8 +302,8 @@ More detail on test coverage and gaps lives in [docs/TESTING.md](docs/TESTING.md
 ## Documentation Map
 
 - [docs/STATUS.md](docs/STATUS.md): current scope, limitations, and direction
+- [docs/ROCQ.md](docs/ROCQ.md): optional Rocq Beam goal probes for Rocq-to-Lean porting
 - [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md): Lean workflow contract
-- [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md): auxiliary Rocq workflow surface
 - [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): AI-first maintainer workflow and harness guidance
 - [docs/TESTING.md](docs/TESTING.md): test coverage and gaps

@@ -540,7 +540,7 @@ if ! run_interactive_install_from_source "$interactive_transcript" "$interactive
   exit 1
 fi
 assert_contains "$interactive_transcript" 'Prebuild toolchains'
-assert_contains "$interactive_transcript" 'Agent skills to install'
+assert_contains "$interactive_transcript" 'Lean agent skill targets to install'
 assert_contains "$interactive_transcript" 'MCP clients'
 assert_contains "$interactive_transcript" 'commands'
 assert_contains "$interactive_transcript" 'Write Permissions'
@@ -683,7 +683,32 @@ assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
 assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
 
-run_step "install skills" run_install_from_source --toolchain "$toolchain" --all-skills
+rocq_no_target_err="$(mktemp "$tmp_root/rocq-skill-no-target-XXXXXX")"
+if (
+  cd "$source_checkout"
+  bash scripts/install-beam.sh --dont-ask --rocq-skill > /dev/null 2>"$rocq_no_target_err"
+); then
+  echo "expected --rocq-skill without an agent target to fail" >&2
+  remove_tmp_file "$rocq_no_target_err"
+  exit 1
+fi
+assert_contains "$rocq_no_target_err" "rocq-skill requires"
+remove_tmp_file "$rocq_no_target_err"
+assert_not_exists "$CODEX_HOME"
+assert_not_exists "$CLAUDE_HOME"
+
+run_step "install Lean skills" run_install_from_source --toolchain "$toolchain" --all-skills
+
+for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
+  assert_file "$skills_home/skills/lean-beam/SKILL.md"
+  assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
+  assert_not_exists "$skills_home/skills/rocq-beam"
+  assert_no_skill_socket_guidance "$skills_home/skills/lean-beam/SKILL.md"
+done
+assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
+BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
+
+run_step "install optional Rocq skills" run_install_from_source --toolchain "$toolchain" --all-skills --rocq-skill
 
 for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-beam/SKILL.md"
@@ -695,6 +720,15 @@ for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
+
+codex_only_home="$tmp_root/codex-only-codex"
+claude_only_home="$tmp_root/codex-only-claude"
+run_step "install optional Rocq skill for Codex only" \
+  env CODEX_HOME="$codex_only_home" CLAUDE_HOME="$claude_only_home" \
+  bash "$source_checkout/scripts/install-beam.sh" --dont-ask --toolchain "$toolchain" --codex --rocq-skill
+assert_file "$codex_only_home/skills/lean-beam/SKILL.md"
+assert_file "$codex_only_home/skills/rocq-beam/SKILL.md"
+assert_not_exists "$claude_only_home"
 
 mcp_stub_bin="$tmp_root/mcp-stubs"
 mcp_stub_log="$tmp_root/mcp-stubs.log"

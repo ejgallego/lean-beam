@@ -35,7 +35,7 @@ usage:
   lean-beam [--root PATH] cancel <request-id>
 
 notes:
-  - lean-beam keeps the Lean wrapper surface primary, but also exposes Rocq goal probes and backend selection commands
+  - lean-beam keeps the Lean wrapper surface primary; optional Rocq goal probes are documented in docs/ROCQ.md
   - common Rocq entry points are `lean-beam ensure rocq`, `lean-beam doctor rocq`, `lean-beam rocq-goals-after`, and `lean-beam rocq-goals-prev`
   - for multiline text-carrying Lean probes, prefer `--stdin` or `--text-file <path>`; use `--` before text that starts with `--`
   - for handle-based commands, use `--handle-file <path>` when you do not want to inline handle json
