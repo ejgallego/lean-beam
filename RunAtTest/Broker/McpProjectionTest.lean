@@ -72,7 +72,14 @@ private def checkToolDescriptors : IO Unit := do
     require s!"generated tool key should decode back to {repr tool}" (decoded == tool)
   require "Lean operation tool names track shared operation surface"
     (Beam.Mcp.leanOperationToolNames.size == Beam.Lean.Operation.all.size)
+  require "tool names are init workspace plus shared Lean operations"
+    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 1)
   for op in Beam.Lean.Operation.all do
+    let projectedTool := Beam.Mcp.ToolName.ofLeanOperation op
+    require s!"Lean operation {repr op} should round-trip through MCP projection"
+      (projectedTool.leanOperation? == some op)
+    require s!"Lean operation {repr op} should derive MCP key from operation key"
+      (projectedTool.key == "lean_" ++ op.key)
     let matchingTools := Beam.Mcp.leanOperationToolNames.filter (fun tool =>
       tool.kind == .leanOperation op)
     require s!"Lean operation {repr op} should have exactly one MCP tool"
