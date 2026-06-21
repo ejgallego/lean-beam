@@ -180,13 +180,15 @@ system too early.
 
 Do not expose raw LSP directly.
 
-Start with these MCP tools:
+The current first Lean MCP surface is:
 
+- `lean_init_workspace`
 - `lean_run_at`
 - `lean_run_at_handle`
 - `lean_hover`
 - `lean_goals_after`
 - `lean_goals_prev`
+- `lean_todo`
 - `lean_run_with`
 - `lean_run_with_linear`
 - `lean_release`
@@ -250,15 +252,16 @@ Rules:
 
 ## Progress Model
 
-Phase 1:
+The runtime now supports both the original result-level summary and live MCP notifications:
 
-- return final `file_progress` in tool results
+- final tool results include `file_progress` when Lean file progress was observed
+- clients that pass `params._meta.progressToken` receive request-scoped MCP progress notifications
+- incremental Lean diagnostics are forwarded as MCP log notifications instead of being encoded as
+  progress percentages or deferred only to the final tool result
 
-Phase 2:
-
-- forward live progress as MCP progress/events during execution
-
-The runtime should support both, but phase 1 is enough for a first useful server.
+Future progress work should stay additive: richer percentages or bounded work-unit totals belong in
+MCP progress only if Lean exposes trustworthy units, while diagnostic details should remain
+structured log/result data.
 
 ## Conformance Plan
 
@@ -313,17 +316,23 @@ Current first slice:
   invalid inputs for known tools return `isError=true` tool results
 - generated MCP `inputSchema` payloads from the shared operation substrate
 - normalized outputs
+- installed wrapper integration that resolves the matching Lean command and plugin through the
+  shared runtime bundle configuration
+- live MCP progress notifications for clients that pass `_meta.progressToken`
+- incremental Lean diagnostics forwarded as MCP log notifications
 - end-to-end stdio coverage that starts Lean through `lean-beam-mcp`
 - restart/stress coverage for real Lean-backed stdio tool calls
+- deterministic Streamable HTTP bridge smoke coverage for the stdio server
+- official MCP conformance coverage in CI for the selected `server-initialize`, `ping`, and
+  `tools-list` scenarios
 
 This validates the public MCP shape before generalizing.
 
-Still missing from phase 1:
+Still missing from the MCP hardening path:
 
-- install/wrapper integration that supplies `--lean-cmd` and `--lean-plugin` automatically
-- live MCP progress forwarding during long-running calls
 - MCP cancellation notification handling
-- official MCP conformance coverage through a Streamable HTTP bridge
+- selected `tools-call-*` conformance scenarios for the real Lean Beam tools
+- a first-class HTTP product transport, if real users need HTTP instead of stdio
 
 ### Phase 2: Extract Reusable Runtime
 
