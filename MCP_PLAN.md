@@ -199,9 +199,12 @@ The current first Lean MCP surface is:
 
 The repository now implements an experimental `lean-beam-mcp` stdio server for this curated tool
 set. New agent-facing Lean operations should be added to `Beam/Lean/Operation.lean` first, then
-projected to CLI and MCP when those surfaces should expose them. MCP still needs an explicit
-`ToolName` only when an operation is meant to be a public MCP tool. The raw `lean-request-at` escape
-hatch should stay out of the MCP surface.
+projected to CLI and MCP when those surfaces should expose them. The current Lean MCP tool set is
+derived from `Beam.Lean.Operation.all`: normal tool names are `lean_` plus the shared operation key,
+and `lean_init_workspace` is the only MCP-only setup tool. If the shared operation list eventually
+needs operations that are CLI-only, internal-only, or hidden from MCP, add an explicit exposure
+predicate or public-operation sublist at that boundary instead of reintroducing a separate MCP key
+table. The raw `lean-request-at` escape hatch should stay out of the MCP surface.
 
 Lean operation tool inputs should not carry `root`; the MCP server session supplies the project root
 from `lean_init_workspace`, the explicit `--root` override, or a single MCP `roots/list` result.
