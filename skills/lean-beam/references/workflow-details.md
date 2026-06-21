@@ -142,18 +142,15 @@ What is not a valid checkpoint target:
   request
 - by default they stream only errors
 - add `+full` to widen the current request to warnings, info, and hints
-- the final JSON does not replay streamed diagnostics
-- streamed diagnostics are request events, not a since-last-sync diff; use final stdout JSON for
-  current save-readiness and the request stream only for incremental diagnostic observations
+- the final JSON reports the current synced-state verdict rather than replaying streamed
+  diagnostics
+- streamed diagnostics are request events, not a since-last-sync diff
 - successful `lean-beam save` includes the sync verdict it established in `result.sync`
 - successful `lean-beam close-save` includes the sync verdict in `result.saved.sync`
-- those save verdicts include `syncSummary` plus the flat compatibility fields
-- in new tooling, use `result.syncSummary.readiness.current.saveReady` and
-  `saveBlockingErrorCount` for the save/checkpoint verdict, and use
-  `result.syncSummary.diagnostics.current.*` only for Lean-published diagnostic severity counts
-- current error-severity diagnostics force `result.syncSummary.readiness.current.saveReady = false`
-  and are reflected in `saveBlockingErrorCount`; warning, information, and hint diagnostics do not
-  block saving by themselves
+- prefer `result.syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for
+  save/checkpoint decisions
+- current error-severity diagnostics force a not-ready verdict; warning, information, and hint
+  diagnostics do not block saving by themselves
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
   `error.data.sync` contains the blocking sync verdict
@@ -162,7 +159,7 @@ What is not a valid checkpoint target:
 - streamed diagnostics are request-scoped observations; they may carry `completionBlocking=true`,
   but save-blocking evidence is attached to the final sync/save verdict
 - the field-level progress, diagnostic, readiness, and delta contract lives in
-  [../../../docs/STATUS.md](../../../docs/STATUS.md#progress-and-sync-delta-reporting)
+  [../../../docs/SYNC_AND_DIAGNOSTICS.md](../../../docs/SYNC_AND_DIAGNOSTICS.md)
 - do not parse wrapper `stderr` in tooling
 - `BEAM_PROGRESS` controls stderr progress output for slow calls
 - by default, progress prints when stderr is a TTY

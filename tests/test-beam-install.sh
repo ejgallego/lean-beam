@@ -546,7 +546,10 @@ assert_contains "$interactive_transcript" 'commands'
 assert_contains "$interactive_transcript" 'Write Permissions'
 assert_contains "$interactive_transcript" 'Lean Beam will create or update the following locations:'
 assert_contains "$interactive_transcript" 'Beam install'
+assert_contains "$interactive_transcript" 'Build output'
 assert_contains "$interactive_transcript" 'Allow lean-beam to write to these locations?'
+assert_contains "$interactive_transcript" 'building beam runtime artifacts'
+assert_contains "$interactive_transcript" 'MCP restart'
 assert_not_contains "$interactive_transcript" 'Allow this edit?'
 assert_file "$interactive_install_root/.lean-beam-install-root"
 assert_file "$interactive_home/.local/bin/lean-beam"

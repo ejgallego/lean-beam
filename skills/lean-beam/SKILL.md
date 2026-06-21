@@ -277,32 +277,22 @@ Diagnostic defaults on that path:
 - `lean-beam sync`, `lean-beam refresh`, `lean-beam save`, and `lean-beam close-save` always stream fresh diagnostics for the current request
 - by default they stream only errors
 - add `+full` to widen the current request to warnings, info, and hints
-- the final JSON does not replay streamed diagnostics, and its counts describe the current synced
-  document state under save-readiness semantics rather than the number of diagnostics emitted on
-  stderr in that request
-- streamed diagnostics are request events, not a since-last-sync diff; an unchanged still-broken
-  file may stream no new diagnostics while the final `result.errorCount` remains nonzero
-- in new tooling, treat `result.syncSummary.readiness.current.saveReady` and
-  `saveBlockingErrorCount` as the canonical save/checkpoint decision; treat
-  `result.syncSummary.diagnostics.current.*` as Lean-published diagnostic severity counts
-- current error-severity diagnostics force `result.syncSummary.readiness.current.saveReady = false`
-  and are reflected in `saveBlockingErrorCount`; warning, information, and hint diagnostics do not
-  block saving by themselves
+- the final JSON reports the current synced-state verdict rather than replaying streamed
+  diagnostics
+- prefer `result.syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for
+  save/checkpoint decisions
+- current error-severity diagnostics force a not-ready verdict; warning, information, and hint
+  diagnostics do not block saving by themselves
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
   `error.data.completionBlockingDiagnostics`
-- `lean-beam sync` final JSON reports current save-blocking errors in `result.errorCount`,
-  current warnings in `result.warningCount`, and current save-readiness in `result.saveReady` plus
-  `result.stateErrorCount` / `result.stateCommandErrorCount`; these flat fields are compatibility
-  projections of the current sync verdict, so prefer `result.syncSummary` in new clients
 - `lean-beam save` returns the sync verdict it established before checkpointing in `result.sync`;
-  `lean-beam close-save` returns it in `result.saved.sync`; those verdicts include
-  `syncSummary` plus the flat compatibility fields
+  `lean-beam close-save` returns it in `result.saved.sync`
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
   messages, and `error.data.sync` contains the blocking sync verdict
 - the field-level progress, diagnostic, readiness, and delta contract lives in
-  [../../docs/STATUS.md](../../docs/STATUS.md#progress-and-sync-delta-reporting)
+  [../../docs/SYNC_AND_DIAGNOSTICS.md](../../docs/SYNC_AND_DIAGNOSTICS.md)
 
 Surface rule:
 

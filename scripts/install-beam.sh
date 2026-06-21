@@ -989,9 +989,7 @@ print_install_plan() {
       print_field "Claude MCP" "lean-beam -> $bin_home/lean-beam-mcp"
     fi
   fi
-  if ! runtime_artifacts_ready; then
-    print_field "source build" "$repo_root/.lake"
-  fi
+  print_field "source build" "$repo_root/.lake"
   if [ "$dont_ask" -eq 0 ]; then
     print_field "approval" "one grouped write-permission prompt"
   else
@@ -1021,15 +1019,15 @@ hash_tree() {
 }
 
 ensure_runtime_artifacts() {
-  if runtime_artifacts_ready; then
-    return 0
-  fi
   confirm_path_edit "build Beam runtime artifacts in the source checkout" "$repo_root/.lake/build"
   echo "building beam runtime artifacts" >&2
   (
     cd "$repo_root"
     lake build RunAt:shared beam-cli beam-daemon beam-client lean-beam-mcp
   )
+  if ! runtime_artifacts_ready; then
+    die "Beam runtime build completed but required artifacts are missing"
+  fi
 }
 
 repo_source_commit() {
@@ -1242,9 +1240,7 @@ approve_requested_writes() {
   printf '\n  Beam install\n' >&2
   printf '    - Runtime: %s\n' "$install_root" >&2
   printf '    - Commands: %s\n' "$bin_home" >&2
-  if ! runtime_artifacts_ready; then
-    printf '    - Build output: %s\n' "$repo_root/.lake" >&2
-  fi
+  printf '    - Build output: %s\n' "$repo_root/.lake" >&2
 
   if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ]; then
     printf '\n  Agent skills\n' >&2
@@ -1279,9 +1275,7 @@ approve_requested_writes() {
 
   runtime_writes_approved=1
   bin_writes_approved=1
-  if ! runtime_artifacts_ready; then
-    source_build_approved=1
-  fi
+  source_build_approved=1
 }
 
 ensure_mcp_config_dir() {
@@ -1499,6 +1493,7 @@ print_install_summary() {
   fi
   print_field "Codex" "skills: $codex_skill_state; MCP: $codex_mcp_state"
   print_field "Claude Code" "skills: $claude_skill_state; MCP: $claude_mcp_state"
+  print_field "MCP restart" "restart active MCP client sessions to use this runtime"
   if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ]; then
     print_field "Codex setup" "$installer_cmd --codex --codex-mcp"
   elif [ "$codex_skill_installed" -eq 0 ]; then
