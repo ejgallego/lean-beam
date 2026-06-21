@@ -16,7 +16,7 @@ files=(
   tests/lib/*.sh
 )
 
-shellcheck ${files[@]+"${files[@]}"}
+shellcheck -x ${files[@]+"${files[@]}"}
 
 python3 - <<'PY'
 from pathlib import Path

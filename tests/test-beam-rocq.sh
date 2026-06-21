@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 # shellcheck source=tests/lib/ci-steps.sh
 . tests/lib/ci-steps.sh
 
-BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-broker-rocq}"
+BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-beam-rocq}"
 
 run_step "build" lake build \
   beam-cli \

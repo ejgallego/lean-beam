@@ -158,7 +158,7 @@ When adding an MCP-facing operation, use this order:
    [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean) for generated
    tool schema, lifecycle, root setup, and protocol error-shape expectations.
 8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
-   focused MCP test executables, `git diff --check`, and `bash tests/test-broker-fast.sh`.
+   focused MCP test executables, `git diff --check`, and `bash tests/test-beam-fast.sh`.
 
 For setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,
 put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary explicit
@@ -330,13 +330,17 @@ What this does not promise:
 
 ## Recommended Test Order
 
-- broker protocol / stream / barrier changes: `bash tests/test-broker-fast.sh`
-- wrapper / install / bundle-resolution changes: `bash tests/test-broker-slow.sh`
-- Rocq broker / wrapper changes: `bash tests/test-broker-rocq.sh`
+- LSP request / handle / scenario changes: `bash tests/test-lsp.sh`
+- Beam broker protocol / stream / barrier changes: `bash tests/test-beam-fast.sh`
+- Beam wrapper / save replay / bundle-resolution changes: `bash tests/test-beam-slow.sh`
+- Beam install / runtime layout changes: `bash tests/test-beam-install.sh`
+- supported Lean toolchain changes: `bash tests/test-beam-toolchain-compat.sh <toolchain>`
+- Rocq broker / wrapper changes: `bash tests/test-beam-rocq.sh`
+- maintainer harness / validation wrapper changes: `bash tests/test-maintainer.sh`
 - risky local install or wrapper validation: `bash scripts/validate-defensive.sh`
 - shell changes: `bash scripts/lint-shell.sh`
 
-Use `bash tests/test-broker.sh` when you want the aggregate broker signal.
+Use `bash tests/test-beam.sh` when you want the aggregate default Beam signal.
 
 CI uses Node 24-compatible first-party GitHub Actions majors for checkout, setup-node, and cache.
 The MCP conformance job's `node-version` is the JavaScript test runtime and may stay pinned
