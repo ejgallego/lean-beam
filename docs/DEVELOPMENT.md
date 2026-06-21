@@ -133,9 +133,10 @@ When adding an MCP-facing operation, use this order:
 1. Add or reuse a `Beam.Lean.Operation`. Define the typed input, broker-request adapter, description,
    and closed input schema there. Use [Beam/JsonSchema.lean](../Beam/JsonSchema.lean) for public
    tool schemas instead of hand-rolling schema JSON.
-2. If the operation should be a public MCP tool, add a `ToolName` in `Beam.Mcp.Projection` and map
-   it to the shared Lean operation. Do not add raw LSP method names or expert/raw escape hatches such
-   as `lean-request-at`.
+2. If the operation should be a public MCP tool, make sure `Beam.Mcp.Projection` projects it from
+   the shared Lean operation surface. Normal Lean MCP tool names derive from the operation key with
+   the `lean_` prefix; `lean_init_workspace` is the MCP-only setup exception. Do not add raw LSP
+   method names or expert/raw escape hatches such as `lean-request-at`.
 3. If the operation also belongs on the CLI, add or update the request helper in
    [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Keep CLI compatibility behavior,
    such as omitted-text validation, at the CLI projection boundary.

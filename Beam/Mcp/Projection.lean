@@ -22,19 +22,7 @@ such as `$/lean/runAt` are not accepted here.
 -/
 inductive ToolName where
   | leanInitWorkspace
-  | leanRunAt
-  | leanRunAtHandle
-  | leanHover
-  | leanGoalsAfter
-  | leanGoalsPrev
-  | leanTodo
-  | leanRunWith
-  | leanRunWithLinear
-  | leanRelease
-  | leanSync
-  | leanDeps
-  | leanSave
-  | leanClose
+  | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
 
 /-- MCP tool categories after projecting the shared Beam operation surface. -/
@@ -43,48 +31,45 @@ inductive ToolKind where
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
 
-structure ToolNameInfo where
-  key : String
-  kind : ToolKind
+def ToolName.ofLeanOperation (operation : Beam.Lean.Operation) : ToolName :=
+  .leanOperation operation
 
-def ToolName.info : ToolName → ToolNameInfo
-  | .leanInitWorkspace => { key := "lean_init_workspace", kind := .workspaceInit }
-  | .leanRunAt => { key := "lean_run_at", kind := .leanOperation .runAt }
-  | .leanRunAtHandle => { key := "lean_run_at_handle", kind := .leanOperation .runAtHandle }
-  | .leanHover => { key := "lean_hover", kind := .leanOperation .hover }
-  | .leanGoalsAfter => { key := "lean_goals_after", kind := .leanOperation .goalsAfter }
-  | .leanGoalsPrev => { key := "lean_goals_prev", kind := .leanOperation .goalsPrev }
-  | .leanTodo => { key := "lean_todo", kind := .leanOperation .todo }
-  | .leanRunWith => { key := "lean_run_with", kind := .leanOperation .runWith }
-  | .leanRunWithLinear => { key := "lean_run_with_linear", kind := .leanOperation .runWithLinear }
-  | .leanRelease => { key := "lean_release", kind := .leanOperation .release }
-  | .leanSync => { key := "lean_sync", kind := .leanOperation .sync }
-  | .leanDeps => { key := "lean_deps", kind := .leanOperation .deps }
-  | .leanSave => { key := "lean_save", kind := .leanOperation .save }
-  | .leanClose => { key := "lean_close", kind := .leanOperation .close }
+def ToolName.leanRunAt : ToolName := .leanOperation .runAt
+def ToolName.leanRunAtHandle : ToolName := .leanOperation .runAtHandle
+def ToolName.leanHover : ToolName := .leanOperation .hover
+def ToolName.leanGoalsAfter : ToolName := .leanOperation .goalsAfter
+def ToolName.leanGoalsPrev : ToolName := .leanOperation .goalsPrev
+def ToolName.leanTodo : ToolName := .leanOperation .todo
+def ToolName.leanRunWith : ToolName := .leanOperation .runWith
+def ToolName.leanRunWithLinear : ToolName := .leanOperation .runWithLinear
+def ToolName.leanRelease : ToolName := .leanOperation .release
+def ToolName.leanSync : ToolName := .leanOperation .sync
+def ToolName.leanDeps : ToolName := .leanOperation .deps
+def ToolName.leanSave : ToolName := .leanOperation .save
+def ToolName.leanClose : ToolName := .leanOperation .close
 
-def ToolName.all : Array ToolName := #[
-  .leanInitWorkspace,
-  .leanRunAt,
-  .leanRunAtHandle,
-  .leanHover,
-  .leanGoalsAfter,
-  .leanGoalsPrev,
-  .leanTodo,
-  .leanRunWith,
-  .leanRunWithLinear,
-  .leanRelease,
-  .leanSync,
-  .leanDeps,
-  .leanSave,
-  .leanClose
-]
+def ToolName.leanOperation? : ToolName → Option Beam.Lean.Operation
+  | .leanInitWorkspace => none
+  | .leanOperation operation => some operation
+
+private def leanOperationToolKey (operation : Beam.Lean.Operation) : String :=
+  "lean_" ++ operation.key
+
+def ToolName.leanOperationTools : Array ToolName :=
+  Beam.Lean.Operation.all.map ToolName.ofLeanOperation
+
+def ToolName.all : Array ToolName :=
+  #[.leanInitWorkspace] ++ ToolName.leanOperationTools
 
 def ToolName.key (tool : ToolName) : String :=
-  tool.info.key
+  match tool.leanOperation? with
+  | some operation => leanOperationToolKey operation
+  | none => "lean_init_workspace"
 
 def ToolName.kind (tool : ToolName) : ToolKind :=
-  tool.info.kind
+  match tool.leanOperation? with
+  | some operation => .leanOperation operation
+  | none => .workspaceInit
 
 def ToolName.fromKey? (key : String) : Option ToolName :=
   ToolName.all.find? (fun tool => tool.key == key)
@@ -141,10 +126,7 @@ def toolNames : Array ToolName :=
   ToolName.all
 
 def leanOperationToolNames : Array ToolName :=
-  toolNames.filter (fun tool =>
-    match tool.kind with
-    | .leanOperation _ => true
-    | .workspaceInit => false)
+  ToolName.leanOperationTools
 
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
   match tool.kind with
