@@ -1100,7 +1100,7 @@ private def saveOleanIO
     fetchSyncSaveReadinessIO server started.session started.uri (expectedVersion? := some started.version)
   let currentDiagnostics :=
     currentSyncDiagnostics started.version barrier.diagnostics barrier.diagnosticsSeen priorSummary?
-  let saveReadiness := withFallbackSaveBlockingEvidence currentDiagnostics saveReadiness
+  let saveReadiness := normalizeSyncSaveReadiness currentDiagnostics saveReadiness
   let (syncSummary, syncSummaryRecord) :=
     mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
   let syncVerdict :=
@@ -1180,7 +1180,7 @@ private def handleSyncFileOpIO
       fetchSyncSaveReadinessIO server started.session started.uri (expectedVersion? := some started.version)
     let currentDiagnostics :=
       currentSyncDiagnostics started.version pending.diagnostics pending.diagnosticsSeen priorSummary?
-    let saveReadiness := withFallbackSaveBlockingEvidence currentDiagnostics saveReadiness
+    let saveReadiness := normalizeSyncSaveReadiness currentDiagnostics saveReadiness
     let (syncSummary, syncSummaryRecord) :=
       mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
     recordCompletedSyncSummaryIO server started.session started.uri started.version syncSummaryRecord

@@ -15,33 +15,23 @@ open RunAtTest.Broker.JsonAssert
 
 namespace RunAtTest.Broker.SyncSummaryTest
 
-private def jsonPos (line character : Nat) : Json :=
-  Json.mkObj [
-    ("line", toJson line),
-    ("character", toJson character)
-  ]
+private def lspPos (line character : Nat) : Lsp.Position :=
+  { line, character }
 
-private def jsonRange (line startCharacter endCharacter : Nat) : Json :=
-  Json.mkObj [
-    ("start", jsonPos line startCharacter),
-    ("end", jsonPos line endCharacter)
-  ]
+private def lspRange (line startCharacter endCharacter : Nat) : Lsp.Range :=
+  { start := lspPos line startCharacter, «end» := lspPos line endCharacter }
 
 private def diagnostic
     (line startCharacter endCharacter : Nat)
-    (severity? : Option Nat)
-    (message : String) : IO Diagnostic := do
-  let fields :=
-    [
-      ("range", jsonRange line startCharacter endCharacter),
-      ("message", toJson message)
-    ] ++
-    match severity? with
-    | some severity => [("severity", toJson severity)]
-    | none => []
-  match fromJson? (α := Diagnostic) <| Json.mkObj fields with
-  | .ok diagnostic => pure diagnostic
-  | .error err => throw <| IO.userError s!"failed to build diagnostic fixture: {err}"
+    (severity? : Option DiagnosticSeverity)
+    (message : String) : Diagnostic :=
+  let range := lspRange line startCharacter endCharacter
+  {
+    range
+    fullRange? := some range
+    severity?
+    message
+  }
 
 private def requireDiagnosticDelta
     (label : String)
@@ -61,7 +51,7 @@ private def diagnosticMessages (diagnostics : Array Diagnostic) : Array String :
   diagnostics.map (·.message)
 
 private def checkFirstSyncSummary : IO Unit := do
-  let warning ← diagnostic 0 0 1 (some 2) "warning only"
+  let warning := diagnostic 0 0 1 (some .warning) "warning only"
   let readiness : SyncSaveReadiness := {
     currentSaveBlockingErrorCount? := some 0
     currentWarningCount? := some 1
@@ -85,8 +75,8 @@ private def checkFirstSyncSummary : IO Unit := do
       diagnosticMessages record.diagnostics == #["warning only"])
 
 private def checkDuplicateDiagnosticDelta : IO Unit := do
-  let duplicate ← diagnostic 0 0 1 (some 2) "duplicated warning"
-  let added ← diagnostic 1 0 1 (some 1) "new error"
+  let duplicate := diagnostic 0 0 1 (some .warning) "duplicated warning"
+  let added := diagnostic 1 0 1 (some .error) "new error"
   let prior : LastSyncSummary := {
     version := 2
     textHash := 10
@@ -137,8 +127,8 @@ private def checkDuplicateDiagnosticDelta : IO Unit := do
 
 private def checkEffectiveSeverityDiagnosticIdentity : IO Unit := do
   let message := "Failed to build module dependencies."
-  let priorDiagnostic ← diagnostic 0 0 1 none message
-  let currentDiagnostic ← diagnostic 0 0 1 (some 1) message
+  let priorDiagnostic := diagnostic 0 0 1 none message
+  let currentDiagnostic := diagnostic 0 0 1 (some .error) message
   let prior : LastSyncSummary := {
     version := 4
     textHash := 20
@@ -165,8 +155,8 @@ private def checkEffectiveSeverityDiagnosticIdentity : IO Unit := do
     (delta.added == 0 && delta.removed == 0 && delta.persisted == 1)
   require "same text hash reports unchanged source" (!summary.sourceChangedSinceDeltaBase)
 
-private def checkDiagnosticErrorsDoNotImplySaveBlockingErrors : IO Unit := do
-  let interactiveDiagnostic ← diagnostic 0 0 1 (some 1) "interactive-only diagnostic"
+private def checkDiagnosticErrorsForceNotReady : IO Unit := do
+  let interactiveDiagnostic := diagnostic 0 0 1 (some .error) "interactive-only diagnostic"
   let readiness : SyncSaveReadiness := {
     currentSaveBlockingErrorCount? := some 0
     currentWarningCount? := some 0
@@ -178,16 +168,19 @@ private def checkDiagnosticErrorsDoNotImplySaveBlockingErrors : IO Unit := do
   require "diagnostic severity counts report current Lean diagnostics"
     (summary.diagnostics.current.error == 1 &&
       summary.diagnostics.current.total == 1)
-  require "readiness keeps save-blocking errors separate from diagnostic severity"
-    (summary.readiness.current.saveBlockingErrorCount == 0 &&
-      summary.readiness.current.saveReady &&
-      summary.readiness.current.saveReadyReason == "ok")
-  require "summary record preserves the save-readiness verdict"
-    (record.readiness.saveBlockingErrorCount == 0 &&
-      record.readiness.saveReady)
+  require "readiness treats current Lean errors as save-blocking"
+    (summary.readiness.current.saveBlockingErrorCount == 1 &&
+      !summary.readiness.current.saveReady &&
+      summary.readiness.current.saveReadyReason == "documentErrors")
+  require "summary records fallback diagnostic evidence"
+    (summary.readiness.current.blockingDiagnostics.size == 1 &&
+      summary.readiness.current.blockingDiagnostics[0]?.map (·.saveBlocking) == some true)
+  require "summary record preserves normalized save-readiness verdict"
+    (record.readiness.saveBlockingErrorCount == 1 &&
+      !record.readiness.saveReady)
 
 private def checkSaveBlockingEvidenceProjection : IO Unit := do
-  let blockingDiagnostic ← diagnostic 0 0 1 (some 1) "save-blocking diagnostic"
+  let blockingDiagnostic := diagnostic 0 0 1 (some .error) "save-blocking diagnostic"
   let evidence : SyncBlockingDiagnostic := {
     range := blockingDiagnostic.fullRange
     severity? := some .error
@@ -221,8 +214,8 @@ private def checkSaveBlockingEvidenceProjection : IO Unit := do
       record.readiness.blockingCommandMessages.size == 1)
 
 private def checkCurrentSyncDiagnosticsFallback : IO Unit := do
-  let priorDiagnostic ← diagnostic 0 0 1 (some 1) "prior error"
-  let freshDiagnostic ← diagnostic 1 0 1 (some 1) "fresh error"
+  let priorDiagnostic := diagnostic 0 0 1 (some .error) "prior error"
+  let freshDiagnostic := diagnostic 1 0 1 (some .error) "fresh error"
   let prior : LastSyncSummary := {
     version := 7
     textHash := 30
@@ -249,7 +242,7 @@ def main : IO Unit := do
   checkFirstSyncSummary
   checkDuplicateDiagnosticDelta
   checkEffectiveSeverityDiagnosticIdentity
-  checkDiagnosticErrorsDoNotImplySaveBlockingErrors
+  checkDiagnosticErrorsForceNotReady
   checkSaveBlockingEvidenceProjection
   checkCurrentSyncDiagnosticsFallback
 

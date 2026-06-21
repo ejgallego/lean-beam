@@ -123,14 +123,16 @@ def Operation.inputSchema : Operation → Json
   | .sync =>
       inputObject [
         ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("full_diagnostics", bool "When true, include full diagnostics in broker diagnostic streams."),
+        ("full_diagnostics", bool
+          "When true, include warnings, information, and hints in streamed or replayed diagnostics; false keeps diagnostic output error-only while summaries remain complete."),
         ("include_diagnostics", bool
           "When true, include the current request diagnostics in the final sync result; the full_diagnostics setting controls the severity filter.")
       ] #["path"]
   | .save =>
       inputObject [
         ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("full_diagnostics", bool "When true, include full diagnostics in broker diagnostic streams.")
+        ("full_diagnostics", bool
+          "When true, include warnings, information, and hints in streamed diagnostics; false keeps diagnostic output error-only while summaries remain complete.")
       ] #["path"]
   | .deps | .close =>
       inputObject [

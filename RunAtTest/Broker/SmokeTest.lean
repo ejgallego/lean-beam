@@ -104,12 +104,18 @@ private def runInteractiveOnlyDiagnosticSmoke
     path? := some path
   }
   let res : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk resp)
-  if !res.saveReady then
+  if res.saveReady then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic sync_file saveReady = true, got {(toJson res).compress}"
-  if res.errorCount != 0 || res.stateErrorCount != 0 || res.stateCommandErrorCount != 0 then
+      s!"expected interactive-only diagnostic sync_file saveReady = false, got {(toJson res).compress}"
+  if res.errorCount == 0 || res.stateErrorCount == 0 || res.stateCommandErrorCount != 0 then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic counts to stay zero, got {(toJson res).compress}"
+      s!"expected interactive-only diagnostic counts to report Lean errors only, got {(toJson res).compress}"
+  if res.saveReadyReason != "documentErrors" then
+    throw <| IO.userError
+      s!"expected interactive-only diagnostic saveReadyReason = documentErrors, got {(toJson res).compress}"
+  if res.blockingDiagnostics.isEmpty then
+    throw <| IO.userError
+      s!"expected interactive-only diagnostic sync_file to include fallback blocking diagnostics, got {(toJson res).compress}"
   let some summary := res.syncSummary?
     | throw <| IO.userError s!"expected interactive-only diagnostic sync_file to include syncSummary, got {(toJson res).compress}"
   if summary.currentVersion != res.version then
@@ -118,14 +124,14 @@ private def runInteractiveOnlyDiagnosticSmoke
   if summary.diagnostics.current.error == 0 || summary.diagnostics.current.total == 0 then
     throw <| IO.userError
       s!"expected interactive-only diagnostic syncSummary to count the error-severity diagnostic, got {(toJson summary).compress}"
-  if summary.readiness.current.saveBlockingErrorCount != 0 ||
-      !summary.readiness.current.saveReady then
+  if summary.readiness.current.saveBlockingErrorCount == 0 ||
+      summary.readiness.current.saveReady then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic syncSummary readiness to stay save-ready, got {(toJson summary).compress}"
-  unless summary.readiness.current.blockingDiagnostics.isEmpty &&
-      summary.readiness.current.blockingCommandMessages.isEmpty do
+      s!"expected interactive-only diagnostic syncSummary readiness to be blocked, got {(toJson summary).compress}"
+  if summary.readiness.current.blockingDiagnostics.isEmpty ||
+      !summary.readiness.current.blockingCommandMessages.isEmpty then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic syncSummary to omit save-blocking evidence, got {(toJson summary).compress}"
+      s!"expected interactive-only diagnostic syncSummary to include diagnostic evidence only, got {(toJson summary).compress}"
   let some lastProgress := progress.back?
     | throw <| IO.userError "expected interactive-only diagnostic sync_file to stream fileProgress"
   if !lastProgress.done then

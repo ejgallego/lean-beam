@@ -285,9 +285,9 @@ Diagnostic defaults on that path:
 - in new tooling, treat `result.syncSummary.readiness.current.saveReady` and
   `saveBlockingErrorCount` as the canonical save/checkpoint decision; treat
   `result.syncSummary.diagnostics.current.*` as Lean-published diagnostic severity counts
-- diagnostic severity counts are not save-readiness counts: a document can report
-  `diagnostics.current.error > 0` for an interactive diagnostic while still reporting
-  `readiness.current.saveReady = true`
+- current error-severity diagnostics force `result.syncSummary.readiness.current.saveReady = false`
+  and are reflected in `saveBlockingErrorCount`; warning, information, and hint diagnostics do not
+  block saving by themselves
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
   `error.data.completionBlockingDiagnostics`

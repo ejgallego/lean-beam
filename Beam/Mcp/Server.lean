@@ -278,7 +278,7 @@ private def handleInitWorkspace
   if !plan.createRuntime then
     emitProgress? progress? "workspace runtime already active"
     emitProgress? progress? "completed lean_init_workspace"
-    return callToolResult <| toJson <| Beam.Workspace.initResult plan
+    return callToolResult <| withCapabilities <| toJson <| Beam.Workspace.initResult plan
   emitProgress? progress? "starting workspace runtime"
   match ← createRuntimeForRoot opts requestedRoot with
   | .error err =>
@@ -299,7 +299,7 @@ private def handleInitWorkspace
           runtime? := some runtime
       }
       emitProgress? progress? "completed lean_init_workspace"
-      pure <| callToolResult <| toJson <| Beam.Workspace.initResult plan root
+      pure <| callToolResult <| withCapabilities <| toJson <| Beam.Workspace.initResult plan root
 
 private def brokerRequestForTool
     (root : System.FilePath)

@@ -107,6 +107,14 @@ private def checkToolsListShape : IO Unit := do
   let modeDescription ← IO.ofExcept <| modeSchema.getObjValAs? String "description"
   require "lean_init_workspace mode description should explain destructive reset"
     (modeDescription.contains "invalidates handles")
+  require "MCP capability names should include central Lean tools"
+    (Beam.Mcp.capabilityNames.contains "lean_run_at" &&
+      Beam.Mcp.capabilityNames.contains "lean_sync" &&
+      Beam.Mcp.capabilityNames.contains "lean_save" &&
+      Beam.Mcp.capabilityNames.contains "lean_goals_prev" &&
+      Beam.Mcp.capabilityNames.contains "lean_goals_after")
+  require "MCP capability names should not expose raw LSP methods"
+    (!Beam.Mcp.capabilityNames.contains RunAt.method)
 
   let schemaCases : Array (String × Array String) := #[
     ("lean_run_at", #["path", "line", "character", "text"]),
