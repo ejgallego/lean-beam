@@ -446,6 +446,11 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
         isinstance(structured.get("invalidated_handles"), bool),
         f"init workspace missing invalidated_handles flag: {structured}",
     )
+    capabilities = structured.get("capabilities")
+    require(isinstance(capabilities, list), f"init workspace missing capabilities: {structured}")
+    for capability in ["lean_sync", "lean_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
+        require(capability in capabilities, f"init workspace capabilities missing {capability}: {structured}")
+    require("$/lean/runAt" not in capabilities, f"init workspace exposed raw LSP capability: {structured}")
     require(
         structured.get("invalidated_handles") is invalidated_handles,
         f"init workspace returned wrong invalidated_handles={invalidated_handles}: {structured}",
@@ -710,8 +715,24 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
 
             client.notifications.clear()
             (project_root / "SaveSmoke" / "B.lean").write_text('def bVal : Nat := "broken"\n', encoding="utf-8")
-            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
+            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "include_diagnostics": True})
             require(sync.get("saveReady") is False, f"broken sync should not be save-ready: {sync}")
+            require(sync.get("errorCount", 0) >= 1, f"broken sync should report errorCount: {sync}")
+            require(sync.get("stateErrorCount", 0) >= 1, f"broken sync should report stateErrorCount: {sync}")
+            summary = sync.get("syncSummary", {})
+            current = summary.get("diagnostics", {}).get("current", {})
+            readiness = summary.get("readiness", {}).get("current", {})
+            require(current.get("error", 0) >= 1, f"broken sync summary should count errors: {sync}")
+            require(readiness.get("saveReady") is False, f"broken sync summary should not be save-ready: {sync}")
+            require(
+                readiness.get("saveBlockingErrorCount", 0) >= 1,
+                f"broken sync summary should report save-blocking errors: {sync}",
+            )
+            expect_reply_diagnostic(sync, severity="error", path="SaveSmoke/B.lean")
+            require(
+                all(diagnostic.get("severity") == "error" for diagnostic in sync.get("diagnostics", [])),
+                f"default replayed diagnostics should be error-only: {sync}",
+            )
             expect_diagnostic_log(client, level="error", severity="error", path="SaveSmoke/B.lean")
         finally:
             client.close()

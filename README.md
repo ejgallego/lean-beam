@@ -107,6 +107,9 @@ project root per MCP server session with the `lean_init_workspace` tool before c
 The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check the active root or
 `mode: "reset"` to explicitly switch roots and invalidate handles; see
 [docs/STATUS.md](docs/STATUS.md#mcp-workspace-initialization).
+Successful `lean_init_workspace` results include a `capabilities` array with the projected MCP tool
+names, including `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`, `lean_goals_prev`, and
+`lean_goals_after`.
 
 Direct developer runs and single-project MCP registrations may still pass an explicit project root:
 
@@ -132,6 +135,8 @@ MCP clients that cannot conveniently collect interleaved notifications can call 
 `include_diagnostics: true` to also include the current request diagnostics in
 `structuredContent.diagnostics`. Combine it with `full_diagnostics: true` when the reply should
 include warnings, information, and hints instead of the default error-only diagnostic filter.
+`full_diagnostics` is an output filter for streamed or replayed diagnostics; the
+`syncSummary.diagnostics.current` counts still summarize the full current diagnostic state.
 
 Client-facing reporting surfaces stay intentionally separate:
 
@@ -140,6 +145,10 @@ Client-facing reporting surfaces stay intentionally separate:
 | Progress | `notifications/progress` | Request-scoped operation movement for clients that pass `_meta.progressToken`. |
 | Diagnostics | `notifications/message` with logger `lean.diagnostic` | Incremental Lean diagnostics observed while a sync/save-style request is pending. |
 | Readiness | Final structured tool result | Stable synced-state verdict for the document version, including save readiness and counts. |
+
+`file_progress.line` and `file_progress.totalLines` are compact Lean file-progress range
+observations, not a verified source line count. They can be useful for coarse UI progress, but
+machine decisions should use the final readiness fields and diagnostics.
 
 To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
 
@@ -202,6 +211,17 @@ lean-beam sync "MyPkg/Sub/Module.lean"
 lean-beam refresh "MyPkg/Sub/Module.lean"
 lean-beam save "MyPkg/Sub/Module.lean"
 ```
+
+Common MCP tool names:
+
+| Wrapper command | MCP tool |
+| --- | --- |
+| `lean-beam run-at` | `mcp__lean_beam.lean_run_at` |
+| `lean-beam hover` | `mcp__lean_beam.lean_hover` |
+| `lean-beam goals-prev` | `mcp__lean_beam.lean_goals_prev` |
+| `lean-beam goals-after` | `mcp__lean_beam.lean_goals_after` |
+| `lean-beam sync` | `mcp__lean_beam.lean_sync` |
+| `lean-beam save` | `mcp__lean_beam.lean_save` |
 
 Read those commands like this:
 

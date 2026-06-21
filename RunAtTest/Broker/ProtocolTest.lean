@@ -67,26 +67,20 @@ private def expectRequestArgError
   | .error resp =>
       discard <| requireError label "invalidParams" expectedMessage resp
 
-private def jsonPos (line character : Nat) : Json :=
-  Json.mkObj [
-    ("line", toJson line),
-    ("character", toJson character)
-  ]
+private def lspPos (line character : Nat) : Lsp.Position :=
+  { line, character }
 
-private def jsonRange (line character endCharacter : Nat) : Json :=
-  Json.mkObj [
-    ("start", jsonPos line character),
-    ("end", jsonPos line endCharacter)
-  ]
+private def lspRange (line character endCharacter : Nat) : Lsp.Range :=
+  { start := lspPos line character, «end» := lspPos line endCharacter }
 
-private def diagnostic (severity : Nat) (message : String) : IO Diagnostic := do
-  match fromJson? (α := Diagnostic) <| Json.mkObj [
-    ("range", jsonRange 0 0 1),
-    ("severity", toJson severity),
-    ("message", toJson message)
-  ] with
-  | .ok diagnostic => pure diagnostic
-  | .error err => throw <| IO.userError s!"failed to build diagnostic fixture: {err}"
+private def diagnostic (severity : DiagnosticSeverity) (message : String) : Diagnostic :=
+  let range := lspRange 0 0 1
+  {
+    range
+    fullRange? := some range
+    severity? := some severity
+    message
+  }
 
 private def checkResponseJsonShape : IO Unit := do
   let successJson := toJson <| Response.success (Json.mkObj [("value", toJson (1 : Nat))])
@@ -195,7 +189,7 @@ private def checkReadinessBoundary : IO Unit := do
   require "partial readiness barrier should explain the incomplete barrier"
     (partialBarrier.message?.any (·.contains "Lean diagnostics barrier did not complete"))
 
-  let incompleteDiagnostic ← diagnostic 3 "Failed to build module dependencies."
+  let incompleteDiagnostic := diagnostic .information "Failed to build module dependencies."
   let diagnosticBarrier :=
     decideSyncBarrier uri 7 none (some { updates := 4, done := true }) #[incompleteDiagnostic]
   require "stale dependency diagnostic should force an incomplete barrier" diagnosticBarrier.incomplete
@@ -237,7 +231,7 @@ private def checkReadinessBoundary : IO Unit := do
   require "readiness recovery plan should end with lake build"
     (recoveryPlan[2]? == some "lake build")
 
-  let warningDiagnostic ← diagnostic 2 "warning only"
+  let warningDiagnostic := diagnostic .warning "warning only"
   let successResp := syncFileSuccessResponse 9 #[warningDiagnostic] {
     stateErrorCount := 1
     stateCommandErrorCount := 2
@@ -255,7 +249,7 @@ private def checkReadinessBoundary : IO Unit := do
   requireJsonBool "readiness success payload" "saveReady" false successResult
   requireJsonString "readiness success payload" "saveReadyReason" "documentErrors" successResult
 
-  let streamedErrorDiagnostic ← diagnostic 3 "streamed error only"
+  let streamedErrorDiagnostic := diagnostic .error "streamed error only"
   let stableCountsResp := syncFileSuccessResponse 10 #[streamedErrorDiagnostic, warningDiagnostic] {
     currentSaveBlockingErrorCount? := some 4
     currentWarningCount? := some 5
@@ -269,6 +263,10 @@ private def checkReadinessBoundary : IO Unit := do
   requireJsonInt "readiness stable-count payload" "warningCount" 5 stableCountsResult
   requireJsonInt "readiness stable-count payload" "stateErrorCount" 4 stableCountsResult
 
+  if syncErrorCount #[streamedErrorDiagnostic] != 1 then
+    throw <| IO.userError
+      s!"readiness diagnostic fixture should count as an error, got {syncErrorCount #[streamedErrorDiagnostic]}"
+
   let interactiveOnlyResp := syncFileSuccessResponse 11 #[streamedErrorDiagnostic] {
     currentSaveBlockingErrorCount? := some 0
     currentWarningCount? := some 0
@@ -279,9 +277,13 @@ private def checkReadinessBoundary : IO Unit := do
   } none
   let interactiveOnlyResult ← requireResponseResult
     "readiness interactive-only diagnostic response" interactiveOnlyResp
-  requireJsonInt "readiness interactive-only payload" "errorCount" 0 interactiveOnlyResult
-  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 0 interactiveOnlyResult
-  requireJsonBool "readiness interactive-only payload" "saveReady" true interactiveOnlyResult
+  requireJsonInt "readiness interactive-only payload" "errorCount" 1 interactiveOnlyResult
+  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 1 interactiveOnlyResult
+  requireJsonBool "readiness interactive-only payload" "saveReady" false interactiveOnlyResult
+  requireJsonString "readiness interactive-only payload" "saveReadyReason" "documentErrors"
+    interactiveOnlyResult
+  requireFieldPresent "readiness interactive-only payload" "blockingDiagnostics"
+    interactiveOnlyResult
 
 private def checkRequestArgsBoundary : IO Unit := do
   let runAtMissingText : Request := {

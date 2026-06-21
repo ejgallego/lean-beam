@@ -69,6 +69,7 @@ def syncFileSuccessPayload
     (readiness : SyncSaveReadiness)
     (syncSummary? : Option SyncSummary := none)
     (replyDiagnostics? : Option (Array StreamDiagnostic) := none) : Json :=
+  let readiness := normalizeSyncSaveReadiness diagnostics readiness
   toJson ({
     version
     errorCount := readiness.currentSaveBlockingErrorCount?.getD (syncErrorCount diagnostics)

@@ -151,9 +151,9 @@ What is not a valid checkpoint target:
 - in new tooling, use `result.syncSummary.readiness.current.saveReady` and
   `saveBlockingErrorCount` for the save/checkpoint verdict, and use
   `result.syncSummary.diagnostics.current.*` only for Lean-published diagnostic severity counts
-- diagnostic error counts and save-blocking error counts can differ; for example, an interactive
-  diagnostic from a child snapshot can make `diagnostics.current.error > 0` while
-  `readiness.current.saveReady = true`
+- current error-severity diagnostics force `result.syncSummary.readiness.current.saveReady = false`
+  and are reflected in `saveBlockingErrorCount`; warning, information, and hint diagnostics do not
+  block saving by themselves
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
   `error.data.sync` contains the blocking sync verdict

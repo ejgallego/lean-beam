@@ -114,6 +114,7 @@ def mkSyncSummary
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness)
     (prior? : Option LastSyncSummary) : SyncSummary × LastSyncSummary :=
+  let readiness := normalizeSyncSaveReadiness diagnostics readiness
   let currentReadiness := syncReadinessCurrent diagnostics readiness
   let summary : SyncSummary := {
     currentVersion := version

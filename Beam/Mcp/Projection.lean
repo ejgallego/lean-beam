@@ -146,6 +146,12 @@ def leanOperationToolNames : Array ToolName :=
     | .leanOperation _ => true
     | .workspaceInit => false)
 
+def capabilityNames : Array String :=
+  leanOperationToolNames.map (·.key)
+
+def withCapabilities (json : Json) : Json :=
+  json.setObjVal! "capabilities" (toJson capabilityNames)
+
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
   match tool.kind with
   | .leanOperation op =>
