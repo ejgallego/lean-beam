@@ -50,6 +50,16 @@ abbrev Options := Beam.Mcp.Options
 private def writeJsonLine (json : Json) : IO Unit := do
   Beam.Mcp.Stdio.writeStdoutJsonLine json
 
+private def traceEnabled (envName : String) : IO Bool := do
+  match ← IO.getEnv envName with
+  | some value => pure (!value.isEmpty && value != "0")
+  | none => pure false
+
+private def traceMcp (message : String) : IO Unit := do
+  if ← traceEnabled "LEAN_BEAM_MCP_TRACE" then
+    let now ← IO.monoNanosNow
+    IO.eprintln s!"lean-beam-mcp trace {now}: {message}"
+
 private structure ProgressEmitter where
   progressToken : Json
   nextProgress : IO.Ref Nat
@@ -320,14 +330,21 @@ private def handleToolCall
     | .ok params => pure params
     | .error err => return .error <| RpcError.invalidParams err
   let progress? ← ProgressEmitter.create? params.progressToken? notifier.send
+  traceMcp
+    s!"tools/call start id={requestIdLabel req.id} tool={params.name.key} progressToken={params.progressToken?.isSome}"
   if params.name == .leanInitWorkspace then
     emitProgress? progress? s!"starting {params.name.key}"
-    return .ok (← handleInitWorkspace state opts params.arguments progress?)
+    let result ← handleInitWorkspace state opts params.arguments progress?
+    traceMcp s!"tools/call init complete id={requestIdLabel req.id} tool={params.name.key}"
+    return .ok result
   let root ←
     match ← ensureRoot state stdin notifier with
-    | .ok root => pure root
+    | .ok root =>
+        traceMcp s!"tools/call root ready id={requestIdLabel req.id} root={root}"
+        pure root
     | .error err =>
         emitProgress? progress? s!"failed {params.name.key}"
+        traceMcp s!"tools/call root failed id={requestIdLabel req.id} tool={params.name.key}"
         return .error err
   emitProgress? progress? s!"starting {params.name.key}"
   emitProgress? progress? s!"preparing {params.name.key}"
@@ -336,12 +353,16 @@ private def handleToolCall
     | .ok brokerReq => pure brokerReq
     | .error err =>
         emitProgress? progress? s!"failed {params.name.key}"
+        traceMcp s!"tools/call invalid input id={requestIdLabel req.id} tool={params.name.key} error={err}"
         return .ok <| callToolErrorResult <| ToolError.invalidInput err
   let (runtime, _root) ←
     match ← ensureRuntime state opts stdin notifier with
-    | .ok runtimeAndRoot => pure runtimeAndRoot
+    | .ok runtimeAndRoot =>
+        traceMcp s!"tools/call runtime ready id={requestIdLabel req.id} tool={params.name.key}"
+        pure runtimeAndRoot
     | .error err =>
         emitProgress? progress? s!"failed {params.name.key}"
+        traceMcp s!"tools/call runtime failed id={requestIdLabel req.id} tool={params.name.key}"
         return .error err
   let emitDiagnostic : Beam.Broker.StreamDiagnostic → IO Unit := fun diagnostic =>
     emitDiagnosticLog notifier diagnostic
@@ -349,13 +370,18 @@ private def handleToolCall
     progress?.map fun progress => fun fileProgress =>
       progress.emitFileProgress params.name fileProgress
   emitProgress? progress? s!"running {params.name.key}"
+  traceMcp s!"tools/call dispatch broker id={requestIdLabel req.id} tool={params.name.key}"
   let (brokerResp, _) ← runtime.dispatchRequest brokerReq
     (emitProgress? := emitBrokerProgress?)
     (emitDiagnostic? := some emitDiagnostic)
+  traceMcp
+    s!"tools/call broker returned id={requestIdLabel req.id} tool={params.name.key} ok={brokerResp.ok}"
   match normalizeBrokerResponse params.name brokerResp with
   | .ok result =>
+      traceMcp s!"tools/call response ready id={requestIdLabel req.id} tool={params.name.key}"
       pure <| .ok <| callToolResult <| Beam.Workspace.addActiveRoot root result
   | .error err =>
+      traceMcp s!"tools/call tool error id={requestIdLabel req.id} tool={params.name.key}"
       pure <| .ok <| callToolErrorResult err
 
 private def handleReadyOperationRequest

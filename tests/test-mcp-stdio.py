@@ -2,8 +2,10 @@
 
 import argparse
 import collections
+import concurrent.futures
 import json
 import os
+import platform
 import select
 import shutil
 import subprocess
@@ -28,6 +30,112 @@ from mcp_test_util import (
 SUPPORTED_PROTOCOL_VERSION = "2025-11-25"
 
 
+def compact_json(value, limit=700):
+    try:
+        text = json.dumps(value, separators=(",", ":"), sort_keys=True)
+    except TypeError:
+        text = repr(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def short_value(value, limit=120):
+    return compact_json(value, limit=limit)
+
+
+def env_enabled(name):
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value.lower() not in ("", "0", "false", "no", "off")
+
+
+def runtime_context_lines():
+    lines = [
+        f"platform: {platform.platform()}",
+        f"machine: {platform.machine()}",
+        f"python: {platform.python_implementation()} {platform.python_version()}",
+        f"os.cpu_count: {os.cpu_count()}",
+    ]
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            lines.append(f"sched_getaffinity: {len(os.sched_getaffinity(0))}")
+        except OSError as err:
+            lines.append(f"sched_getaffinity: <failed: {err}>")
+    if hasattr(os, "getloadavg"):
+        try:
+            load1, load5, load15 = os.getloadavg()
+            lines.append(f"loadavg: {load1:.2f} {load5:.2f} {load15:.2f}")
+        except OSError as err:
+            lines.append(f"loadavg: <failed: {err}>")
+    for name in (
+        "GITHUB_ACTIONS",
+        "RUNNER_OS",
+        "RUNNER_ARCH",
+        "RUNNER_NAME",
+        "ImageOS",
+        "LEAN_NUM_THREADS",
+        "LEAN_OPTIONS",
+        "BEAM_MCP_STDIO_TIMEOUT",
+        "BEAM_MCP_SERVER_TRACE",
+        "LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS",
+    ):
+        lines.append(f"{name}: {os.environ.get(name, '<unset>')}")
+    return lines
+
+
+def format_duration_stats(values):
+    require(values, "cannot format empty duration stats")
+    ordered = sorted(values)
+    total = sum(ordered)
+    return (
+        f"runs={len(ordered)} "
+        f"min={ordered[0]:.3f}s "
+        f"median={ordered[len(ordered) // 2]:.3f}s "
+        f"max={ordered[-1]:.3f}s "
+        f"avg={total / len(ordered):.3f}s"
+    )
+
+
+def request_label(method, params):
+    label = method
+    if method == "tools/call" and isinstance(params, dict):
+        tool_name = params.get("name")
+        if isinstance(tool_name, str):
+            label = f"{method} {tool_name}"
+        arguments = params.get("arguments")
+        details = []
+        if isinstance(arguments, dict):
+            for key in ("path", "root", "mode"):
+                if key in arguments:
+                    details.append(f"{key}={short_value(arguments[key], 80)}")
+        meta = params.get("_meta")
+        if isinstance(meta, dict) and "progressToken" in meta:
+            details.append(f"progressToken={short_value(meta['progressToken'], 80)}")
+        if details:
+            label = f"{label} ({', '.join(details)})"
+    return label
+
+
+def notification_summary(notification):
+    method = notification.get("method")
+    params = notification.get("params")
+    if method == "notifications/progress" and isinstance(params, dict):
+        return (
+            f"{method} token={short_value(params.get('progressToken'), 80)} "
+            f"progress={short_value(params.get('progress'), 40)} "
+            f"message={short_value(params.get('message'), 180)}"
+        )
+    if method == "notifications/message" and isinstance(params, dict):
+        return (
+            f"{method} level={short_value(params.get('level'), 40)} "
+            f"logger={short_value(params.get('logger'), 80)} "
+            f"data={compact_json(params.get('data'), 240)}"
+        )
+    return compact_json(notification, limit=300)
+
+
 class McpClient:
     def __init__(
         self,
@@ -41,21 +149,32 @@ class McpClient:
         roots_payload=None,
         roots_response="normal",
         root_arg=None,
+        label="mcp-client",
+        server_trace=False,
     ):
         self.repo_root = repo_root
         self.project_root = project_root
         self.timeout = timeout
+        self.label = label
+        self.server_trace = server_trace or env_enabled("BEAM_MCP_SERVER_TRACE")
+        self.runtime_context = runtime_context_lines()
         self.next_id = 0
+        self.use_root_arg = use_root_arg
         self.advertise_roots = advertise_roots
         self.roots = [Path(root) for root in (roots if roots is not None else [project_root])]
         self.roots_payload = roots_payload
         self.roots_response = roots_response
+        self.root_arg = root_arg if root_arg is not None else project_root
         self.roots_request_count = 0
+        self.server_requests = collections.deque(maxlen=20)
         self.pending_extra_response_ids = set()
         self.extra_responses = []
         self.pending_requests = {}
         self.completed_requests = collections.deque(maxlen=20)
         self.notifications = []
+        self.event_log = collections.deque(maxlen=80)
+        self.started_at = time.monotonic()
+        self.last_notification_at = None
         self.stderr_lines = collections.deque(maxlen=80)
         exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
         plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
@@ -64,7 +183,7 @@ class McpClient:
         require(plugin.exists(), f"missing runAt plugin shared library at {plugin}")
         cmd = [str(exe)]
         if use_root_arg:
-            cmd.extend(["--root", str(root_arg if root_arg is not None else project_root)])
+            cmd.extend(["--root", str(self.root_arg)])
         cmd.extend(
             [
                 "--lean-cmd",
@@ -73,9 +192,14 @@ class McpClient:
                 str(plugin),
             ]
         )
+        env = os.environ.copy()
+        if self.server_trace:
+            env["LEAN_BEAM_MCP_TRACE"] = "1"
+            env["LEAN_BEAM_BROKER_TRACE"] = "1"
         self.proc = subprocess.Popen(
             cmd,
             cwd=str(repo_root),
+            env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -85,6 +209,7 @@ class McpClient:
         )
         self.stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self.stderr_thread.start()
+        self._record_event(f"process started pid={self.proc.pid}")
 
     def _drain_stderr(self):
         try:
@@ -92,6 +217,9 @@ class McpClient:
                 self.stderr_lines.append(line.rstrip("\n"))
         except Exception as err:
             self.stderr_lines.append(f"<stderr drain failed: {err}>")
+
+    def _record_event(self, label):
+        self.event_log.append({"at": time.monotonic(), "label": label})
 
     def close(self):
         if self.proc.poll() is None:
@@ -106,7 +234,8 @@ class McpClient:
             self.proc.wait(timeout=5)
         self.stderr_thread.join(timeout=1)
         stderr = "\n".join(self.stderr_lines)
-        require(stderr.strip() == "", f"lean-beam-mcp wrote unexpected stderr:\n{stderr}")
+        if not self.server_trace:
+            require(stderr.strip() == "", f"lean-beam-mcp wrote unexpected stderr:\n{stderr}")
 
     def send_message(self, message):
         require(self.proc.poll() is None, "lean-beam-mcp exited before request")
@@ -117,6 +246,15 @@ class McpClient:
     def handle_server_request(self, request):
         method = request.get("method")
         request_id = request.get("id")
+        self._record_event(f"server request id {request_id}: {method}")
+        self.server_requests.append(
+            {
+                "id": request_id,
+                "method": method,
+                "params": request.get("params"),
+                "received": time.monotonic(),
+            }
+        )
         if method == "roots/list":
             self.roots_request_count += 1
             if self.roots_response == "error":
@@ -155,6 +293,76 @@ class McpClient:
             return "<unknown request>"
         return pending["label"]
 
+    def _client_context(self):
+        roots = [str(root) for root in self.roots]
+        return "\n".join(
+            [
+                f"client label: {self.label}",
+                f"project root: {self.project_root}",
+                f"process pid: {self.proc.pid}",
+                f"use_root_arg: {self.use_root_arg}",
+                f"root_arg: {self.root_arg if self.use_root_arg else '<none>'}",
+                f"advertise_roots: {self.advertise_roots}",
+                f"configured roots: {roots}",
+                f"roots_response: {self.roots_response}",
+                f"roots_request_count: {self.roots_request_count}",
+                f"pending_extra_response_ids: {sorted(self.pending_extra_response_ids)}",
+                f"extra_responses_seen: {len(self.extra_responses)}",
+                "runtime context:",
+                *[f"  {line}" for line in self.runtime_context],
+            ]
+        )
+
+    def _pending_requests_summary(self):
+        now = time.monotonic()
+        lines = []
+        for request_id, pending in sorted(self.pending_requests.items()):
+            age = now - pending["started"]
+            lines.append(
+                f"  id {request_id}: {pending['label']} age={age:.3f}s "
+                f"params={compact_json(pending.get('params'), 500)}"
+            )
+        return "\n".join(lines) if lines else "  <none>"
+
+    def _completed_requests_summary(self):
+        completed = "\n".join(
+            f"  id {entry['id']}: {entry['label']} in {entry['elapsed']:.3f}s"
+            for entry in self.completed_requests
+        )
+        return completed or "  <none>"
+
+    def _server_requests_summary(self):
+        now = time.monotonic()
+        lines = []
+        for entry in self.server_requests:
+            age = now - entry["received"]
+            lines.append(
+                f"  id {entry['id']}: {entry['method']} age={age:.3f}s "
+                f"params={compact_json(entry.get('params'), 300)}"
+            )
+        return "\n".join(lines) if lines else "  <none>"
+
+    def _notifications_summary(self):
+        rows = self.notifications[-12:]
+        if not rows:
+            return "  <none>"
+        return "\n".join(f"  {notification_summary(notification)}" for notification in rows)
+
+    def _event_timeline_summary(self):
+        now = time.monotonic()
+        if not self.event_log:
+            return "  <none>"
+        return "\n".join(
+            f"  +{entry['at'] - self.started_at:.3f}s "
+            f"({now - entry['at']:.3f}s ago): {entry['label']}"
+            for entry in self.event_log
+        )
+
+    def _last_notification_summary(self):
+        if self.last_notification_at is None:
+            return "last notification: <none>"
+        return f"last notification: {time.monotonic() - self.last_notification_at:.3f}s ago"
+
     def _process_snapshot(self):
         try:
             out = subprocess.run(
@@ -184,15 +392,18 @@ class McpClient:
         label = self._request_label(expected_id)
         pending = self.pending_requests.get(expected_id)
         elapsed = time.monotonic() - pending["started"] if pending is not None else 0.0
-        completed = "\n".join(
-            f"  id {entry['id']}: {entry['label']} in {entry['elapsed']:.3f}s"
-            for entry in self.completed_requests
-        )
         stderr_tail = "\n".join(self.stderr_lines)
         process_snapshot = self._process_snapshot()
         return (
-            f"timed out waiting for MCP response id {expected_id} ({label}) after {elapsed:.3f}s\n"
-            f"recent completed MCP requests:\n{completed or '  <none>'}\n"
+            f"timed out waiting for MCP response id {expected_id} ({label}) "
+            f"for client {self.label!r} after {elapsed:.3f}s\n"
+            f"MCP client context:\n{self._client_context()}\n"
+            f"pending MCP requests:\n{self._pending_requests_summary()}\n"
+            f"recent completed MCP requests:\n{self._completed_requests_summary()}\n"
+            f"recent server requests received from lean-beam-mcp:\n{self._server_requests_summary()}\n"
+            f"recent notifications:\n{self._notifications_summary()}\n"
+            f"MCP event timeline ({self._last_notification_summary()}):\n"
+            f"{self._event_timeline_summary()}\n"
             f"lean-beam-mcp stderr tail:\n{stderr_tail or '  <empty>'}\n"
             f"process snapshot:\n{process_snapshot}"
         )
@@ -222,22 +433,27 @@ class McpClient:
                 self.handle_server_request(response)
                 continue
             if "method" in response:
+                self.last_notification_at = time.monotonic()
                 self.notifications.append(response)
+                self._record_event(f"server notification: {notification_summary(response)}")
                 continue
             if response.get("id") in self.pending_extra_response_ids:
                 self.extra_responses.append(response)
                 self.pending_extra_response_ids.remove(response.get("id"))
+                self._record_event(f"extra response id {response.get('id')}: {compact_json(response, 240)}")
                 continue
             require(response.get("id") == expected_id, f"expected response id {expected_id}, got {response}")
             pending = self.pending_requests.pop(expected_id, None)
             if pending is not None:
+                elapsed = time.monotonic() - pending["started"]
                 self.completed_requests.append(
                     {
                         "id": expected_id,
                         "label": pending["label"],
-                        "elapsed": time.monotonic() - pending["started"],
+                        "elapsed": elapsed,
                     }
                 )
+                self._record_event(f"response id {expected_id}: {pending['label']} elapsed={elapsed:.3f}s")
             return response
 
     def request(self, method, params=None):
@@ -245,15 +461,14 @@ class McpClient:
         message = {"jsonrpc": "2.0", "id": self.next_id, "method": method}
         if params is not None:
             message["params"] = params
-        label = method
-        if method == "tools/call" and isinstance(params, dict):
-            tool_name = params.get("name")
-            if isinstance(tool_name, str):
-                label = f"{method} {tool_name}"
+        label = request_label(method, params)
         self.pending_requests[self.next_id] = {
             "label": label,
+            "method": method,
+            "params": params,
             "started": time.monotonic(),
         }
+        self._record_event(f"request id {self.next_id}: {label}")
         self.send_message(message)
         return self.read_response(self.next_id)
 
@@ -261,6 +476,7 @@ class McpClient:
         message = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             message["params"] = params
+        self._record_event(f"client notification: {method}")
         self.send_message(message)
 
     def initialize(self):
@@ -629,6 +845,7 @@ def run_cycle(
             timeout,
             use_root_arg=use_root_arg,
             advertise_roots=advertise_roots,
+            label=f"cycle-{cycle}",
         )
         try:
             pre_init = client.request("tools/list")
@@ -673,7 +890,7 @@ def run_relative_root_arg(repo_root, fixture_root, timeout):
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
         relative_root = os.path.relpath(project_root, repo_root)
-        client = McpClient(repo_root, project_root, timeout, root_arg=relative_root)
+        client = McpClient(repo_root, project_root, timeout, root_arg=relative_root, label="relative-root-arg")
         try:
             client.initialize()
             sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
@@ -690,7 +907,7 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-diagnostic-logs-") as tmp:
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout)
+        client = McpClient(repo_root, project_root, timeout, label="diagnostic-logging")
         try:
             client.initialize()
             write_save_warning_file(project_root, "-- mcp stdio diagnostic log")
@@ -738,11 +955,113 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             client.close()
 
 
-def run_progress_notification_smoke(repo_root, fixture_root, timeout):
+FOCUSED_SYNC_SCENARIOS = {
+    "progress-roots-sync": {
+        "use_root_arg": False,
+        "advertise_roots": True,
+        "progress": True,
+        "expected_roots_requests": 1,
+    },
+    "progress-explicit-sync": {
+        "use_root_arg": True,
+        "advertise_roots": False,
+        "progress": True,
+        "expected_roots_requests": 0,
+    },
+    "no-progress-roots-sync": {
+        "use_root_arg": False,
+        "advertise_roots": True,
+        "progress": False,
+        "expected_roots_requests": 1,
+    },
+    "no-progress-explicit-sync": {
+        "use_root_arg": True,
+        "advertise_roots": False,
+        "progress": False,
+        "expected_roots_requests": 0,
+    },
+}
+
+
+def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, server_trace=False):
+    config = FOCUSED_SYNC_SCENARIOS[scenario]
+    with tempfile.TemporaryDirectory(prefix=f"lean-beam-mcp-{scenario}-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            use_root_arg=config["use_root_arg"],
+            advertise_roots=config["advertise_roots"],
+            label=label,
+            server_trace=server_trace,
+        )
+        try:
+            init_started = time.monotonic()
+            client.initialize()
+            init_elapsed = time.monotonic() - init_started
+
+            token = f"{scenario}-token"
+            call_params = {
+                "name": "lean_sync",
+                "arguments": {"path": "PositionEmptyLine.lean"},
+            }
+            if config["progress"]:
+                call_params["_meta"] = {"progressToken": token}
+            before_notifications = len(client.notifications)
+            sync_started = time.monotonic()
+            response = client.request("tools/call", call_params)
+            sync_elapsed = time.monotonic() - sync_started
+            result = expect_result(response)
+            require(result.get("isError") is not True, f"{label}: lean_sync failed: {result}")
+            require_roots_requests(client, config["expected_roots_requests"], label)
+            if config["progress"]:
+                notifications = client.progress_notifications(token)
+                require_progress_sequence(notifications, token, f"{label} progress")
+                require_progress_message_contains(
+                    notifications,
+                    f"{label} progress",
+                    "preparing lean_sync",
+                    "running lean_sync",
+                    "lean_sync fileProgress",
+                    "line=",
+                    "done=true",
+                )
+            else:
+                notifications = notifications_by_method(
+                    client.notifications[before_notifications:],
+                    "notifications/progress",
+                )
+                require(
+                    not notifications,
+                    f"{label}: sync without progress token emitted progress notifications: {notifications}",
+                )
+            return {
+                "init_elapsed": init_elapsed,
+                "sync_elapsed": sync_elapsed,
+                "notification_count": len(notifications),
+                "roots_request_count": client.roots_request_count,
+            }
+        finally:
+            client.close()
+
+
+def run_progress_roots_sync_once(repo_root, fixture_root, timeout, label):
+    return run_focused_sync_once(repo_root, fixture_root, timeout, label, "progress-roots-sync")
+
+
+def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_trace=False, label_prefix="progress"):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-progress-") as tmp:
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout)
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            label=f"{label_prefix}-explicit-root",
+            server_trace=server_trace,
+        )
         try:
             client.initialize()
 
@@ -820,40 +1139,119 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout):
         finally:
             client.close()
 
-        roots_client = McpClient(
-            repo_root,
-            project_root,
-            timeout,
-            use_root_arg=False,
-            advertise_roots=True,
-        )
-        try:
-            roots_client.initialize()
-            token = "roots-sync-progress-token"
-            response = roots_client.request(
-                "tools/call",
-                {
-                    "name": "lean_sync",
-                    "arguments": {"path": "PositionEmptyLine.lean"},
-                    "_meta": {"progressToken": token},
-                },
+    run_focused_sync_once(
+        repo_root,
+        fixture_root,
+        timeout,
+        f"{label_prefix}-roots-list",
+        "progress-roots-sync",
+        server_trace,
+    )
+
+
+def run_focused_sync_repro(repo_root, fixture_root, timeout, runs, slow_threshold, scenario, server_trace):
+    require(runs > 0, "--repro-runs must be positive")
+    init_durations = []
+    sync_durations = []
+    started = time.monotonic()
+    for index in range(runs):
+        label = f"{scenario}-repro-{index + 1}-of-{runs}"
+        result = run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, server_trace)
+        init_durations.append(result["init_elapsed"])
+        sync_durations.append(result["sync_elapsed"])
+        sync_elapsed = result["sync_elapsed"]
+        if slow_threshold is None or sync_elapsed >= slow_threshold:
+            print(
+                f"{label}: init={result['init_elapsed']:.3f}s "
+                f"sync={sync_elapsed:.3f}s "
+                f"roots/list={result['roots_request_count']} "
+                f"progress_notifications={result['notification_count']}",
+                file=sys.stderr,
             )
-            result = expect_result(response)
-            require(result.get("isError") is not True, f"root-negotiated lean_sync failed: {result}")
-            require_roots_requests(roots_client, 1, "progress during roots/list")
-            notifications = roots_client.progress_notifications(token)
-            require_progress_sequence(notifications, token, "root-negotiated lean_sync progress")
-            require_progress_message_contains(
-                notifications,
-                "root-negotiated lean_sync progress",
-                "preparing lean_sync",
-                "running lean_sync",
-                "lean_sync fileProgress",
-                "line=",
-                "done=true",
-            )
-        finally:
-            roots_client.close()
+    elapsed = time.monotonic() - started
+    print(
+        f"{scenario} repro summary: "
+        f"elapsed={elapsed:.3f}s "
+        f"init[{format_duration_stats(init_durations)}] "
+        f"sync[{format_duration_stats(sync_durations)}]",
+        file=sys.stderr,
+    )
+
+
+PARALLEL_PROGRESS_SMOKE_SCENARIO = "progress-smoke-parallel"
+
+
+def run_parallel_progress_smoke_repro(
+    repo_root,
+    fixture_root,
+    timeout,
+    runs,
+    workers,
+    slow_threshold,
+    server_trace,
+):
+    require(runs > 0, "--repro-runs must be positive")
+    require(workers > 0, "--parallel-workers must be positive")
+    stop_event = threading.Event()
+    print_lock = threading.Lock()
+    started = time.monotonic()
+
+    def worker(worker_index):
+        durations = []
+        for run_index in range(runs):
+            if stop_event.is_set():
+                break
+            label = f"parallel-w{worker_index + 1}-r{run_index + 1}-of-{runs}"
+            run_started = time.monotonic()
+            try:
+                run_progress_notification_smoke(
+                    repo_root,
+                    fixture_root,
+                    timeout,
+                    server_trace=server_trace,
+                    label_prefix=label,
+                )
+            except Exception as err:
+                stop_event.set()
+                elapsed = time.monotonic() - run_started
+                raise RuntimeError(f"{label}: progress smoke failed after {elapsed:.3f}s\n{err}") from err
+            elapsed = time.monotonic() - run_started
+            durations.append(elapsed)
+            if slow_threshold is not None and elapsed >= slow_threshold:
+                with print_lock:
+                    print(f"{label}: progress-smoke={elapsed:.3f}s", file=sys.stderr)
+        with print_lock:
+            if durations:
+                print(
+                    f"parallel worker {worker_index + 1} summary: "
+                    f"{format_duration_stats(durations)}",
+                    file=sys.stderr,
+                )
+            elif stop_event.is_set():
+                print(f"parallel worker {worker_index + 1} stopped before starting", file=sys.stderr)
+        return durations
+
+    durations = []
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+    futures = [executor.submit(worker, worker_index) for worker_index in range(workers)]
+    try:
+        for future in concurrent.futures.as_completed(futures):
+            durations.extend(future.result())
+    except Exception:
+        stop_event.set()
+        for future in futures:
+            future.cancel()
+        raise
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+    require(durations, "parallel progress smoke completed no runs")
+    elapsed = time.monotonic() - started
+    print(
+        f"{PARALLEL_PROGRESS_SMOKE_SCENARIO} summary: "
+        f"workers={workers} runs_per_worker={runs} "
+        f"elapsed={elapsed:.3f}s {format_duration_stats(durations)}",
+        file=sys.stderr,
+    )
 
 
 def run_root_setup_matrix(repo_root, fixture_root, timeout):
@@ -949,6 +1347,7 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
                 roots=roots,
                 roots_payload=case.get("roots_payload"),
                 roots_response=case.get("roots_response", "normal"),
+                label=f"root-setup-{case['name']}",
             )
             try:
                 client.initialize()
@@ -998,7 +1397,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-relative-") as tmp:
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-relative-root")
         try:
             client.initialize()
             response = client.request(
@@ -1015,7 +1414,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
         shutil.copytree(fixture_root, project_root)
         empty_root = Path(tmp) / "empty"
         empty_root.mkdir()
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-non-workspace")
         try:
             client.initialize()
             response = client.request(
@@ -1030,7 +1429,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-verify-empty-") as tmp:
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-verify-empty")
         try:
             client.initialize()
             response = client.request(
@@ -1047,7 +1446,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
         other_root = Path(tmp) / "other-project"
         shutil.copytree(fixture_root, project_root)
         shutil.copytree(fixture_root, other_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-verify-reset")
         try:
             client.initialize()
             first_init = init_workspace(client, project_root)
@@ -1081,7 +1480,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
         other_root = Path(tmp) / "other-project"
         shutil.copytree(fixture_root, project_root)
         shutil.copytree(fixture_root, other_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-reset-after-use")
         try:
             client.initialize()
             init_workspace(client, project_root)
@@ -1164,7 +1563,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
         other_root = Path(tmp) / "other-project"
         shutil.copytree(fixture_root, project_root)
         shutil.copytree(fixture_root, other_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False)
+        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-reset-stale-root")
         try:
             client.initialize()
             init_workspace(client, project_root)
@@ -1292,7 +1691,7 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
         with tempfile.TemporaryDirectory(prefix=f"lean-beam-mcp-{case['name']}-") as tmp:
             project_root = Path(tmp) / "project"
             shutil.copytree(fixture_root, project_root)
-            client = McpClient(repo_root, project_root, timeout)
+            client = McpClient(repo_root, project_root, timeout, label=f"lifecycle-{case['name']}")
             stopped = False
             try:
                 for action in case["actions"]:
@@ -1319,7 +1718,7 @@ def run_closed_stdout_regression(repo_root, fixture_root, timeout):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-closed-stdout-") as tmp:
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout)
+        client = McpClient(repo_root, project_root, timeout, label="closed-stdout-regression")
         stderr = ""
         try:
             client.proc.stdout.close()
@@ -1352,10 +1751,61 @@ def main():
     parser.add_argument("--iterations", type=int, default=1)
     parser.add_argument("--restart-cycles", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--scenario",
+        choices=["full", PARALLEL_PROGRESS_SMOKE_SCENARIO] + sorted(FOCUSED_SYNC_SCENARIOS),
+        default="full",
+        help="run the full smoke suite or a focused repro scenario",
+    )
+    parser.add_argument(
+        "--repro-runs",
+        type=int,
+        default=1,
+        help="number of focused scenario repetitions",
+    )
+    parser.add_argument(
+        "--parallel-workers",
+        type=int,
+        default=8,
+        help="number of workers for the progress-smoke-parallel repro scenario",
+    )
+    parser.add_argument(
+        "--slow-threshold",
+        type=float,
+        default=None,
+        help="only print per-run focused scenario timings at or above this many seconds",
+    )
+    parser.add_argument(
+        "--server-trace",
+        action="store_true",
+        help="enable opt-in lean-beam-mcp and broker stderr trace output",
+    )
     args = parser.parse_args()
     repo_root = Path(__file__).resolve().parents[1]
     fixture_root = repo_root / "tests" / "save_olean_project"
     require(fixture_root.exists(), f"missing MCP fixture root at {fixture_root}")
+    if args.scenario in FOCUSED_SYNC_SCENARIOS:
+        run_focused_sync_repro(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            args.repro_runs,
+            args.slow_threshold,
+            args.scenario,
+            args.server_trace,
+        )
+        return
+    if args.scenario == PARALLEL_PROGRESS_SMOKE_SCENARIO:
+        run_parallel_progress_smoke_repro(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            args.repro_runs,
+            args.parallel_workers,
+            args.slow_threshold,
+            args.server_trace,
+        )
+        return
     for cycle in range(args.restart_cycles):
         run_cycle(repo_root, fixture_root, cycle, args.iterations, args.timeout)
         run_cycle(

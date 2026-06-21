@@ -75,6 +75,79 @@ Current Beam coverage includes:
 
 Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `supported-toolchains`, save replay, save barriers, MCP, or Rocq integration.
 
+## Save Replay Timeout Investigation
+
+[tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh) includes a save-race case
+that injects a slow Lean command into `SaveSmoke/B.lean`. The command writes
+`LEAN_BEAM_SAVE_RACE_SENTINEL` when elaboration reaches the intended race window, then sleeps long
+enough for the shell test to edit the source file while `lean-close-save` is still in flight.
+
+If the sentinel is not written before `BEAM_SAVE_RACE_SENTINEL_TIMEOUT` (default 60 seconds), the
+test now dumps the active save PID, runner CPU/platform context, Beam/Lean process snapshot, current
+`SaveSmoke/B.lean`, the sentinel file state, daemon registry, daemon log tail, and captured save
+stdout/stderr. The race and cancel-sentinel cases start their daemon with broker trace enabled by
+default (`BEAM_SAVE_RACE_BROKER_TRACE=1`) and a diagnostics-barrier watchdog
+(`BEAM_SAVE_RACE_WAIT_DIAGNOSTICS_WATCHDOG_MS=10000`) so macOS/low-core stalls preserve useful
+phase information in the daemon log.
+
+## MCP Stdio Timeout Investigation
+
+When investigating MCP stdio timeouts, prefer the focused roots-negotiated sync repro before
+rerunning the full smoke suite:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
+  --scenario progress-roots-sync \
+  --repro-runs 100 \
+  --timeout 30 \
+  --slow-threshold 5 \
+  --server-trace
+```
+
+That scenario repeats the path that negotiates workspace roots through MCP `roots/list`, runs
+`lean_sync` with a progress token, and checks the resulting progress notifications. On failure, the
+timeout report includes the client label, pending request parameters, recent completed requests,
+recent server requests received from `lean-beam-mcp`, recent notifications, runner CPU/platform
+context, relevant CI and Lean thread env vars, the stderr tail, and a Beam/Lean process snapshot.
+The optional `--server-trace` flag enables opt-in `lean-beam-mcp` and broker trace lines in that
+stderr tail without changing normal test stderr expectations. To look for scheduler-sensitive
+behavior locally, prefer a low-core or CPU-contended run. On a large local machine, run CPU load in
+one shell:
+
+```bash
+stress-ng --cpu 24 --timeout 90s --metrics-brief
+```
+
+Then run the focused scenario in another shell while the stressors are active.
+
+For the scheduler-sensitive progress-smoke path that has reproduced timeouts locally, use the
+parallel repro scenario while the stressors are active:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
+  --scenario progress-smoke-parallel \
+  --parallel-workers 8 \
+  --repro-runs 10 \
+  --timeout 30 \
+  --slow-threshold 5
+```
+
+Set `--server-trace` to add MCP/broker trace lines to the timeout dump, and set
+`LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS=10000` to emit an opt-in broker trace if a
+`waitForDiagnostics` barrier is still pending after that many milliseconds. The regular CI Beam
+suites run the stdio smoke with `BEAM_MCP_STDIO_TIMEOUT` defaulting to 60 seconds, enable
+`BEAM_MCP_SERVER_TRACE=1` for the stdio harness by default, and set the diagnostics-barrier watchdog
+to `BEAM_MCP_STDIO_WAIT_DIAGNOSTICS_WATCHDOG_MS=10000`. Set `BEAM_MCP_STDIO_SERVER_TRACE=0` only
+when intentionally checking the quiet stderr path. The fast suite's installed-wrapper self-check uses
+`BEAM_MCP_SELF_CHECK_TIMEOUT_MS`, defaulting to 120 seconds, because first-time bundle setup may
+build the local fixture under CI contention. Keep `--timeout 30` for local repro attempts unless you
+are specifically checking the CI budget.
+
+The focused harness also accepts `progress-explicit-sync`, `no-progress-roots-sync`, and
+`no-progress-explicit-sync` as `--scenario` values. Use those variants to isolate whether a timeout
+depends on MCP roots negotiation, MCP progress notifications, or the underlying `lean_sync` /
+`waitForDiagnostics` path.
+
 ## Maintainer Surface
 
 The maintainer surface covers local workflow helpers:
