@@ -471,8 +471,8 @@ beam_wrapper_cleanup() {
 beam_wrapper_init() {
   beam_wrapper_require_bins
   beam_wrapper_tmp_root="$(mktemp -d /tmp/beam-wrapper-suite-XXXXXX)"
-  declare -ga beam_wrapper_managed_roots=()
-  declare -ga beam_wrapper_managed_pids=()
+  beam_wrapper_managed_roots=()
+  beam_wrapper_managed_pids=()
   trap beam_wrapper_cleanup EXIT
 }
 
