@@ -7,6 +7,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=tests/lib/wait.sh
+. tests/lib/wait.sh
 
 beam_script="$PWD/scripts/lean-beam"
 lake_cmd="$(command -v lake)"
@@ -196,44 +198,6 @@ dump_save_sentinel_context() {
   dump_file_tail "save stderr" "$save_err"
 }
 
-wait_for_file() {
-  local path="$1"
-  local label="${2:-$path}"
-  local timeout="${3:-${BEAM_SAVE_RACE_SENTINEL_TIMEOUT:-60}}"
-  case "$timeout" in
-    ''|*[!0-9]*)
-      echo "invalid sentinel timeout '$timeout' for $label" >&2
-      return 1
-      ;;
-  esac
-  local deadline=$((SECONDS + timeout))
-  while [ ! -e "$path" ]; do
-    if [ "$SECONDS" -ge "$deadline" ]; then
-      echo "timed out after ${timeout}s waiting for $label at $path" >&2
-      return 1
-    fi
-    sleep 0.05
-  done
-  return 0
-}
-
-wait_for_file_text() {
-  local path="$1"
-  local text="$2"
-  local label="$3"
-  local deadline=$((SECONDS + 15))
-  while true; do
-    if [ -f "$path" ] && grep -F -q -- "$text" "$path"; then
-      return 0
-    fi
-    if [ "$SECONDS" -ge "$deadline" ]; then
-      echo "timed out waiting for $label in $path" >&2
-      exit 1
-    fi
-    sleep 0.05
-  done
-}
-
 tmp1="$(mktemp -d /tmp/runat-save-olean-build-XXXXXX)"
 tmp2="$(mktemp -d /tmp/runat-save-olean-broker-XXXXXX)"
 tmp3="$(mktemp -d /tmp/runat-save-olean-race-XXXXXX)"
@@ -364,7 +328,7 @@ edit_b_slow "$tmp3"
   LEAN_BEAM_SAVE_RACE_SENTINEL="$race_sentinel" \
     beam --root "$tmp3" lean-close-save SaveSmoke/B.lean >"$race_save_out" 2>"$race_save_err" &
   save_pid=$!
-  if ! wait_for_file "$race_sentinel" "save_olean race sentinel"; then
+  if ! wait_for_file "$race_sentinel" "save_olean race sentinel" "${BEAM_SAVE_RACE_SENTINEL_TIMEOUT:-60}" 0.05; then
     dump_save_sentinel_context "save_olean race sentinel timeout" \
       "$tmp3" "$race_sentinel" "$save_pid" "$race_save_out" "$race_save_err"
     kill "$save_pid" 2>/dev/null || true
@@ -401,7 +365,7 @@ edit_b_slow "$tmp4"
   LEAN_BEAM_SAVE_RACE_SENTINEL="$cancel_sentinel" BEAM_REQUEST_ID=cancel-close-save \
     beam --root "$tmp4" lean-close-save SaveSmoke/B.lean >"$close_out" 2>"$close_err" &
   close_pid=$!
-  if ! wait_for_file "$cancel_sentinel" "cancel save sentinel"; then
+  if ! wait_for_file "$cancel_sentinel" "cancel save sentinel" "${BEAM_SAVE_RACE_SENTINEL_TIMEOUT:-60}" 0.05; then
     dump_save_sentinel_context "cancel save sentinel timeout" \
       "$tmp4" "$cancel_sentinel" "$close_pid" "$close_out" "$close_err"
     kill "$close_pid" 2>/dev/null || true
@@ -483,7 +447,7 @@ printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
   BEAM_PROGRESS=1 BEAM_REQUEST_ID=concurrent-stale-sync \
     beam --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
   sync_pid=$!
-  wait_for_file_text "$sync_err" "syncing SaveSmoke/A.lean" "concurrent stale lean-sync start"
+  wait_for_file_text "$sync_err" "syncing SaveSmoke/A.lean" "concurrent stale lean-sync start" 300 0.05
   BEAM_REQUEST_ID=concurrent-stale-save \
     beam --root "$tmp5" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err" &
   save_pid=$!
