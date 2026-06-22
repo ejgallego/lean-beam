@@ -82,62 +82,90 @@ def Operation.description : Operation → String
   | .save => "Synchronize a Lean file and save zero-build artifacts when possible."
   | .close => "Close a Lean file in the broker session."
 
+private def pathField : String × Json :=
+  ("path", Beam.JsonSchema.string "Lean file path, relative to the server root unless absolute.")
+
+private def lineField : String × Json :=
+  ("line", Beam.JsonSchema.natural "Zero-based LSP line.")
+
+private def characterField : String × Json :=
+  ("character", Beam.JsonSchema.natural "Zero-based UTF-16 LSP character.")
+
+private def rangeStartLineField : String × Json :=
+  ("start_line", Beam.JsonSchema.natural "Zero-based LSP start line.")
+
+private def rangeStartCharacterField : String × Json :=
+  ("start_character", Beam.JsonSchema.natural "Zero-based UTF-16 LSP start character.")
+
+private def rangeEndLineField : String × Json :=
+  ("end_line", Beam.JsonSchema.natural "Zero-based LSP end line.")
+
+private def rangeEndCharacterField : String × Json :=
+  ("end_character", Beam.JsonSchema.natural "Zero-based UTF-16 LSP end character.")
+
+private def runAtTextField : String × Json :=
+  ("text", Beam.JsonSchema.string "Lean text to run at the selected position.")
+
+private def continuationTextField : String × Json :=
+  ("text", Beam.JsonSchema.string "Lean continuation text to run from the stored handle.")
+
+private def handleField : String × Json :=
+  ("handle", Beam.JsonSchema.object "Opaque broker-wrapped Lean handle from a previous tool result.")
+
+private def releaseHandleField : String × Json :=
+  ("handle", Beam.JsonSchema.object "Opaque broker-wrapped Lean handle to release.")
+
+private def kindsField : String × Json :=
+  ("kinds", Beam.JsonSchema.enumStringArray "Todo kinds to include. Omit or pass [] for all kinds."
+    RunAt.TodoKind.allKeys)
+
+private def suggestField : String × Json :=
+  ("suggest", Beam.JsonSchema.enumString "Suggestion mode for optional run_at_text hints."
+    RunAt.TodoSuggestMode.allKeys)
+
+private def syncFullDiagnosticsField : String × Json :=
+  ("full_diagnostics", Beam.JsonSchema.bool
+    "When true, include warnings, information, and hints in streamed or replayed diagnostics; false keeps diagnostic output error-only while summaries remain complete.")
+
+private def saveFullDiagnosticsField : String × Json :=
+  ("full_diagnostics", Beam.JsonSchema.bool
+    "When true, include warnings, information, and hints in streamed diagnostics; false keeps diagnostic output error-only while summaries remain complete.")
+
+private def includeDiagnosticsField : String × Json :=
+  ("include_diagnostics", Beam.JsonSchema.bool
+    "When true, include the current request diagnostics in the final sync result; the full_diagnostics setting controls the severity filter.")
+
+private def positionFields : List (String × Json) :=
+  [pathField, lineField, characterField]
+
+private def rangeFields : List (String × Json) :=
+  [
+    pathField,
+    rangeStartLineField,
+    rangeStartCharacterField,
+    rangeEndLineField,
+    rangeEndCharacterField
+  ]
+
 open Beam.JsonSchema in
 def Operation.inputSchema : Operation → Json
   | .runAt | .runAtHandle =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("line", natural "Zero-based LSP line."),
-        ("character", natural "Zero-based UTF-16 LSP character."),
-        ("text", string "Lean text to run at the selected position.")
-      ] #["path", "line", "character", "text"]
+      inputObject (positionFields ++ [runAtTextField]) #["path", "line", "character", "text"]
   | .hover | .goalsAfter | .goalsPrev =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("line", natural "Zero-based LSP line."),
-        ("character", natural "Zero-based UTF-16 LSP character.")
-      ] #["path", "line", "character"]
+      inputObject positionFields #["path", "line", "character"]
   | .todo =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("start_line", natural "Zero-based LSP start line."),
-        ("start_character", natural "Zero-based UTF-16 LSP start character."),
-        ("end_line", natural "Zero-based LSP end line."),
-        ("end_character", natural "Zero-based UTF-16 LSP end character."),
-        ("kinds", enumStringArray "Todo kinds to include. Omit or pass [] for all kinds."
-          RunAt.TodoKind.allKeys),
-        ("suggest", enumString "Suggestion mode for optional run_at_text hints."
-          RunAt.TodoSuggestMode.allKeys)
-      ] #["path", "start_line", "start_character", "end_line", "end_character"]
+      inputObject (rangeFields ++ [kindsField, suggestField])
+        #["path", "start_line", "start_character", "end_line", "end_character"]
   | .runWith | .runWithLinear =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("handle", object "Opaque broker-wrapped Lean handle from a previous tool result."),
-        ("text", string "Lean continuation text to run from the stored handle.")
-      ] #["path", "handle", "text"]
+      inputObject [pathField, handleField, continuationTextField] #["path", "handle", "text"]
   | .release =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("handle", object "Opaque broker-wrapped Lean handle to release.")
-      ] #["path", "handle"]
+      inputObject [pathField, releaseHandleField] #["path", "handle"]
   | .sync =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("full_diagnostics", bool
-          "When true, include warnings, information, and hints in streamed or replayed diagnostics; false keeps diagnostic output error-only while summaries remain complete."),
-        ("include_diagnostics", bool
-          "When true, include the current request diagnostics in the final sync result; the full_diagnostics setting controls the severity filter.")
-      ] #["path"]
+      inputObject [pathField, syncFullDiagnosticsField, includeDiagnosticsField] #["path"]
   | .save =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute."),
-        ("full_diagnostics", bool
-          "When true, include warnings, information, and hints in streamed diagnostics; false keeps diagnostic output error-only while summaries remain complete.")
-      ] #["path"]
+      inputObject [pathField, saveFullDiagnosticsField] #["path"]
   | .deps | .close =>
-      inputObject [
-        ("path", string "Lean file path, relative to the server root unless absolute.")
-      ] #["path"]
+      inputObject [pathField] #["path"]
 
 def Operation.expectsRunAtResult : Operation → Bool
   | .runAt | .runAtHandle | .runWith | .runWithLinear => true
