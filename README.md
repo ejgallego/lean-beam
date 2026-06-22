@@ -239,6 +239,8 @@ More detail on test coverage and gaps lives in [docs/TESTING.md](docs/TESTING.md
 
 - [docs/STATUS.md](docs/STATUS.md): current scope, limitations, and direction
 - [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md): alpha compatibility policy and supported targets
+- [docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md): sync, save,
+  diagnostics, progress, and readiness reporting contract
 - [docs/ROCQ.md](docs/ROCQ.md): optional Rocq Beam goal probes for Rocq-to-Lean porting
 - [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md): Lean workflow contract
 - [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance

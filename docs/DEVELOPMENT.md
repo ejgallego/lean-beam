@@ -230,13 +230,12 @@ internally it coordinates several responsibilities around the LSP process:
   but daemon paths must not enter Lake APIs that can terminate the process
 
 The thick part of the broker is request orchestration. For `sync`, `runAt`, `goals`, `runWith`,
-`release`, and `save`, the broker currently reads the source file, updates the LSP document mirror,
-waits for the relevant diagnostics/progress barrier when needed, asks the backend for extra semantic
-facts, and shapes the final Beam response. That is useful product behavior, but it is policy layered
-over lower-level LSP/plugin facts. Treat broker-side semantic history such as module sync/save
-history, stale direct-dependency hints, save readiness interpretation, and saved-olean bookkeeping as
-explicit orchestration logic. When this grows, prefer moving richer structured facts into a
-backend/plugin method over reconstructing more Lean meaning in the broker.
+`release`, and `save`, the broker reads the source file, updates the LSP document mirror, waits for
+the relevant diagnostics/progress barrier when needed, asks the backend for semantic facts, and
+shapes the final Beam response. Keep that boundary explicit: the broker may order requests, attach
+typed observations such as `fileProgress`, and report stale direct-dependency hints, but save
+readiness is a backend/LSP verdict. Do not rebuild or override the save decision from progress,
+diagnostic counts, saved-olean bookkeeping, or other broker-side observations.
 
 Do not remove broker-side ordered file snapshots when thinning orchestration. Beam requests are
 path-based and may run concurrently, while LSP document updates are an ordered client stream. The LSP
@@ -246,30 +245,27 @@ one filesystem read is older than another. `FileSyncSnapshot` in
 [Beam/Broker/DocumentState.lean](../Beam/Broker/DocumentState.lean) protect that pre-LSP race:
 request handlers reserve a sequence number under the broker mutex, read and hash the file outside the
 mutex, then ignore a completed snapshot if a newer read has already been applied to the same document.
-Legacy in-session syncs use sequence zero because they do not provide cross-request ordering.
+In-session syncs use sequence zero because they run inside the already-ordered session flow.
 
-A thinner future design should keep the snapshot ordering boundary, but may reduce broker policy by
-asking the backend for more complete structured answers, for example "sync this exact text/version,
-wait until it is usable, and return save/readiness facts" instead of having the broker infer readiness
-from several notification channels and follow-up requests.
-
-Until that backend-facing readiness primitive exists, keep readiness claims deliberately narrow:
-`fileProgress` is an observable LSP progress signal, and it is a barrier input only for the
-operations that define a diagnostics/save barrier (`sync`, `save`, and `close-save`). Tests that need
-to prove request overlap, cancellation, startup, or stale-state transitions should wait on explicit
-state such as request IDs, response files, registry files, or fixture sentinels instead of treating
-progress as a general semantic-ready signal.
+Keep readiness claims deliberately narrow: `fileProgress` is an observable LSP progress signal, and
+it is a barrier input only for the operations that define a diagnostics/save barrier (`sync`, `save`,
+and `close-save`). It is not a general semantic-ready signal, and it is not the save-readiness
+authority. Tests that need to prove request overlap, cancellation, startup, or stale-state
+transitions should wait on explicit state such as request IDs, response files, registry files, or
+fixture sentinels instead of treating progress as a proxy for readiness.
 
 The `lean-beam deps` path is another deliberate broker-side stopgap. It scans workspace `.lean`
 headers to recover direct workspace imports and reverse imports cheaply, but it is not Lake's module
 graph and should not become the source of truth for save/readiness decisions. Keep
-[Beam/Broker/Deps.lean](../Beam/Broker/Deps.lean) limited to local dependency triage until Lake or a
-backend-facing primitive can answer richer dependency queries directly.
+[Beam/Broker/Deps.lean](../Beam/Broker/Deps.lean) limited to local dependency triage. Dependency
+queries that need Lake-accurate answers should use Lake or backend APIs directly, not this helper.
 
-Pure readiness decisions and sync/save response shaping live in
+Readiness response helpers and sync/save response shaping live in
 [Beam/Broker/Readiness.lean](../Beam/Broker/Readiness.lean). Keep LSP/session IO in
 `Beam/Broker/Server.lean`, but put barrier interpretation, top-level `fileProgress` attachment, and
-sync/save success or `syncBarrierIncomplete` response construction behind that named boundary.
+sync/save success or `syncBarrierIncomplete` response construction behind that named boundary. Save
+response shaping must preserve the backend save-readiness verdict rather than substituting a
+broker-derived decision.
 
 ## Sandboxed Wrapper Path
 

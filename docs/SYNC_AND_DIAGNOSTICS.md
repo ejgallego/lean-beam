@@ -72,8 +72,8 @@ request can return before the whole file reaches `done = true`.
 
 ## Readiness
 
-Successful sync responses expose the current verdict under `syncSummary`, with optional delta fields
-when a previous sync boundary exists. New machine consumers should prefer:
+Successful sync responses expose the current verdict under `syncSummary`. The machine-facing
+readiness fields are:
 
 - `syncSummary.readiness.current.saveReady`
 - `syncSummary.readiness.current.errorCount`
@@ -90,14 +90,10 @@ Lean-side readiness follows Lean batch/Lake's artifact gate for the current sync
 current save-blocking frontend errors block save. Diagnostic streams, diagnostic summaries, and
 message history are observations; clients should not reconstruct save readiness from them.
 
-Readiness fields live only under `syncSummary`; the top-level result intentionally does not mirror
-`saveReady`, `errorCount`, `warningCount`, `saveReadyReason`, `blockingDiagnostics`, or
-`blockingCommandMessages`.
-
 ## Deltas
 
-When a previous successful sync boundary exists, `syncSummary` also reports deltas. Every
-delta-bearing payload states both sides of the comparison:
+When a previous successful sync boundary exists, `syncSummary` also reports deltas. Delta-bearing
+payloads state both sides of the comparison:
 
 - `currentVersion`: the synced document version described by the current result
 - `deltaBaseVersion?`: the previous successful sync version used as the comparison base
@@ -121,15 +117,3 @@ Sync failures may include `error.data.staleDirectDeps`, `error.data.saveDeps`,
 on direct imports whose saved checkpoint is newer than the target file's last successful sync
 boundary. `completionBlockingDiagnostics` entries carry `completionBlocking=true` when they explain
 why the file could not reach a diagnostics-complete barrier.
-
-## Upstream Readiness Direction
-
-Beam asks the backend for the save-readiness verdict and keeps progress and diagnostic observations
-as separate request facts. The desired end state is a stronger backend-facing readiness primitive:
-a typed result that directly reports barrier completion, diagnostic counts, save-blocking evidence,
-and file-progress observations without relying on broker-side inference.
-
-One useful upstream Lean direction is a close relative of `SnapshotTree.runAndReport` that returns
-the diagnostics/progress decision data instead of only printing or reporting it through side
-channels. That would make the public Beam contract simpler and reduce duplicate normalization logic
-across CLI, broker, and MCP surfaces.
