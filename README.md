@@ -37,6 +37,10 @@ That installs:
 - an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
 - a prebuilt bundle for the repo-pinned supported Lean toolchain
 
+Each install rebuilds the runtime binaries from the current source checkout before staging the
+immutable runtime. After reinstalling, restart active MCP client sessions so they launch the new
+runtime instead of continuing to use an already-running server process.
+
 Use `--codex`, `--claude`, or `--all-skills` to install the bundled Lean agent skill:
 
 ```bash
@@ -126,29 +130,13 @@ The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt 
 project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
 `--lean-plugin` explicitly.
 
-The MCP server advertises the MCP logging capability and forwards incremental Lean diagnostics from
-sync/save-style tools as structured `notifications/message` events. These events include
-`completionBlocking=true` when a diagnostic is known to block file completion. Save-blocking
-evidence is reported on the final sync/save verdict through `blockingDiagnostics` and
-`blockingCommandMessages`; the final tool result remains a compact state summary by default.
-MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
-`include_diagnostics: true` to also include the current request diagnostics in
-`structuredContent.diagnostics`. Combine it with `full_diagnostics: true` when the reply should
-include warnings, information, and hints instead of the default error-only diagnostic filter.
-`full_diagnostics` is an output filter for streamed or replayed diagnostics; the
-`syncSummary.diagnostics.current` counts still summarize the full current diagnostic state.
-
-Client-facing reporting surfaces stay intentionally separate:
-
-| Surface | Transport | Meaning |
-| --- | --- | --- |
-| Progress | `notifications/progress` | Request-scoped operation movement for clients that pass `_meta.progressToken`. |
-| Diagnostics | `notifications/message` with logger `lean.diagnostic` | Incremental Lean diagnostics observed while a sync/save-style request is pending. |
-| Readiness | Final structured tool result | Stable synced-state verdict for the document version, including save readiness and counts. |
-
-`file_progress.line` and `file_progress.totalLines` are compact Lean file-progress range
-observations, not a verified source line count. They can be useful for coarse UI progress, but
-machine decisions should use the final readiness fields and diagnostics.
+The MCP server advertises logging and progress capabilities. Sync/save-style tools stream
+request-scoped diagnostics and return a final compact readiness verdict. Clients that cannot
+conveniently collect interleaved notifications can call `lean_sync` with
+`include_diagnostics: true`; `full_diagnostics: true` widens the output filter from errors to
+warnings, information, and hints. The canonical reporting contract for `syncSummary`,
+`file_progress`, diagnostic replay, and readiness lives in
+[docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md).
 
 To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
 
@@ -162,7 +150,7 @@ The self-check starts a child MCP server, supplies the root through MCP `roots/l
 MCP clients can opt into live operation progress for `tools/call` requests by including
 `params._meta.progressToken` as a string or integer. The field-level progress, diagnostic, and
 sync-summary contract is maintained in
-[docs/STATUS.md](docs/STATUS.md#progress-and-sync-delta-reporting).
+[docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md).
 
 ## Supported Toolchains
 
@@ -253,19 +241,11 @@ Read those flags like this:
 - deeper shell-oriented variants and debugging knobs live in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md) and the linked reference docs
 
 The final `lean-beam sync` JSON summarizes the current synced version rather than replaying
-diagnostics streamed on stderr for that request. Streamed diagnostics are request events, not a
-since-last-sync diff. New tooling should prefer `result.syncSummary`: use
-`readiness.current.saveReady` plus `saveBlockingErrorCount` for the save/checkpoint decision, and
-use `diagnostics.current.*` only for Lean-published diagnostic severity counts. The flat
-`result.errorCount`, `result.warningCount`, `result.saveReady`, `result.stateErrorCount`, and
-`result.stateCommandErrorCount` fields remain compatibility projections of that current verdict.
-
-`lean-beam save` includes the sync verdict it established before checkpointing in `result.sync`;
-`lean-beam close-save` includes the same verdict in `result.saved.sync`. Document-error save
-failures include that verdict in `error.data.sync`, so clients can inspect the synced version and
-save-readiness decision that blocked checkpointing. See
-[docs/STATUS.md](docs/STATUS.md#progress-and-sync-delta-reporting) for the exact progress,
-diagnostic, readiness, and delta fields.
+diagnostics streamed on stderr for that request. `lean-beam save` includes its sync verdict in
+`result.sync`; `lean-beam close-save` includes it in `result.saved.sync`; document-error save
+failures include the blocking verdict in `error.data.sync`. See
+[docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md) for the exact progress, diagnostic,
+readiness, and delta fields.
 
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
 `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` to suggest a

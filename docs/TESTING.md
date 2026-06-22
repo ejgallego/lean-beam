@@ -68,7 +68,7 @@ Current Beam coverage includes:
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
-- zero-build save replay and stale-save race coverage in [tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh)
+- zero-build save replay and stale-save race coverage in [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
 - install flow, installed runtime layout, manifest metadata, `supported-toolchains`, `doctor`, and installed MCP wrapper coverage in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
 - MCP protocol, projection, stdio, HTTP bridge, self-check, and external conformance coverage
 - Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [RunAtTest/Broker/RocqSmokeTest.lean](../RunAtTest/Broker/RocqSmokeTest.lean)
@@ -77,7 +77,7 @@ Run the Beam surface when the change touches broker protocol or transport, reque
 
 ## Save Replay Timeout Investigation
 
-[tests/test-broker-save-olean.sh](../tests/test-broker-save-olean.sh) includes a save-race case
+[tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh) includes a save-race case
 that injects a slow Lean command into `SaveSmoke/B.lean`. The command writes
 `LEAN_BEAM_SAVE_RACE_SENTINEL` when elaboration reaches the intended race window, then sleeps long
 enough for the shell test to edit the source file while `lean-close-save` is still in flight.

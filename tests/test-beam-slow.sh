@@ -93,4 +93,4 @@ fi
 run_step "save replay tests" env \
   HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
   ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
-  bash tests/test-broker-save-olean.sh
+  bash tests/test-beam-save-olean.sh
