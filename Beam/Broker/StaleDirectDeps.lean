@@ -15,8 +15,8 @@
  Data used by the supported sync/readiness path to explain stale direct dependencies after a failed
  diagnostics barrier.
 
- This is intentionally separate from the stopgap `lean-deps` workspace scanner so the real sync
- recovery path does not conceptually depend on the experimental dependency-inspection surface.
+ This is intentionally separate from the stopgap `deps` workspace scanner so the real sync recovery
+ path does not conceptually depend on the dependency-inspection surface.
  -/
 
  structure DirectImportsQueryResult where

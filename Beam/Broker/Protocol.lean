@@ -476,8 +476,7 @@ instance : FromJson Response where
     let error? ← optionalField? (α := Error) j "error"
     let fileProgress? ← optionalField? (α := SyncFileProgress) j "fileProgress"
     let clientRequestId? ← optionalField? (α := String) j "clientRequestId"
-    let ok? ← optionalField? (α := Bool) j "ok"
-    let ok := ok?.getD error?.isNone
+    let ok ← j.getObjValAs? Bool "ok"
     if ok && error?.isSome then
       throw "invalid Beam daemon response: ok=true must not include 'error'"
     if !ok && error?.isNone then
@@ -491,6 +490,9 @@ def syncBarrierIncompleteCode : String :=
 
 def saveTraceStaleCode : String :=
   "saveTraceStale"
+
+def saveUnsupportedSetupCode : String :=
+  "saveUnsupportedSetup"
 
 def saveTargetNotModuleCode : String :=
   "saveTargetNotModule"

@@ -164,7 +164,7 @@ if manifest.get("payloadHash") != expected_payload:
 if manifest.get("toolchains") != expected_toolchains:
     raise SystemExit(f"unexpected manifest toolchains: {manifest.get('toolchains')}")
 if "toolchain" in manifest:
-    raise SystemExit(f"unexpected legacy manifest toolchain field: {manifest.get('toolchain')}")
+    raise SystemExit(f"unexpected obsolete manifest toolchain field: {manifest.get('toolchain')}")
 actual_source_commit = manifest.get("sourceCommit", None)
 if expected_source_commit:
     if actual_source_commit != expected_source_commit:

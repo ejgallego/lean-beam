@@ -94,18 +94,26 @@ private def checkResponseJsonShape : IO Unit := do
   requireFieldAbsent "error response" "result" errorJson
 
 private def checkResponseJsonDecode : IO Unit := do
-  let legacySuccess ← decodeResponse "legacy success" <| Json.mkObj [
+  let success ← decodeResponse "success" <| Json.mkObj [
+    ("ok", toJson true),
     ("result", Json.mkObj [("value", toJson (1 : Nat))])
   ]
-  unless legacySuccess.ok do
-    throw <| IO.userError s!"legacy success: expected ok=true, got {(toJson legacySuccess).compress}"
+  unless success.ok do
+    throw <| IO.userError s!"success: expected ok=true, got {(toJson success).compress}"
 
-  let legacyError ← decodeResponse "legacy error" <| Json.mkObj [
+  let error ← decodeResponse "error" <| Json.mkObj [
+    ("ok", toJson false),
     ("error", toJson ({ code := "invalidParams", message := "bad request" } : Error))
   ]
-  if legacyError.ok then
-    throw <| IO.userError s!"legacy error: expected ok=false, got {(toJson legacyError).compress}"
+  if error.ok then
+    throw <| IO.userError s!"error: expected ok=false, got {(toJson error).compress}"
 
+  expectDecodeFailure "missing ok success" <| Json.mkObj [
+    ("result", Json.mkObj [("value", toJson (1 : Nat))])
+  ]
+  expectDecodeFailure "missing ok error" <| Json.mkObj [
+    ("error", toJson ({ code := "invalidParams", message := "bad request" } : Error))
+  ]
   expectDecodeFailure "error with result" <| Json.mkObj [
     ("ok", toJson false),
     ("result", Json.null),
@@ -119,22 +127,15 @@ private def checkResponseJsonDecode : IO Unit := do
     ("ok", toJson false)
   ]
 
-private def checkBrokerFailureRoundTrip : IO Unit := do
+private def checkBrokerFailureResponse : IO Unit := do
   let data := Json.mkObj [("uri", toJson "file:///A.lean")]
   let failure : BrokerFailure := {
     code := .contentModified
     message := "file changed"
     data? := some data
   }
-  match decodeBrokerFailure? (brokerFailureMessage failure) with
-  | some decoded =>
-      if decoded.code != failure.code || decoded.message != failure.message then
-        throw <| IO.userError s!"broker failure round trip: got {(toJson decoded).compress}"
-  | none =>
-      throw <| IO.userError "broker failure round trip: failed to decode encoded failure"
-
   let err ← requireError "broker failure response" "contentModified" "file changed" <|
-    responseForExceptionMessage (brokerFailureMessage failure)
+    failure.toResponse
   match err.data? with
   | some actual =>
       if actual.compress != data.compress then
@@ -142,40 +143,23 @@ private def checkBrokerFailureRoundTrip : IO Unit := do
   | none =>
       throw <| IO.userError "broker failure response: expected error data"
 
-private def checkExceptionErrorMapping : IO Unit := do
+private def checkJsonRpcErrorObjectMapping : IO Unit := do
   discard <| requireError
-    "request cancellation exception"
-    "requestCancelled"
-    "requestCancelled: client cancelled request"
-    (responseForExceptionMessage "requestCancelled: client cancelled request")
-  discard <| requireError
-    "sync barrier exception"
-    syncBarrierIncompleteCode
-    "Lean diagnostics barrier did not complete for /tmp/A.lean"
-    (responseForExceptionMessage "Lean diagnostics barrier did not complete for /tmp/A.lean")
-  discard <| requireError
-    "save target exception"
-    saveTargetNotModuleCode
-    "could not resolve a Lake module for /tmp/A.lean"
-    (responseForExceptionMessage "could not resolve a Lake module for /tmp/A.lean")
-  discard <| requireError
-    "unknown exception"
-    "internalError"
-    "some backend failure"
-    (responseForExceptionMessage "some backend failure")
-
-private def checkJsonRpcErrorMapping : IO Unit := do
-  discard <| requireError
-    "jsonrpc known error"
+    "jsonrpc known numeric error"
     "invalidParams"
     "bad params"
-    (responseForExceptionMessage "jsonrpcerr:{\"code\":-32602,\"message\":\"bad params\"}")
+    (responseForJsonRpcErrorObject <| Json.mkObj [
+      ("code", toJson (-32602 : Int)),
+      ("message", toJson "bad params")
+    ])
   discard <| requireError
-    "embedded jsonrpc error"
+    "jsonrpc string error"
     "-32803"
     "focused goal error"
-    (responseForExceptionMessage
-      "Cannot read LSP message: JSON '{\"error\":{\"code\":-32803,\"message\":\"focused goal error\"}}' did not have the format of a JSON-RPC message.")
+    (responseForJsonRpcErrorObject <| Json.mkObj [
+      ("code", toJson "-32803"),
+      ("message", toJson "focused goal error")
+    ])
 
 private def checkReadinessBoundary : IO Unit := do
   let uri := "file:///workspace/SaveSmoke/A.lean"
@@ -277,13 +261,16 @@ private def checkReadinessBoundary : IO Unit := do
   } none
   let interactiveOnlyResult ← requireResponseResult
     "readiness interactive-only diagnostic response" interactiveOnlyResp
-  requireJsonInt "readiness interactive-only payload" "errorCount" 1 interactiveOnlyResult
-  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 1 interactiveOnlyResult
-  requireJsonBool "readiness interactive-only payload" "saveReady" false interactiveOnlyResult
-  requireJsonString "readiness interactive-only payload" "saveReadyReason" "documentErrors"
+  requireJsonInt "readiness interactive-only payload" "errorCount" 0 interactiveOnlyResult
+  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 0 interactiveOnlyResult
+  requireJsonBool "readiness interactive-only payload" "saveReady" true interactiveOnlyResult
+  requireJsonString "readiness interactive-only payload" "saveReadyReason" "ok"
     interactiveOnlyResult
-  requireFieldPresent "readiness interactive-only payload" "blockingDiagnostics"
-    interactiveOnlyResult
+  let interactiveOnlyDecoded ← expectOk "readiness interactive-only decode"
+    (fromJson? (α := SyncFileResult) interactiveOnlyResult)
+  require "readiness interactive-only payload keeps diagnostics separate"
+    (interactiveOnlyDecoded.blockingDiagnostics.isEmpty &&
+      interactiveOnlyDecoded.blockingCommandMessages.isEmpty)
 
 private def checkRequestArgsBoundary : IO Unit := do
   let runAtMissingText : Request := {
@@ -323,9 +310,8 @@ private def checkRequestArgsBoundary : IO Unit := do
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
-  checkBrokerFailureRoundTrip
-  checkExceptionErrorMapping
-  checkJsonRpcErrorMapping
+  checkBrokerFailureResponse
+  checkJsonRpcErrorObjectMapping
   checkReadinessBoundary
   checkRequestArgsBoundary
 

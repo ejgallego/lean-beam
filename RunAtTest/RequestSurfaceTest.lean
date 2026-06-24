@@ -370,6 +370,25 @@ private def checkComplexTodoDiagnostics (doc : DocHandle) : ScenarioM Unit := do
   discard <| requireTodoKindWithMessage "todo complex error diagnostic"
     .diagnostic "Type mismatch" diagnosticTodos
 
+private def checkTodoInteractiveOnlyDiagnostic : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/InteractiveOnlyDiagnostic.lean"
+  syncDoc doc
+
+  let diagnosticReq ← sendTodo doc {
+    startLine := 20
+    startCharacter := 0
+    endLine := 21
+    endCharacter := 0
+    kinds? := some #[.diagnostic]
+  }
+  let diagnosticTodos : RunAt.TodoResult ← awaitResponseAs diagnosticReq
+  requireTodoKindAtLeast "todo interactive-only diagnostic" .diagnostic 1 diagnosticTodos
+  requireDiagnosticSeverity "todo interactive-only diagnostic" .error diagnosticTodos
+  discard <| requireTodoKindWithMessage "todo interactive-only diagnostic"
+    .diagnostic "interactive-only diagnostic from child snapshot" diagnosticTodos
+
+  closeDoc doc
+
 private def checkComplexTodoCodeActions (doc : DocHandle) : ScenarioM Unit := do
   let codeActionReq ← sendTodo doc {
     startLine := RunAtTest.TodoFixture.complexCodeActionLine
@@ -421,7 +440,28 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
       s!"saveReadiness: expected clean file to omit save-blocking evidence, got {(toJson readiness).compress}"
 
   let outDir ← mkTmpDir "runat-request-surface"
+  let staleVersionReq ← sendSaveArtifacts doc {
+    expectedVersionOverride? := some 0
+    oleanFile := (outDir / "StaleVersion.olean").toString
+    ileanFile := (outDir / "StaleVersion.ilean").toString
+    cFile := (outDir / "StaleVersion.c").toString
+  }
+  expectErrorContains staleVersionReq (Json.mkObj [("code", toJson "contentModified")])
+
+  let depAText ← IO.FS.readFile "RunAtTest/Deps/DepA.lean"
+  let staleTextHash := if hash depAText == 0 then 1 else 0
+  let staleHashReq ← sendSaveArtifacts doc {
+    expectedVersionOverride? := some 1
+    expectedTextHashOverride? := some staleTextHash
+    oleanFile := (outDir / "StaleHash.olean").toString
+    ileanFile := (outDir / "StaleHash.ilean").toString
+    cFile := (outDir / "StaleHash.c").toString
+  }
+  expectErrorContains staleHashReq (Json.mkObj [("code", toJson "contentModified")])
+
   let saveReq ← sendSaveArtifacts doc {
+    expectedVersionOverride? := some 1
+    expectedTextHashOverride? := some (hash depAText)
     oleanFile := (outDir / "DepA.olean").toString
     ileanFile := (outDir / "DepA.ilean").toString
     cFile := (outDir / "DepA.c").toString
@@ -462,12 +502,35 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
 
   closeDoc doc
 
+private def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/ReportedOnlyError.lean"
+  syncDoc doc
+
+  let readinessReq ← sendSaveReadiness doc
+  let readiness : RunAt.Internal.SaveReadinessResult ← awaitResponseAs readinessReq
+  if !readiness.saveReady then
+    throw <| IO.userError
+      s!"reported-only saveReadiness: expected saveReady = true, got {(toJson readiness).compress}"
+  if readiness.saveBlockingErrorCount != 0 then
+    throw <| IO.userError
+      s!"reported-only saveReadiness: expected saveBlockingErrorCount = 0, got {(toJson readiness).compress}"
+  if readiness.commandErrorCount != 0 then
+    throw <| IO.userError
+      s!"reported-only saveReadiness: expected commandErrorCount = 0, got {(toJson readiness).compress}"
+  unless readiness.blockingDiagnostics.isEmpty && readiness.blockingCommandMessages.isEmpty do
+    throw <| IO.userError
+      s!"reported-only saveReadiness: expected no save-blocking evidence, got {(toJson readiness).compress}"
+
+  closeDoc doc
+
 def main : IO Unit := RunAtTest.Scenario.run do
   checkGoalsRequests
   checkTodoRequest
   checkTodoCodeActions
   checkComplexTodoRequest
+  checkTodoInteractiveOnlyDiagnostic
   checkDirectImportsAndSave
+  checkReportedOnlyErrorReadiness
 
 end RunAtTest.RequestSurfaceTest
 

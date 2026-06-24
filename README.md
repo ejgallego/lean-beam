@@ -220,6 +220,9 @@ Read those commands like this:
 - `lean-beam sync` is the explicit on-disk edit barrier after a real saved edit
 - `lean-beam refresh` is `lean-beam close` plus `lean-beam sync`
 - `lean-beam save` checkpoints one synced workspace module; it does not validate downstream importers
+- `lean-beam save` currently supports only Lake module setups that Beam can replay from the LSP
+  snapshot without custom batch setup; modules with custom Lean options, Lean arguments, dynamic
+  libraries, or plugins fail with `saveUnsupportedSetup` and should be rebuilt with `lake build`
 
 Multiline and handle-oriented wrapper ergonomics:
 
@@ -252,6 +255,10 @@ When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may inc
 cheap direct-import recovery path before falling back to `lake build`. It may also include
 `error.data.completionBlockingDiagnostics`; those entries carry `completionBlocking=true` because
 the file could not reach the diagnostics-complete barrier for that version.
+
+When `lean-beam save` fails with `saveUnsupportedSetup`, the synced file may still be clean. The
+failure means Beam refused to write a zero-build Lake artifact for a module whose Lake batch setup is
+not known to be equivalent to the LSP snapshot. Use `lake build` for that module or its importer.
 
 Detailed Lean workflow guidance lives in [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md).
 

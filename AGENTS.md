@@ -64,6 +64,15 @@ Focus on:
 
 If a behavior is subtle, encode it in tests before optimizing it.
 
+## Common Code Smells
+
+- do not stringify typed errors or responses and later parse the rendered exception text to recover
+  control flow; keep `Response`, `BrokerFailure`, or structured error data typed across
+  async/pending boundaries, and stringify only at transport, CLI, or diagnostic display edges
+- do not add useless backward compatibility support; this alpha project has no legacy users, so
+  remove obsolete aliases, inferred envelope shapes, and compatibility branches unless they support
+  an explicitly listed Lean/Rocq/tooling version
+
 ## Skill Boundaries
 
 Keep the Lean and Rocq skills fully separate.
