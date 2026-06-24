@@ -9,17 +9,20 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$repo_root/scripts/shared-lib.sh"
 . "$repo_root/scripts/install-lib.sh"
-codex_home="${CODEX_HOME:-$HOME/.codex}"
-codex_skills_home="${CODEX_HOME:-$HOME/.codex}/skills"
-claude_skills_home="${CLAUDE_HOME:-$HOME/.claude}/skills"
-claude_mcp_user_config="$HOME/.claude.json"
-claude_mcp_backup_home="$HOME/.claude"
-bin_home="${HOME}/.local/bin"
-install_root="${BEAM_INSTALL_ROOT:-$HOME/.local/share/beam}"
-versions_root="$install_root/versions"
-current_root="$install_root/current"
-state_root="$install_root/state"
-install_bundles_root="$state_root/install-bundles"
+codex_home=""
+codex_skills_home=""
+codex_mcp_config=""
+claude_home=""
+claude_skills_home=""
+claude_mcp_user_config=""
+claude_mcp_home=""
+claude_mcp_backup_home=""
+bin_home=""
+install_root=""
+versions_root=""
+current_root=""
+state_root=""
+install_bundles_root=""
 beam_cli="$repo_root/.lake/build/bin/beam-cli"
 installer_cmd="./scripts/install-beam.sh"
 install_codex_skills=0
@@ -39,8 +42,8 @@ requested_toolchains=()
 requested_custom_toolchains=()
 installed_skill_targets=()
 registered_mcp_targets=()
-approved_skill_homes=()
-approved_skill_home_count=0
+approved_write_homes=()
+approved_write_home_count=0
 prepared_repo_toolchain=""
 prepared_selected_toolchains=()
 prepared_custom_toolchains=()
@@ -56,7 +59,43 @@ style_dim=""
 runat_plugin_shared_lib="$(beam_shared_lib_name runAt_RunAt)"
 install_root_marker=".lean-beam-install-root"
 skill_owner_marker=".lean-beam-skill"
-install_lock_dir="$install_root/.install-lock"
+install_lock_dir=""
+
+set_bin_home() {
+  bin_home="$1"
+}
+
+set_install_root() {
+  install_root="$1"
+  versions_root="$install_root/versions"
+  current_root="$install_root/current"
+  state_root="$install_root/state"
+  install_bundles_root="$state_root/install-bundles"
+  install_lock_dir="$install_root/.install-lock"
+}
+
+set_codex_home() {
+  codex_home="$1"
+  codex_skills_home="$codex_home/skills"
+  codex_mcp_config="$codex_home/config.toml"
+}
+
+set_claude_home() {
+  claude_home="$1"
+  claude_skills_home="$claude_home/skills"
+}
+
+set_claude_mcp_user_config() {
+  claude_mcp_user_config="$1"
+  claude_mcp_home="$(dirname "$claude_mcp_user_config")"
+  claude_mcp_backup_home="$claude_mcp_home/.claude"
+}
+
+set_bin_home "${BEAM_BIN_HOME:-$HOME/.local/bin}"
+set_install_root "${BEAM_INSTALL_ROOT:-$HOME/.local/share/beam}"
+set_codex_home "${CODEX_HOME:-$HOME/.codex}"
+set_claude_home "${CLAUDE_HOME:-$HOME/.claude}"
+set_claude_mcp_user_config "${BEAM_CLAUDE_MCP_CONFIG:-$HOME/.claude.json}"
 
 runtime_payload_spec=(
   "copy|rootFiles|RunAt.lean|RunAt.lean"
@@ -113,14 +152,20 @@ Optional flags:
   --all-skills  install bundled Lean skill for both Codex and Claude Code
   --rocq-skill  also install the optional Rocq skill for the selected agent target(s)
   --codex-mcp   register lean-beam-mcp with Codex
+  --codex-home  Codex home for --codex and --codex-mcp
   --claude-mcp  register lean-beam-mcp with Claude Code user config
+  --claude-mcp-config
+                Claude Code user .claude.json path for --claude-mcp
   --all-mcp     register lean-beam-mcp with both Codex and Claude Code
   -h, --help    show this help
 
 Environment:
+  BEAM_BIN_HOME        override the command wrapper directory
   BEAM_INSTALL_ROOT   override the runtime install root
-  CODEX_HOME           override the Codex home used by --codex
+  CODEX_HOME           override the Codex home used by --codex and --codex-mcp
   CLAUDE_HOME          override the Claude home used by --claude
+  BEAM_CLAUDE_MCP_CONFIG
+                        override the Claude Code user .claude.json path used by --claude-mcp
 
 Requirements:
   elan must be on PATH so the installer can prebuild the selected Lean bundle(s)
@@ -173,7 +218,7 @@ confirm_edit() {
 
 path_edit_preapproved() {
   local path="$1"
-  local skill_home=""
+  local approved_home=""
   if [ "$runtime_writes_approved" -eq 1 ] && path_is_within "$path" "$install_root"; then
     return 0
   fi
@@ -187,9 +232,9 @@ path_edit_preapproved() {
   if [ "$source_build_approved" -eq 1 ] && path_is_within "$path" "$repo_root/.lake"; then
     return 0
   fi
-  if [ "$approved_skill_home_count" -gt 0 ]; then
-    for skill_home in ${approved_skill_homes[@]+"${approved_skill_homes[@]}"}; do
-      if path_is_within "$path" "$skill_home"; then
+  if [ "$approved_write_home_count" -gt 0 ]; then
+    for approved_home in ${approved_write_homes[@]+"${approved_write_homes[@]}"}; do
+      if path_is_within "$path" "$approved_home"; then
         return 0
       fi
     done
@@ -457,9 +502,23 @@ parse_args() {
         mcp_registration_explicit=1
         register_codex_mcp=1
         ;;
+      --codex-home)
+        if [ "$#" -lt 2 ]; then
+          die "missing value for --codex-home"
+        fi
+        set_codex_home "$2"
+        shift
+        ;;
       --claude-mcp)
         mcp_registration_explicit=1
         register_claude_mcp=1
+        ;;
+      --claude-mcp-config)
+        if [ "$#" -lt 2 ]; then
+          die "missing value for --claude-mcp-config"
+        fi
+        set_claude_mcp_user_config "$2"
+        shift
         ;;
       --all-mcp)
         mcp_registration_explicit=1
@@ -1066,40 +1125,196 @@ verify_requested_skill_targets() {
 
 verify_requested_mcp_clients() {
   if [ "$register_codex_mcp" -eq 1 ]; then
-    require_absolute_path "$codex_home" "Codex home"
-    require_not_root "$codex_home" "Codex home"
-    require_absolute_path "$codex_home/config.toml" "Codex MCP config"
+    validate_codex_home
     if ! command -v codex >/dev/null 2>&1; then
       die "cannot register Codex MCP server because codex is not on PATH"
     fi
   fi
   if [ "$register_claude_mcp" -eq 1 ]; then
-    require_absolute_path "$claude_mcp_user_config" "Claude Code MCP config"
-    require_absolute_path "$claude_mcp_backup_home" "Claude Code backup home"
-    require_not_root "$claude_mcp_backup_home" "Claude Code backup home"
+    validate_claude_mcp_config_path
     if ! command -v claude >/dev/null 2>&1; then
       die "cannot register Claude Code MCP server because claude is not on PATH"
     fi
   fi
 }
 
-remember_approved_skill_home() {
+validate_codex_home() {
+  require_absolute_path "$codex_home" "Codex home"
+  require_not_root "$codex_home" "Codex home"
+  require_absolute_path "$codex_skills_home" "Codex skills home"
+  require_path_within "$codex_skills_home" "$codex_home" "Codex skills home"
+  require_absolute_path "$codex_mcp_config" "Codex MCP config"
+  require_path_within "$codex_mcp_config" "$codex_home" "Codex MCP config"
+}
+
+validate_claude_mcp_config_path() {
+  require_absolute_path "$claude_mcp_user_config" "Claude Code MCP config"
+  require_absolute_path "$claude_mcp_home" "Claude Code MCP config home"
+  require_not_root "$claude_mcp_home" "Claude Code MCP config home"
+  require_absolute_path "$claude_mcp_backup_home" "Claude Code backup home"
+  require_not_root "$claude_mcp_backup_home" "Claude Code backup home"
+  if [ "$(basename "$claude_mcp_user_config")" != ".claude.json" ]; then
+    die "Claude Code MCP config must be named .claude.json: $claude_mcp_user_config"
+  fi
+}
+
+validate_claude_home() {
+  require_absolute_path "$claude_home" "Claude Code home"
+  require_not_root "$claude_home" "Claude Code home"
+  require_absolute_path "$claude_skills_home" "Claude Code skills home"
+  require_path_within "$claude_skills_home" "$claude_home" "Claude Code skills home"
+}
+
+validate_requested_location_config() {
+  validate_install_config
+  if [ "$install_codex_skills" -eq 1 ] || [ "$register_codex_mcp" -eq 1 ]; then
+    validate_codex_home
+  fi
+  if [ "$install_claude_skills" -eq 1 ]; then
+    validate_claude_home
+  fi
+  if [ "$register_claude_mcp" -eq 1 ]; then
+    validate_claude_mcp_config_path
+  fi
+}
+
+verify_requested_install_targets() {
+  validate_requested_location_config
+  verify_requested_skill_targets
+  verify_requested_mcp_clients
+  ensure_install_root_claimable
+  verify_publish_targets
+}
+
+prompt_optional_path_override() {
+  local label="$1"
+  local current="$2"
+  local reply=""
+  printf '%s [%s]: ' "$label" "$current" >&2
+  IFS= read -r reply || reply=""
+  if [ -n "$reply" ]; then
+    printf '%s\n' "$reply"
+  else
+    printf '%s\n' "$current"
+  fi
+}
+
+prompt_install_location_changes() {
+  local selected_path=""
+
+  print_section "$style_blue" "Change Locations"
+  printf 'Press Enter to keep the current value.\n' >&2
+
+  selected_path="$(prompt_optional_path_override "Command directory" "$bin_home")"
+  set_bin_home "$selected_path"
+
+  selected_path="$(prompt_optional_path_override "Runtime install root" "$install_root")"
+  set_install_root "$selected_path"
+
+  if [ "$install_codex_skills" -eq 1 ] || [ "$register_codex_mcp" -eq 1 ]; then
+    selected_path="$(prompt_optional_path_override "Codex home" "$codex_home")"
+    set_codex_home "$selected_path"
+  fi
+  if [ "$install_claude_skills" -eq 1 ]; then
+    selected_path="$(prompt_optional_path_override "Claude Code home" "$claude_home")"
+    set_claude_home "$selected_path"
+  fi
+  if [ "$register_claude_mcp" -eq 1 ]; then
+    selected_path="$(prompt_optional_path_override "Claude Code user config" "$claude_mcp_user_config")"
+    set_claude_mcp_user_config "$selected_path"
+  fi
+
+  validate_requested_location_config
+}
+
+print_write_locations() {
+  print_section "$style_yellow" "Write Locations"
+  printf 'Lean Beam will create or update the following locations:\n' >&2
+  printf '\n  Core install\n' >&2
+  printf '    - Command directory: %s\n' "$bin_home" >&2
+  printf '    - Runtime root: %s\n' "$install_root" >&2
+  printf '    - Bundle cache: %s\n' "$install_bundles_root" >&2
+  printf '    - Source build output: %s\n' "$repo_root/.lake" >&2
+
+  if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ]; then
+    printf '\n  Agent skills\n' >&2
+    if [ "$install_codex_skills" -eq 1 ]; then
+      printf '    - Codex skills: %s (%s)\n' "$codex_skills_home" "$(skill_install_names)" >&2
+    fi
+    if [ "$install_claude_skills" -eq 1 ]; then
+      printf '    - Claude Code skills: %s (%s)\n' "$claude_skills_home" "$(skill_install_names)" >&2
+    fi
+  fi
+
+  if [ "$register_codex_mcp" -eq 1 ] || [ "$register_claude_mcp" -eq 1 ]; then
+    printf '\n  MCP registration\n' >&2
+    if [ "$register_codex_mcp" -eq 1 ]; then
+      printf '    - Codex home: %s\n' "$codex_home" >&2
+      printf '    - Codex config: %s\n' "$codex_mcp_config" >&2
+    fi
+    if [ "$register_claude_mcp" -eq 1 ]; then
+      printf '    - Claude Code config: %s\n' "$claude_mcp_user_config" >&2
+      printf '    - Claude Code backups: %s\n' "$claude_mcp_backup_home" >&2
+    fi
+  fi
+}
+
+write_approval_action=""
+
+prompt_write_approval() {
+  local reply=""
+  local choice=""
+  write_approval_action=""
+  printf '\nAllow lean-beam to write to these locations? [y/N/change] ' >&2
+  IFS= read -r reply || reply=""
+  choice="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  case "$choice" in
+    y|yes)
+      write_approval_action="approve"
+      ;;
+    c|change|edit)
+      write_approval_action="change"
+      ;;
+    ""|n|no)
+      write_approval_action="reject"
+      ;;
+    *)
+      die "unknown write-permission response: $reply"
+      ;;
+  esac
+}
+
+approve_current_write_locations() {
+  approved_write_homes=()
+  approved_write_home_count=0
+  if [ "$install_codex_skills" -eq 1 ]; then
+    remember_approved_write_home "$codex_skills_home"
+  fi
+  if [ "$install_claude_skills" -eq 1 ]; then
+    remember_approved_write_home "$claude_skills_home"
+  fi
+  if [ "$register_codex_mcp" -eq 1 ]; then
+    remember_approved_write_home "$codex_home"
+  fi
+  if [ "$register_claude_mcp" -eq 1 ]; then
+    remember_approved_write_home "$claude_mcp_home"
+  fi
+  runtime_writes_approved=1
+  bin_writes_approved=1
+  source_build_approved=1
+}
+
+remember_approved_write_home() {
   local location="$1"
-  if [ "$approved_skill_home_count" -eq 0 ] || ! array_contains "$location" ${approved_skill_homes[@]+"${approved_skill_homes[@]}"}; then
-    approved_skill_homes+=("$location")
-    approved_skill_home_count=$((approved_skill_home_count + 1))
+  if [ "$approved_write_home_count" -eq 0 ] || ! array_contains "$location" ${approved_write_homes[@]+"${approved_write_homes[@]}"}; then
+    approved_write_homes+=("$location")
+    approved_write_home_count=$((approved_write_home_count + 1))
   fi
 }
 
 approve_requested_writes() {
-  local reply=""
-  if [ "$install_codex_skills" -eq 1 ]; then
-    remember_approved_skill_home "$codex_skills_home"
-  fi
-  if [ "$install_claude_skills" -eq 1 ]; then
-    remember_approved_skill_home "$claude_skills_home"
-  fi
   if [ "$dont_ask" -eq 1 ]; then
+    verify_requested_install_targets
     return 0
   fi
   if [ "$runtime_writes_approved" -eq 1 ] && [ "$bin_writes_approved" -eq 1 ]; then
@@ -1109,47 +1324,24 @@ approve_requested_writes() {
     die "refusing to install without confirmation; rerun with --dont-ask to approve Beam-owned installer edits"
   fi
 
-  print_section "$style_yellow" "Write Permissions"
-  printf 'Lean Beam will create or update the following locations:\n' >&2
-  printf '\n  Beam install\n' >&2
-  printf '    - Runtime: %s\n' "$install_root" >&2
-  printf '    - Commands: %s\n' "$bin_home" >&2
-  printf '    - Build output: %s\n' "$repo_root/.lake" >&2
-
-  if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ]; then
-    printf '\n  Agent skills\n' >&2
-    if [ "$install_codex_skills" -eq 1 ]; then
-      printf '    - Codex: %s (%s)\n' "$codex_skills_home" "$(skill_install_names)" >&2
-    fi
-    if [ "$install_claude_skills" -eq 1 ]; then
-      printf '    - Claude Code: %s (%s)\n' "$claude_skills_home" "$(skill_install_names)" >&2
-    fi
-  fi
-
-  if [ "$register_codex_mcp" -eq 1 ] || [ "$register_claude_mcp" -eq 1 ]; then
-    printf '\n  MCP registration\n' >&2
-    if [ "$register_codex_mcp" -eq 1 ]; then
-      printf '    - Codex config: %s\n' "$codex_home/config.toml" >&2
-    fi
-    if [ "$register_claude_mcp" -eq 1 ]; then
-      printf '    - Claude Code config: %s\n' "$claude_mcp_user_config" >&2
-      printf '    - Claude Code backups: %s\n' "$claude_mcp_backup_home" >&2
-    fi
-  fi
-
-  printf '\nAllow lean-beam to write to these locations? [y/N] ' >&2
-  IFS= read -r reply
-  case "$reply" in
-    y|Y|yes|YES|Yes)
-      ;;
-    *)
-      die "cancelled before: Write Permissions"
-      ;;
-  esac
-
-  runtime_writes_approved=1
-  bin_writes_approved=1
-  source_build_approved=1
+  while true; do
+    validate_requested_location_config
+    print_write_locations
+    prompt_write_approval
+    case "$write_approval_action" in
+      approve)
+        verify_requested_install_targets
+        approve_current_write_locations
+        return 0
+        ;;
+      change)
+        prompt_install_location_changes
+        ;;
+      reject)
+        die "cancelled before: Write Locations"
+        ;;
+    esac
+  done
 }
 
 ensure_mcp_config_dir() {
@@ -1168,13 +1360,14 @@ ensure_mcp_config_dir() {
 
 register_codex_mcp_server() {
   ensure_mcp_config_dir "$codex_home" "Codex home"
-  codex mcp add lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
+  CODEX_HOME="$codex_home" codex mcp add lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
   registered_mcp_targets+=("Codex: lean-beam")
 }
 
 register_claude_mcp_server() {
-  claude mcp remove --scope user lean-beam >/dev/null 2>&1 || true
-  claude mcp add --scope user lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
+  ensure_mcp_config_dir "$claude_mcp_home" "Claude Code MCP config home"
+  HOME="$claude_mcp_home" claude mcp remove --scope user lean-beam >/dev/null 2>&1 || true
+  HOME="$claude_mcp_home" claude mcp add --scope user lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
   registered_mcp_targets+=("Claude Code: lean-beam")
 }
 
@@ -1201,10 +1394,6 @@ prepare_install_environment() {
   resolved_custom_toolchains="$(resolve_custom_install_toolchains)"
   validate_skill_selection
   print_install_plan "$resolved_toolchains" "$resolved_custom_toolchains"
-  verify_requested_skill_targets
-  verify_requested_mcp_clients
-  ensure_install_root_claimable
-  verify_publish_targets
   approve_requested_writes
   ensure_install_root_ready
   acquire_install_lock

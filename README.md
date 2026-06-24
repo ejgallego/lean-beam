@@ -26,10 +26,10 @@ Run the installer from the repo root:
 ```
 
 The default installer is interactive: it asks which Lean toolchains, Lean agent skills, and
-MCP client registrations to set up. It then shows a compact write summary and asks once for the Beam
-runtime/wrapper install area, selected skill locations, and selected MCP config locations. For
-non-interactive scripts, pass `--dont-ask`; this only skips prompts for requested Beam-owned
-install/config paths and does not allow replacing unrelated user files.
+MCP client registrations to set up. It then shows the write locations and asks once whether to
+approve, cancel, or change paths before approving. For non-interactive scripts, pass `--dont-ask`;
+this only skips prompts for requested Beam-owned install/config paths and does not allow replacing
+unrelated user files.
 
 That installs:
 
@@ -37,9 +37,26 @@ That installs:
 - an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
 - a prebuilt bundle for the repo-pinned supported Lean toolchain
 
+Default locations:
+
+| Purpose | Default | Override |
+| --- | --- | --- |
+| Command wrappers | `$HOME/.local/bin` | interactive `change`, or `BEAM_BIN_HOME` |
+| Runtime root | `$HOME/.local/share/beam` | interactive `change`, or `BEAM_INSTALL_ROOT` |
+| Install bundle cache | `$HOME/.local/share/beam/state/install-bundles` | derived from the runtime root |
+| Source build output | `<repo>/.lake` | fixed by Lake for this checkout |
+| Codex skill and MCP home | `$HOME/.codex` | interactive `change`, `CODEX_HOME`, or `--codex-home` |
+| Codex MCP config | `$HOME/.codex/config.toml` | derived from the Codex home |
+| Claude Code skill home | `$HOME/.claude` | interactive `change`, or `CLAUDE_HOME` |
+| Claude Code MCP config | `$HOME/.claude.json` | interactive `change`, `BEAM_CLAUDE_MCP_CONFIG`, or `--claude-mcp-config` |
+
 Each install rebuilds the runtime binaries from the current source checkout before staging the
 immutable runtime. After reinstalling, restart active MCP client sessions so they launch the new
 runtime instead of continuing to use an already-running server process.
+
+Maintainers running `tests/test-beam-install.sh` on a slow or offline connection can set
+`BEAM_INSTALL_TEST_PRESEED_ELAN=require` to reuse already-cached host elan toolchains and fail fast
+if a required toolchain is missing.
 
 Use `--codex`, `--claude`, or `--all-skills` to install the bundled Lean agent skill:
 
@@ -57,6 +74,18 @@ with Codex and/or Claude Code:
 ./scripts/install-beam.sh --claude-mcp
 ./scripts/install-beam.sh --all-mcp
 ```
+
+If Claude Code uses a sandboxed user config outside `$HOME/.claude.json`, pass the config path when
+registering MCP:
+
+```bash
+./scripts/install-beam.sh --codex-mcp --codex-home /path/to/sandbox/.codex
+./scripts/install-beam.sh --claude-mcp --claude-mcp-config /path/to/sandbox/.claude.json
+```
+
+The same overrides are available as `CODEX_HOME` and `BEAM_CLAUDE_MCP_CONFIG`.
+Interactive installs that select MCP registration can also choose `change` at the write-location
+prompt and edit the Codex home or Claude Code config path before approving writes.
 
 Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional validated Lean bundles:
 
@@ -99,6 +128,12 @@ even if `~/.local/bin` is not on its PATH:
 codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
 claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
 ```
+
+For sandboxed MCP configs, use `--codex-home /path/to/sandbox/.codex` or
+`--claude-mcp-config /path/to/sandbox/.claude.json` with the installer. Codex selects
+`config.toml` from `CODEX_HOME`, and Claude Code's `mcp add` command selects the user-scope config
+from `HOME`, so the installer runs those commands with the matching environment set to the selected
+location.
 
 MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
 root through `roots/list`. If a client does not provide roots, initialize one absolute Lean/Lake
