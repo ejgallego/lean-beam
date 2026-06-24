@@ -14,6 +14,7 @@ cd "$(dirname "$0")/.."
 . tests/lib/ci-steps.sh
 
 BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-install}"
+BEAM_INSTALL_TEST_PRESEED_ELAN="${BEAM_INSTALL_TEST_PRESEED_ELAN:-auto}"
 
 tmp_root="$(mktemp -d /tmp/runat-install-XXXXXX)"
 host_elan_home="${ELAN_HOME:-}"
@@ -85,6 +86,63 @@ if ! printf '%s\n' ${supported_toolchains[@]+"${supported_toolchains[@]}"} | gre
 fi
 source_checkout="$tmp_root/source-checkout"
 runat_plugin_shared_lib="$(beam_shared_lib_name runAt_RunAt)"
+
+elan_toolchain_dir_name() {
+  printf '%s\n' "$1" | sed 's,/,--,g; s,:,---,g'
+}
+
+host_toolchain_dir_for() {
+  local toolchain="$1"
+  local normalized=""
+  if [ -z "$host_elan_home" ] || [ ! -d "$host_elan_home/toolchains" ]; then
+    return 1
+  fi
+  if [ -d "$host_elan_home/toolchains/$toolchain" ]; then
+    printf '%s\n' "$host_elan_home/toolchains/$toolchain"
+    return 0
+  fi
+  normalized="$(elan_toolchain_dir_name "$toolchain")"
+  if [ -d "$host_elan_home/toolchains/$normalized" ]; then
+    printf '%s\n' "$host_elan_home/toolchains/$normalized"
+    return 0
+  fi
+  return 1
+}
+
+preseed_elan_home() {
+  local target_elan_home="$1"
+  shift
+  local toolchain=""
+  local host_toolchain_dir=""
+  local target_toolchain_dir=""
+
+  case "$BEAM_INSTALL_TEST_PRESEED_ELAN" in
+    0|false|False|FALSE|no|No|NO|off|Off|OFF)
+      return 0
+      ;;
+    auto|1|true|True|TRUE|yes|Yes|YES|on|On|ON|require)
+      ;;
+    *)
+      echo "unknown BEAM_INSTALL_TEST_PRESEED_ELAN mode: $BEAM_INSTALL_TEST_PRESEED_ELAN" >&2
+      exit 1
+      ;;
+  esac
+
+  expect_path_within_tmp_root "$target_elan_home"
+  mkdir -p "$target_elan_home/toolchains"
+  for toolchain in "$@"; do
+    [ -n "$toolchain" ] || continue
+    if host_toolchain_dir="$(host_toolchain_dir_for "$toolchain")"; then
+      target_toolchain_dir="$target_elan_home/toolchains/$(basename "$host_toolchain_dir")"
+      if [ ! -e "$target_toolchain_dir" ]; then
+        ln -s "$host_toolchain_dir" "$target_toolchain_dir"
+      fi
+    elif [ "$BEAM_INSTALL_TEST_PRESEED_ELAN" = "require" ]; then
+      echo "host elan cache is missing $toolchain; install it or set BEAM_INSTALL_TEST_PRESEED_ELAN=auto" >&2
+      exit 1
+    fi
+  done
+}
 
 assert_no_skill_socket_guidance() {
   local skill_doc="$1"
@@ -282,6 +340,7 @@ assert_bundle_layout() {
 }
 
 run_install_from_source() {
+  preseed_elan_home "$HOME/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
   (
     cd "$source_checkout"
     bash scripts/install-beam.sh --dont-ask "$@" > /dev/null
@@ -300,6 +359,7 @@ setup_mcp_cli_stubs() {
   for arg in "$@"; do
     printf '|%s' "$arg"
   done
+  printf '|CODEX_HOME=%s' "${CODEX_HOME:-}"
   printf '\n'
 } >> "$BEAM_TEST_MCP_STUB_LOG"
 exit 0
@@ -311,6 +371,7 @@ SH
   for arg in "$@"; do
     printf '|%s' "$arg"
   done
+  printf '|HOME=%s' "${HOME:-}"
   printf '\n'
 } >> "$BEAM_TEST_MCP_STUB_LOG"
 exit 0
@@ -322,6 +383,7 @@ run_install_with_mcp_stubs() {
   local stub_bin="$1"
   local log_path="$2"
   shift 2
+  preseed_elan_home "$HOME/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
   (
     cd "$source_checkout"
     BEAM_TEST_MCP_STUB_LOG="$log_path" PATH="$stub_bin:$PATH" \
@@ -335,6 +397,7 @@ run_interactive_install_from_source() {
   local install_root="$3"
   local input_text="$4"
   shift 4
+  preseed_elan_home "$install_home/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
   (
     cd "$source_checkout"
     python3 - "$transcript" "$install_home" "$install_root" "$input_text" "$@" <<'PY'
@@ -484,6 +547,44 @@ remove_tmp_file "$no_prompt_err"
 assert_not_exists "$no_prompt_home/.local"
 assert_not_exists "$no_prompt_install_root"
 
+invalid_approval_home="$tmp_root/invalid-approval-home"
+invalid_approval_install_root="$tmp_root/invalid-approval-install-root"
+invalid_approval_transcript="$tmp_root/install-invalid-approval-transcript"
+mkdir -p "$invalid_approval_home"
+if run_interactive_install_from_source \
+    "$invalid_approval_transcript" "$invalid_approval_home" "$invalid_approval_install_root" \
+    $'\n\n\nmaybe\n'; then
+  echo "expected interactive install to reject an unknown write approval response" >&2
+  cat "$invalid_approval_transcript" >&2
+  exit 1
+fi
+assert_contains "$invalid_approval_transcript" 'Write Locations'
+assert_contains "$invalid_approval_transcript" 'Allow lean-beam to write to these locations?'
+assert_contains "$invalid_approval_transcript" 'unknown write-permission response: maybe'
+assert_not_exists "$invalid_approval_install_root"
+remove_tmp_file "$invalid_approval_transcript"
+
+change_alias_home="$tmp_root/change-alias-home"
+change_alias_install_root="$tmp_root/change-alias-install-root"
+change_alias_transcript="$tmp_root/install-change-alias-transcript"
+mkdir -p "$change_alias_home"
+if run_interactive_install_from_source \
+    "$change_alias_transcript" "$change_alias_home" "$change_alias_install_root" \
+    $'\n\n\nc\n\n\nN\n'; then
+  echo "expected interactive install to stop after change alias then denied write permission" >&2
+  cat "$change_alias_transcript" >&2
+  exit 1
+fi
+assert_contains "$change_alias_transcript" 'Write Locations'
+assert_contains "$change_alias_transcript" 'Change Locations'
+assert_contains_literal "$change_alias_transcript" "Command directory [$change_alias_home/.local/bin]"
+assert_contains_literal "$change_alias_transcript" "Runtime install root [$change_alias_install_root]"
+assert_contains_literal "$change_alias_transcript" "Command directory: $change_alias_home/.local/bin"
+assert_contains_literal "$change_alias_transcript" "Runtime root: $change_alias_install_root"
+assert_contains "$change_alias_transcript" 'cancelled before: Write Locations'
+assert_not_exists "$change_alias_install_root"
+remove_tmp_file "$change_alias_transcript"
+
 interactive_home="$tmp_root/interactive-home"
 interactive_install_root="$tmp_root/interactive-install-root"
 interactive_transcript="$tmp_root/install-interactive-transcript"
@@ -497,10 +598,12 @@ assert_contains "$interactive_transcript" 'Prebuild toolchains'
 assert_contains "$interactive_transcript" 'Lean agent skill targets to install'
 assert_contains "$interactive_transcript" 'MCP clients'
 assert_contains "$interactive_transcript" 'commands'
-assert_contains "$interactive_transcript" 'Write Permissions'
+assert_contains "$interactive_transcript" 'Write Locations'
 assert_contains "$interactive_transcript" 'Lean Beam will create or update the following locations:'
-assert_contains "$interactive_transcript" 'Beam install'
-assert_contains "$interactive_transcript" 'Build output'
+assert_contains "$interactive_transcript" 'Command directory'
+assert_contains "$interactive_transcript" 'Runtime root'
+assert_contains "$interactive_transcript" 'Bundle cache'
+assert_contains "$interactive_transcript" 'Source build output'
 assert_contains "$interactive_transcript" 'Allow lean-beam to write to these locations?'
 assert_contains "$interactive_transcript" 'building beam runtime artifacts'
 assert_contains "$interactive_transcript" 'MCP restart'
@@ -510,6 +613,66 @@ assert_file "$interactive_home/.local/bin/lean-beam"
 assert_not_exists "$interactive_home/.codex"
 assert_not_exists "$interactive_home/.claude"
 remove_tmp_file "$interactive_transcript"
+
+interactive_claude_home="$tmp_root/interactive-claude-home"
+interactive_claude_install_root="$tmp_root/interactive-claude-install-root"
+interactive_claude_config_home="$tmp_root/interactive-claude-sandbox"
+interactive_claude_config="$interactive_claude_config_home/.claude.json"
+interactive_claude_transcript="$tmp_root/install-interactive-claude-transcript"
+interactive_mcp_stub_bin="$tmp_root/interactive-mcp-stubs"
+interactive_mcp_stub_log="$tmp_root/interactive-mcp-stubs.log"
+mkdir -p "$interactive_claude_home"
+setup_mcp_cli_stubs "$interactive_mcp_stub_bin" "$interactive_mcp_stub_log"
+if BEAM_TEST_MCP_STUB_LOG="$interactive_mcp_stub_log" PATH="$interactive_mcp_stub_bin:$PATH" \
+    run_interactive_install_from_source \
+      "$interactive_claude_transcript" "$interactive_claude_home" "$interactive_claude_install_root" \
+      $'\n\n3\nchange\n\n\n'"$interactive_claude_config"$'\nN\n'; then
+  echo "expected interactive Claude MCP install to stop when write permission is denied" >&2
+  cat "$interactive_claude_transcript" >&2
+  exit 1
+fi
+assert_contains "$interactive_claude_transcript" 'Write Locations'
+assert_contains "$interactive_claude_transcript" 'Change Locations'
+assert_contains "$interactive_claude_transcript" 'Command directory'
+assert_contains "$interactive_claude_transcript" 'Runtime install root'
+assert_contains_literal "$interactive_claude_transcript" \
+  "Claude Code user config [$interactive_claude_home/.claude.json]"
+assert_contains_literal "$interactive_claude_transcript" "$interactive_claude_config"
+assert_contains_literal "$interactive_claude_transcript" "Claude Code config: $interactive_claude_config"
+assert_contains "$interactive_claude_transcript" 'Allow lean-beam to write to these locations?'
+assert_contains "$interactive_claude_transcript" 'cancelled before: Write Locations'
+assert_not_exists "$interactive_claude_install_root"
+assert_not_exists "$interactive_claude_home/.claude.json"
+remove_tmp_file "$interactive_claude_transcript"
+
+interactive_codex_home="$tmp_root/interactive-codex-home"
+interactive_codex_install_root="$tmp_root/interactive-codex-install-root"
+interactive_codex_custom_home="$tmp_root/interactive-codex-sandbox"
+interactive_codex_custom_bin="$tmp_root/interactive-codex-bin"
+interactive_codex_custom_runtime="$tmp_root/interactive-codex-runtime"
+interactive_codex_transcript="$tmp_root/install-interactive-codex-transcript"
+mkdir -p "$interactive_codex_home"
+if run_interactive_install_from_source \
+    "$interactive_codex_transcript" "$interactive_codex_home" "$interactive_codex_install_root" \
+    $'\n\n2\nchange\n'"$interactive_codex_custom_bin"$'\n'"$interactive_codex_custom_runtime"$'\n'"$interactive_codex_custom_home"$'\nN\n'; then
+  echo "expected interactive Codex MCP install to stop when write permission is denied" >&2
+  cat "$interactive_codex_transcript" >&2
+  exit 1
+fi
+assert_contains "$interactive_codex_transcript" 'Write Locations'
+assert_contains "$interactive_codex_transcript" 'Change Locations'
+assert_contains_literal "$interactive_codex_transcript" "Command directory [$interactive_codex_home/.local/bin]"
+assert_contains_literal "$interactive_codex_transcript" "Runtime install root [$interactive_codex_install_root]"
+assert_contains_literal "$interactive_codex_transcript" "Codex home [$CODEX_HOME]"
+assert_contains_literal "$interactive_codex_transcript" "Command directory: $interactive_codex_custom_bin"
+assert_contains_literal "$interactive_codex_transcript" "Runtime root: $interactive_codex_custom_runtime"
+assert_contains_literal "$interactive_codex_transcript" "Codex home: $interactive_codex_custom_home"
+assert_contains_literal "$interactive_codex_transcript" "Codex config: $interactive_codex_custom_home/config.toml"
+assert_contains "$interactive_codex_transcript" 'cancelled before: Write Locations'
+assert_not_exists "$interactive_codex_custom_bin"
+assert_not_exists "$interactive_codex_custom_runtime"
+assert_not_exists "$interactive_codex_custom_home"
+remove_tmp_file "$interactive_codex_transcript"
 
 run_step "install default runtime" run_install_from_source
 expected_source_commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
@@ -593,6 +756,7 @@ run_custom_toolchain_install_test() (
   local custom_doctor_out=""
 
   mkdir -p "$custom_elan_home" "$custom_install_home" "$custom_install_root"
+  preseed_elan_home "$custom_elan_home" "$toolchain"
   if [ -n "$host_elan_home" ]; then
     host_lean_path="$(ELAN_HOME="$host_elan_home" elan which lean)"
   else
@@ -694,6 +858,62 @@ run_step "register MCP clients" run_install_with_mcp_stubs "$mcp_stub_bin" "$mcp
 assert_contains_literal "$mcp_stub_log" "codex|mcp|add|lean-beam|--|$installed_mcp"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|remove|--scope|user|lean-beam"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp"
+
+custom_codex_home="$tmp_root/codex-sandbox"
+custom_codex_mcp_stub_log="$tmp_root/mcp-stubs-custom-codex.log"
+run_step "register Codex MCP with custom home" \
+  run_install_with_mcp_stubs "$mcp_stub_bin" "$custom_codex_mcp_stub_log" \
+    --toolchain "$toolchain" --codex-mcp --codex-home "$custom_codex_home"
+if [ ! -d "$custom_codex_home" ]; then
+  echo "expected installer to create custom Codex home" >&2
+  exit 1
+fi
+assert_contains_literal "$custom_codex_mcp_stub_log" \
+  "codex|mcp|add|lean-beam|--|$installed_mcp|CODEX_HOME=$custom_codex_home"
+
+custom_claude_config_home="$tmp_root/claude-sandbox"
+custom_claude_config="$custom_claude_config_home/.claude.json"
+custom_mcp_stub_log="$tmp_root/mcp-stubs-custom-claude.log"
+run_step "register Claude MCP with custom config" \
+  run_install_with_mcp_stubs "$mcp_stub_bin" "$custom_mcp_stub_log" \
+    --toolchain "$toolchain" --claude-mcp --claude-mcp-config "$custom_claude_config"
+if [ ! -d "$custom_claude_config_home" ]; then
+  echo "expected installer to create custom Claude MCP config home" >&2
+  exit 1
+fi
+assert_contains_literal "$custom_mcp_stub_log" \
+  "claude|mcp|remove|--scope|user|lean-beam|HOME=$custom_claude_config_home"
+assert_contains_literal "$custom_mcp_stub_log" \
+  "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp|HOME=$custom_claude_config_home"
+assert_not_exists "$HOME/.claude.json"
+
+relative_codex_home_err="$(mktemp "$tmp_root/codex-mcp-relative-home-XXXXXX")"
+if (
+  cd "$source_checkout"
+  BEAM_TEST_MCP_STUB_LOG="$mcp_stub_log" PATH="$mcp_stub_bin:$PATH" \
+    bash scripts/install-beam.sh --dont-ask --codex-mcp \
+      --codex-home relative/.codex > /dev/null 2>"$relative_codex_home_err"
+); then
+  echo "expected --codex-home to reject relative paths" >&2
+  remove_tmp_file "$relative_codex_home_err"
+  exit 1
+fi
+assert_contains "$relative_codex_home_err" "Codex home must be an absolute path"
+remove_tmp_file "$relative_codex_home_err"
+
+relative_claude_config_err="$(mktemp "$tmp_root/claude-mcp-relative-config-XXXXXX")"
+if (
+  cd "$source_checkout"
+  BEAM_TEST_MCP_STUB_LOG="$mcp_stub_log" PATH="$mcp_stub_bin:$PATH" \
+    bash scripts/install-beam.sh --dont-ask --claude-mcp \
+      --claude-mcp-config relative/.claude.json > /dev/null 2>"$relative_claude_config_err"
+); then
+  echo "expected --claude-mcp-config to reject relative paths" >&2
+  remove_tmp_file "$relative_claude_config_err"
+  exit 1
+fi
+assert_contains "$relative_claude_config_err" "Claude Code MCP config must be an absolute path"
+remove_tmp_file "$relative_claude_config_err"
 
 blocked_home="$tmp_root/blocked-home"
 blocked_install_root="$tmp_root/blocked-install-root"

@@ -75,6 +75,13 @@ Current Beam coverage includes:
 
 Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `supported-toolchains`, save replay, save barriers, MCP, or Rocq integration.
 
+`tests/test-beam-install.sh` uses fresh fake homes, so first runs may otherwise download Lean
+toolchains repeatedly. By default it opportunistically pre-seeds each fake `ELAN_HOME` with symlinks
+to matching toolchains already present in the host elan cache. Set
+`BEAM_INSTALL_TEST_PRESEED_ELAN=0` to force fully fresh fake homes, or set
+`BEAM_INSTALL_TEST_PRESEED_ELAN=require` when working on a slow/offline connection and you want the
+test to fail fast if a supported toolchain is missing from the host cache.
+
 ## Save Replay Timeout Investigation
 
 [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh) includes a save-race case
