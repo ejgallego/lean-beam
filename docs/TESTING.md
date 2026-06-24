@@ -116,6 +116,12 @@ That scenario repeats the path that negotiates workspace roots through MCP `root
 timeout report includes the client label, pending request parameters, recent completed requests,
 recent server requests received from `lean-beam-mcp`, recent notifications, runner CPU/platform
 context, relevant CI and Lean thread env vars, the stderr tail, and a Beam/Lean process snapshot.
+If this scheduler-sensitive timeout appears on an unrelated CI PR, copy the timeout headline and
+diagnostic excerpt to [#110](https://github.com/ejgallego/lean-beam/issues/110) so repeated
+occurrences can be correlated in one place. Include the PR URL and branch, failing run URL, failing
+job URL, job name, runner OS/arch, run attempt, commit SHA, failing test or scenario, relevant
+request/progress or sentinel diagnostics from the log, and the rerun URL plus whether it passed or
+reproduced.
 The optional `--server-trace` flag enables opt-in `lean-beam-mcp` and broker trace lines in that
 stderr tail without changing normal test stderr expectations. To look for scheduler-sensitive
 behavior locally, prefer a low-core or CPU-contended run. On a large local machine, run CPU load in

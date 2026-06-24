@@ -28,6 +28,22 @@ from mcp_test_util import (
 
 
 SUPPORTED_PROTOCOL_VERSION = "2025-11-25"
+CI_TIMEOUT_TRACKER = "https://github.com/ejgallego/lean-beam/issues/110"
+CI_TIMEOUT_TRACKER_NOTE = "\n".join(
+    [
+        f"Comment on {CI_TIMEOUT_TRACKER} if this scheduler-sensitive timeout hits an unrelated CI PR.",
+        "Include:",
+        "  - PR URL and branch",
+        "  - failing GitHub Actions run URL and job URL",
+        "  - job name, runner OS/arch, run attempt, and commit SHA",
+        "  - failing test/scenario and this timeout headline",
+        (
+            "  - MCP stdio pending requests, completed requests, server requests, "
+            "notifications, event timeline, stderr/server trace or watchdog lines, and process snapshot"
+        ),
+        "  - rerun URL and whether the rerun passed or reproduced",
+    ]
+)
 
 
 def compact_json(value, limit=700):
@@ -404,6 +420,7 @@ class McpClient:
             f"recent notifications:\n{self._notifications_summary()}\n"
             f"MCP event timeline ({self._last_notification_summary()}):\n"
             f"{self._event_timeline_summary()}\n"
+            f"CI timeout tracker:\n{CI_TIMEOUT_TRACKER_NOTE}\n"
             f"lean-beam-mcp stderr tail:\n{stderr_tail or '  <empty>'}\n"
             f"process snapshot:\n{process_snapshot}"
         )

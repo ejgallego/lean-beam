@@ -12,6 +12,7 @@ cd "$(dirname "$0")/.."
 
 beam_script="$PWD/scripts/lean-beam"
 lake_cmd="$(command -v lake)"
+ci_timeout_tracker="https://github.com/ejgallego/lean-beam/issues/110"
 
 if [ ! -x "$beam_script" ]; then
   echo "missing lean-beam wrapper at $beam_script" >&2
@@ -172,6 +173,21 @@ dump_process_snapshot() {
   ps -ef | grep -E 'beam-daemon|beam-cli|lean --server|scripts/lean-beam' | grep -v grep >&2 || true
 }
 
+dump_ci_timeout_tracker_hint() {
+  print_diag_section "CI timeout tracker"
+  printf '%s\n' \
+    "Comment on ${ci_timeout_tracker} if this scheduler-sensitive timeout hits an unrelated CI PR." \
+    "Include:" \
+    "  - PR URL and branch" \
+    "  - failing GitHub Actions run URL and job URL" \
+    "  - job name, runner OS/arch, run attempt, and commit SHA" \
+    "  - failing test/scenario and this failure headline" \
+    "  - save sentinel state, daemon registry, daemon log tail, save stdout/stderr," \
+    "    diagnostics-barrier watchdog lines, and process snapshot" \
+    "  - rerun URL and whether the rerun passed or reproduced" \
+    >&2
+}
+
 dump_save_sentinel_context() {
   local label="$1"
   local root="$2"
@@ -190,6 +206,7 @@ dump_save_sentinel_context() {
   fi
   dump_runtime_context
   dump_process_snapshot
+  dump_ci_timeout_tracker_hint
   dump_file "sentinel file" "$sentinel"
   dump_file_head "SaveSmoke/B.lean" "$root/SaveSmoke/B.lean"
   dump_file "daemon registry" "$root/.beam/beam-daemon.json"
