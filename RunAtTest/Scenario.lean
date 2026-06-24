@@ -67,6 +67,11 @@ structure SaveArtifactsSpec where
   bcFile? : Option String := none
   deriving Inhabited, Repr, ToJson
 
+structure SaveReadinessSpec where
+  expectedVersionOverride? : Option Nat := none
+  expectedTextHashOverride? : Option UInt64 := none
+  deriving Inhabited, Repr, ToJson
+
 instance : FromJson ChangeSpec where
   fromJson? j := do
     let line ← j.getObjValAs? Nat "line"
@@ -457,12 +462,12 @@ def sendSaveArtifacts (doc : DocHandle) (spec : SaveArtifactsSpec) : ScenarioM R
   let requestID ← sendRequest RunAt.Internal.saveArtifactsMethod (toJson params)
   registerRequest requestID (toJson params)
 
-def sendSaveReadiness (doc : DocHandle) : ScenarioM ReqHandle := do
+def sendSaveReadiness (doc : DocHandle) (spec : SaveReadinessSpec := {}) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : RunAt.Internal.SaveReadinessParams := {
     textDocument := { uri := docState.uri }
-    expectedVersion := docState.versionNo - 1
-    expectedTextHash := hash docState.text
+    expectedVersion := spec.expectedVersionOverride?.getD (docState.versionNo - 1)
+    expectedTextHash := spec.expectedTextHashOverride?.getD (hash docState.text)
   }
   let requestID ← sendRequest RunAt.Internal.saveReadinessMethod (toJson params)
   registerRequest requestID (toJson params)
