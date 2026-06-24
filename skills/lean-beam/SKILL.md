@@ -155,12 +155,17 @@ What `lean-beam run-at` does not do:
 - it does not auto-indent or synthesize leading spaces when you probe at an indented empty line
 - it does not reinterpret blank-line coordinates; if the line is truly empty then character `1` is
   already out of range
+- in command mode, one `run-at` request accepts one Lean command, not a complete top-level command
+  sequence; use `run-at-handle` plus `run-with` for explicit sequencing, or make a real edit and
+  `sync`
 
 Use the right tool for each goal:
 
 - if you made a real edit and want fresh file diagnostics: save the file, then use `lean-beam sync`
 - if you want exact continuation from speculative state: mint a handle with `lean-beam run-at-handle`,
   then continue with `lean-beam run-with` or `lean-beam run-with-linear`
+- if you want to test several top-level commands together: write them to the file and sync, or split
+  the experiment into explicit handle continuations
 - for handle-based commands, `--handle-file <path>` is the easiest way to avoid inlining handle json
 - if surface syntax depends on indentation or layout: pass the exact text you want Lean to parse, or
   make a real edit in the file instead of expecting the wrapper to fill whitespace for you

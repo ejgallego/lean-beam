@@ -68,14 +68,14 @@ instance : ToJson Operation where
   toJson op := toJson op.key
 
 def Operation.description : Operation → String
-  | .runAt => "Run Lean text at a file position without storing follow-up state."
-  | .runAtHandle => "Run Lean text at a file position and store a follow-up handle."
+  | .runAt => "Run one Lean command or tactic block at a file position without storing follow-up state."
+  | .runAtHandle => "Run one Lean command or tactic block at a file position and store a follow-up handle."
   | .hover => "Inspect Lean hover information at a file position."
   | .goalsAfter => "Inspect Lean goals after a file position."
   | .goalsPrev => "Inspect Lean goals before a file position."
   | .todo => "Inspect agent-actionable Lean todo items in a file range."
-  | .runWith => "Run Lean text from a stored handle without consuming the parent handle."
-  | .runWithLinear => "Run Lean text from a stored handle and consume that handle on success or failure."
+  | .runWith => "Run one Lean continuation command or tactic block from a stored handle without consuming the parent handle."
+  | .runWithLinear => "Run one Lean continuation command or tactic block from a stored handle and consume that handle on success or failure."
   | .release => "Release a stored Lean follow-up handle."
   | .sync => "Synchronize a Lean file with the broker and wait for diagnostics."
   | .deps => "Refresh direct Lean dependency state for a file."
@@ -104,10 +104,10 @@ private def rangeEndCharacterField : String × Json :=
   ("end_character", Beam.JsonSchema.natural "Zero-based UTF-16 LSP end character.")
 
 private def runAtTextField : String × Json :=
-  ("text", Beam.JsonSchema.string "Lean text to run at the selected position.")
+  ("text", Beam.JsonSchema.string "One Lean command or tactic block to run at the selected position. Top-level command sequences are not accepted by one runAt call.")
 
 private def continuationTextField : String × Json :=
-  ("text", Beam.JsonSchema.string "Lean continuation text to run from the stored handle.")
+  ("text", Beam.JsonSchema.string "One Lean continuation command or tactic block to run from the stored handle.")
 
 private def handleField : String × Json :=
   ("handle", Beam.JsonSchema.object "Opaque broker-wrapped Lean handle from a previous tool result.")

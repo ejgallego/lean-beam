@@ -113,10 +113,36 @@ private def requireRunAtSolvesProof
   unless proofState.goals.isEmpty do
     throw <| IO.userError s!"{label}: expected solved proof state, got {(toJson proofState).compress}"
 
+private def requireRunAtFailureMessage
+    (label : String)
+    (doc : DocHandle)
+    (position : Lean.Lsp.Position)
+    (text : String)
+    (needle : String) : ScenarioM Unit := do
+  let req ← sendRunAt doc {
+    line := position.line
+    character := position.character
+    text
+  }
+  let result : RunAt.Result ← awaitResponseAs req
+  if result.success then
+    throw <| IO.userError s!"{label}: expected runAt failure, got {(toJson result).compress}"
+  unless result.messages.any (fun msg => msg.severity == MessageSeverity.error && msg.text.contains needle) do
+    throw <| IO.userError
+      s!"{label}: expected error message containing '{needle}', got {(toJson result).compress}"
+
 private def mkTmpDir (stem : String) : ScenarioM System.FilePath := do
   let dir := System.FilePath.mk s!"/tmp/{stem}-{← IO.monoNanosNow}"
   IO.FS.createDirAll dir
   pure dir
+
+private def checkRunAtOneCommandOnly : ScenarioM Unit := do
+  let doc ← openDoc "RunAtTest/Deps/DepA.lean"
+  syncDoc doc
+  requireRunAtFailureMessage "runAt command sequence" doc { line := 8, character := 0 }
+    "def runAtOneCommandA : Nat := 1\n\n#check runAtOneCommandA"
+    "runAtSupportsOneCommandOnly"
+  closeDoc doc
 
 private def checkGoalsRequests : ScenarioM Unit := do
   let doc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
@@ -516,6 +542,7 @@ private def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
   closeDoc doc
 
 def main : IO Unit := RunAtTest.Scenario.run do
+  checkRunAtOneCommandOnly
   checkGoalsRequests
   checkTodoRequest
   checkTodoCodeActions
