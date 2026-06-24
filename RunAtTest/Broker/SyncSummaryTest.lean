@@ -155,7 +155,7 @@ private def checkEffectiveSeverityDiagnosticIdentity : IO Unit := do
     (delta.added == 0 && delta.removed == 0 && delta.persisted == 1)
   require "same text hash reports unchanged source" (!summary.sourceChangedSinceDeltaBase)
 
-private def checkDiagnosticErrorsForceNotReady : IO Unit := do
+private def checkDiagnosticErrorsDoNotOverrideReadiness : IO Unit := do
   let interactiveDiagnostic := diagnostic 0 0 1 (some .error) "interactive-only diagnostic"
   let readiness : SyncSaveReadiness := {
     currentSaveBlockingErrorCount? := some 0
@@ -168,16 +168,16 @@ private def checkDiagnosticErrorsForceNotReady : IO Unit := do
   require "diagnostic severity counts report current Lean diagnostics"
     (summary.diagnostics.current.error == 1 &&
       summary.diagnostics.current.total == 1)
-  require "readiness treats current Lean errors as save-blocking"
-    (summary.readiness.current.saveBlockingErrorCount == 1 &&
-      !summary.readiness.current.saveReady &&
-      summary.readiness.current.saveReadyReason == "documentErrors")
-  require "summary records fallback diagnostic evidence"
-    (summary.readiness.current.blockingDiagnostics.size == 1 &&
-      summary.readiness.current.blockingDiagnostics[0]?.map (·.saveBlocking) == some true)
-  require "summary record preserves normalized save-readiness verdict"
-    (record.readiness.saveBlockingErrorCount == 1 &&
-      !record.readiness.saveReady)
+  require "diagnostics do not override Lean save-readiness"
+    (summary.readiness.current.saveBlockingErrorCount == 0 &&
+      summary.readiness.current.saveReady &&
+      summary.readiness.current.saveReadyReason == "ok")
+  require "summary does not synthesize save-blocking evidence while Lean is ready"
+    (summary.readiness.current.blockingDiagnostics.isEmpty &&
+      summary.readiness.current.blockingCommandMessages.isEmpty)
+  require "summary record preserves Lean save-readiness verdict"
+    (record.readiness.saveBlockingErrorCount == 0 &&
+      record.readiness.saveReady)
 
 private def checkSaveBlockingEvidenceProjection : IO Unit := do
   let blockingDiagnostic := diagnostic 0 0 1 (some .error) "save-blocking diagnostic"
@@ -242,7 +242,7 @@ def main : IO Unit := do
   checkFirstSyncSummary
   checkDuplicateDiagnosticDelta
   checkEffectiveSeverityDiagnosticIdentity
-  checkDiagnosticErrorsForceNotReady
+  checkDiagnosticErrorsDoNotOverrideReadiness
   checkSaveBlockingEvidenceProjection
   checkCurrentSyncDiagnosticsFallback
 

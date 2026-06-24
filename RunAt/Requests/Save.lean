@@ -128,8 +128,31 @@ def saveReadinessDocumentErrorsReason : String :=
 def saveReadinessNotElaboratedReason : String :=
   "documentDidNotElaborateSuccessfully"
 
-private def snapshotMessageLog (snaps : List Snapshots.Snapshot) : MessageLog :=
-  snaps.foldl (fun log snap => log ++ snap.msgLog) MessageLog.empty
+private def currentDocumentTextHash (doc : Lean.Server.FileWorker.EditableDocument) : UInt64 :=
+  hash doc.meta.text.source
+
+private def checkExpectedDocument
+    (doc : Lean.Server.FileWorker.EditableDocument)
+    (expectedVersion : Nat)
+    (expectedTextHash : UInt64) : RequestM Unit := do
+  unless doc.meta.version == expectedVersion do
+    throw {
+      RequestError.fileChanged with
+      message :=
+        s!"document version changed before artifact save: " ++
+          s!"expected {expectedVersion}, got {doc.meta.version}"
+    }
+  let currentTextHash := currentDocumentTextHash doc
+  unless currentTextHash == expectedTextHash do
+    throw {
+      RequestError.fileChanged with
+      message :=
+        s!"document text changed before artifact save: " ++
+          s!"expected hash {expectedTextHash}, got {currentTextHash}"
+    }
+
+private def snapshotTreeMessageLog (snaps : Array Lean.Language.Snapshot) : MessageLog :=
+  snaps.foldl (fun log snap => log ++ snap.diagnostics.msgLog) MessageLog.empty
 
 private def messageSeverityCount (severity : MessageSeverity) (messages : Array Lean.Message) : Nat :=
   messages.foldl (init := 0) fun count msg =>
@@ -177,8 +200,7 @@ private def saveBlockingCommandMessages
   }
 
 def collectSaveReadiness
-    (doc : Lean.Server.FileWorker.EditableDocument)
-    (snaps : List Snapshots.Snapshot) :
+    (doc : Lean.Server.FileWorker.EditableDocument) :
     RequestM
       (RunAt.Internal.SaveReadinessResult ×
         Option Elab.Command.State ×
@@ -187,10 +209,9 @@ def collectSaveReadiness
   let diagnostics ← collectCurrentDiagnosticsCompat(doc)
   let diagnosticErrors := diagnostics.filter (fun diag => diag.severity? == some .error)
   let diagnosticWarnings := diagnostics.filter (fun diag => diag.severity? == some .warning)
-  -- Mirror Lean server/frontend snapshot-log aggregation, and use the exported upstream
-  -- predicate for the boolean decision.
-  let frontendLog := snapshotMessageLog snaps
-  let frontendMessages := frontendLog.reportedPlusUnreported.toArray
+  -- Mirror Lean batch/Lake's reportable-message gate for the current snapshot tree.
+  let frontendLog := snapshotTreeMessageLog <| Lean.Language.toSnapshotTree doc.initSnap |>.getAll
+  let frontendMessages := frontendLog.unreported.toArray
   let frontendErrorCount := messageSeverityCount MessageSeverity.error frontendMessages
   let frontendWarningCount := messageSeverityCount MessageSeverity.warning frontendMessages
   let commandErrors ← commandErrorMessages frontendMessages
@@ -218,7 +239,7 @@ def collectSaveReadiness
       blockingCommandMessages := fallbackBlockingCommandMessages
       : RunAt.Internal.SaveReadinessResult
     }, none, diagnosticErrors, commandErrors)
-  let saveReady := !frontendLog.hasErrors
+  let saveReady := frontendErrorCount == 0
   let readiness : RunAt.Internal.SaveReadinessResult := {
     version := doc.meta.version
     saveBlockingErrorCount := frontendErrorCount
@@ -239,7 +260,8 @@ def saveCurrentArtifacts
     (snaps : List Snapshots.Snapshot)
     (p : RunAt.Internal.SaveArtifactsParams) : RequestM RunAt.Internal.SaveArtifactsResult := do
   checkRequestCancelled
-  let (readiness, cmdState?, diagnosticErrors, commandErrors) ← collectSaveReadiness doc snaps
+  checkExpectedDocument doc p.expectedVersion p.expectedTextHash
+  let (readiness, cmdState?, diagnosticErrors, commandErrors) ← collectSaveReadiness doc
   unless readiness.saveReady do
     throw <| RequestError.invalidParams (saveArtifactsErrorMessage diagnosticErrors commandErrors)
   let some cmdState := cmdState?
@@ -260,7 +282,7 @@ def saveCurrentArtifacts
   pure {
     written := true
     version := doc.meta.version
-    textHash := hash doc.meta.text.source
+    textHash := currentDocumentTextHash doc
   }
 
 def handleSaveArtifacts
@@ -268,18 +290,20 @@ def handleSaveArtifacts
     RequestM (RequestTask RunAt.Internal.SaveArtifactsResult) := do
   syncHandleStoreForCurrentDoc
   let doc ← RequestM.readDoc
-  let t := doc.cmdSnaps.waitAll
+  checkExpectedDocument doc p.expectedVersion p.expectedTextHash
+  let t := doc.reporter.bindCheap (fun _ => doc.cmdSnaps.waitAll)
   RequestM.mapTaskCostly t fun (snaps, _) => do
     saveCurrentArtifacts doc snaps p
 
 def handleSaveReadiness
-    (_p : RunAt.Internal.SaveReadinessParams) :
+    (p : RunAt.Internal.SaveReadinessParams) :
     RequestM (RequestTask RunAt.Internal.SaveReadinessResult) := do
   syncHandleStoreForCurrentDoc
   let doc ← RequestM.readDoc
-  let t := doc.cmdSnaps.waitAll
-  RequestM.mapTaskCostly t fun (snaps, _) => do
-    let (readiness, _, _, _) ← collectSaveReadiness doc snaps
+  checkExpectedDocument doc p.expectedVersion p.expectedTextHash
+  let t := doc.reporter
+  RequestM.mapTaskCostly t fun _ => do
+    let (readiness, _, _, _) ← collectSaveReadiness doc
     pure readiness
 
 end RunAt.Requests

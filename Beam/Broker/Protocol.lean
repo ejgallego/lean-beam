@@ -492,6 +492,9 @@ def syncBarrierIncompleteCode : String :=
 def saveTraceStaleCode : String :=
   "saveTraceStale"
 
+def saveUnsupportedSetupCode : String :=
+  "saveUnsupportedSetup"
+
 def saveTargetNotModuleCode : String :=
   "saveTargetNotModule"
 

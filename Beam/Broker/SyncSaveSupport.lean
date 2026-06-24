@@ -160,39 +160,6 @@ def saveBlockingFallbackDiagnostics (diagnostics : Array Diagnostic) : Array Syn
     else
       none
 
-private def syncDocumentErrorsReason : String :=
-  "documentErrors"
-
-private def saveBlockingErrorMessage : String :=
-  "cannot save artifacts for a document with errors"
-
-def withDiagnosticErrorReadiness
-    (diagnostics : Array Diagnostic)
-    (readiness : SyncSaveReadiness) : SyncSaveReadiness :=
-  let diagnosticErrorCount := syncErrorCount diagnostics
-  if diagnosticErrorCount == 0 then
-    readiness
-  else
-    let saveBlockingErrorCount :=
-      max diagnosticErrorCount (readiness.currentSaveBlockingErrorCount?.getD 0)
-    {
-      readiness with
-      currentSaveBlockingErrorCount? := some saveBlockingErrorCount
-      stateErrorCount := max readiness.stateErrorCount saveBlockingErrorCount
-      saveReady := false
-      saveReadyReason :=
-        if readiness.saveReadyReason == "ok" then syncDocumentErrorsReason else readiness.saveReadyReason
-      saveReadyMessage? :=
-        match readiness.saveReadyMessage? with
-        | some message => some message
-        | none => some saveBlockingErrorMessage
-      blockingDiagnostics :=
-        if readiness.blockingDiagnostics.isEmpty then
-          saveBlockingFallbackDiagnostics diagnostics
-        else
-          readiness.blockingDiagnostics
-    }
-
 def withFallbackSaveBlockingEvidence
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness) : SyncSaveReadiness :=
@@ -206,8 +173,7 @@ def withFallbackSaveBlockingEvidence
 def normalizeSyncSaveReadiness
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness) : SyncSaveReadiness :=
-  withFallbackSaveBlockingEvidence diagnostics <|
-    withDiagnosticErrorReadiness diagnostics readiness
+  withFallbackSaveBlockingEvidence diagnostics readiness
 
 def diagnosticsIndicateIncompleteBarrier (diagnostics : Array Diagnostic) : Bool :=
   diagnostics.any isIncompleteBarrierDiagnostic

@@ -277,13 +277,16 @@ private def checkReadinessBoundary : IO Unit := do
   } none
   let interactiveOnlyResult ← requireResponseResult
     "readiness interactive-only diagnostic response" interactiveOnlyResp
-  requireJsonInt "readiness interactive-only payload" "errorCount" 1 interactiveOnlyResult
-  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 1 interactiveOnlyResult
-  requireJsonBool "readiness interactive-only payload" "saveReady" false interactiveOnlyResult
-  requireJsonString "readiness interactive-only payload" "saveReadyReason" "documentErrors"
+  requireJsonInt "readiness interactive-only payload" "errorCount" 0 interactiveOnlyResult
+  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 0 interactiveOnlyResult
+  requireJsonBool "readiness interactive-only payload" "saveReady" true interactiveOnlyResult
+  requireJsonString "readiness interactive-only payload" "saveReadyReason" "ok"
     interactiveOnlyResult
-  requireFieldPresent "readiness interactive-only payload" "blockingDiagnostics"
-    interactiveOnlyResult
+  let interactiveOnlyDecoded ← expectOk "readiness interactive-only decode"
+    (fromJson? (α := SyncFileResult) interactiveOnlyResult)
+  require "readiness interactive-only payload keeps diagnostics separate"
+    (interactiveOnlyDecoded.blockingDiagnostics.isEmpty &&
+      interactiveOnlyDecoded.blockingCommandMessages.isEmpty)
 
 private def checkRequestArgsBoundary : IO Unit := do
   let runAtMissingText : Request := {

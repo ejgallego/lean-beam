@@ -1076,28 +1076,27 @@ private def fetchSyncSaveReadinessIO
     (server : ServerRuntime)
     (session : Session)
     (uri : DocumentUri)
-    (expectedVersion? : Option Nat := none) : IO SyncSaveReadiness := do
+    (expectedVersion : Nat)
+    (expectedTextHash : UInt64) : IO SyncSaveReadiness := do
   if session.backend != .lean then
     pure {}
   else
     let method ← IO.ofExcept <| saveReadinessMethod session.backend
     let params := toJson ({
       textDocument := ({ uri := uri : TextDocumentIdentifier })
+      expectedVersion
+      expectedTextHash
       : RunAt.Internal.SaveReadinessParams
     })
     let readiness : RunAt.Internal.SaveReadinessResult ←
       sendCurrentSessionRequestDecode server session method params
-    match expectedVersion? with
-    | some expectedVersion =>
-        if readiness.version != expectedVersion then
-          throwBrokerFailure {
-            code := .contentModified
-            message :=
-              s!"save readiness reported version {readiness.version}, " ++
-                s!"expected synced version {expectedVersion}"
-          }
-    | none =>
-        pure ()
+    if readiness.version != expectedVersion then
+      throwBrokerFailure {
+        code := .contentModified
+        message :=
+          s!"save readiness reported version {readiness.version}, " ++
+            s!"expected synced version {expectedVersion}"
+      }
     pure (syncSaveReadinessOfResult readiness)
 
 private def fetchDirectImportsIO
@@ -1133,6 +1132,31 @@ private def collectStaleDirectDepHintsIO
       let history := DocumentState.moduleHistorySnapshots current.moduleHistory
       pure <| collectStaleDirectDepHints importsResult version targetLastSyncSeq history
 
+private def throwSaveArtifactsRequestFailure (msg : String) (syncVerdict : Json) : IO α := do
+  let resp := responseForExceptionMessage msg
+  match resp.error? with
+  | some err =>
+      let syncData? :=
+        if err.code == "invalidParams" then
+          some (syncVerdictErrorData syncVerdict)
+        else
+          err.data?
+      match err.code with
+      | "invalidParams" =>
+          throwBrokerFailure { code := .invalidParams, message := err.message, data? := syncData? }
+      | "contentModified" =>
+          throwBrokerFailure { code := .contentModified, message := err.message, data? := syncData? }
+      | "requestCancelled" =>
+          throwBrokerFailure { code := .requestCancelled, message := err.message, data? := syncData? }
+      | "workerExited" =>
+          throwBrokerFailure { code := .workerExited, message := err.message, data? := syncData? }
+      | "internalError" =>
+          throwBrokerFailure { code := .internalError, message := err.message, data? := syncData? }
+      | _ =>
+          throw <| IO.userError msg
+  | none =>
+      throw <| IO.userError msg
+
 private def saveOleanIO
     (server : ServerRuntime)
     (req : Request)
@@ -1165,7 +1189,9 @@ private def saveOleanIO
   ensureSyncBarrierComplete started.uri started.version barrierProgress? barrier.diagnostics
   ensureRequestNotCancelled cancelRef?
   let saveReadiness ←
-    fetchSyncSaveReadinessIO server started.session started.uri (expectedVersion? := some started.version)
+    fetchSyncSaveReadinessIO server started.session started.uri
+      started.version
+      textHash
   let currentDiagnostics :=
     currentSyncDiagnostics started.version barrier.diagnostics barrier.diagnosticsSeen priorSummary?
   let saveReadiness := normalizeSyncSaveReadiness currentDiagnostics saveReadiness
@@ -1175,15 +1201,23 @@ private def saveOleanIO
     syncFileSuccessPayload started.version currentDiagnostics saveReadiness (some syncSummary)
   recordCompletedSyncSummaryIO server started.session started.uri started.version syncSummaryRecord
   let spec ← mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
-  unless saveReadiness.saveReady do
+  if let some reason := spec.unsupportedSetupReason? then
     throwBrokerFailure {
-      code := .invalidParams
-      message := saveNotReadyMessage saveReadiness
-      data? := some (syncVerdictErrorData syncVerdict)
+      code := .saveUnsupportedSetup
+      message :=
+        s!"lean-beam save cannot checkpoint {spec.relPath} with zero-build artifact replay: {reason}. " ++
+        "Run lake build for this module; Beam save is currently restricted to Lake module setups " ++
+        "that can be replayed from the LSP snapshot without custom batch setup."
+      data? :=
+        some <| (syncVerdictErrorData syncVerdict)
+          |>.setObjVal! "reason" (toJson reason)
+          |>.setObjVal! "path" (toJson spec.relPath)
     }
   let method ← IO.ofExcept <| saveArtifactsMethod started.session.backend
   let params := toJson ({
     textDocument := ({ uri := started.uri : TextDocumentIdentifier })
+    expectedVersion := started.version
+    expectedTextHash := textHash
     oleanFile := spec.oleanPath.toString
     ileanFile := spec.ileanPath.toString
     cFile := spec.cPath.toString
@@ -1196,7 +1230,11 @@ private def saveOleanIO
     updateSession current
     pure (current, savePromise)
   propagatePendingCancellation session req.clientRequestId? cancelRef?
-  let savePending ← PendingRequest.awaitResult savePromise
+  let savePending ←
+    try
+      PendingRequest.awaitResult savePromise
+    catch e =>
+      throwSaveArtifactsRequestFailure (toString e) syncVerdict
   let saveResult : RunAt.Internal.SaveArtifactsResult ← decodeResponseAs savePending.result
   if saveResult.version != started.version then
     throw <| IO.userError
@@ -1251,7 +1289,9 @@ private def handleSyncFileOpIO
         let docState ← requireDocState current started.uri
         pure (docState.textHash, docState.lastSyncSummary?)
     let saveReadiness ←
-      fetchSyncSaveReadinessIO server started.session started.uri (expectedVersion? := some started.version)
+      fetchSyncSaveReadinessIO server started.session started.uri
+        started.version
+        textHash
     let currentDiagnostics :=
       currentSyncDiagnostics started.version pending.diagnostics pending.diagnosticsSeen priorSummary?
     let saveReadiness := normalizeSyncSaveReadiness currentDiagnostics saveReadiness

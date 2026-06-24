@@ -18,6 +18,7 @@ inductive BrokerFailureCode where
   | workerExited
   | syncBarrierIncomplete
   | saveTraceStale
+  | saveUnsupportedSetup
   | saveTargetNotModule
   | internalError
   deriving Inhabited, BEq, Repr
@@ -29,6 +30,7 @@ def BrokerFailureCode.name : BrokerFailureCode → String
   | .workerExited => "workerExited"
   | .syncBarrierIncomplete => syncBarrierIncompleteCode
   | .saveTraceStale => saveTraceStaleCode
+  | .saveUnsupportedSetup => saveUnsupportedSetupCode
   | .saveTargetNotModule => saveTargetNotModuleCode
   | .internalError => "internalError"
 
@@ -47,6 +49,8 @@ instance : FromJson BrokerFailureCode where
           .ok .syncBarrierIncomplete
         else if s == saveTraceStaleCode then
           .ok .saveTraceStale
+        else if s == saveUnsupportedSetupCode then
+          .ok .saveUnsupportedSetup
         else if s == saveTargetNotModuleCode then
           .ok .saveTargetNotModule
         else if s == "internalError" then

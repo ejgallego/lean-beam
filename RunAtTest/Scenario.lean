@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Lean.Data.Lsp.Ipc
+import Lean.Server.Utils
 import RunAt.Protocol
 import RunAt.Internal.DirectImports
 import RunAt.Internal.SaveSupport
@@ -58,6 +59,8 @@ structure TodoSpec where
   deriving Inhabited, Repr, ToJson
 
 structure SaveArtifactsSpec where
+  expectedVersionOverride? : Option Nat := none
+  expectedTextHashOverride? : Option UInt64 := none
   oleanFile : String
   ileanFile : String
   cFile : String
@@ -121,6 +124,7 @@ structure ReqHandle where
 private structure DocState where
   uri : DocumentUri
   versionNo : Nat := 2
+  text : String
 
 private structure ReqState where
   requestID : RequestID
@@ -326,18 +330,20 @@ def openDoc (path : System.FilePath) : ScenarioM DocHandle := do
   set {
     s with
     nextDocHandle := s.nextDocHandle + 1
-    docs := s.docs.insert doc.id { uri, versionNo := 2 }
+    docs := s.docs.insert doc.id { uri, versionNo := 2, text }
   }
   pure doc
 
 def changeDocBatch (doc : DocHandle) (specs : Array ChangeSpec) : ScenarioM Unit := do
   let docState ← getDocState doc
+  let contentChanges := specs.map mkRangeChange
   let params : DidChangeTextDocumentParams := {
     textDocument := { uri := docState.uri, version? := docState.versionNo }
-    contentChanges := specs.map mkRangeChange
+    contentChanges
   }
   Ipc.writeNotification ⟨"textDocument/didChange", params⟩
-  setDocState doc { docState with versionNo := docState.versionNo + 1 }
+  let text := (Lean.Server.foldDocumentChanges contentChanges docState.text.toFileMap).source
+  setDocState doc { docState with versionNo := docState.versionNo + 1, text }
 
 def changeDoc (doc : DocHandle) (spec : ChangeSpec) : ScenarioM Unit :=
   changeDocBatch doc #[spec]
@@ -441,6 +447,8 @@ def sendSaveArtifacts (doc : DocHandle) (spec : SaveArtifactsSpec) : ScenarioM R
   let docState ← getDocState doc
   let params : RunAt.Internal.SaveArtifactsParams := {
     textDocument := { uri := docState.uri }
+    expectedVersion := spec.expectedVersionOverride?.getD (docState.versionNo - 1)
+    expectedTextHash := spec.expectedTextHashOverride?.getD (hash docState.text)
     oleanFile := spec.oleanFile
     ileanFile := spec.ileanFile
     cFile := spec.cFile
@@ -453,6 +461,8 @@ def sendSaveReadiness (doc : DocHandle) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : RunAt.Internal.SaveReadinessParams := {
     textDocument := { uri := docState.uri }
+    expectedVersion := docState.versionNo - 1
+    expectedTextHash := hash docState.text
   }
   let requestID ← sendRequest RunAt.Internal.saveReadinessMethod (toJson params)
   registerRequest requestID (toJson params)

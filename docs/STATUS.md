@@ -149,6 +149,10 @@ that handoff cheap by reusing speculative execution rather than replaying it fro
 `lean-beam save` is module-oriented, not file-oriented. `lean-beam sync` can operate on an arbitrary file the
 daemon can open, but `lean-beam save` requires a file that Lake resolves to a module in the current
 workspace package graph. Standalone `.lean` files outside that graph are not valid save targets.
+The zero-build save path is also restricted to Lake module setups that can be replayed from the LSP
+snapshot without custom batch setup. Modules whose Lake setup uses custom Lean options, Lean
+arguments, dynamic libraries, or plugins fail with `saveUnsupportedSetup`; use `lake build` for
+those modules.
 
 ### Progress And Sync Delta Reporting
 
@@ -156,8 +160,11 @@ The field-level contract lives in [Sync And Diagnostics Contract](SYNC_AND_DIAGN
 short, progress, streamed diagnostics, current readiness, and deltas are separate typed concepts.
 New machine consumers should prefer `syncSummary` over the flat compatibility fields, and should use
 `syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for the checkpoint decision.
-Beam normalizes current error-severity diagnostics into a not-ready verdict; warnings,
-information, and hints do not block saving by themselves.
+Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
+not a separate broker-side veto.
+Beam save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot:
+full snapshot-tree reportable errors block saving, but already-reported message history does not
+block saving by itself.
 
 ## Known Limitations
 

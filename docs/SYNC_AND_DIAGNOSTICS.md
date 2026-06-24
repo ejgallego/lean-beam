@@ -15,6 +15,12 @@ they established before checkpointing: `save` under `result.sync`, and `close-sa
 `result.saved.sync`. Document-error save failures include the blocking verdict under
 `error.data.sync`.
 
+Zero-build checkpointing is restricted to Lake module setups Beam can replay from the LSP snapshot
+without custom batch setup. If Lake setup for a module uses custom Lean options, Lean arguments,
+dynamic libraries, or plugins, `save` and `close-save` fail with `saveUnsupportedSetup` after the
+sync verdict is established. In that case, use `lake build` for the module or importer instead of
+expecting Beam to write Lake artifacts.
+
 ## Reporting Surfaces
 
 Progress, streamed diagnostics, current summaries, and deltas are separate typed concepts.
@@ -71,9 +77,13 @@ machine consumers should prefer:
 - `syncSummary.readiness.current.blockingCommandMessages`
 
 `syncSummary.diagnostics.current.*` reports Lean-published diagnostic severities. It answers "what
-did Lean report?", while readiness answers "can this synced version be checkpointed?". Beam
-normalizes any current error-severity diagnostic into `saveReady = false` for the synced version.
-Warning, information, and hint diagnostics do not block saving by themselves.
+did Lean report?", while readiness answers "can this synced version be checkpointed?". The backend
+readiness API is authoritative for `saveReady`; diagnostic severity summaries are evidence and
+counts, not a separate broker-side veto.
+
+Lean-side readiness follows Lean batch/Lake's artifact gate for the current synced snapshot: errors
+in the full snapshot tree's current reportable messages block save, while errors that exist only in
+Lean's already-reported message history do not block save by themselves.
 
 The flat fields `errorCount`, `warningCount`, `saveReady`, `stateErrorCount`, and
 `stateCommandErrorCount` are compatibility projections of the current readiness verdict. They should
@@ -106,11 +116,10 @@ why the file could not reach a diagnostics-complete barrier.
 
 ## Upstream Readiness Direction
 
-Beam currently normalizes Lean diagnostics, progress, and command errors at the backend boundary so
-all surfaces can return one coherent readiness verdict. The desired end state is a stronger
-backend-facing readiness primitive: a typed result that directly reports barrier completion,
-diagnostic counts, save-blocking evidence, and file-progress observations without relying on
-broker-side inference.
+Beam asks the backend for the save-readiness verdict and keeps progress and diagnostic observations
+as separate request facts. The desired end state is a stronger backend-facing readiness primitive:
+a typed result that directly reports barrier completion, diagnostic counts, save-blocking evidence,
+and file-progress observations without relying on broker-side inference.
 
 One useful upstream Lean direction is a close relative of `SnapshotTree.runAndReport` that returns
 the diagnostics/progress decision data instead of only printing or reporting it through side

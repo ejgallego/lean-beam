@@ -58,6 +58,7 @@ elab "mkModuleOutputDescrsCompat(" isModule:term ", " olean:term ", " oleanServe
 structure LeanSaveSpec where
   relPath : String
   moduleName : Name
+  unsupportedSetupReason? : Option String := none
   oleanPath : FilePath
   oleanServerPath? : Option FilePath := none
   oleanPrivatePath? : Option FilePath := none
@@ -90,6 +91,19 @@ private def hashOfHashable [Hashable α] (a : α) : Hash :=
 
 private def addHashablePureTrace [ToString α] [Hashable α] (a : α) (caption := "pure") : JobM PUnit :=
   addTrace <| .ofHash (hashOfHashable a) s!"{caption}: {toString a}"
+
+private def unsupportedZeroBuildSaveReason? (mod : Lake.Module) (setup : ModuleSetup) :
+    Option String :=
+  if !setup.plugins.isEmpty then
+    some "Lake module setup loads Lean plugins"
+  else if !setup.dynlibs.isEmpty then
+    some "Lake module setup loads dynamic libraries"
+  else if !setup.options.values.isEmpty then
+    some "Lake module setup sets Lean options"
+  else if !mod.weakLeanArgs.isEmpty || !mod.leanArgs.isEmpty then
+    some "Lake module has custom Lean arguments"
+  else
+    none
 
 private def quietTraceConfig : BuildConfig :=
   { verbosity := .quiet }
@@ -239,7 +253,7 @@ private def sourceTrace (path : FilePath) (snapshot : SourceSnapshot) : BuildTra
 
 private def buildDepTraceJob
     (mod : Lake.Module)
-    (snapshot : SourceSnapshot) : FetchM (Job (BuildTrace × Bool)) := do
+    (snapshot : SourceSnapshot) : FetchM (Job (BuildTrace × Bool × Option String)) := do
     let setupJob ← mod.setup.fetch
     setupJob.mapM (sync := true) fun setup => do
       addLeanTrace
@@ -250,7 +264,7 @@ private def buildDepTraceJob
       addHashablePureTrace mod.pkg.id? "Package.id?"
       addPureTrace mod.leanArgs "Module.leanArgs"
       setTraceCaption s!"{mod.name.toString}:leanArts"
-      return (← getTrace, setup.isModule)
+      return (← getTrace, setup.isModule, unsupportedZeroBuildSaveReason? mod setup)
 
 private def saveTraceStaleMessage (root path : FilePath) : String :=
   let relPath := Beam.pathRelativeToRootOrSelf root path
@@ -273,7 +287,7 @@ private def buildDepTrace
     (ws : Workspace)
     (root path : FilePath)
     (mod : Lake.Module)
-    (snapshot : SourceSnapshot) : IO (BuildTrace × Bool) := do
+    (snapshot : SourceSnapshot) : IO (BuildTrace × Bool × Option String) := do
   ensureSaveTraceReady ws root path mod snapshot
   ws.runBuild (cfg := quietTraceConfig) (buildDepTraceJob mod snapshot)
 
@@ -288,11 +302,12 @@ def mkLeanSaveSpec
     | throw <| IO.userError <|
         s!"could not resolve a Lake module for {path}. " ++
         "lean-beam save only works for synced files that belong to the current Lake workspace package graph."
-  let (depTrace, isModule) ← buildDepTrace ws root path mod snapshot
+  let (depTrace, isModule, unsupportedSetupReason?) ← buildDepTrace ws root path mod snapshot
   let relPath := Beam.pathRelativeToRootOrSelf root path
   pure {
     relPath
     moduleName := mod.name
+    unsupportedSetupReason?
     oleanPath := mod.oleanFile
     oleanServerPath? := if isModule then some mod.oleanServerFile else none
     oleanPrivatePath? := if isModule then some mod.oleanPrivateFile else none

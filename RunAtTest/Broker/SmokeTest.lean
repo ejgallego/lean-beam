@@ -107,7 +107,7 @@ private def runInteractiveOnlyDiagnosticSmoke
   if res.saveReady then
     throw <| IO.userError
       s!"expected interactive-only diagnostic sync_file saveReady = false, got {(toJson res).compress}"
-  if res.errorCount == 0 || res.stateErrorCount == 0 || res.stateCommandErrorCount != 0 then
+  if res.errorCount == 0 || res.stateErrorCount == 0 || res.stateCommandErrorCount == 0 then
     throw <| IO.userError
       s!"expected interactive-only diagnostic counts to report Lean errors only, got {(toJson res).compress}"
   if res.saveReadyReason != "documentErrors" then
@@ -124,14 +124,17 @@ private def runInteractiveOnlyDiagnosticSmoke
   if summary.diagnostics.current.error == 0 || summary.diagnostics.current.total == 0 then
     throw <| IO.userError
       s!"expected interactive-only diagnostic syncSummary to count the error-severity diagnostic, got {(toJson summary).compress}"
-  if summary.readiness.current.saveBlockingErrorCount == 0 ||
-      summary.readiness.current.saveReady then
+  -- Regression for #99: current diagnostic errors must not coexist with saveReady=true.
+  if summary.diagnostics.current.error > 0 && summary.readiness.current.saveReady then
+    throw <| IO.userError
+      s!"expected interactive-only diagnostic errors to make syncSummary saveReady=false, got {(toJson summary).compress}"
+  if summary.readiness.current.saveBlockingErrorCount == 0 then
     throw <| IO.userError
       s!"expected interactive-only diagnostic syncSummary readiness to be blocked, got {(toJson summary).compress}"
   if summary.readiness.current.blockingDiagnostics.isEmpty ||
-      !summary.readiness.current.blockingCommandMessages.isEmpty then
+      summary.readiness.current.blockingCommandMessages.isEmpty then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic syncSummary to include diagnostic evidence only, got {(toJson summary).compress}"
+      s!"expected interactive-only diagnostic syncSummary to include Lean-side blocking evidence, got {(toJson summary).compress}"
   let some lastProgress := progress.back?
     | throw <| IO.userError "expected interactive-only diagnostic sync_file to stream fileProgress"
   if !lastProgress.done then
