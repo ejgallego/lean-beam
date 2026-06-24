@@ -219,7 +219,7 @@ The thick part of the broker is request orchestration. For `sync`, `runAt`, `goa
 waits for the relevant diagnostics/progress barrier when needed, asks the backend for extra semantic
 facts, and shapes the final Beam response. That is useful product behavior, but it is policy layered
 over lower-level LSP/plugin facts. Treat broker-side semantic history such as module sync/save
-history, stale direct-dependency hints, save readiness interpretation, and saved-olean bookkeeping as
+history, stale direct-dependency hints, and saved-olean bookkeeping as
 explicit orchestration logic. When this grows, prefer moving richer structured facts into a
 backend/plugin method over reconstructing more Lean meaning in the broker.
 
@@ -235,20 +235,25 @@ Legacy in-session syncs use sequence zero because they do not provide cross-requ
 
 A thinner future design should keep the snapshot ordering boundary, but may reduce broker policy by
 asking the backend for more complete structured answers, for example "sync this exact text/version,
-wait until it is usable, and return save/readiness facts" instead of having the broker infer readiness
-from several notification channels and follow-up requests.
+wait until it is usable, and return readiness facts" instead of having the broker infer state from
+several notification channels and follow-up requests. The current save path already uses this split
+for the checkpoint decision: the broker reads and hashes the file, applies the matching LSP document
+version, and passes both expected values to the Lean-side save-readiness and save-artifact requests;
+Lean is authoritative for `saveReady`, while streamed diagnostics and broker summaries are evidence
+attached to that verdict.
 
-Until that backend-facing readiness primitive exists, keep readiness claims deliberately narrow:
+Until richer backend-facing readiness primitives exist, keep readiness claims deliberately narrow:
 `fileProgress` is an observable LSP progress signal, and it is a barrier input only for the
 operations that define a diagnostics/save barrier (`sync`, `save`, and `close-save`). Tests that need
 to prove request overlap, cancellation, startup, or stale-state transitions should wait on explicit
 state such as request IDs, response files, registry files, or fixture sentinels instead of treating
 progress as a general semantic-ready signal.
 
-Pure readiness decisions and sync/save response shaping live in
+Broker-side readiness projection and sync/save response shaping live in
 [Beam/Broker/Readiness.lean](../Beam/Broker/Readiness.lean). Keep LSP/session IO in
-`Beam/Broker/Server.lean`, but put barrier interpretation, top-level `fileProgress` attachment, and
-sync/save success or `syncBarrierIncomplete` response construction behind that named boundary.
+`Beam/Broker/Server.lean`, but put barrier interpretation, top-level `fileProgress` attachment,
+fallback evidence attachment, and sync/save success or `syncBarrierIncomplete` response construction
+behind that named boundary.
 
 ## Sandboxed Wrapper Path
 
