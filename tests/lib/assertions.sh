@@ -25,3 +25,49 @@ assert_output_not_contains() {
     exit 1
   fi
 }
+
+assert_file() {
+  local path="$1"
+  if [ ! -f "$path" ]; then
+    echo "missing file: $path" >&2
+    exit 1
+  fi
+}
+
+assert_not_exists() {
+  local path="$1"
+  if [ -e "$path" ]; then
+    echo "expected path to be absent: $path" >&2
+    exit 1
+  fi
+}
+
+assert_contains() {
+  local path="$1"
+  local pattern="$2"
+  if ! grep -q "$pattern" "$path"; then
+    echo "expected $path to contain pattern: $pattern" >&2
+    cat "$path" >&2
+    exit 1
+  fi
+}
+
+assert_contains_literal() {
+  local path="$1"
+  local pattern="$2"
+  if ! grep -Fq "$pattern" "$path"; then
+    echo "expected $path to contain literal: $pattern" >&2
+    cat "$path" >&2
+    exit 1
+  fi
+}
+
+assert_not_contains() {
+  local path="$1"
+  local pattern="$2"
+  if grep -q "$pattern" "$path"; then
+    echo "expected $path not to contain pattern: $pattern" >&2
+    cat "$path" >&2
+    exit 1
+  fi
+}
