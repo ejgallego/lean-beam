@@ -439,6 +439,19 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
     throw <| IO.userError
       s!"saveReadiness: expected clean file to omit save-blocking evidence, got {(toJson readiness).compress}"
 
+  let staleReadinessVersionReq ← sendSaveReadiness doc {
+    expectedVersionOverride? := some 0
+  }
+  expectErrorContains staleReadinessVersionReq (Json.mkObj [("code", toJson "contentModified")])
+
+  let depAText ← IO.FS.readFile "RunAtTest/Deps/DepA.lean"
+  let staleTextHash := if hash depAText == 0 then 1 else 0
+  let staleReadinessHashReq ← sendSaveReadiness doc {
+    expectedVersionOverride? := some 1
+    expectedTextHashOverride? := some staleTextHash
+  }
+  expectErrorContains staleReadinessHashReq (Json.mkObj [("code", toJson "contentModified")])
+
   let outDir ← mkTmpDir "runat-request-surface"
   let staleVersionReq ← sendSaveArtifacts doc {
     expectedVersionOverride? := some 0
@@ -448,8 +461,6 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
   }
   expectErrorContains staleVersionReq (Json.mkObj [("code", toJson "contentModified")])
 
-  let depAText ← IO.FS.readFile "RunAtTest/Deps/DepA.lean"
-  let staleTextHash := if hash depAText == 0 then 1 else 0
   let staleHashReq ← sendSaveArtifacts doc {
     expectedVersionOverride? := some 1
     expectedTextHashOverride? := some staleTextHash
