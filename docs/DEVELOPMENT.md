@@ -245,6 +245,12 @@ to prove request overlap, cancellation, startup, or stale-state transitions shou
 state such as request IDs, response files, registry files, or fixture sentinels instead of treating
 progress as a general semantic-ready signal.
 
+The `lean-beam deps` path is another deliberate broker-side stopgap. It scans workspace `.lean`
+headers to recover direct workspace imports and reverse imports cheaply, but it is not Lake's module
+graph and should not become the source of truth for save/readiness decisions. Keep
+[Beam/Broker/Deps.lean](../Beam/Broker/Deps.lean) limited to local dependency triage until Lake or a
+backend-facing primitive can answer richer dependency queries directly.
+
 Pure readiness decisions and sync/save response shaping live in
 [Beam/Broker/Readiness.lean](../Beam/Broker/Readiness.lean). Keep LSP/session IO in
 `Beam/Broker/Server.lean`, but put barrier interpretation, top-level `fileProgress` attachment, and

@@ -65,6 +65,7 @@ Additional Beam lanes:
 Current Beam coverage includes:
 
 - fast Beam daemon smoke, request-stream, save-stream, startup-handshake, tracked-diagnostic dedup, and protocol tests through [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
+- focused deps scanner boundary coverage in [RunAtTest/Broker/DepsTest.lean](../RunAtTest/Broker/DepsTest.lean)
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
@@ -191,5 +192,5 @@ The current GitHub Actions workflow maps to the testing surfaces like this:
 The main current gaps are:
 
 - search-style LSP coverage is correctness-heavy, but not yet a larger benchmark-style workload with much deeper branching pressure
-- the Beam `deps` path is still mostly covered by happy-path smoke checks even though [Beam/Broker/Deps.lean](../Beam/Broker/Deps.lean) is explicitly a stopgap scanner
+- the Beam `deps` path now has focused scanner-boundary coverage, but not Lake build-graph parity coverage; [Beam/Broker/Deps.lean](../Beam/Broker/Deps.lean) remains an explicit stopgap scanner
 - maintainer-surface regressions are documented and runnable, but separate from the default product CI lanes
