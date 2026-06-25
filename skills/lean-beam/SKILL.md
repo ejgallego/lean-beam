@@ -282,13 +282,8 @@ Diagnostic defaults on that path:
 - add `+full` to widen the current request to warnings, info, and hints
 - the final JSON reports the current synced-state verdict rather than replaying streamed
   diagnostics
-- prefer `result.syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for
-  save/checkpoint decisions
-- Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
-  not a separate broker-side veto
-- save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot: current
-  save-blocking frontend errors block save; diagnostic streams, diagnostic summaries, and message
-  history are observations, so clients should not reconstruct save readiness from them
+- use `result.syncSummary.readiness.current.saveReady` for save/checkpoint decisions; use
+  `errorCount` and blocking evidence to explain blocked verdicts
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
   `error.data.completionBlockingDiagnostics`
@@ -297,7 +292,7 @@ Diagnostic defaults on that path:
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
   messages, and `error.data.sync` contains the blocking sync verdict
-- the field-level progress, diagnostic, readiness, and delta contract lives in
+- readiness semantics and the field-level progress/diagnostic/delta contract live in
   [../../docs/SYNC_AND_DIAGNOSTICS.md](../../docs/SYNC_AND_DIAGNOSTICS.md)
 
 Surface rule:

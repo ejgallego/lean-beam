@@ -36,9 +36,7 @@ private def reportJson
     ("finalDiagnosticCount", toJson finalDiagnosticCount),
     ("remainingSorryDiagnosticCount", toJson remainingSorryCount),
     ("saveReady", toJson saveReady.saveReady),
-    ("saveReadyReason", toJson saveReady.saveReadyReason),
-    ("saveBlockingErrorCount", toJson saveReady.saveBlockingErrorCount),
-    ("commandErrorCount", toJson saveReady.commandErrorCount)
+    ("saveReadyReason", toJson saveReady.saveReadyReason)
   ]
 
 private structure TodoPlan where
@@ -153,10 +151,8 @@ def main : IO Unit := do
       throw <| IO.userError s!"expected saveReadiness = true after the grind batch, got {(toJson readiness).compress}"
     if readiness.saveReadyReason != "ok" then
       throw <| IO.userError s!"expected saveReadiness reason = ok, got {(toJson readiness).compress}"
-    if readiness.saveBlockingErrorCount != 0 then
-      throw <| IO.userError s!"expected saveBlockingErrorCount = 0, got {(toJson readiness).compress}"
-    if readiness.commandErrorCount != 0 then
-      throw <| IO.userError s!"expected commandErrorCount = 0, got {(toJson readiness).compress}"
+    unless readiness.blockingDiagnostics.isEmpty && readiness.blockingCommandMessages.isEmpty do
+      throw <| IO.userError s!"expected no save-blocking evidence, got {(toJson readiness).compress}"
 
     closeDoc doc
     pure <| reportJson

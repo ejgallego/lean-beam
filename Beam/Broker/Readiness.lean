@@ -64,36 +64,16 @@ def syncBarrierIncompleteResponse
     (some <| staleSyncErrorData targetPath hints (completionBlockingDiagnostics diagnostics))
 
 def syncFileSuccessPayload
-    (version : Nat)
-    (diagnostics : Array Diagnostic)
-    (readiness : SyncSaveReadiness)
-    (syncSummary? : Option SyncSummary := none)
+    (syncSummary : SyncSummary)
     (replyDiagnostics? : Option (Array StreamDiagnostic) := none) : Json :=
-  let readiness := normalizeSyncSaveReadiness diagnostics readiness
-  toJson ({
-    version
-    errorCount := readiness.currentSaveBlockingErrorCount?.getD (syncErrorCount diagnostics)
-    warningCount := readiness.currentWarningCount?.getD (syncWarningCount diagnostics)
-    stateErrorCount := readiness.stateErrorCount
-    stateCommandErrorCount := readiness.stateCommandErrorCount
-    saveReady := readiness.saveReady
-    saveReadyReason := readiness.saveReadyReason
-    blockingDiagnostics := readiness.blockingDiagnostics
-    blockingCommandMessages := readiness.blockingCommandMessages
-    syncSummary? := syncSummary?
-    diagnostics? := replyDiagnostics?
-    : SyncFileResult
-  })
+  toJson <| SyncFileResult.ofSummary syncSummary replyDiagnostics?
 
 def syncFileSuccessResponse
-    (version : Nat)
-    (diagnostics : Array Diagnostic)
-    (readiness : SyncSaveReadiness)
+    (syncSummary : SyncSummary)
     (fileProgress? : Option SyncFileProgress)
-    (syncSummary? : Option SyncSummary := none)
     (replyDiagnostics? : Option (Array StreamDiagnostic) := none) : Response :=
   responseWithFileProgress
-    (Response.success <| syncFileSuccessPayload version diagnostics readiness syncSummary? replyDiagnostics?)
+    (Response.success <| syncFileSuccessPayload syncSummary replyDiagnostics?)
     fileProgress?
 
 def savePayloadWithSyncVerdict (payload syncVerdict : Json) : Json :=

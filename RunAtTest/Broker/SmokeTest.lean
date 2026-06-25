@@ -24,15 +24,16 @@ private def runSyncSmoke
     root? := some root.toString
     path? := some "tests/scenario/docs/CommandA.lean"
   }
-  let syncRes : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk syncResp)
+  let syncRes ← requireSyncFileResult "sync_file" (← expectOk syncResp)
   if syncRes.version != 1 then
     throw <| IO.userError s!"expected sync_file version 1, got {syncRes.version}"
-  if !syncRes.saveReady then
+  let syncSummary := syncRes.syncSummary
+  if !syncSummary.readiness.current.saveReady then
     throw <| IO.userError
-      s!"expected sync_file saveReady = true for clean module, got {(toJson syncRes).compress}"
-  if syncRes.stateErrorCount != 0 || syncRes.stateCommandErrorCount != 0 then
+      s!"expected sync_file saveReady = true for clean module, got {(toJson syncSummary).compress}"
+  if syncSummary.readiness.current.errorCount != 0 then
     throw <| IO.userError
-      s!"expected sync_file state error counts to be zero for clean module, got {(toJson syncRes).compress}"
+      s!"expected sync_file readiness counts to be zero for clean module, got {(toJson syncSummary).compress}"
   let syncTop := ← requireFileProgress "sync_file" syncResp
   expectClientRequestId "sync_file response" syncResp.clientRequestId? syncRequestId
   if !syncTop.done then
@@ -47,7 +48,7 @@ private def runSyncSmoke
     root? := some root.toString
     path? := some "tests/scenario/docs/CommandA.lean"
   }
-  let syncResAgain : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk syncRespAgain)
+  let syncResAgain ← requireSyncFileResult "unchanged sync_file" (← expectOk syncRespAgain)
   if syncResAgain.version != 1 then
     throw <| IO.userError s!"expected unchanged sync_file version 1, got {syncResAgain.version}"
   let syncTopAgain := ← requireFileProgress "unchanged sync_file" syncRespAgain
@@ -64,25 +65,27 @@ private def runErrorOnlySyncSmoke
     root? := some root.toString
     path? := some errorPath.toString
   }
-  let errorRes : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk errorResp)
+  let errorRes ← requireSyncFileResult "error-only sync_file" (← expectOk errorResp)
   if errorRes.version != 1 then
     throw <| IO.userError s!"expected error-only sync_file version 1, got {errorRes.version}"
-  if errorRes.saveReady then
+  let errorSummary := errorRes.syncSummary
+  if errorSummary.readiness.current.saveReady then
     throw <| IO.userError
-      s!"expected error-only sync_file saveReady = false, got {(toJson errorRes).compress}"
-  if errorRes.stateErrorCount == 0 then
+      s!"expected error-only sync_file saveReady = false, got {(toJson errorSummary).compress}"
+  if errorSummary.readiness.current.errorCount == 0 then
     throw <| IO.userError
-      s!"expected error-only sync_file stateErrorCount > 0, got {(toJson errorRes).compress}"
-  if errorRes.blockingDiagnostics.isEmpty && errorRes.blockingCommandMessages.isEmpty then
+      s!"expected error-only sync_file readiness errorCount > 0, got {(toJson errorSummary).compress}"
+  if errorSummary.readiness.current.blockingDiagnostics.isEmpty &&
+      errorSummary.readiness.current.blockingCommandMessages.isEmpty then
     throw <| IO.userError
-      s!"expected error-only sync_file to include save-blocking evidence, got {(toJson errorRes).compress}"
-  unless errorRes.blockingDiagnostics.all (·.saveBlocking) &&
-      errorRes.blockingCommandMessages.all (·.saveBlocking) do
+      s!"expected error-only sync_file to include save-blocking evidence, got {(toJson errorSummary).compress}"
+  unless errorSummary.readiness.current.blockingDiagnostics.all (·.saveBlocking) &&
+      errorSummary.readiness.current.blockingCommandMessages.all (·.saveBlocking) do
     throw <| IO.userError
-      s!"expected error-only sync_file blocking evidence to be flagged saveBlocking, got {(toJson errorRes).compress}"
-  if errorRes.saveReadyReason != "documentErrors" then
+      s!"expected error-only sync_file blocking evidence to be flagged saveBlocking, got {(toJson errorSummary).compress}"
+  if errorSummary.readiness.current.saveReadyReason != "documentErrors" then
     throw <| IO.userError
-      s!"expected error-only sync_file saveReadyReason = documentErrors, got {(toJson errorRes).compress}"
+      s!"expected error-only sync_file saveReadyReason = documentErrors, got {(toJson errorSummary).compress}"
   let some errorLast := errorProgress.back?
     | throw <| IO.userError "expected error-only sync_file to stream fileProgress events"
   if !errorLast.done then
@@ -103,21 +106,17 @@ private def runInteractiveOnlyDiagnosticSmoke
     root? := some root.toString
     path? := some path
   }
-  let res : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk resp)
-  if res.saveReady then
+  let res ← requireSyncFileResult "interactive-only diagnostic sync_file" (← expectOk resp)
+  let summary := res.syncSummary
+  if summary.readiness.current.saveReady then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic sync_file saveReady = false, got {(toJson res).compress}"
-  if res.errorCount == 0 || res.stateErrorCount == 0 || res.stateCommandErrorCount == 0 then
+      s!"expected interactive-only diagnostic sync_file saveReady = false, got {(toJson summary).compress}"
+  if summary.readiness.current.errorCount == 0 then
     throw <| IO.userError
       s!"expected interactive-only diagnostic counts to report Lean errors only, got {(toJson res).compress}"
-  if res.saveReadyReason != "documentErrors" then
+  if summary.readiness.current.saveReadyReason != "documentErrors" then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic saveReadyReason = documentErrors, got {(toJson res).compress}"
-  if res.blockingDiagnostics.isEmpty then
-    throw <| IO.userError
-      s!"expected interactive-only diagnostic sync_file to include fallback blocking diagnostics, got {(toJson res).compress}"
-  let some summary := res.syncSummary?
-    | throw <| IO.userError s!"expected interactive-only diagnostic sync_file to include syncSummary, got {(toJson res).compress}"
+      s!"expected interactive-only diagnostic saveReadyReason = documentErrors, got {(toJson summary).compress}"
   if summary.currentVersion != res.version then
     throw <| IO.userError
       s!"expected interactive-only diagnostic syncSummary version to match result version, got {(toJson summary).compress}"
@@ -128,7 +127,7 @@ private def runInteractiveOnlyDiagnosticSmoke
   if summary.diagnostics.current.error > 0 && summary.readiness.current.saveReady then
     throw <| IO.userError
       s!"expected interactive-only diagnostic errors to make syncSummary saveReady=false, got {(toJson summary).compress}"
-  if summary.readiness.current.saveBlockingErrorCount == 0 then
+  if summary.readiness.current.errorCount == 0 then
     throw <| IO.userError
       s!"expected interactive-only diagnostic syncSummary readiness to be blocked, got {(toJson summary).compress}"
   if summary.readiness.current.blockingDiagnostics.isEmpty ||
@@ -155,24 +154,18 @@ private def runReportedOnlyDiagnosticSmoke
     root? := some root.toString
     path? := some path
   }
-  let res : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk resp)
-  if !res.saveReady then
+  let res ← requireSyncFileResult "reported-only diagnostic sync_file" (← expectOk resp)
+  let summary := res.syncSummary
+  if !summary.readiness.current.saveReady then
     throw <| IO.userError
-      s!"expected reported-only diagnostic sync_file saveReady = true, got {(toJson res).compress}"
-  if res.errorCount != 0 || res.stateErrorCount != 0 || res.stateCommandErrorCount != 0 then
+      s!"expected reported-only diagnostic sync_file saveReady = true, got {(toJson summary).compress}"
+  if summary.readiness.current.errorCount != 0 then
     throw <| IO.userError
-      s!"expected reported-only diagnostic counts to be zero, got {(toJson res).compress}"
-  if res.saveReadyReason != "ok" then
+      s!"expected reported-only diagnostic counts to be zero, got {(toJson summary).compress}"
+  if summary.readiness.current.saveReadyReason != "ok" then
     throw <| IO.userError
-      s!"expected reported-only diagnostic saveReadyReason = ok, got {(toJson res).compress}"
-  unless res.blockingDiagnostics.isEmpty && res.blockingCommandMessages.isEmpty do
-    throw <| IO.userError
-      s!"expected reported-only diagnostic sync_file to omit blocking evidence, got {(toJson res).compress}"
-  let some summary := res.syncSummary?
-    | throw <| IO.userError s!"expected reported-only diagnostic sync_file to include syncSummary, got {(toJson res).compress}"
-  if summary.readiness.current.saveBlockingErrorCount != 0 ||
-      summary.readiness.current.commandErrorCount != 0 ||
-      !summary.readiness.current.saveReady then
+      s!"expected reported-only diagnostic saveReadyReason = ok, got {(toJson summary).compress}"
+  if summary.readiness.current.errorCount != 0 || !summary.readiness.current.saveReady then
     throw <| IO.userError
       s!"expected reported-only diagnostic syncSummary readiness to stay clean, got {(toJson summary).compress}"
   unless summary.readiness.current.blockingDiagnostics.isEmpty &&

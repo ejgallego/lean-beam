@@ -932,7 +932,14 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
                 "lean_sync",
                 {"path": "SaveSmoke/B.lean", "full_diagnostics": True, "include_diagnostics": True},
             )
-            require(sync.get("saveReady") is True, f"warning-only sync should be save-ready: {sync}")
+            require("saveReady" not in sync, f"warning-only sync should omit top-level saveReady: {sync}")
+            require("warningCount" not in sync, f"warning-only sync should omit top-level warningCount: {sync}")
+            readiness = sync.get("syncSummary", {}).get("readiness", {}).get("current", {})
+            require(readiness.get("saveReady") is True, f"warning-only sync should be save-ready: {sync}")
+            require(
+                readiness.get("warningCount", 0) >= 1,
+                f"warning-only sync summary should report readiness warnings: {sync}",
+            )
             expect_reply_diagnostic(sync, severity="warning", path="SaveSmoke/B.lean")
             expect_diagnostic_log(client, level="warning", severity="warning", path="SaveSmoke/B.lean")
 
@@ -940,7 +947,10 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             client.notifications.clear()
             write_save_warning_file(project_root, "-- mcp stdio warning suppressed")
             sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
-            require(sync.get("saveReady") is True, f"suppressed warning sync should be save-ready: {sync}")
+            require("saveReady" not in sync, f"suppressed warning sync should omit top-level saveReady: {sync}")
+            readiness = sync.get("syncSummary", {}).get("readiness", {}).get("current", {})
+            require(readiness.get("saveReady") is True, f"suppressed warning sync should be save-ready: {sync}")
+            require("warningCount" not in sync, f"suppressed warning sync should omit top-level warningCount: {sync}")
             require("diagnostics" not in sync, f"sync reply should omit diagnostics without include_diagnostics: {sync}")
             require(
                 diagnostic_log_notifications(client) == [],
@@ -950,17 +960,17 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             client.notifications.clear()
             (project_root / "SaveSmoke" / "B.lean").write_text('def bVal : Nat := "broken"\n', encoding="utf-8")
             sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "include_diagnostics": True})
-            require(sync.get("saveReady") is False, f"broken sync should not be save-ready: {sync}")
-            require(sync.get("errorCount", 0) >= 1, f"broken sync should report errorCount: {sync}")
-            require(sync.get("stateErrorCount", 0) >= 1, f"broken sync should report stateErrorCount: {sync}")
+            require("saveReady" not in sync, f"broken sync should omit top-level saveReady: {sync}")
+            require("errorCount" not in sync, f"broken sync should omit top-level errorCount: {sync}")
+            require("warningCount" not in sync, f"broken sync should omit top-level warningCount: {sync}")
             summary = sync.get("syncSummary", {})
             current = summary.get("diagnostics", {}).get("current", {})
             readiness = summary.get("readiness", {}).get("current", {})
             require(current.get("error", 0) >= 1, f"broken sync summary should count errors: {sync}")
             require(readiness.get("saveReady") is False, f"broken sync summary should not be save-ready: {sync}")
             require(
-                readiness.get("saveBlockingErrorCount", 0) >= 1,
-                f"broken sync summary should report save-blocking errors: {sync}",
+                readiness.get("errorCount", 0) >= 1,
+                f"broken sync summary should report readiness errors: {sync}",
             )
             expect_reply_diagnostic(sync, severity="error", path="SaveSmoke/B.lean")
             require(

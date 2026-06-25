@@ -260,15 +260,41 @@ structure SyncDiagnosticCounts where
   hint : Nat := 0
   unknown : Nat := 0
   total : Nat := 0
-  deriving Inhabited, FromJson, ToJson, BEq, Repr
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncDiagnosticCounts where
+  fromJson? json := do
+    let errorCount ← json.getObjValAs? Nat "error"
+    let warning ← json.getObjValAs? Nat "warning"
+    let information ← json.getObjValAs? Nat "information"
+    let hint ← json.getObjValAs? Nat "hint"
+    let unknown ← json.getObjValAs? Nat "unknown"
+    let total ← json.getObjValAs? Nat "total"
+    pure {
+      error := errorCount
+      warning
+      information
+      hint
+      unknown
+      total
+    }
 
 structure SyncDiagnosticDelta where
-  baseVersion : Nat
-  currentVersion : Nat
   added : Nat := 0
   removed : Nat := 0
   persisted : Nat := 0
-  deriving Inhabited, FromJson, ToJson, BEq, Repr
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncDiagnosticDelta where
+  fromJson? json := do
+    let added ← json.getObjValAs? Nat "added"
+    let removed ← json.getObjValAs? Nat "removed"
+    let persisted ← json.getObjValAs? Nat "persisted"
+    pure {
+      added
+      removed
+      persisted
+    }
 
 structure SyncBlockingDiagnostic where
   range : Lsp.Range
@@ -313,12 +339,20 @@ instance : FromJson SyncBlockingCommandMessage where
 structure SyncDiagnosticsSummary where
   current : SyncDiagnosticCounts := {}
   delta? : Option SyncDiagnosticDelta := none
-  deriving Inhabited, FromJson, ToJson, BEq, Repr
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncDiagnosticsSummary where
+  fromJson? json := do
+    let current ← json.getObjValAs? SyncDiagnosticCounts "current"
+    let delta? ← optionalField? (α := SyncDiagnosticDelta) json "delta"
+    pure {
+      current
+      delta?
+    }
 
 structure SyncReadinessCurrent where
-  saveBlockingErrorCount : Nat := 0
+  errorCount : Nat := 0
   warningCount : Nat := 0
-  commandErrorCount : Nat := 0
   saveReady : Bool := true
   saveReadyReason : String := "ok"
   blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
@@ -327,40 +361,59 @@ structure SyncReadinessCurrent where
 
 instance : FromJson SyncReadinessCurrent where
   fromJson? json := do
-    let saveBlockingErrorCount? ← optionalField? (α := Nat) json "saveBlockingErrorCount"
-    let warningCount? ← optionalField? (α := Nat) json "warningCount"
-    let commandErrorCount? ← optionalField? (α := Nat) json "commandErrorCount"
-    let saveReady? ← optionalField? (α := Bool) json "saveReady"
-    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
-    let blockingDiagnostics? ←
-      optionalField? (α := Array SyncBlockingDiagnostic) json "blockingDiagnostics"
-    let blockingCommandMessages? ←
-      optionalField? (α := Array SyncBlockingCommandMessage) json "blockingCommandMessages"
+    let errorCount ← json.getObjValAs? Nat "errorCount"
+    let warningCount ← json.getObjValAs? Nat "warningCount"
+    let saveReady ← json.getObjValAs? Bool "saveReady"
+    let saveReadyReason ← json.getObjValAs? String "saveReadyReason"
+    let blockingDiagnostics ←
+      json.getObjValAs? (Array SyncBlockingDiagnostic) "blockingDiagnostics"
+    let blockingCommandMessages ←
+      json.getObjValAs? (Array SyncBlockingCommandMessage) "blockingCommandMessages"
     pure {
-      saveBlockingErrorCount := saveBlockingErrorCount?.getD 0
-      warningCount := warningCount?.getD 0
-      commandErrorCount := commandErrorCount?.getD 0
-      saveReady := saveReady?.getD true
-      saveReadyReason := saveReadyReason?.getD "ok"
-      blockingDiagnostics := blockingDiagnostics?.getD #[]
-      blockingCommandMessages := blockingCommandMessages?.getD #[]
+      errorCount
+      warningCount
+      saveReady
+      saveReadyReason
+      blockingDiagnostics
+      blockingCommandMessages
     }
 
 structure SyncReadinessDelta where
-  baseVersion : Nat
-  currentVersion : Nat
-  saveBlockingErrorCountDelta : Int := 0
+  errorCountDelta : Int := 0
   warningCountDelta : Int := 0
-  commandErrorCountDelta : Int := 0
   saveReadyChanged : Bool := false
   baseSaveReady : Bool := true
   currentSaveReady : Bool := true
-  deriving Inhabited, FromJson, ToJson, BEq, Repr
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncReadinessDelta where
+  fromJson? json := do
+    let errorCountDelta ← json.getObjValAs? Int "errorCountDelta"
+    let warningCountDelta ← json.getObjValAs? Int "warningCountDelta"
+    let saveReadyChanged ← json.getObjValAs? Bool "saveReadyChanged"
+    let baseSaveReady ← json.getObjValAs? Bool "baseSaveReady"
+    let currentSaveReady ← json.getObjValAs? Bool "currentSaveReady"
+    pure {
+      errorCountDelta
+      warningCountDelta
+      saveReadyChanged
+      baseSaveReady
+      currentSaveReady
+    }
 
 structure SyncReadinessSummary where
   current : SyncReadinessCurrent := {}
   delta? : Option SyncReadinessDelta := none
-  deriving Inhabited, FromJson, ToJson, BEq, Repr
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncReadinessSummary where
+  fromJson? json := do
+    let current ← json.getObjValAs? SyncReadinessCurrent "current"
+    let delta? ← optionalField? (α := SyncReadinessDelta) json "delta"
+    pure {
+      current
+      delta?
+    }
 
 structure SyncSummary where
   currentVersion : Nat
@@ -368,7 +421,23 @@ structure SyncSummary where
   sourceChangedSinceDeltaBase : Bool := false
   diagnostics : SyncDiagnosticsSummary := {}
   readiness : SyncReadinessSummary := {}
-  deriving Inhabited, FromJson, ToJson, BEq, Repr
+  deriving Inhabited, ToJson, BEq, Repr
+
+instance : FromJson SyncSummary where
+  fromJson? json := do
+    let currentVersion ← json.getObjValAs? Nat "currentVersion"
+    let deltaBaseVersion? ← optionalField? (α := Nat) json "deltaBaseVersion"
+    let sourceChangedSinceDeltaBase ←
+      json.getObjValAs? Bool "sourceChangedSinceDeltaBase"
+    let diagnostics ← json.getObjValAs? SyncDiagnosticsSummary "diagnostics"
+    let readiness ← json.getObjValAs? SyncReadinessSummary "readiness"
+    pure {
+      currentVersion
+      deltaBaseVersion?
+      sourceChangedSinceDeltaBase
+      diagnostics
+      readiness
+    }
 
 structure StreamDiagnostic where
   path : String
@@ -404,44 +473,62 @@ instance : FromJson StreamDiagnostic where
 
 structure SyncFileResult where
   version : Nat
-  errorCount : Nat := 0
-  warningCount : Nat := 0
-  stateErrorCount : Nat := 0
-  stateCommandErrorCount : Nat := 0
-  saveReady : Bool := true
-  saveReadyReason : String := "ok"
-  blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
-  blockingCommandMessages : Array SyncBlockingCommandMessage := #[]
-  syncSummary? : Option SyncSummary := none
+  syncSummary : SyncSummary
   diagnostics? : Option (Array StreamDiagnostic) := none
-  deriving Inhabited, ToJson
+  deriving Inhabited
+
+namespace SyncFileResult
+
+def currentReadiness (result : SyncFileResult) : SyncReadinessCurrent :=
+  result.syncSummary.readiness.current
+
+def ofSummary
+    (syncSummary : SyncSummary)
+    (diagnostics? : Option (Array StreamDiagnostic) := none) : SyncFileResult := {
+  version := syncSummary.currentVersion
+  syncSummary
+  diagnostics?
+}
+
+end SyncFileResult
+
+instance : ToJson SyncFileResult where
+  toJson result :=
+    Json.mkObj <|
+      [
+        ("version", toJson result.version),
+        ("syncSummary", toJson result.syncSummary)
+      ] ++
+        (match result.diagnostics? with
+        | some diagnostics => [("diagnostics", toJson diagnostics)]
+        | none => [])
+
+private def rejectedSyncFileResultFields : Array String := #[
+  "saveReady",
+  "errorCount",
+  "warningCount",
+  "saveReadyReason",
+  "blockingDiagnostics",
+  "blockingCommandMessages",
+  "stateErrorCount",
+  "stateCommandErrorCount"
+]
 
 instance : FromJson SyncFileResult where
   fromJson? json := do
+    for field in rejectedSyncFileResultFields do
+      match json.getObjVal? field with
+      | .ok _ =>
+          throw s!"unexpected sync result field '{field}'; use syncSummary.readiness.current"
+      | .error _ => pure ()
     let version ← json.getObjValAs? Nat "version"
-    let errorCount? ← optionalField? (α := Nat) json "errorCount"
-    let warningCount? ← optionalField? (α := Nat) json "warningCount"
-    let stateErrorCount? ← optionalField? (α := Nat) json "stateErrorCount"
-    let stateCommandErrorCount? ← optionalField? (α := Nat) json "stateCommandErrorCount"
-    let saveReady? ← optionalField? (α := Bool) json "saveReady"
-    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
-    let blockingDiagnostics? ←
-      optionalField? (α := Array SyncBlockingDiagnostic) json "blockingDiagnostics"
-    let blockingCommandMessages? ←
-      optionalField? (α := Array SyncBlockingCommandMessage) json "blockingCommandMessages"
-    let syncSummary? ← optionalField? (α := SyncSummary) json "syncSummary"
+    let syncSummary ← json.getObjValAs? SyncSummary "syncSummary"
     let diagnostics? ← optionalField? (α := Array StreamDiagnostic) json "diagnostics"
+    if version != syncSummary.currentVersion then
+      throw s!"version {version} does not match syncSummary.currentVersion {syncSummary.currentVersion}"
     pure {
       version
-      errorCount := errorCount?.getD 0
-      warningCount := warningCount?.getD 0
-      stateErrorCount := stateErrorCount?.getD 0
-      stateCommandErrorCount := stateCommandErrorCount?.getD 0
-      saveReady := saveReady?.getD true
-      saveReadyReason := saveReadyReason?.getD "ok"
-      blockingDiagnostics := blockingDiagnostics?.getD #[]
-      blockingCommandMessages := blockingCommandMessages?.getD #[]
-      syncSummary?
+      syncSummary
       diagnostics?
     }
 

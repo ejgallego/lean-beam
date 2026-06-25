@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.JsonPretty
 import Beam.Broker.Protocol
 import Beam.Broker.Transport
 
@@ -135,7 +136,7 @@ def readRequestFromStdin : IO Request := do
       | .error err => throw <| IO.userError s!"invalid request payload: {err}"
 
 def printResponse (resp : Response) : IO Unit := do
-  IO.println (toJson resp).pretty
+  IO.println <| Beam.orderedJsonPretty (toJson resp)
 
 def failOnError (resp : Response) : IO Unit := do
   if resp.ok then

@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Cli.Args
 import Beam.Cli.RuntimeBundle
+import Beam.JsonPretty
 import Beam.Broker.Client
 import RunAt.Protocol
 
@@ -17,7 +18,7 @@ namespace Beam.Cli
 open Beam.Broker
 
 def printJsonLine (json : Json) : IO Unit := do
-  IO.println json.pretty
+  IO.println <| Beam.orderedJsonPretty json
 
 def envClientRequestId? : IO (Option String) := do
   match ← IO.getEnv "BEAM_REQUEST_ID" with

@@ -122,7 +122,9 @@ private def checkSyncWaitSpecs : IO Unit := do
     ok := true
     result? := some <| toJson ({
       version := 5
-      saveReady := true
+      syncSummary := {
+        currentVersion := 5
+      }
       : Beam.Broker.SyncFileResult
     })
     fileProgress? := some { updates := 2, done := true }
@@ -147,15 +149,21 @@ private def checkSyncWaitSpecs : IO Unit := do
     ok := true
     result? := some <| toJson ({
       version := 6
-      stateErrorCount := 1
-      stateCommandErrorCount := 2
-      saveReady := false
-      saveReadyReason := "documentErrors"
+      syncSummary := {
+        currentVersion := 6
+        readiness := {
+          current := {
+            errorCount := 1
+            saveReady := false
+            saveReadyReason := "documentErrors"
+          }
+        }
+      }
       : Beam.Broker.SyncFileResult
     })
   }
   requireSubstring "sync not-ready message"
-    "saveReady=false (documentErrors, stateErrorCount=1, stateCommandErrorCount=2)"
+    "saveReady=false (documentErrors, errorCount=1)"
     ((Beam.Cli.syncWaitSpec "Demo.lean").completeMsg notReadyResp)
 
 private def checkLeanOperationRequests : IO Unit := do

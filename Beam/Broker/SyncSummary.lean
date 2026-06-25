@@ -49,13 +49,10 @@ private def bagIntersectionCount (left right : DiagnosticBag) : Nat :=
 
 private def diagnosticDelta
     (base : LastSyncSummary)
-    (currentVersion : Nat)
     (currentDiagnostics : Array Diagnostic) : SyncDiagnosticDelta :=
   let baseBag := diagnosticBag base.diagnostics
   let currentBag := diagnosticBag currentDiagnostics
   {
-    baseVersion := base.version
-    currentVersion
     added := bagDifferenceCount currentBag baseBag
     removed := bagDifferenceCount baseBag currentBag
     persisted := bagIntersectionCount currentBag baseBag
@@ -64,13 +61,35 @@ private def diagnosticDelta
 private def natDelta (base current : Nat) : Int :=
   Int.ofNat current - Int.ofNat base
 
+/--
+Compute readiness `errorCount` from save-blocking evidence, falling back to diagnostic errors only
+when a non-ready verdict did not provide evidence.
+-/
+private def evidenceErrorCount
+    (diagnostics : Array Diagnostic)
+    (readiness : SyncSaveReadiness) : Nat :=
+  if readiness.saveReady then
+    0
+  else
+    let diagnosticCount :=
+      readiness.blockingDiagnostics.foldl (init := 0) fun count diagnostic =>
+        if diagnostic.saveBlocking then count + 1 else count
+    let commandCount :=
+      readiness.blockingCommandMessages.foldl (init := 0) fun count message =>
+        if message.saveBlocking then count + 1 else count
+    if diagnosticCount > 0 then
+      diagnosticCount
+    else if commandCount > 0 then
+      commandCount
+    else
+      syncErrorCount diagnostics
+
 def syncReadinessCurrent
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness) : SyncReadinessCurrent :=
   {
-    saveBlockingErrorCount := readiness.currentSaveBlockingErrorCount?.getD (syncErrorCount diagnostics)
+    errorCount := evidenceErrorCount diagnostics readiness
     warningCount := readiness.currentWarningCount?.getD (syncWarningCount diagnostics)
-    commandErrorCount := readiness.stateCommandErrorCount
     saveReady := readiness.saveReady
     saveReadyReason := readiness.saveReadyReason
     blockingDiagnostics := readiness.blockingDiagnostics
@@ -79,16 +98,11 @@ def syncReadinessCurrent
 
 private def readinessDelta
     (base : LastSyncSummary)
-    (currentVersion : Nat)
     (current : SyncReadinessCurrent) : SyncReadinessDelta :=
   {
-    baseVersion := base.version
-    currentVersion
-    saveBlockingErrorCountDelta :=
-      natDelta base.readiness.saveBlockingErrorCount current.saveBlockingErrorCount
+    errorCountDelta :=
+      natDelta base.readiness.errorCount current.errorCount
     warningCountDelta := natDelta base.readiness.warningCount current.warningCount
-    commandErrorCountDelta :=
-      natDelta base.readiness.commandErrorCount current.commandErrorCount
     saveReadyChanged := base.readiness.saveReady != current.saveReady
     baseSaveReady := base.readiness.saveReady
     currentSaveReady := current.saveReady
@@ -123,11 +137,11 @@ def mkSyncSummary
       prior?.map (fun prior => prior.textHash != textHash) |>.getD false
     diagnostics := {
       current := diagnosticCounts diagnostics
-      delta? := prior?.map (fun prior => diagnosticDelta prior version diagnostics)
+      delta? := prior?.map (fun prior => diagnosticDelta prior diagnostics)
     }
     readiness := {
       current := currentReadiness
-      delta? := prior?.map (fun prior => readinessDelta prior version currentReadiness)
+      delta? := prior?.map (fun prior => readinessDelta prior currentReadiness)
     }
   }
   let record : LastSyncSummary := {

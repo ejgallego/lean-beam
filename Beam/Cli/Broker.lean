@@ -108,12 +108,14 @@ def awaitBrokerResponse
     | none => pure ()
 
 private def syncReadinessSuffix (result : SyncFileResult) : String :=
-  if result.saveReady then
+  let readiness := result.currentReadiness
+  if readiness.saveReady then
     ""
   else
-    s!", saveReady=false ({result.saveReadyReason}, " ++
-    s!"stateErrorCount={result.stateErrorCount}, " ++
-      s!"stateCommandErrorCount={result.stateCommandErrorCount})"
+    let errorCount := readiness.errorCount
+    let reason := readiness.saveReadyReason
+    s!", saveReady=false ({reason}, " ++
+      s!"errorCount={errorCount})"
 
 private def syncLikeCompleteMsg (completeLabel path : String) (resp : Response) : String :=
   match decodeSyncFileResult? resp with

@@ -302,8 +302,15 @@ def main():
                 timeout=args.timeout,
             ))
             warning_structured = warning_sync.get("structuredContent")
+            warning_readiness = (
+                warning_structured.get("syncSummary", {}).get("readiness", {}).get("current", {})
+                if isinstance(warning_structured, dict)
+                else {}
+            )
             require(
-                isinstance(warning_structured, dict) and warning_structured.get("saveReady") is True,
+                isinstance(warning_structured, dict)
+                and "saveReady" not in warning_structured
+                and warning_readiness.get("saveReady") is True,
                 f"warning-only sync should return the response after diagnostic notifications: {warning_sync}",
             )
 

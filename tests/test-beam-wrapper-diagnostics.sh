@@ -17,6 +17,75 @@ warn_root="$(beam_wrapper_prepare_project_root diagnostics-warn)"
 warn_full_root="$(beam_wrapper_prepare_project_root diagnostics-warn-full)"
 stale_root="$(beam_wrapper_prepare_project_root diagnostics-stale)"
 
+fail_json() {
+  local message="$1"
+  local json_payload="$2"
+  local err_file="${3:-}"
+  echo "$message" >&2
+  printf '%s\n' "$json_payload" >&2
+  if [ -n "$err_file" ]; then
+    cat "$err_file" >&2
+  fi
+  exit 1
+}
+
+expect_json_field_absent() {
+  local json_payload="$1"
+  local field="$2"
+  local label="$3"
+  local err_file="${4:-}"
+  if RUNAT_JSON_PAYLOAD="$json_payload" json_text_has_field "$field"; then
+    fail_json "expected $label to omit $field" "$json_payload" "$err_file"
+  fi
+}
+
+expect_json_text_eq() {
+  local json_payload="$1"
+  local field="$2"
+  local expected="$3"
+  local label="$4"
+  local err_file="${5:-}"
+  local actual
+  actual="$(RUNAT_JSON_PAYLOAD="$json_payload" read_json_text_field "$field")"
+  if [ "$actual" != "$expected" ]; then
+    fail_json "expected $label $field = $expected, got $actual" "$json_payload" "$err_file"
+  fi
+}
+
+expect_json_int_at_least() {
+  local json_payload="$1"
+  local field="$2"
+  local minimum="$3"
+  local label="$4"
+  local err_file="${5:-}"
+  local actual
+  actual="$(RUNAT_JSON_PAYLOAD="$json_payload" read_json_text_field "$field")"
+  if [ "$actual" -lt "$minimum" ]; then
+    fail_json "expected $label $field >= $minimum, got $actual" "$json_payload" "$err_file"
+  fi
+}
+
+expect_no_top_level_readiness_fields() {
+  local json_payload="$1"
+  local prefix="$2"
+  local label="$3"
+  local err_file="${4:-}"
+  expect_json_field_absent "$json_payload" "$prefix.errorCount" "$label sync verdict" "$err_file"
+  expect_json_field_absent "$json_payload" "$prefix.warningCount" "$label sync verdict" "$err_file"
+  expect_json_field_absent "$json_payload" "$prefix.saveReady" "$label sync verdict" "$err_file"
+  expect_json_field_absent "$json_payload" "$prefix.saveReadyReason" "$label sync verdict" "$err_file"
+}
+
+expect_sync_summary_version_matches() {
+  local json_payload="$1"
+  local prefix="$2"
+  local label="$3"
+  local err_file="${4:-}"
+  local version
+  version="$(RUNAT_JSON_PAYLOAD="$json_payload" read_json_text_field "$prefix.version")"
+  expect_json_text_eq "$json_payload" "$prefix.syncSummary.currentVersion" "$version" "$label sync summary" "$err_file"
+}
+
 (
   cd "$broken_root"
 
@@ -38,48 +107,17 @@ stale_root="$(beam_wrapper_prepare_project_root diagnostics-stale)"
     exit 1
   fi
   broken_version="$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.version)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.syncSummary.currentVersion)" != "$broken_version" ]; then
-    echo "expected broken lean-sync syncSummary.currentVersion to match result.version" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.errorCount)" -lt 1 ]; then
-    echo "expected broken lean-sync final json to report at least one save-blocking error" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.warningCount)" != "0" ]; then
-    echo "expected broken lean-sync final json to report zero warnings" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.saveReady)" != "false" ]; then
-    echo "expected broken lean-sync final json to report saveReady = false" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.stateErrorCount)" -lt 1 ]; then
-    echo "expected broken lean-sync final json to report stateErrorCount >= 1" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.saveReadyReason)" != "documentErrors" ]; then
-    echo "expected broken lean-sync final json to report saveReadyReason = documentErrors" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
-  if RUNAT_JSON_PAYLOAD="$broken_sync" json_text_has_field result.diagnostics; then
-    echo "expected broken lean-sync final json to omit replayed diagnostics" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
+  expect_sync_summary_version_matches "$broken_sync" result "broken lean-sync" "$broken_sync_err"
+  expect_no_top_level_readiness_fields "$broken_sync" result "broken lean-sync" "$broken_sync_err"
+  expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.warningCount 0 \
+    "broken lean-sync readiness summary" "$broken_sync_err"
+  expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.saveReady false \
+    "broken lean-sync readiness summary" "$broken_sync_err"
+  expect_json_int_at_least "$broken_sync" result.syncSummary.readiness.current.errorCount 1 \
+    "broken lean-sync readiness summary" "$broken_sync_err"
+  expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.saveReadyReason documentErrors \
+    "broken lean-sync readiness summary" "$broken_sync_err"
+  expect_json_field_absent "$broken_sync" result.diagnostics "broken lean-sync final json" "$broken_sync_err"
   if ! grep -Eq '^beam: diagnostic error SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$broken_sync_err"; then
     echo "expected broken lean-sync to stream an error diagnostic on stderr" >&2
     printf '%s\n' "$broken_sync" >&2
@@ -97,18 +135,9 @@ stale_root="$(beam_wrapper_prepare_project_root diagnostics-stale)"
     cat "$broken_resync_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.errorCount)" -lt 1 ]; then
-    echo "expected unchanged broken lean-sync final json to keep a nonzero save-blocking errorCount" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.stateErrorCount)" -lt 1 ]; then
-    echo "expected unchanged broken lean-sync final json to keep a nonzero stateErrorCount" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    exit 1
-  fi
+  expect_no_top_level_readiness_fields "$broken_resync" result "unchanged broken lean-sync" "$broken_resync_err"
+  expect_json_int_at_least "$broken_resync" result.syncSummary.readiness.current.errorCount 1 \
+    "unchanged broken lean-sync readiness summary" "$broken_resync_err"
   if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.syncSummary.deltaBaseVersion)" != "$broken_version" ]; then
     echo "expected unchanged broken lean-sync summary to delta against first broken version" >&2
     printf '%s\n' "$broken_resync" >&2
@@ -131,14 +160,14 @@ stale_root="$(beam_wrapper_prepare_project_root diagnostics-stale)"
     exit 1
   fi
   close_save_failed="$(cat "$close_save_json")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.saveReady)" != "false" ]; then
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.syncSummary.readiness.current.saveReady)" != "false" ]; then
     echo "expected failed lean-close-save to include blocking sync verdict" >&2
     cat "$close_save_json" >&2
     cat "$close_save_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.stateErrorCount)" -lt 1 ]; then
-    echo "expected failed lean-close-save sync verdict to report state errors" >&2
+  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.syncSummary.readiness.current.errorCount)" -lt 1 ]; then
+    echo "expected failed lean-close-save sync verdict to report save-blocking errors" >&2
     cat "$close_save_json" >&2
     cat "$close_save_err" >&2
     exit 1
@@ -150,13 +179,6 @@ stale_root="$(beam_wrapper_prepare_project_root diagnostics-stale)"
     cat "$close_save_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.syncSummary.readiness.current.saveReady)" != "false" ]; then
-    echo "expected failed lean-close-save sync summary to report saveReady = false" >&2
-    cat "$close_save_json" >&2
-    cat "$close_save_err" >&2
-    exit 1
-  fi
-
   close_out="$("$beam_script" lean-close SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$close_out" read_json_text_field ok)" != "true" ]; then
     echo "expected plain lean-close to succeed after a broken speculative session" >&2
@@ -194,24 +216,10 @@ EOF
     cat "$warn_sync_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field result.errorCount)" != "0" ]; then
-    echo "expected warning-only lean-sync final json to report zero errors" >&2
-    printf '%s\n' "$warn_sync" >&2
-    cat "$warn_sync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync" read_json_text_field result.warningCount)" -lt 1 ]; then
-    echo "expected warning-only lean-sync final json to report at least one warning" >&2
-    printf '%s\n' "$warn_sync" >&2
-    cat "$warn_sync_err" >&2
-    exit 1
-  fi
-  if RUNAT_JSON_PAYLOAD="$warn_sync" json_text_has_field result.diagnostics; then
-    echo "expected warning-only lean-sync final json to omit replayed diagnostics" >&2
-    printf '%s\n' "$warn_sync" >&2
-    cat "$warn_sync_err" >&2
-    exit 1
-  fi
+  expect_no_top_level_readiness_fields "$warn_sync" result "warning-only lean-sync" "$warn_sync_err"
+  expect_json_int_at_least "$warn_sync" result.syncSummary.readiness.current.warningCount 1 \
+    "warning-only lean-sync readiness summary" "$warn_sync_err"
+  expect_json_field_absent "$warn_sync" result.diagnostics "warning-only lean-sync final json" "$warn_sync_err"
   if grep -Eq '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_err"; then
     echo "expected warning-only lean-sync without +full to suppress warning diagnostics" >&2
     printf '%s\n' "$warn_sync" >&2
@@ -229,31 +237,12 @@ EOF
     cat "$warn_save_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.errorCount)" != "0" ]; then
-    echo "expected warning-only lean-save sync verdict to report zero errors" >&2
-    printf '%s\n' "$warn_save" >&2
-    cat "$warn_save_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.warningCount)" -lt 1 ]; then
-    echo "expected warning-only lean-save sync verdict to preserve warning count" >&2
-    printf '%s\n' "$warn_save" >&2
-    cat "$warn_save_err" >&2
-    exit 1
-  fi
-  warn_save_version="$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.version)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.syncSummary.currentVersion)" != "$warn_save_version" ]; then
-    echo "expected warning-only lean-save sync summary currentVersion to match the sync verdict version" >&2
-    printf '%s\n' "$warn_save" >&2
-    cat "$warn_save_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_save" read_json_text_field result.sync.syncSummary.readiness.current.saveReady)" != "true" ]; then
-    echo "expected warning-only lean-save sync summary to report saveReady = true" >&2
-    printf '%s\n' "$warn_save" >&2
-    cat "$warn_save_err" >&2
-    exit 1
-  fi
+  expect_no_top_level_readiness_fields "$warn_save" result.sync "warning-only lean-save" "$warn_save_err"
+  expect_json_int_at_least "$warn_save" result.sync.syncSummary.readiness.current.warningCount 1 \
+    "warning-only lean-save sync summary" "$warn_save_err"
+  expect_sync_summary_version_matches "$warn_save" result.sync "warning-only lean-save" "$warn_save_err"
+  expect_json_text_eq "$warn_save" result.sync.syncSummary.readiness.current.saveReady true \
+    "warning-only lean-save sync summary" "$warn_save_err"
   if grep -Eq '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_save_err"; then
     echo "expected warning-only lean-save without +full to suppress warning diagnostics" >&2
     printf '%s\n' "$warn_save" >&2
@@ -284,24 +273,11 @@ EOF
     cat "$warn_sync_full_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field result.errorCount)" != "0" ]; then
-    echo "expected warning-only lean-sync +full final json to report zero errors" >&2
-    printf '%s\n' "$warn_sync_full" >&2
-    cat "$warn_sync_full_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_sync_full" read_json_text_field result.warningCount)" -lt 1 ]; then
-    echo "expected warning-only lean-sync +full final json to report at least one warning" >&2
-    printf '%s\n' "$warn_sync_full" >&2
-    cat "$warn_sync_full_err" >&2
-    exit 1
-  fi
-  if RUNAT_JSON_PAYLOAD="$warn_sync_full" json_text_has_field result.diagnostics; then
-    echo "expected warning-only lean-sync +full final json to omit replayed diagnostics" >&2
-    printf '%s\n' "$warn_sync_full" >&2
-    cat "$warn_sync_full_err" >&2
-    exit 1
-  fi
+  expect_no_top_level_readiness_fields "$warn_sync_full" result "warning-only lean-sync +full" "$warn_sync_full_err"
+  expect_json_int_at_least "$warn_sync_full" result.syncSummary.readiness.current.warningCount 1 \
+    "warning-only lean-sync +full readiness summary" "$warn_sync_full_err"
+  expect_json_field_absent "$warn_sync_full" result.diagnostics \
+    "warning-only lean-sync +full final json" "$warn_sync_full_err"
   warn_count="$(grep -Ec '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_full_err" || true)"
   if [ "$warn_count" -eq 0 ]; then
     echo "expected warning-only lean-sync +full to stream warning diagnostics" >&2
@@ -354,17 +330,24 @@ if diag.get("path") != "SaveSmoke/B.lean":
     raise SystemExit(f"expected diagnostic path SaveSmoke/B.lean, got {diag.get('path')!r}")
 response = rows[-1]["response"]
 result = response.get("result", {})
-if result.get("errorCount") != 0:
-    raise SystemExit(f"expected streamed sync response errorCount 0, got {result.get('errorCount')!r}")
-if not isinstance(result.get("warningCount"), int) or result["warningCount"] < 1:
-    raise SystemExit(f"expected streamed sync response warningCount >= 1, got {result.get('warningCount')!r}")
-if result.get("saveReady") is not True:
-    raise SystemExit(f"expected streamed sync response saveReady true, got {result.get('saveReady')!r}")
-if result.get("stateErrorCount") != 0:
-    raise SystemExit(f"expected streamed sync response stateErrorCount 0, got {result.get('stateErrorCount')!r}")
-if result.get("stateCommandErrorCount") != 0:
+if "errorCount" in result:
+    raise SystemExit(f"expected streamed sync response to omit top-level errorCount, got {result.get('errorCount')!r}")
+if "warningCount" in result:
+    raise SystemExit(f"expected streamed sync response to omit top-level warningCount, got {result.get('warningCount')!r}")
+if "saveReady" in result:
+    raise SystemExit(f"expected streamed sync response to omit top-level saveReady, got {result.get('saveReady')!r}")
+readiness = result.get("syncSummary", {}).get("readiness", {}).get("current", {})
+if readiness.get("saveReady") is not True:
     raise SystemExit(
-        f"expected streamed sync response stateCommandErrorCount 0, got {result.get('stateCommandErrorCount')!r}"
+        f"expected streamed sync response readiness saveReady true, got {readiness.get('saveReady')!r}"
+    )
+if readiness.get("errorCount") != 0:
+    raise SystemExit(
+        f"expected streamed sync response readiness errorCount 0, got {readiness.get('errorCount')!r}"
+    )
+if not isinstance(readiness.get("warningCount"), int) or readiness["warningCount"] < 1:
+    raise SystemExit(
+        f"expected streamed sync response readiness warningCount >= 1, got {readiness.get('warningCount')!r}"
     )
 if "diagnostics" in result:
     raise SystemExit("expected streamed sync final response to omit replayed diagnostics")
@@ -389,31 +372,15 @@ EOF
     cat "$warn_close_save_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.errorCount)" != "0" ]; then
-    echo "expected warning-only lean-close-save sync verdict to report zero errors" >&2
-    printf '%s\n' "$warn_close_save" >&2
-    cat "$warn_close_save_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.warningCount)" -lt 1 ]; then
-    echo "expected warning-only lean-close-save sync verdict to preserve warning count" >&2
-    printf '%s\n' "$warn_close_save" >&2
-    cat "$warn_close_save_err" >&2
-    exit 1
-  fi
-  warn_close_save_version="$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.version)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.syncSummary.currentVersion)" != "$warn_close_save_version" ]; then
-    echo "expected warning-only lean-close-save sync summary currentVersion to match the sync verdict version" >&2
-    printf '%s\n' "$warn_close_save" >&2
-    cat "$warn_close_save_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$warn_close_save" read_json_text_field result.saved.sync.syncSummary.readiness.current.saveReady)" != "true" ]; then
-    echo "expected warning-only lean-close-save sync summary to report saveReady = true" >&2
-    printf '%s\n' "$warn_close_save" >&2
-    cat "$warn_close_save_err" >&2
-    exit 1
-  fi
+  expect_no_top_level_readiness_fields "$warn_close_save" result.saved.sync \
+    "warning-only lean-close-save" "$warn_close_save_err"
+  expect_json_int_at_least "$warn_close_save" \
+    result.saved.sync.syncSummary.readiness.current.warningCount 1 \
+    "warning-only lean-close-save sync summary" "$warn_close_save_err"
+  expect_sync_summary_version_matches "$warn_close_save" result.saved.sync \
+    "warning-only lean-close-save" "$warn_close_save_err"
+  expect_json_text_eq "$warn_close_save" result.saved.sync.syncSummary.readiness.current.saveReady true \
+    "warning-only lean-close-save sync summary" "$warn_close_save_err"
   warn_close_count="$(grep -Ec '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_close_save_err" || true)"
   if [ "$warn_close_count" -eq 0 ]; then
     echo "expected warning-only lean-close-save +full to stream warning diagnostics" >&2
@@ -543,7 +510,7 @@ EOF
     printf '%s\n' "$refreshed_a" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$refreshed_a" read_json_text_field result.saveReady)" != "true" ]; then
+  if [ "$(RUNAT_JSON_PAYLOAD="$refreshed_a" read_json_text_field result.syncSummary.readiness.current.saveReady)" != "true" ]; then
     echo "expected recovered lean-refresh to report saveReady = true" >&2
     printf '%s\n' "$refreshed_a" >&2
     exit 1

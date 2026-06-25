@@ -7,7 +7,9 @@ across the wrapper, broker stream, and MCP server.
 
 `lean-beam sync` is the on-disk edit barrier for a Lean file. It opens or updates the tracked file,
 waits for diagnostics for the synced version, streams fresh request diagnostics, and returns a
-compact JSON verdict for that version.
+machine-readable JSON verdict for that version. Wrapper stdout uses stable, agent-oriented field
+ordering; `beam-client request-stream` is the compact one-line JSON stream for programmatic event
+consumers.
 
 `lean-beam save` is `sync` plus a zero-build checkpoint for the synced Lake module. `lean-beam
 close-save` is `save` plus closing the tracked file afterward. Both commands return the sync verdict
@@ -31,7 +33,7 @@ Progress, streamed diagnostics, current summaries, and deltas are separate typed
 | --- | --- | --- |
 | Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `progress` events; CLI progress text. |
 | Streamed diagnostics | Lean-published events observed while a request is pending. | MCP `notifications/message` with logger `lean.diagnostic`; Beam stream `diagnostic` events; CLI stderr diagnostics. |
-| Current summary | Stable synced-state verdict for one document version. | Final structured tool result and broker response fields such as `saveReady`, `errorCount`, and `file_progress`. |
+| Current summary | Stable synced-state verdict for one document version. | Final structured tool result and broker response fields such as `syncSummary` and `file_progress`. |
 | Delta summary | Comparison against one named previous sync boundary. | `syncSummary` diagnostic/readiness deltas when a previous sync boundary exists. |
 
 Wrapper stderr is the human-facing surface. Machine consumers should use final stdout JSON or the
@@ -70,11 +72,12 @@ request can return before the whole file reaches `done = true`.
 
 ## Readiness
 
-Successful sync responses expose the current verdict and optional delta under `syncSummary`. New
-machine consumers should prefer:
+Successful sync responses expose the current verdict under `syncSummary`, with optional delta fields
+when a previous sync boundary exists. New machine consumers should prefer:
 
 - `syncSummary.readiness.current.saveReady`
-- `syncSummary.readiness.current.saveBlockingErrorCount`
+- `syncSummary.readiness.current.errorCount`
+- `syncSummary.readiness.current.warningCount`
 - `syncSummary.readiness.current.blockingDiagnostics`
 - `syncSummary.readiness.current.blockingCommandMessages`
 
@@ -87,10 +90,9 @@ Lean-side readiness follows Lean batch/Lake's artifact gate for the current sync
 current save-blocking frontend errors block save. Diagnostic streams, diagnostic summaries, and
 message history are observations; clients should not reconstruct save readiness from them.
 
-The flat fields `errorCount`, `warningCount`, `saveReady`, `stateErrorCount`, and
-`stateCommandErrorCount` are top-level projections in the current alpha response shape. They should
-agree with the actionable current state, but they are not separate compatibility commitments.
-Machine consumers should prefer `syncSummary`.
+Readiness fields live only under `syncSummary`; the top-level result intentionally does not mirror
+`saveReady`, `errorCount`, `warningCount`, `saveReadyReason`, `blockingDiagnostics`, or
+`blockingCommandMessages`.
 
 ## Deltas
 
@@ -104,6 +106,9 @@ delta-bearing payload states both sides of the comparison:
 - `diagnostics.delta`: added, removed, and persisted counts keyed by Beam's diagnostic identity
 - `readiness.current`: the current save-readiness verdict and blocking evidence
 - `readiness.delta`: readiness-state changes between the same base and current versions
+
+Nested delta objects do not repeat `currentVersion` or `deltaBaseVersion`; use the enclosing
+`syncSummary` fields as the single version coordinate.
 
 ## Failures And Recovery
 
