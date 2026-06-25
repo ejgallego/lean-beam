@@ -117,33 +117,68 @@ jobs:
           node-version: 22
 
       - name: Resolver Startup Probe
-        timeout-minutes: 3
+        timeout-minutes: 5
         env:
           BEAM_MCP_HTTP_C_RESOLVER_PROBE_TIMEOUT: 5
           BEAM_MCP_HTTP_PYTHON_GETFQDN_PROBE_TIMEOUT: 5
           BEAM_MCP_HTTP_PYTHON_GETFQDN_SAMPLE_SECONDS: 2
         run: |
           cc tests/mcp_http_resolver_probe.c -o "$RUNNER_TEMP/mcp_http_resolver_probe"
+          python_framework_path="$(
+            python3 -c 'import pathlib, sys, sysconfig; candidates = []; framework = sysconfig.get_config_var("PYTHONFRAMEWORK"); framework_prefix = sysconfig.get_config_var("PYTHONFRAMEWORKPREFIX"); framework_version = sysconfig.get_config_var("PYTHONFRAMEWORKVERSION"); libdir = sysconfig.get_config_var("LIBDIR"); ld_library = sysconfig.get_config_var("LDLIBRARY"); candidates += ([pathlib.Path(framework_prefix) / f"{framework}.framework" / "Versions" / str(framework_version) / framework] if framework and framework_prefix and framework_version else []); candidates += ([pathlib.Path(framework_prefix) / ld_library] if framework_prefix and ld_library else []); candidates += ([pathlib.Path(sys.base_prefix) / framework] if framework else []); candidates += ([pathlib.Path(sys.prefix) / framework] if framework else []); candidates += ([pathlib.Path(libdir) / ld_library] if libdir and ld_library else []); print(next((str(candidate) for candidate in candidates if candidate.exists()), ""))'
+          )"
 
           c_before_rc=0
+          c_dlopen_rc=0
           c_after_rc=0
-          python_rc=0
+          python3_rc=0
+          system_python_rc=0
+
+          run_python_probe() {
+            local python_bin="$1"
+            local label="$2"
+            if [ ! -x "$python_bin" ]; then
+              echo "--- Python resolver probe: $label unavailable at $python_bin ---"
+              return 0
+            fi
+            echo "--- Python resolver probe: $label ---"
+            "$python_bin" -c 'import json, platform, sys, sysconfig; print(json.dumps({"executable": sys.executable, "version": sys.version.split()[0], "platform": platform.platform(), "prefix": sys.prefix, "base_prefix": sys.base_prefix, "framework": sysconfig.get_config_var("PYTHONFRAMEWORK"), "framework_prefix": sysconfig.get_config_var("PYTHONFRAMEWORKPREFIX"), "framework_version": sysconfig.get_config_var("PYTHONFRAMEWORKVERSION"), "libdir": sysconfig.get_config_var("LIBDIR"), "ldlibrary": sysconfig.get_config_var("LDLIBRARY")}, sort_keys=True))'
+            "$python_bin" tests/mcp_http_python_getfqdn_probe.py \
+              --timeout "$BEAM_MCP_HTTP_PYTHON_GETFQDN_PROBE_TIMEOUT" \
+              --sample-duration "$BEAM_MCP_HTTP_PYTHON_GETFQDN_SAMPLE_SECONDS" \
+              --mode minimal-gethostbyaddr \
+              --mode minimal-ctypes-gethostbyaddr \
+              --mode minimal-getfqdn \
+              --mode http-server
+          }
 
           echo '--- C resolver probe before Python ---'
           "$RUNNER_TEMP/mcp_http_resolver_probe" "$BEAM_MCP_HTTP_C_RESOLVER_PROBE_TIMEOUT" || c_before_rc=$?
 
-          python3 tests/mcp_http_python_getfqdn_probe.py \
-            --timeout "$BEAM_MCP_HTTP_PYTHON_GETFQDN_PROBE_TIMEOUT" \
-            --sample-duration "$BEAM_MCP_HTTP_PYTHON_GETFQDN_SAMPLE_SECONDS" || python_rc=$?
+          echo "--- C resolver probe after dlopen Python framework: ${python_framework_path:-<unavailable>} ---"
+          if [ -n "$python_framework_path" ]; then
+            "$RUNNER_TEMP/mcp_http_resolver_probe" \
+              --dlopen "$python_framework_path" \
+              "$BEAM_MCP_HTTP_C_RESOLVER_PROBE_TIMEOUT" || c_dlopen_rc=$?
+          fi
+
+          run_python_probe "$(command -v python3)" "PATH python3" || python3_rc=$?
+          run_python_probe "/usr/bin/python3" "system /usr/bin/python3" || system_python_rc=$?
 
           echo '--- C resolver probe after Python ---'
           "$RUNNER_TEMP/mcp_http_resolver_probe" "$BEAM_MCP_HTTP_C_RESOLVER_PROBE_TIMEOUT" || c_after_rc=$?
 
-          if [ "$python_rc" -ne 0 ]; then
-            exit "$python_rc"
+          if [ "$python3_rc" -ne 0 ]; then
+            exit "$python3_rc"
+          fi
+          if [ "$system_python_rc" -ne 0 ]; then
+            exit "$system_python_rc"
           fi
           if [ "$c_before_rc" -ne 0 ]; then
             exit "$c_before_rc"
+          fi
+          if [ "$c_dlopen_rc" -ne 0 ]; then
+            exit "$c_dlopen_rc"
           fi
           exit "$c_after_rc"
 

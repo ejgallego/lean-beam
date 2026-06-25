@@ -2,6 +2,7 @@
 // Released under Apache 2.0 license as described in the file LICENSE.
 
 #include <arpa/inet.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <netdb.h>
 #include <signal.h>
@@ -23,31 +24,62 @@ static double monotonic_seconds(void) {
 
 static void timeout_handler(int signum) {
   (void)signum;
-  static const char message[] = "mcp-http-resolver-probe: timeout in active resolver call\n";
+  static const char message[] = "mcp-http-resolver-probe: timeout in active probe call\n";
   ssize_t ignored = write(STDERR_FILENO, message, sizeof(message) - 1);
   (void)ignored;
   _exit(124);
 }
 
-static int parse_timeout(int argc, char **argv) {
-  if (argc < 2) {
-    return 5;
+struct probe_options {
+  int timeout;
+  const char *dlopen_path;
+};
+
+static void usage(const char *name) {
+  fprintf(stderr, "usage: %s [--dlopen PATH] [timeout-seconds]\n", name);
+  exit(2);
+}
+
+static struct probe_options parse_options(int argc, char **argv) {
+  struct probe_options options = {.timeout = 5, .dlopen_path = NULL};
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--dlopen") == 0) {
+      if (i + 1 >= argc) {
+        usage(argv[0]);
+      }
+      options.dlopen_path = argv[++i];
+      continue;
+    }
+    char *end = NULL;
+    long value = strtol(argv[i], &end, 10);
+    if (end == argv[i] || *end != '\0' || value <= 0 || value > 300) {
+      usage(argv[0]);
+    }
+    options.timeout = (int)value;
   }
-  char *end = NULL;
-  long value = strtol(argv[1], &end, 10);
-  if (end == argv[1] || *end != '\0' || value <= 0 || value > 300) {
-    fprintf(stderr, "usage: %s [timeout-seconds]\n", argv[0]);
-    exit(2);
-  }
-  return (int)value;
+  return options;
 }
 
 int main(int argc, char **argv) {
   setvbuf(stderr, NULL, _IONBF, 0);
-  int timeout = parse_timeout(argc, argv);
+  struct probe_options options = parse_options(argc, argv);
+  int timeout = options.timeout;
   signal(SIGALRM, timeout_handler);
 
   fprintf(stderr, "mcp-http-resolver-probe: pid=%ld timeout=%ds\n", (long)getpid(), timeout);
+  if (options.dlopen_path != NULL) {
+    fprintf(stderr, "mcp-http-resolver-probe: dlopen start path=%s\n", options.dlopen_path);
+    double dlopen_start = monotonic_seconds();
+    alarm((unsigned)timeout);
+    void *handle = dlopen(options.dlopen_path, RTLD_NOW | RTLD_GLOBAL);
+    alarm(0);
+    if (handle == NULL) {
+      fprintf(stderr, "mcp-http-resolver-probe: dlopen failed error=%s\n", dlerror());
+      return 1;
+    }
+    fprintf(stderr, "mcp-http-resolver-probe: dlopen done elapsed=%.3fs handle=%p\n", monotonic_seconds() - dlopen_start, handle);
+  }
+
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
     perror("socket");
