@@ -8,6 +8,7 @@ import Lean
 import RunAt.Internal.SaveSupport
 import Beam.Broker.LakeSave
 import Beam.Broker.Protocol
+import Beam.Path
 
 open Lean
 open Lean.Lsp
@@ -44,16 +45,7 @@ def filterSyncDiagnostics (fullDiagnostics : Bool) (diagnostics : Array Diagnost
 
 def diagnosticDisplayPath (root : System.FilePath) (uri : DocumentUri) : String :=
   match System.Uri.fileUriToPath? uri with
-  | some path =>
-      let rootStr := root.toString
-      let pathStr := path.toString
-      let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-      if pathStr.startsWith rootPrefix then
-        (pathStr.drop rootPrefix.length).toString
-      else if pathStr == rootStr then
-        "."
-      else
-        pathStr
+  | some path => Beam.pathRelativeToRootOrSelf root path
   | none =>
       uri
 

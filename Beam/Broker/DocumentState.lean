@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lake
 import Lean
 import Beam.Broker.Protocol
+import Beam.Path
 
 open Lean
 open Lean.Lsp
@@ -77,17 +78,7 @@ structure VersionMarkResult where
 
 def trackedModuleName? (root path : System.FilePath) (backend : Backend) : Option String := do
   guard (backend == .lean)
-  let rootStr := root.toString
-  let pathStr := path.toString
-  let rootPrefix := rootStr ++ s!"{System.FilePath.pathSeparator}"
-  let relPath? :=
-    if pathStr.startsWith rootPrefix then
-      some <| (pathStr.drop rootPrefix.length).toString
-    else if pathStr == rootStr then
-      some "."
-    else
-      none
-  let relPath ← relPath?
+  let relPath ← Beam.pathRelativeToRoot? root path
   guard (relPath.endsWith ".lean")
   let relFile := System.FilePath.mk relPath
   let stem ← relFile.fileStem

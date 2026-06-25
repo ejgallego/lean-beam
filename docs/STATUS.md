@@ -147,7 +147,9 @@ that handoff cheap by reusing speculative execution rather than replaying it fro
 
 `lean-beam save` is module-oriented, not file-oriented. `lean-beam sync` can operate on an arbitrary file the
 daemon can open, but `lean-beam save` requires a file that Lake resolves to a module in the current
-workspace package graph. Standalone `.lean` files outside that graph are not valid save targets.
+workspace package graph. Save target resolution loads the real Lake workspace configuration and
+does not infer package or module declarations by parsing `lakefile.lean` text in the broker.
+Standalone `.lean` files outside that graph are not valid save targets.
 The zero-build save path is also restricted to Lake module setups that can be replayed from the LSP
 snapshot without custom batch setup. Modules whose Lake setup uses custom Lean options, Lean
 arguments, dynamic libraries, or plugins fail with `saveUnsupportedSetup`; use `lake build` for
