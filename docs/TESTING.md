@@ -76,6 +76,10 @@ Current Beam coverage includes:
 
 Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `supported-toolchains`, save replay, save barriers, MCP, or Rocq integration.
 
+The user-facing installer behavior, write locations, MCP registration paths, and toolchain options
+are documented in [INSTALL.md](INSTALL.md). The notes below cover maintainer test fixtures and
+offline validation knobs.
+
 `tests/test-beam-install.sh` uses fresh fake homes, so first runs may otherwise download Lean
 toolchains repeatedly. By default it opportunistically pre-seeds each fake `ELAN_HOME` with symlinks
 to matching toolchains already present in the host elan cache. Set

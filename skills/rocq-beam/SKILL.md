@@ -26,13 +26,13 @@ Use `--claude --rocq-skill` instead when installing for Claude Code, or
 `--all-skills --rocq-skill` when you want both agent skill sets.
 
 The installer puts `lean-beam` in `~/.local/bin`, stages the self-contained runtime under
-`BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires `elan` on `PATH`, prebuilds the
-pinned `lean-toolchain` bundle under `BEAM_INSTALL_ROOT/state/install-bundles`, and installs the
-optional Rocq skill only when `--rocq-skill` is paired with a selected agent skill target.
+`BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), and installs the optional Rocq skill only when
+`--rocq-skill` is paired with a selected agent skill target.
 
 Restart Codex or Claude Code after installation.
 
-The user-facing Rocq status and setup page is [docs/ROCQ.md](../../docs/ROCQ.md).
+The user-facing installer reference is [docs/INSTALL.md](../../docs/INSTALL.md). The Rocq status
+and setup page is [docs/ROCQ.md](../../docs/ROCQ.md).
 
 ## Rocq Setup
 

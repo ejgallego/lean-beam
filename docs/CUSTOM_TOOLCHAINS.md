@@ -19,6 +19,8 @@ elan toolchain link lean4-dev /path/to/lean/build/release/stage1
 The installer records the name in the installed runtime's `custom-lean-toolchains` registry and
 prebuilds an installed bundle for it. Runtime requests accept only supported toolchains from
 `supported-lean-toolchains` or explicit custom names from that installed registry.
+General installer locations and supported-toolchain prebuild options are documented in
+[INSTALL.md](INSTALL.md).
 
 ## Bundle Resolution
 

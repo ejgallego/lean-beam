@@ -25,115 +25,33 @@ Run the installer from the repo root:
 ./scripts/install-beam.sh
 ```
 
-The default installer is interactive: it asks which Lean toolchains, Lean agent skills, and
-MCP client registrations to set up. It then shows the write locations and asks once whether to
-approve, cancel, or change paths before approving. For non-interactive scripts, pass `--dont-ask`;
-this only skips prompts for requested Beam-owned install/config paths and does not allow replacing
-unrelated user files.
-
-That installs:
-
-- `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` into `~/.local/bin`
-- an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
-- a prebuilt bundle for the repo-pinned supported Lean toolchain
-
-Default locations:
-
-| Purpose | Default | Override |
-| --- | --- | --- |
-| Command wrappers | `$HOME/.local/bin` | interactive `change`, or `BEAM_BIN_HOME` |
-| Runtime root | `$HOME/.local/share/beam` | interactive `change`, or `BEAM_INSTALL_ROOT` |
-| Install bundle cache | `$HOME/.local/share/beam/state/install-bundles` | derived from the runtime root |
-| Source build output | `<repo>/.lake` | fixed by Lake for this checkout |
-| Codex skill and MCP home | `$HOME/.codex` | interactive `change`, `CODEX_HOME`, or `--codex-home` |
-| Codex MCP config | `$HOME/.codex/config.toml` | derived from the Codex home |
-| Claude Code skill home | `$HOME/.claude` | interactive `change`, or `CLAUDE_HOME` |
-| Claude Code MCP config | `$HOME/.claude.json` | interactive `change`, `BEAM_CLAUDE_MCP_CONFIG`, or `--claude-mcp-config` |
-
-Each install rebuilds the runtime binaries from the current source checkout before staging the
-immutable runtime. After reinstalling, restart active MCP client sessions so they launch the new
-runtime instead of continuing to use an already-running server process.
-
-Maintainers running `tests/test-beam-install.sh` on a slow or offline connection can set
-`BEAM_INSTALL_TEST_PRESEED_ELAN=require` to reuse already-cached host elan toolchains and fail fast
-if a required toolchain is missing.
-
-Use `--codex`, `--claude`, or `--all-skills` to install the bundled Lean agent skill:
+The default installer is interactive. It asks which Lean toolchains, agent skills, and MCP client
+registrations to set up, then shows write locations and lets you approve, cancel, or change paths.
+Common setup commands:
 
 ```bash
-./scripts/install-beam.sh --codex
-./scripts/install-beam.sh --claude
-./scripts/install-beam.sh --all-skills
+./scripts/install-beam.sh --codex --codex-mcp
+./scripts/install-beam.sh --claude --claude-mcp
+./scripts/install-beam.sh --all-skills --all-mcp
 ```
 
-Use `--codex-mcp`, `--claude-mcp`, or `--all-mcp` to register the installed `lean-beam-mcp` server
-with Codex and/or Claude Code:
+The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `$HOME/.local/bin`,
+stages an immutable runtime under `BEAM_INSTALL_ROOT` (default `$HOME/.local/share/beam`), and
+prebuilds a bundle for the repository-pinned supported Lean toolchain.
 
-```bash
-./scripts/install-beam.sh --codex-mcp
-./scripts/install-beam.sh --claude-mcp
-./scripts/install-beam.sh --all-mcp
-```
-
-If Claude Code uses a sandboxed user config outside `$HOME/.claude.json`, pass the config path when
-registering MCP:
-
-```bash
-./scripts/install-beam.sh --codex-mcp --codex-home /path/to/sandbox/.codex
-./scripts/install-beam.sh --claude-mcp --claude-mcp-config /path/to/sandbox/.claude.json
-```
-
-The same overrides are available as `CODEX_HOME` and `BEAM_CLAUDE_MCP_CONFIG`.
-Interactive installs that select MCP registration can also choose `change` at the write-location
-prompt and edit the Codex home or Claude Code config path before approving writes.
-
-Use `--toolchain <toolchain>` or `--all-supported` to prebuild additional validated Lean bundles:
-
-```bash
-./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0
-./scripts/install-beam.sh --all-supported
-```
-
-If you are working on Lean itself or another local Lean build through an elan-linked toolchain, use
-`--custom-toolchain <toolchain>` to explicitly accept and prebuild that toolchain for this Beam
-install:
-
-```bash
-elan toolchain link lean4-dev /path/to/lean/build/release/stage1
-./scripts/install-beam.sh --custom-toolchain lean4-dev
-```
-
-Custom toolchains are not validated release targets; Beam records them in the installed runtime's
-`custom-lean-toolchains` registry and will only serve the exact custom names you installed. Bundle
-keys also include the resolved Lean/Lake identity for that name, so relinking to a different local
-build or changing the reported toolchain identity creates a different bundle instead of reusing
-stale helpers. See [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md) for the full custom
-toolchain and runtime-bundle model.
+See [docs/INSTALL.md](docs/INSTALL.md) for default locations, path overrides, sandboxed Codex and
+Claude Code config setup, supported/custom toolchains, and slow/offline install advice.
 
 ## MCP Setup
 
-The installer includes the experimental stdio MCP server as `lean-beam-mcp`. It can register the
-server automatically for Codex, Claude Code, or both:
+The installer includes the experimental stdio MCP server as `lean-beam-mcp`. Register it with Codex,
+Claude Code, or both through the installer:
 
 ```bash
 ./scripts/install-beam.sh --codex-mcp
 ./scripts/install-beam.sh --claude-mcp
 ./scripts/install-beam.sh --all-mcp
 ```
-
-To register an existing install manually, use an absolute path so the client can launch the server
-even if `~/.local/bin` is not on its PATH:
-
-```bash
-codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
-claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
-```
-
-For sandboxed MCP configs, use `--codex-home /path/to/sandbox/.codex` or
-`--claude-mcp-config /path/to/sandbox/.claude.json` with the installer. Codex selects
-`config.toml` from `CODEX_HOME`, and Claude Code's `mcp add` command selects the user-scope config
-from `HOME`, so the installer runs those commands with the matching environment set to the selected
-location.
 
 MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
 root through `roots/list`. If a client does not provide roots, initialize one absolute Lean/Lake
@@ -150,42 +68,12 @@ Successful `lean_init_workspace` results include a `capabilities` array with the
 names, including `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`, `lean_goals_prev`, and
 `lean_goals_after`.
 
-Direct developer runs and single-project MCP registrations may still pass an explicit project root:
-
-```bash
-codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
-claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
-```
-
-The `--root` startup flag accepts absolute paths and paths relative to the server's current working
-directory. The `lean_init_workspace` tool intentionally accepts only absolute paths so clients do not
-accidentally bind a session to a root interpreted from the server process cwd.
-
-The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt plugin for each
-project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
-`--lean-plugin` explicitly.
-
-The MCP server advertises logging and progress capabilities. Sync/save-style tools stream
-request-scoped diagnostics and return a final compact readiness verdict. Clients that cannot
-conveniently collect interleaved notifications can call `lean_sync` with
-`include_diagnostics: true`; `full_diagnostics: true` widens the output filter from errors to
-warnings, information, and hints. The canonical reporting contract for `syncSummary`,
-`file_progress`, diagnostic replay, and readiness lives in
-[docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md).
-
-To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
-
-```bash
-lean-beam-mcp --root /path/to/lean/project --self-check MyPkg/Sub/Module.lean
-```
-
-The self-check starts a child MCP server, supplies the root through MCP `roots/list`, calls
-`lean_sync` on the file, and shuts the child server down.
-
 MCP clients can opt into live operation progress for `tools/call` requests by including
 `params._meta.progressToken` as a string or integer. The field-level progress, diagnostic, and
 sync-summary contract is maintained in
 [docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md).
+Registration, sandboxed config paths, manual registration, explicit roots, and self-check details
+are in [docs/INSTALL.md](docs/INSTALL.md#mcp-registration).
 
 ## Supported Toolchains
 
@@ -193,7 +81,7 @@ Lean Beam serves validated Lean toolchains listed in
 [`supported-lean-toolchains`](supported-lean-toolchains). It can also serve explicit custom
 toolchains recorded at install time with `--custom-toolchain`; this is intended for local Lean
 development toolchains and does not make those toolchains validated release targets. Runtime bundle
-identity and custom-toolchain rules are documented in
+identity and custom-toolchain rules are documented in [docs/INSTALL.md](docs/INSTALL.md) and
 [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md).
 Inspect the validated allowlist with:
 

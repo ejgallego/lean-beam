@@ -181,6 +181,8 @@ block saving by itself.
 - The install script accepts `--custom-toolchain <toolchain>` for explicit elan-linked local Lean
   development toolchains. These names are recorded in the installed runtime's
   `custom-lean-toolchains` registry and are accepted but not validated.
+- Installer locations, MCP registration paths, supported/custom toolchain prebuilds, and
+  slow/offline setup are documented in [INSTALL.md](INSTALL.md).
 - Runtime requests first try that installed-skill bundle cache, then fall back to a project-local
   runtime bundle under `.beam/bundles/` for supported or explicitly custom toolchains.
 - Unsupported Lean toolchains that are not explicitly custom fail early instead of attempting an

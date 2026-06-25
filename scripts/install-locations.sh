@@ -137,7 +137,7 @@ prompt_write_approval() {
   write_approval_action=""
   printf '\nAllow lean-beam to write to these locations? [y/N/change] ' >&2
   IFS= read -r reply || reply=""
-  choice="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  choice="$(normalize_choice "$reply")"
   case "$choice" in
     y|yes)
       write_approval_action="approve"

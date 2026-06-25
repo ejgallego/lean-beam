@@ -29,6 +29,9 @@ Install the optional Rocq skill by adding `--rocq-skill` to a selected agent tar
 `--rocq-skill` is only a modifier. It must be paired with `--codex`, `--claude`,
 `--all-skills`, or an interactive skill target.
 
+General installer locations, MCP registration, and toolchain options are documented in
+[INSTALL.md](INSTALL.md).
+
 ## Rocq Setup
 
 Rocq Beam uses `coq-lsp`; do not use `coqtop` as a fallback. The wrapper resolves `coq-lsp` from

@@ -11,6 +11,8 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$repo_root/scripts/install-lib.sh"
 # shellcheck source=scripts/install-locations.sh
 . "$repo_root/scripts/install-locations.sh"
+# shellcheck source=scripts/install-mcp.sh
+. "$repo_root/scripts/install-mcp.sh"
 codex_home=""
 codex_skills_home=""
 codex_mcp_config=""
@@ -651,12 +653,12 @@ prompt_toolchain_selection() {
     return 0
   fi
   for token in $reply; do
-    case "$token" in
-      all|ALL|All)
+    case "$(normalize_choice "$token")" in
+      all)
         install_all_supported=1
         ;;
       custom:*)
-        custom_toolchain="${token#custom:}"
+        custom_toolchain="${token#*:}"
         validate_custom_toolchain_name "$custom_toolchain"
         append_unique_custom_toolchain "$custom_toolchain"
         ;;
@@ -699,7 +701,7 @@ prompt_skill_selection() {
   printf '  4) both\n' >&2
   printf 'Install Lean skill [Enter: none]: ' >&2
   IFS= read -r reply
-  choice="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  choice="$(normalize_choice "$reply")"
   case "$choice" in
     ""|1|n|no|none)
       install_codex_skills=0
@@ -731,41 +733,6 @@ validate_skill_selection() {
   fi
 }
 
-prompt_mcp_registration_selection() {
-  local reply=""
-  local choice=""
-  print_section "$style_blue" "MCP Registration"
-  printf 'Register lean-beam-mcp with:\n' >&2
-  printf '  1) none (default)\n' >&2
-  printf '  2) Codex\n' >&2
-  printf '  3) Claude Code\n' >&2
-  printf '  4) both\n' >&2
-  printf 'MCP clients [Enter: none]: ' >&2
-  IFS= read -r reply
-  choice="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
-  case "$choice" in
-    ""|1|n|no|none)
-      register_codex_mcp=0
-      register_claude_mcp=0
-      ;;
-    2|c|codex)
-      register_codex_mcp=1
-      register_claude_mcp=0
-      ;;
-    3|claude|"claude code"|claude-code)
-      register_codex_mcp=0
-      register_claude_mcp=1
-      ;;
-    4|b|both|all)
-      register_codex_mcp=1
-      register_claude_mcp=1
-      ;;
-    *)
-      die "unknown MCP registration selection: $reply"
-      ;;
-  esac
-}
-
 maybe_prompt_interactive_choices() {
   local repo_toolchain="$1"
   if [ "$dont_ask" -eq 1 ] || [ ! -t 0 ]; then
@@ -782,10 +749,11 @@ maybe_prompt_interactive_choices() {
   fi
 }
 
-resolve_supported_install_toolchains() {
+resolve_prepared_toolchain_selection() {
   local repo_toolchain="$1"
   local supported_toolchains=()
   local selected=()
+  local custom_selected=()
   local toolchain=""
 
   if [ "$install_all_supported" -eq 1 ] && [ "${#requested_toolchains[@]}" -gt 0 ]; then
@@ -817,53 +785,29 @@ resolve_supported_install_toolchains() {
     selected=("$repo_toolchain")
   fi
 
-  print_array_lines ${selected[@]+"${selected[@]}"}
-}
-
-resolve_custom_install_toolchains() {
-  local supported_toolchains=()
-  local selected=()
-  local toolchain=""
-
-  load_supported_toolchains
-
   for toolchain in ${requested_custom_toolchains[@]+"${requested_custom_toolchains[@]}"}; do
     validate_custom_toolchain_name "$toolchain"
     if array_contains "$toolchain" ${supported_toolchains[@]+"${supported_toolchains[@]}"}; then
       continue
     fi
-    append_unique_selected_toolchain "$toolchain"
+    append_unique_custom_toolchain "$toolchain"
   done
 
-  print_array_lines ${selected[@]+"${selected[@]}"}
-}
-
-combine_resolved_toolchains() {
-  local supported_toolchain_lines="$1"
-  local custom_toolchain_lines="$2"
-  local toolchain=""
-  while IFS= read -r toolchain; do
-    [ -n "$toolchain" ] || continue
-    printf '%s\n' "$toolchain"
-  done <<< "$supported_toolchain_lines"
-  while IFS= read -r toolchain; do
-    [ -n "$toolchain" ] || continue
-    printf '%s\n' "$toolchain"
-  done <<< "$custom_toolchain_lines"
-}
-
-resolve_install_toolchains() {
-  local repo_toolchain="$1"
-  local supported_toolchain_lines=""
-  local custom_toolchain_lines=""
-  local resolved=""
-  supported_toolchain_lines="$(resolve_supported_install_toolchains "$repo_toolchain")"
-  custom_toolchain_lines="$(resolve_custom_install_toolchains)"
-  resolved="$(combine_resolved_toolchains "$supported_toolchain_lines" "$custom_toolchain_lines")"
-  if [ -z "$resolved" ]; then
+  if [ "${#selected[@]}" -eq 0 ] && [ "${#custom_selected[@]}" -eq 0 ]; then
     die "no Lean toolchains selected"
   fi
-  printf '%s\n' "$resolved"
+
+  prepared_selected_toolchains=()
+  for toolchain in ${selected[@]+"${selected[@]}"}; do
+    prepared_selected_toolchains+=("$toolchain")
+  done
+  for toolchain in ${custom_selected[@]+"${custom_selected[@]}"}; do
+    if [ "${#prepared_selected_toolchains[@]}" -eq 0 ] \
+      || ! array_contains "$toolchain" ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}; then
+      prepared_selected_toolchains+=("$toolchain")
+    fi
+  done
+  prepared_custom_toolchains=(${custom_selected[@]+"${custom_selected[@]}"})
 }
 
 runtime_artifacts_ready() {
@@ -875,25 +819,17 @@ runtime_artifacts_ready() {
 }
 
 print_install_plan() {
-  local resolved_toolchains="$1"
-  local custom_toolchains="${2:-}"
-  local custom_selected=()
   local toolchain=""
   local display_toolchain=""
-  while IFS= read -r toolchain; do
-    [ -n "$toolchain" ] || continue
-    custom_selected+=("$toolchain")
-  done <<< "$custom_toolchains"
   print_section "$style_blue" "Install Plan"
   print_field "runtime" "$install_root"
   print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
   print_field "bundles" "$install_bundles_root"
-  if [ -n "$resolved_toolchains" ]; then
+  if [ "${#prepared_selected_toolchains[@]}" -gt 0 ]; then
     local first_toolchain=1
-    while IFS= read -r toolchain; do
-      [ -n "$toolchain" ] || continue
+    for toolchain in ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}; do
       display_toolchain="$toolchain"
-      if array_contains "$toolchain" ${custom_selected[@]+"${custom_selected[@]}"}; then
+      if array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
         display_toolchain="$toolchain (custom)"
       fi
       if [ "$first_toolchain" -eq 1 ]; then
@@ -902,7 +838,7 @@ print_install_plan() {
       else
         print_field "" "$display_toolchain"
       fi
-    done <<< "$resolved_toolchains"
+    done
   fi
   if [ "$install_codex_skills" -eq 0 ] && [ "$install_claude_skills" -eq 0 ]; then
     print_field "skills" "none"
@@ -1125,89 +1061,18 @@ verify_requested_skill_targets() {
   fi
 }
 
-verify_requested_mcp_clients() {
-  if [ "$register_codex_mcp" -eq 1 ]; then
-    validate_codex_home
-    if ! command -v codex >/dev/null 2>&1; then
-      die "cannot register Codex MCP server because codex is not on PATH"
-    fi
-  fi
-  if [ "$register_claude_mcp" -eq 1 ]; then
-    validate_claude_mcp_config_path
-    if ! command -v claude >/dev/null 2>&1; then
-      die "cannot register Claude Code MCP server because claude is not on PATH"
-    fi
-  fi
-}
-
-ensure_mcp_config_dir() {
-  local path="$1"
-  local label="$2"
-  require_absolute_path "$path" "$label"
-  require_not_root "$path" "$label"
-  if [ -e "$path" ]; then
-    if [ ! -d "$path" ]; then
-      die "refusing to use non-directory $label at $path"
-    fi
-    return 0
-  fi
-  mkdir -p "$path"
-}
-
-register_codex_mcp_server() {
-  ensure_mcp_config_dir "$codex_home" "Codex home"
-  CODEX_HOME="$codex_home" codex mcp add lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
-  registered_mcp_targets+=("Codex: lean-beam")
-}
-
-register_claude_mcp_server() {
-  ensure_mcp_config_dir "$claude_mcp_home" "Claude Code MCP config home"
-  HOME="$claude_mcp_home" claude mcp remove --scope user lean-beam >/dev/null 2>&1 || true
-  HOME="$claude_mcp_home" claude mcp add --scope user lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
-  registered_mcp_targets+=("Claude Code: lean-beam")
-}
-
-register_requested_mcp_servers() {
-  if [ "$register_codex_mcp" -eq 1 ]; then
-    register_codex_mcp_server
-  fi
-  if [ "$register_claude_mcp" -eq 1 ]; then
-    register_claude_mcp_server
-  fi
-}
-
 prepare_install_environment() {
-  local resolved_toolchains=""
-  local resolved_custom_toolchains=""
-  local toolchain=""
   require_elan
   prepared_repo_toolchain="$(awk 'NR==1 {print $1}' "$repo_root/lean-toolchain")"
   require_repo_toolchain "$prepared_repo_toolchain"
-  resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
-  resolved_custom_toolchains="$(resolve_custom_install_toolchains)"
   maybe_prompt_interactive_choices "$prepared_repo_toolchain"
-  resolved_toolchains="$(resolve_install_toolchains "$prepared_repo_toolchain")"
-  resolved_custom_toolchains="$(resolve_custom_install_toolchains)"
+  resolve_prepared_toolchain_selection "$prepared_repo_toolchain"
   validate_skill_selection
-  print_install_plan "$resolved_toolchains" "$resolved_custom_toolchains"
+  print_install_plan
   approve_requested_writes
   ensure_install_root_ready
   acquire_install_lock
   ensure_runtime_artifacts
-  prepared_selected_toolchains=()
-  if [ -n "$resolved_toolchains" ]; then
-    while IFS= read -r toolchain; do
-      [ -n "$toolchain" ] || continue
-      prepared_selected_toolchains+=("$toolchain")
-    done <<< "$resolved_toolchains"
-  fi
-  prepared_custom_toolchains=()
-  if [ -n "$resolved_custom_toolchains" ]; then
-    while IFS= read -r toolchain; do
-      [ -n "$toolchain" ] || continue
-      prepared_custom_toolchains+=("$toolchain")
-    done <<< "$resolved_custom_toolchains"
-  fi
   ensure_dir_for_install "$bin_home" "bin home"
   ensure_dir_for_install "$versions_root" "versions root"
   ensure_dir_for_install "$state_root" "state root"
@@ -1373,7 +1238,7 @@ print_install_summary() {
   fi
   print_field "Lean Beam help" "$bin_home/lean-beam help"
   print_field "MCP help" "$bin_home/lean-beam-mcp --help"
-  print_field "install guide" "$repo_root/README.md"
+  print_field "install guide" "$repo_root/docs/INSTALL.md"
   print_field "workflow guide" "$repo_root/skills/lean-beam/SKILL.md"
   print_field "Rocq guide" "$repo_root/docs/ROCQ.md"
 }
