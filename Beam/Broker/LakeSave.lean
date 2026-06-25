@@ -109,9 +109,6 @@ private def unsupportedZeroBuildSaveReason? (mod : Lake.Module) (setup : ModuleS
 private def quietTraceConfig : BuildConfig :=
   { verbosity := .quiet }
 
-private def quietLogConfig : LogConfig :=
-  { outLv := .error }
-
 private def computeLakeEnv (leanCmd? : Option String) : IO Lake.Env := do
   let elan? ← Lake.findElanInstall?
   let lean? ←
@@ -148,55 +145,6 @@ private def detectConfigFile (root : FilePath) : IO (FilePath × FilePath) := do
     else
       throw <| IO.userError s!"could not find lakefile.lean or lakefile.toml under {root}"
 
-private def trimLeftAscii (s : String) : String :=
-  (s.dropWhile fun c => c.isWhitespace).toString
-
-private partial def findPackageNameInLines : List String → Option String
-  | [] => none
-  | line :: rest =>
-      let line := trimLeftAscii line
-      if line.startsWith "package \"" then
-        let tail := (line.drop "package \"".length).toString
-        match tail.splitOn "\"" with
-        | name :: _ => if name.isEmpty then none else some name
-        | _ => none
-      else
-        findPackageNameInLines rest
-
-private def packageNameFromLakefileLean? (text : String) : Option String :=
-  findPackageNameInLines (text.splitOn "\n")
-
-private partial def collectLeanLibNamesInLines : List String → List String → List String
-  | [], acc => acc.reverse
-  | line :: rest, acc =>
-      let line := trimLeftAscii line
-      if line.startsWith "lean_lib " then
-        let tail := trimLeftAscii (line.drop "lean_lib ".length).toString
-        let name := (tail.takeWhile fun c => !c.isWhitespace).toString
-        if name.isEmpty then
-          collectLeanLibNamesInLines rest acc
-        else
-          collectLeanLibNamesInLines rest (name :: acc)
-      else
-        collectLeanLibNamesInLines rest acc
-
-private def leanLibNamesFromLakefileLean (text : String) : List String :=
-  collectLeanLibNamesInLines (text.splitOn "\n") []
-
-private def syntheticTomlForLakefileLean (configFile : FilePath) : IO FilePath := do
-  let text ← IO.FS.readFile configFile
-  let some packageName := packageNameFromLakefileLean? text
-    | throw <| IO.userError s!"could not infer package name from {configFile}"
-  let libNames := leanLibNamesFromLakefileLean text
-  if libNames.isEmpty then
-    throw <| IO.userError s!"could not infer any lean_lib declarations from {configFile}"
-  let mut toml := s!"name = {repr packageName}\n"
-  for libName in libNames do
-    toml := toml ++ s!"\n[[lean_lib]]\nname = {repr libName}\n"
-  let tmpPath := System.FilePath.mk s!"/tmp/runat-lake-synthetic-{(← IO.monoNanosNow)}.toml"
-  IO.FS.writeFile tmpPath toml
-  pure tmpPath
-
 private def loadWorkspaceWithConfig (root : FilePath) (lakeEnv : Lake.Env)
     (relConfigFile configFile : FilePath) : IO (Option Workspace × Array String) := do
   let loadConfig : LoadConfig := {
@@ -228,20 +176,6 @@ private def loadWorkspaceForSave (root : FilePath) (leanCmd? : Option String) : 
   let (ws?, messages) ← loadWorkspaceWithConfig root lakeEnv relConfigFile configFile
   if let some ws := ws? then
     pure ws
-  else if relConfigFile == System.FilePath.mk "lakefile.lean" then
-    let fallbackConfig ← syntheticTomlForLakefileLean configFile
-    try
-      let (ws?, fallbackMessages) ←
-        loadWorkspaceWithConfig root lakeEnv (System.FilePath.mk "lakefile.toml") fallbackConfig
-      let some ws := ws?
-        | throw <| IO.userError <| loadWorkspaceFailureMessage root messages
-            (#[s!"synthetic lakefile.toml fallback also failed: {fallbackConfig}"] ++ fallbackMessages)
-      pure ws
-    finally
-      try
-        IO.FS.removeFile fallbackConfig
-      catch _ =>
-        pure ()
   else
     throw <| IO.userError <| loadWorkspaceFailureMessage root messages
 
