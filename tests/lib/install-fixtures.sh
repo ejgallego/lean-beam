@@ -5,8 +5,87 @@
 # Author: Emilio J. Gallego Arias
 
 # Shared helper functions for installer tests. Callers provide the install-test
-# globals such as source_checkout, supported_toolchains, and preseed_elan_home.
+# globals such as tmp_root, host_elan_home, source_checkout, and supported_toolchains.
 # shellcheck disable=SC2154
+
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
+
+expect_owned_tmp_dir() {
+  beam_test_expect_owned_tmp_dir "$1" runat-install
+}
+
+expect_path_within_tmp_root() {
+  beam_test_expect_path_within_owned_tmp_dir "$1" "$tmp_root" runat-install
+}
+
+remove_tmp_tree() {
+  local path="$1"
+  beam_test_remove_tmp_tree_within_owned_tmp_dir "$path" "$tmp_root" runat-install
+}
+
+remove_tmp_file() {
+  local path="$1"
+  expect_path_within_tmp_root "$path"
+  rm -f -- "$path"
+}
+
+elan_toolchain_dir_name() {
+  printf '%s\n' "$1" | sed 's,/,--,g; s,:,---,g'
+}
+
+host_toolchain_dir_for() {
+  local toolchain="$1"
+  local normalized=""
+  if [ -z "$host_elan_home" ] || [ ! -d "$host_elan_home/toolchains" ]; then
+    return 1
+  fi
+  if [ -d "$host_elan_home/toolchains/$toolchain" ]; then
+    printf '%s\n' "$host_elan_home/toolchains/$toolchain"
+    return 0
+  fi
+  normalized="$(elan_toolchain_dir_name "$toolchain")"
+  if [ -d "$host_elan_home/toolchains/$normalized" ]; then
+    printf '%s\n' "$host_elan_home/toolchains/$normalized"
+    return 0
+  fi
+  return 1
+}
+
+preseed_elan_home() {
+  local target_elan_home="$1"
+  shift
+  local toolchain=""
+  local host_toolchain_dir=""
+  local target_toolchain_dir=""
+
+  case "$BEAM_INSTALL_TEST_PRESEED_ELAN" in
+    0|false|False|FALSE|no|No|NO|off|Off|OFF)
+      return 0
+      ;;
+    auto|1|true|True|TRUE|yes|Yes|YES|on|On|ON|require)
+      ;;
+    *)
+      echo "unknown BEAM_INSTALL_TEST_PRESEED_ELAN mode: $BEAM_INSTALL_TEST_PRESEED_ELAN" >&2
+      exit 1
+      ;;
+  esac
+
+  expect_path_within_tmp_root "$target_elan_home"
+  mkdir -p "$target_elan_home/toolchains"
+  for toolchain in "$@"; do
+    [ -n "$toolchain" ] || continue
+    if host_toolchain_dir="$(host_toolchain_dir_for "$toolchain")"; then
+      target_toolchain_dir="$target_elan_home/toolchains/$(basename "$host_toolchain_dir")"
+      if [ ! -e "$target_toolchain_dir" ]; then
+        ln -s "$host_toolchain_dir" "$target_toolchain_dir"
+      fi
+    elif [ "$BEAM_INSTALL_TEST_PRESEED_ELAN" = "require" ]; then
+      echo "host elan cache is missing $toolchain; install it or set BEAM_INSTALL_TEST_PRESEED_ELAN=auto" >&2
+      exit 1
+    fi
+  done
+}
 
 beam_install_setup_mcp_cli_stubs() {
   local stub_bin="$1"

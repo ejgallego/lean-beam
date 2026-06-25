@@ -8,6 +8,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+. scripts/shared-lib.sh
 # shellcheck source=tests/lib/ci-steps.sh
 . tests/lib/ci-steps.sh
 
@@ -39,31 +40,6 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
-
-shared_lib_ext() {
-  case "$(uname -s)" in
-    Darwin)
-      printf 'dylib\n'
-      ;;
-    CYGWIN*|MINGW*|MSYS*|Windows_NT)
-      printf 'dll\n'
-      ;;
-    *)
-      printf 'so\n'
-      ;;
-  esac
-}
-
-shared_lib_name() {
-  case "$(uname -s)" in
-    CYGWIN*|MINGW*|MSYS*|Windows_NT)
-      printf 'runAt_RunAt.%s\n' "$(shared_lib_ext)"
-      ;;
-    *)
-      printf 'librunAt_RunAt.%s\n' "$(shared_lib_ext)"
-      ;;
-  esac
-}
 
 wait_for_ready_url() {
   local ready_file="$1"
@@ -105,7 +81,7 @@ start_bridge() {
     --root "$project_root" \
     --server .lake/build/bin/lean-beam-mcp \
     --lean-cmd "$(command -v lean)" \
-    --lean-plugin ".lake/build/lib/$(shared_lib_name)" \
+    --lean-plugin ".lake/build/lib/$(beam_shared_lib_name runAt_RunAt)" \
     --ready-file "$ready_file" \
     > "$scenario_dir/bridge.stdout" \
     2> "$scenario_dir/bridge.stderr" &

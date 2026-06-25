@@ -83,6 +83,33 @@ to matching toolchains already present in the host elan cache. Set
 `BEAM_INSTALL_TEST_PRESEED_ELAN=require` when working on a slow/offline connection and you want the
 test to fail fast if a supported toolchain is missing from the host cache.
 
+Installer tests should keep filesystem side effects inside their fake homes and owned temp roots.
+Use [tests/lib/install-fixtures.sh](../tests/lib/install-fixtures.sh) for installer-specific
+fixtures and [tests/lib/tmp-guards.sh](../tests/lib/tmp-guards.sh) for generic shell-test cleanup
+guards. New tests that remove temp paths should declare their expected `/tmp` prefix explicitly and
+use the guard helpers instead of raw `rm -rf`; the helpers also allow the nested
+`/tmp/runat-validate-*/tmp/...` layout used by [scripts/validate-defensive.sh](../scripts/validate-defensive.sh).
+
+For slow or offline validation, pre-seed the host elan cache before running installer tests. A
+typical setup is:
+
+```bash
+grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d' |
+  while IFS= read -r toolchain; do
+    elan toolchain install "$toolchain"
+  done
+
+BEAM_INSTALL_TEST_PRESEED_ELAN=require bash tests/test-beam-install.sh
+```
+
+Use [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) to validate one
+supported bundle lane at a time. If bundle installation stalls on a slow machine, raise
+`BEAM_TOOLCHAIN_COMPAT_TIMEOUT` from its default 600 seconds. On failure, the test prints the fake
+home, Codex/Claude homes, bundle directory, platform, and captured build/bundle log tails so the
+bundle state can be diagnosed from the test log. Set
+`BEAM_TOOLCHAIN_COMPAT_KEEP_TMP_ON_FAILURE=1` to preserve the fake roots for local inspection after
+a failed run.
+
 ## Save Replay Timeout Investigation
 
 [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh) includes a save-race case

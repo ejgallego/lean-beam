@@ -10,6 +10,9 @@ cd "$(dirname "$0")/.."
 repo_root="$(pwd)"
 primary_root="$(git worktree list --porcelain | awk '/^worktree / { print $2; exit }')"
 
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
+
 tmp_root="$(mktemp -d /tmp/runat-codex-harness-XXXXXX)"
 
 override_root_parent="$repo_root/.codex-worktrees/test-codex-harness-$$"
@@ -24,20 +27,12 @@ default_task_slug="${default_task_id}"
 default_worktree_path="$default_root/$default_task_slug"
 
 expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/runat-codex-harness-*|/tmp/runat-validate-*/tmp/runat-codex-harness-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_owned_tmp_dir "$1" runat-codex-harness
 }
 
 remove_owned_tmp_tree() {
   local path="$1"
-  expect_owned_tmp_dir "$path"
-  rm -rf -- "$path"
+  beam_test_remove_owned_tmp_tree "$path" runat-codex-harness
 }
 
 remove_owned_repo_tree() {

@@ -7,6 +7,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
 
 beam_script="$PWD/scripts/lean-beam"
 rocq_cmd="${BEAM_ROCQ_CMD:-}"
@@ -24,20 +26,12 @@ fi
 tmp_repo="$(mktemp -d /tmp/beam-wrapper-rocq-XXXXXX)"
 
 expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/beam-wrapper-rocq-*|/tmp/runat-validate-*/tmp/beam-wrapper-rocq-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_owned_tmp_dir "$1" beam-wrapper-rocq
 }
 
 remove_owned_tmp_tree() {
   local path="$1"
-  expect_owned_tmp_dir "$path"
-  rm -rf -- "$path"
+  beam_test_remove_owned_tmp_tree "$path" beam-wrapper-rocq
 }
 
 cleanup() {
