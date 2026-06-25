@@ -12,6 +12,8 @@ cd "$(dirname "$0")/.."
 . tests/lib/assertions.sh
 # shellcheck source=tests/lib/ci-steps.sh
 . tests/lib/ci-steps.sh
+# shellcheck source=tests/lib/install-fixtures.sh
+. tests/lib/install-fixtures.sh
 
 BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-install}"
 BEAM_INSTALL_TEST_PRESEED_ELAN="${BEAM_INSTALL_TEST_PRESEED_ELAN:-auto}"
@@ -347,117 +349,6 @@ run_install_from_source() {
   )
 }
 
-setup_mcp_cli_stubs() {
-  local stub_bin="$1"
-  local log_path="$2"
-  mkdir -p "$stub_bin"
-  rm -f -- "$log_path"
-  cat > "$stub_bin/codex" <<'SH'
-#!/usr/bin/env bash
-{
-  printf 'codex'
-  for arg in "$@"; do
-    printf '|%s' "$arg"
-  done
-  printf '|CODEX_HOME=%s' "${CODEX_HOME:-}"
-  printf '\n'
-} >> "$BEAM_TEST_MCP_STUB_LOG"
-exit 0
-SH
-  cat > "$stub_bin/claude" <<'SH'
-#!/usr/bin/env bash
-{
-  printf 'claude'
-  for arg in "$@"; do
-    printf '|%s' "$arg"
-  done
-  printf '|HOME=%s' "${HOME:-}"
-  printf '\n'
-} >> "$BEAM_TEST_MCP_STUB_LOG"
-exit 0
-SH
-  chmod +x "$stub_bin/codex" "$stub_bin/claude"
-}
-
-run_install_with_mcp_stubs() {
-  local stub_bin="$1"
-  local log_path="$2"
-  shift 2
-  preseed_elan_home "$HOME/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
-  (
-    cd "$source_checkout"
-    BEAM_TEST_MCP_STUB_LOG="$log_path" PATH="$stub_bin:$PATH" \
-      bash scripts/install-beam.sh --dont-ask "$@" > /dev/null
-  )
-}
-
-run_interactive_install_from_source() {
-  local transcript="$1"
-  local install_home="$2"
-  local install_root="$3"
-  local input_text="$4"
-  shift 4
-  preseed_elan_home "$install_home/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
-  (
-    cd "$source_checkout"
-    python3 - "$transcript" "$install_home" "$install_root" "$input_text" "$@" <<'PY'
-import errno
-import os
-import pty
-import select
-import subprocess
-import sys
-
-transcript_path = sys.argv[1]
-install_home = sys.argv[2]
-install_root = sys.argv[3]
-input_text = sys.argv[4]
-cmd = ["bash", "scripts/install-beam.sh", *sys.argv[5:]]
-env = os.environ.copy()
-env["HOME"] = install_home
-env["BEAM_INSTALL_ROOT"] = install_root
-
-master, slave = pty.openpty()
-proc = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave, close_fds=True, env=env)
-os.close(slave)
-if input_text:
-    os.write(master, input_text.encode())
-
-chunks = []
-while True:
-    ready, _, _ = select.select([master], [], [], 0.1)
-    if master in ready:
-        try:
-            data = os.read(master, 4096)
-        except OSError as exc:
-            if exc.errno == errno.EIO:
-                break
-            raise
-        if not data:
-            break
-        chunks.append(data)
-    if proc.poll() is not None:
-        while True:
-            try:
-                data = os.read(master, 4096)
-            except OSError as exc:
-                if exc.errno == errno.EIO:
-                    break
-                raise
-            if not data:
-                break
-            chunks.append(data)
-        break
-
-rc = proc.wait()
-os.close(master)
-with open(transcript_path, "wb") as f:
-    f.write(b"".join(chunks))
-sys.exit(rc)
-PY
-  )
-}
-
 rsync -a --exclude='.git' ./ "$source_checkout"/
 path_no_elan="$(path_without_elan)"
 if PATH="$path_no_elan" command -v elan >/dev/null 2>&1; then
@@ -551,7 +442,7 @@ invalid_approval_home="$tmp_root/invalid-approval-home"
 invalid_approval_install_root="$tmp_root/invalid-approval-install-root"
 invalid_approval_transcript="$tmp_root/install-invalid-approval-transcript"
 mkdir -p "$invalid_approval_home"
-if run_interactive_install_from_source \
+if beam_install_run_interactive_from_source \
     "$invalid_approval_transcript" "$invalid_approval_home" "$invalid_approval_install_root" \
     $'\n\n\nmaybe\n'; then
   echo "expected interactive install to reject an unknown write approval response" >&2
@@ -568,7 +459,7 @@ change_alias_home="$tmp_root/change-alias-home"
 change_alias_install_root="$tmp_root/change-alias-install-root"
 change_alias_transcript="$tmp_root/install-change-alias-transcript"
 mkdir -p "$change_alias_home"
-if run_interactive_install_from_source \
+if beam_install_run_interactive_from_source \
     "$change_alias_transcript" "$change_alias_home" "$change_alias_install_root" \
     $'\n\n\nc\n\n\nN\n'; then
   echo "expected interactive install to stop after change alias then denied write permission" >&2
@@ -589,7 +480,7 @@ interactive_home="$tmp_root/interactive-home"
 interactive_install_root="$tmp_root/interactive-install-root"
 interactive_transcript="$tmp_root/install-interactive-transcript"
 mkdir -p "$interactive_home"
-if ! run_interactive_install_from_source "$interactive_transcript" "$interactive_home" "$interactive_install_root" $'\n\n\nY\n'; then
+if ! beam_install_run_interactive_from_source "$interactive_transcript" "$interactive_home" "$interactive_install_root" $'\n\n\nY\n'; then
   echo "expected interactive default install to succeed" >&2
   cat "$interactive_transcript" >&2
   exit 1
@@ -622,9 +513,9 @@ interactive_claude_transcript="$tmp_root/install-interactive-claude-transcript"
 interactive_mcp_stub_bin="$tmp_root/interactive-mcp-stubs"
 interactive_mcp_stub_log="$tmp_root/interactive-mcp-stubs.log"
 mkdir -p "$interactive_claude_home"
-setup_mcp_cli_stubs "$interactive_mcp_stub_bin" "$interactive_mcp_stub_log"
+beam_install_setup_mcp_cli_stubs "$interactive_mcp_stub_bin" "$interactive_mcp_stub_log"
 if BEAM_TEST_MCP_STUB_LOG="$interactive_mcp_stub_log" PATH="$interactive_mcp_stub_bin:$PATH" \
-    run_interactive_install_from_source \
+    beam_install_run_interactive_from_source \
       "$interactive_claude_transcript" "$interactive_claude_home" "$interactive_claude_install_root" \
       $'\n\n3\nchange\n\n\n'"$interactive_claude_config"$'\nN\n'; then
   echo "expected interactive Claude MCP install to stop when write permission is denied" >&2
@@ -652,7 +543,7 @@ interactive_codex_custom_bin="$tmp_root/interactive-codex-bin"
 interactive_codex_custom_runtime="$tmp_root/interactive-codex-runtime"
 interactive_codex_transcript="$tmp_root/install-interactive-codex-transcript"
 mkdir -p "$interactive_codex_home"
-if run_interactive_install_from_source \
+if beam_install_run_interactive_from_source \
     "$interactive_codex_transcript" "$interactive_codex_home" "$interactive_codex_install_root" \
     $'\n\n2\nchange\n'"$interactive_codex_custom_bin"$'\n'"$interactive_codex_custom_runtime"$'\n'"$interactive_codex_custom_home"$'\nN\n'; then
   echo "expected interactive Codex MCP install to stop when write permission is denied" >&2
@@ -853,8 +744,8 @@ assert_not_exists "$claude_only_home"
 
 mcp_stub_bin="$tmp_root/mcp-stubs"
 mcp_stub_log="$tmp_root/mcp-stubs.log"
-setup_mcp_cli_stubs "$mcp_stub_bin" "$mcp_stub_log"
-run_step "register MCP clients" run_install_with_mcp_stubs "$mcp_stub_bin" "$mcp_stub_log" --toolchain "$toolchain" --all-mcp
+beam_install_setup_mcp_cli_stubs "$mcp_stub_bin" "$mcp_stub_log"
+run_step "register MCP clients" beam_install_run_with_mcp_stubs "$mcp_stub_bin" "$mcp_stub_log" --toolchain "$toolchain" --all-mcp
 assert_contains_literal "$mcp_stub_log" "codex|mcp|add|lean-beam|--|$installed_mcp"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|remove|--scope|user|lean-beam"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp"
@@ -862,7 +753,7 @@ assert_contains_literal "$mcp_stub_log" "claude|mcp|add|--scope|user|lean-beam|-
 custom_codex_home="$tmp_root/codex-sandbox"
 custom_codex_mcp_stub_log="$tmp_root/mcp-stubs-custom-codex.log"
 run_step "register Codex MCP with custom home" \
-  run_install_with_mcp_stubs "$mcp_stub_bin" "$custom_codex_mcp_stub_log" \
+  beam_install_run_with_mcp_stubs "$mcp_stub_bin" "$custom_codex_mcp_stub_log" \
     --toolchain "$toolchain" --codex-mcp --codex-home "$custom_codex_home"
 if [ ! -d "$custom_codex_home" ]; then
   echo "expected installer to create custom Codex home" >&2
@@ -875,7 +766,7 @@ custom_claude_config_home="$tmp_root/claude-sandbox"
 custom_claude_config="$custom_claude_config_home/.claude.json"
 custom_mcp_stub_log="$tmp_root/mcp-stubs-custom-claude.log"
 run_step "register Claude MCP with custom config" \
-  run_install_with_mcp_stubs "$mcp_stub_bin" "$custom_mcp_stub_log" \
+  beam_install_run_with_mcp_stubs "$mcp_stub_bin" "$custom_mcp_stub_log" \
     --toolchain "$toolchain" --claude-mcp --claude-mcp-config "$custom_claude_config"
 if [ ! -d "$custom_claude_config_home" ]; then
   echo "expected installer to create custom Claude MCP config home" >&2

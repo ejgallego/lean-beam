@@ -7,4 +7,6 @@
 /.codex-worktrees/
 /.tmp/
 .beam/
+__pycache__/
+*.pyc
 /tests/save_olean_project/lake-manifest.json
