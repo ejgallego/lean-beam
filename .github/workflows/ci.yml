@@ -103,6 +103,37 @@ jobs:
           MCP_CONFORMANCE_NPM_CACHE: ${{ runner.temp }}/npm-cache
         run: bash tests/test-mcp-conformance.sh
 
+  mcp-conformance-macos26-investigation:
+    name: mcp-conformance (macos-26 investigation)
+    if: github.event_name == 'pull_request' && github.head_ref == 'codex/mcp-bridge-ci-diagnostics'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Python getfqdn Startup Probe
+        timeout-minutes: 3
+        env:
+          BEAM_MCP_HTTP_PYTHON_GETFQDN_PROBE_TIMEOUT: 5
+          BEAM_MCP_HTTP_PYTHON_GETFQDN_SAMPLE_SECONDS: 2
+        run: |
+          python3 tests/mcp_http_python_getfqdn_probe.py \
+            --timeout "$BEAM_MCP_HTTP_PYTHON_GETFQDN_PROBE_TIMEOUT" \
+            --sample-duration "$BEAM_MCP_HTTP_PYTHON_GETFQDN_SAMPLE_SECONDS"
+
+      - name: MCP Conformance Startup Investigation
+        timeout-minutes: 10
+        env:
+          BEAM_MCP_HTTP_PYTHON_GETFQDN_PROBE: 0
+          MCP_CONFORMANCE_NPM_CACHE: ${{ runner.temp }}/npm-cache
+          MCP_CONFORMANCE_SCENARIOS: server-initialize
+        run: bash tests/test-mcp-conformance.sh
+
   beam-slow:
     name: beam-slow (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

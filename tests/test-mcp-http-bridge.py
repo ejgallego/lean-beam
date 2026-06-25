@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 
 import argparse
+import collections
 import json
+import os
+import platform
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -21,6 +25,40 @@ from mcp_test_util import (
 
 
 PROTOCOL_VERSION = "2025-11-25"
+
+
+def env_enabled(name):
+    value = os.environ.get(name, "")
+    return value.lower() not in {"", "0", "false", "no"}
+
+
+def ci_trace_enabled():
+    if "BEAM_MCP_HTTP_BRIDGE_TRACE" in os.environ:
+        return env_enabled("BEAM_MCP_HTTP_BRIDGE_TRACE")
+    return env_enabled("GITHUB_ACTIONS")
+
+
+def bridge_environment():
+    env = os.environ.copy()
+    if ci_trace_enabled():
+        env.setdefault("BEAM_MCP_HTTP_BRIDGE_TRACE", "1")
+        if env.get("BEAM_MCP_SERVER_TRACE", "1").lower() not in {"0", "false", "no"}:
+            env["BEAM_MCP_SERVER_TRACE"] = "1"
+    return env
+
+
+def drain_pipe(pipe, lines):
+    try:
+        for line in pipe:
+            lines.append(line.rstrip("\n"))
+    except Exception as err:
+        lines.append(f"<pipe drain failed: {err}>")
+
+
+def start_pipe_drain(pipe, lines):
+    thread = threading.Thread(target=drain_pipe, args=(pipe, lines), daemon=True)
+    thread.start()
+    return thread
 
 
 def wait_for_ready(ready_file, timeout):
@@ -101,6 +139,77 @@ def expect_tool_error(response, code):
     require(structured.get("code") == code, f"expected tool error code {code}, got {structured}")
 
 
+def runtime_context_lines():
+    lines = [
+        f"platform={platform.platform()}",
+        f"python={sys.version.split()[0]}",
+        f"cpu_count={os.cpu_count()}",
+    ]
+    for key in (
+        "GITHUB_ACTIONS",
+        "RUNNER_OS",
+        "RUNNER_ARCH",
+        "ImageOS",
+        "ImageVersion",
+        "LEAN_NUM_THREADS",
+        "LEAN_OPTIONS",
+        "BEAM_MCP_HTTP_BRIDGE_TRACE",
+        "BEAM_MCP_SERVER_TRACE",
+    ):
+        if key in os.environ:
+            lines.append(f"{key}={os.environ[key]}")
+    return lines
+
+
+def process_snapshot_lines():
+    try:
+        result = subprocess.run(
+            ["ps", "-ef"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            check=False,
+        )
+    except Exception as err:
+        return [f"<ps failed: {err}>"]
+    needles = ("mcp_http_bridge.py", "lean-beam-mcp", "beam-daemon", "lean --server")
+    lines = [line for line in result.stdout.splitlines() if any(needle in line for needle in needles)]
+    return lines or ["<no matching processes>"]
+
+
+def print_section(title, lines):
+    print(f"--- {title} ---", file=sys.stderr)
+    if lines:
+        for line in lines:
+            print(line, file=sys.stderr)
+    else:
+        print("<empty>", file=sys.stderr)
+
+
+def dump_bridge_diagnostics(reason, *, bridge, tmp_path, project_root, ready_file, command, stdout_lines, stderr_lines):
+    print("--- MCP HTTP bridge failure diagnostics ---", file=sys.stderr)
+    print(f"reason: {reason}", file=sys.stderr)
+    print(f"tmp_path: {tmp_path}", file=sys.stderr)
+    print(f"project_root: {project_root}", file=sys.stderr)
+    print(f"ready_file: {ready_file}", file=sys.stderr)
+    print(f"ready_file_exists: {ready_file.exists()}", file=sys.stderr)
+    if ready_file.exists():
+        try:
+            print(f"ready_file_content: {ready_file.read_text(encoding='utf-8').strip()}", file=sys.stderr)
+        except Exception as err:
+            print(f"ready_file_read_error: {err}", file=sys.stderr)
+    print(f"bridge_pid: {bridge.pid}", file=sys.stderr)
+    print(f"bridge_returncode: {bridge.poll()}", file=sys.stderr)
+    print(f"command: {json.dumps(command)}", file=sys.stderr)
+    print_section("bridge stdout tail", list(stdout_lines)[-160:])
+    print_section("bridge stderr tail", list(stderr_lines)[-160:])
+    print_section("runner context", runtime_context_lines())
+    print_section("process snapshot", process_snapshot_lines())
+    print("--- end MCP HTTP bridge failure diagnostics ---", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Smoke-test the local MCP stdio-to-HTTP bridge.")
     parser.add_argument("--timeout", type=float, default=30.0)
@@ -118,29 +227,35 @@ def main():
         project_root = tmp_path / "project"
         shutil.copytree(repo_root / "tests" / "save_olean_project", project_root)
         ready_file = tmp_path / "ready.json"
+        command = [
+            sys.executable,
+            str(repo_root / "tests" / "mcp_http_bridge.py"),
+            "--root",
+            str(project_root),
+            "--server",
+            str(exe),
+            "--lean-cmd",
+            lean_cmd,
+            "--lean-plugin",
+            str(plugin),
+            "--ready-file",
+            str(ready_file),
+            "--timeout",
+            str(args.timeout),
+        ]
         bridge = subprocess.Popen(
-            [
-                sys.executable,
-                str(repo_root / "tests" / "mcp_http_bridge.py"),
-                "--root",
-                str(project_root),
-                "--server",
-                str(exe),
-                "--lean-cmd",
-                lean_cmd,
-                "--lean-plugin",
-                str(plugin),
-                "--ready-file",
-                str(ready_file),
-                "--timeout",
-                str(args.timeout),
-            ],
+            command,
             cwd=str(repo_root),
+            env=bridge_environment(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
         )
+        stdout_lines = collections.deque(maxlen=200)
+        stderr_lines = collections.deque(maxlen=200)
+        stdout_thread = start_pipe_drain(bridge.stdout, stdout_lines)
+        stderr_thread = start_pipe_drain(bridge.stderr, stderr_lines)
         try:
             url = wait_for_ready(ready_file, args.timeout)
             require(http_get_status(url, args.timeout) == 405, "bridge GET should return 405 without SSE support")
@@ -268,7 +383,24 @@ def main():
 
             expect_result(http_json(url, {"jsonrpc": "2.0", "id": 8, "method": "shutdown"}, timeout=args.timeout))
             bridge.wait(timeout=5)
-            require(bridge.returncode == 0, f"bridge exited with {bridge.returncode}\n{bridge.stderr.read()}")
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+            require(
+                bridge.returncode == 0,
+                f"bridge exited with {bridge.returncode}\n" + "\n".join(stderr_lines),
+            )
+        except Exception as err:
+            dump_bridge_diagnostics(
+                str(err),
+                bridge=bridge,
+                tmp_path=tmp_path,
+                project_root=project_root,
+                ready_file=ready_file,
+                command=command,
+                stdout_lines=stdout_lines,
+                stderr_lines=stderr_lines,
+            )
+            raise
         finally:
             if bridge.poll() is None:
                 bridge.terminate()
@@ -277,6 +409,8 @@ def main():
                 except subprocess.TimeoutExpired:
                     bridge.kill()
                     bridge.wait(timeout=5)
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
 
 
 if __name__ == "__main__":

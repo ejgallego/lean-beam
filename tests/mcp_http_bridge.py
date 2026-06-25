@@ -2,7 +2,10 @@
 
 import argparse
 import json
+import os
+import platform
 import select
+import socketserver
 import subprocess
 import sys
 import threading
@@ -14,6 +17,47 @@ from urllib.parse import urlparse
 
 
 PROTOCOL_VERSION = "2025-11-25"
+TRACE_STARTED_AT = time.monotonic()
+
+
+def env_enabled(name):
+    value = os.environ.get(name, "")
+    return value.lower() not in {"", "0", "false", "no"}
+
+
+def trace_enabled():
+    if "BEAM_MCP_HTTP_BRIDGE_TRACE" in os.environ:
+        return env_enabled("BEAM_MCP_HTTP_BRIDGE_TRACE")
+    return env_enabled("GITHUB_ACTIONS")
+
+
+def trace(message, **fields):
+    if not trace_enabled():
+        return
+    elapsed = time.monotonic() - TRACE_STARTED_AT
+    suffix = ""
+    if fields:
+        rendered = " ".join(f"{key}={json.dumps(value, default=str)}" for key, value in fields.items())
+        suffix = f" {rendered}"
+    print(f"mcp-http-bridge trace +{elapsed:.3f}s: {message}{suffix}", file=sys.stderr, flush=True)
+
+
+def trace_env():
+    return {
+        key: os.environ[key]
+        for key in (
+            "GITHUB_ACTIONS",
+            "RUNNER_OS",
+            "RUNNER_ARCH",
+            "ImageOS",
+            "ImageVersion",
+            "LEAN_NUM_THREADS",
+            "LEAN_OPTIONS",
+            "BEAM_MCP_HTTP_BRIDGE_TRACE",
+            "BEAM_MCP_SERVER_TRACE",
+        )
+        if key in os.environ
+    }
 
 
 class BridgeError(Exception):
@@ -26,9 +70,15 @@ class StdioMcpServer:
         self.timeout = timeout
         self.lock = threading.Lock()
         self.stderr = []
+        env = os.environ.copy()
+        if env_enabled("BEAM_MCP_SERVER_TRACE"):
+            env["LEAN_BEAM_MCP_TRACE"] = "1"
+            env["LEAN_BEAM_BROKER_TRACE"] = "1"
+        trace("starting lean-beam-mcp", command=command, cwd=str(cwd), timeout=timeout)
         self.proc = subprocess.Popen(
             command,
             cwd=str(cwd),
+            env=env,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -36,9 +86,11 @@ class StdioMcpServer:
             encoding="utf-8",
             bufsize=1,
         )
+        trace("started lean-beam-mcp", pid=self.proc.pid)
         self.notifications = []
         self.stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self.stderr_thread.start()
+        trace("started lean-beam-mcp stderr drain", pid=self.proc.pid)
 
     def _drain_stderr(self):
         for line in self.proc.stderr:
@@ -46,12 +98,15 @@ class StdioMcpServer:
 
     def close(self):
         if self.proc.poll() is None:
+            trace("terminating lean-beam-mcp", pid=self.proc.pid)
             self.proc.terminate()
             try:
                 self.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                trace("killing lean-beam-mcp after terminate timeout", pid=self.proc.pid)
                 self.proc.kill()
                 self.proc.wait(timeout=5)
+        trace("lean-beam-mcp closed", pid=self.proc.pid, returncode=self.proc.poll())
 
     def send_notification(self, message):
         with self.lock:
@@ -74,7 +129,10 @@ class StdioMcpServer:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise BridgeError("timed out waiting for lean-beam-mcp response")
+                raise BridgeError(
+                    "timed out waiting for lean-beam-mcp response\n"
+                    + self.child_diagnostics()
+                )
             if self.proc.poll() is not None:
                 stderr = "".join(self.stderr)
                 raise BridgeError(f"lean-beam-mcp exited with code {self.proc.returncode}\n{stderr}")
@@ -93,6 +151,19 @@ class StdioMcpServer:
                 continue
             return message
 
+    def child_diagnostics(self):
+        stderr_tail = "".join(self.stderr[-80:]).rstrip()
+        lines = [
+            f"lean-beam-mcp pid={self.proc.pid}",
+            f"lean-beam-mcp returncode={self.proc.poll()}",
+        ]
+        if stderr_tail:
+            lines.append("lean-beam-mcp stderr tail:")
+            lines.append(stderr_tail)
+        else:
+            lines.append("lean-beam-mcp stderr tail: <empty>")
+        return "\n".join(lines)
+
 
 class BridgeHttpServer(HTTPServer):
     allow_reuse_address = True
@@ -102,6 +173,20 @@ class BridgeHttpServer(HTTPServer):
         self.endpoint = endpoint
         self.allowed_origins = allowed_origins
         self.mcp = mcp
+
+    def server_bind(self):
+        trace("HTTP server raw bind starting", address=self.server_address)
+        socketserver.TCPServer.server_bind(self)
+        trace("HTTP server raw bind complete", address=self.server_address)
+        host, port = self.server_address[:2]
+        trace("HTTP server name assigned without getfqdn", host=host)
+        self.server_name = host
+        self.server_port = port
+
+    def server_activate(self):
+        trace("HTTP server activate starting", address=self.server_address)
+        socketserver.TCPServer.server_activate(self)
+        trace("HTTP server activate complete", address=self.server_address)
 
 
 class McpBridgeHandler(BaseHTTPRequestHandler):
@@ -244,6 +329,15 @@ def parse_args():
 def main():
     args = parse_args()
     repo_root = Path.cwd()
+    trace(
+        "bridge starting",
+        pid=os.getpid(),
+        cwd=str(repo_root),
+        python=sys.version.split()[0],
+        platform=platform.platform(),
+        cpu_count=os.cpu_count(),
+        env=trace_env(),
+    )
     command = [
         str(Path(args.server)),
         "--root",
@@ -255,6 +349,7 @@ def main():
     ]
     mcp = StdioMcpServer(command, repo_root, args.timeout)
     try:
+        trace("binding HTTP server", host=args.host, port=args.port, endpoint=args.endpoint)
         server = BridgeHttpServer(
             (args.host, args.port),
             McpBridgeHandler,
@@ -275,12 +370,17 @@ def main():
             f"http://localhost:{port}",
         }
         url = f"http://{host}:{port}{args.endpoint}"
+        trace("HTTP server bound", url=url)
         if args.ready_file:
             ready_path = Path(args.ready_file)
+            trace("writing ready file", ready_file=str(ready_path))
             ready_path.write_text(json.dumps({"url": url}) + "\n", encoding="utf-8")
+            trace("ready file written", ready_file=str(ready_path))
         else:
             print(url, flush=True)
+        trace("serving HTTP bridge", url=url)
         server.serve_forever()
+        trace("HTTP bridge stopped")
     finally:
         mcp.close()
 
