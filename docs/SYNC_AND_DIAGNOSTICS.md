@@ -16,10 +16,12 @@ they established before checkpointing: `save` under `result.sync`, and `close-sa
 `error.data.sync`.
 
 Zero-build checkpointing is restricted to Lake module setups Beam can replay from the LSP snapshot
-without custom batch setup. If Lake setup for a module uses custom Lean options, Lean arguments,
-dynamic libraries, or plugins, `save` and `close-save` fail with `saveUnsupportedSetup` after the
-sync verdict is established. In that case, use `lake build` for the module or importer instead of
-expecting Beam to write Lake artifacts.
+without custom batch setup. Save target resolution delegates to Lake's workspace loader for the
+project's real `lakefile.lean` or `lakefile.toml`; the broker does not synthesize fallback Lake
+configuration from `lakefile.lean` text. If Lake setup for a module uses custom Lean options, Lean
+arguments, dynamic libraries, or plugins, `save` and `close-save` fail with `saveUnsupportedSetup`
+after the sync verdict is established. In that case, use `lake build` for the module or importer
+instead of expecting Beam to write Lake artifacts.
 
 ## Reporting Surfaces
 
