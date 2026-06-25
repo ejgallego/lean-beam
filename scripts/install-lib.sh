@@ -127,8 +127,6 @@ array_contains() {
   return 1
 }
 
-print_array_lines() {
-  if [ "$#" -gt 0 ]; then
-    printf '%s\n' "$@"
-  fi
+normalize_choice() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }

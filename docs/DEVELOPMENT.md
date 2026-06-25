@@ -339,6 +339,13 @@ and reported identity changes cannot silently reuse stale helpers. The user-faci
 Keep [Beam/Cli.lean](../Beam/Cli.lean) as the executable entry point: parse top-level options,
 resolve `BEAM_HOME`, and delegate to `runCommand`.
 
+Installer shell helpers are split by ownership boundary: generic path/style helpers live in
+[scripts/install-lib.sh](../scripts/install-lib.sh), write-location prompting and validation live in
+[scripts/install-locations.sh](../scripts/install-locations.sh), and Codex/Claude MCP client
+registration lives in [scripts/install-mcp.sh](../scripts/install-mcp.sh). Keep new client-specific
+registration behavior out of [scripts/install-beam.sh](../scripts/install-beam.sh) unless it is
+part of the main install orchestration.
+
 What this does not promise:
 
 - it does not promise the daemon will still be alive after all sandboxed wrapper calls have exited
