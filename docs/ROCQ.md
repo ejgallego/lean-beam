@@ -75,4 +75,5 @@ Current Rocq support is goals-only:
 - no fallback executor besides `coq-lsp`
 
 Useful upstream Rocq/Petanque methods such as notation analysis, premises, AST inspection, and
-`petanque/run_at_pos` may be considered later, but they are not part of the current public surface.
+`petanque/run_at_pos` may be considered later, but they are not part of the current Rocq workflow
+surface.

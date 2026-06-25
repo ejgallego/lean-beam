@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Maintainer workflow helper for this repository.
-# This script is intentionally local contributor tooling, not part of the public beam interface.
+# This script is intentionally local contributor tooling, not a product compatibility surface.
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "${REPO_ROOT}" ]] || {

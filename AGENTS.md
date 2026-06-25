@@ -8,6 +8,7 @@ Treat the repo as public but still experimental: prefer conservative, well-teste
 feature sprawl.
 
 Current public status and limitations live in [docs/STATUS.md](docs/STATUS.md).
+Compatibility policy lives in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## Product Priorities
 
@@ -71,7 +72,8 @@ If a behavior is subtle, encode it in tests before optimizing it.
   async/pending boundaries, and stringify only at transport, CLI, or diagnostic display edges
 - do not add useless backward compatibility support; this alpha project has no legacy users, so
   remove obsolete aliases, inferred envelope shapes, and compatibility branches unless they support
-  an explicitly listed Lean/Rocq/tooling version
+  an explicitly listed Lean/Rocq/tooling/protocol version or another target named in
+  [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)
 
 ## Skill Boundaries
 

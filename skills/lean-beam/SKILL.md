@@ -36,7 +36,7 @@ section in the repo [README](../../README.md).
 
 ## Skill Surface
 
-This skill documents the supported Lean-facing `lean-beam` workflow surface. Use the smallest command
+This skill documents the current Lean-facing `lean-beam` workflow surface. Use the smallest command
 family that fits the task.
 
 Supported command families:
@@ -55,11 +55,11 @@ Supported command families:
   `lean-beam save`, `lean-beam close-save`
 - run shell-oriented search loops over the same handle APIs: `lean-beam-search`
 
-What to treat as the default public skill surface:
+What to treat as the normal agent workflow surface:
 
-- default and stable enough for normal use: `lean-beam hover`, `lean-beam goals-prev`, `lean-beam goals-after`,
+- default workflow commands: `lean-beam hover`, `lean-beam goals-prev`, `lean-beam goals-after`,
   `lean-beam todo`, `lean-beam run-at`, `lean-beam sync`, `lean-beam refresh`
-- narrower but supported wrapper surface: `lean-beam open-files`, `lean-beam doctor`,
+- operational commands: `lean-beam open-files`, `lean-beam doctor`,
   `lean-beam stats`, `lean-beam reset-stats`, `lean-beam save`, `lean-beam close-save`
 - alpha support APIs: `lean-beam run-at-handle`, `lean-beam run-with`, `lean-beam run-with-linear`,
   `lean-beam release`, `lean-beam-search`

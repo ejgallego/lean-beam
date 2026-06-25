@@ -88,8 +88,9 @@ in the full snapshot tree's current reportable messages block save, while errors
 Lean's already-reported message history do not block save by themselves.
 
 The flat fields `errorCount`, `warningCount`, `saveReady`, `stateErrorCount`, and
-`stateCommandErrorCount` are top-level projections of the current readiness verdict. They should
-agree with the actionable current state, but machine consumers should prefer `syncSummary`.
+`stateCommandErrorCount` are top-level projections in the current alpha response shape. They should
+agree with the actionable current state, but they are not separate compatibility commitments.
+Machine consumers should prefer `syncSummary`.
 
 ## Deltas
 

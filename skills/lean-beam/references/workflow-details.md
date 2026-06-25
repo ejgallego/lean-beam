@@ -96,8 +96,8 @@ What is not a valid checkpoint target:
 ## Source-File And Execution Model
 
 - `lean-beam run-at` does not edit `Foo.lean`
-- `lean-beam hover` is the stable read-only semantic inspection command for an existing position
-- `lean-beam goals-prev` and `lean-beam goals-after` are the stable read-only proof-state
+- `lean-beam hover` is the normal read-only semantic inspection command for an existing position
+- `lean-beam goals-prev` and `lean-beam goals-after` are the normal read-only proof-state
   inspection commands for an existing tactic position
 - `lean-beam goals-prev` / `lean-beam goals-after` return `result.goals`, not speculative execution output,
   and do not accept speculative text
@@ -194,8 +194,8 @@ Interpretation:
 - successful `lean-beam sync` transport does not mean the file is error-free; inspect
   `result.syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for current
   save-readiness; the flat `result.errorCount`, `result.warningCount`, `result.saveReady`,
-  `result.stateErrorCount`, and `result.stateCommandErrorCount` fields are compatibility
-  projections of that current verdict
+  `result.stateErrorCount`, and `result.stateCommandErrorCount` fields are current alpha
+  projections of that verdict, not separate compatibility promises
 - if you need to know whether Lean published error-severity diagnostics, inspect
   `result.syncSummary.diagnostics.current.error`; do not use that field as the save/checkpoint
   decision
@@ -208,7 +208,7 @@ Interpretation:
   `lean-beam refresh` the stale target before relying on downstream probes
 - after `lean-beam run-at`, top-level `fileProgress` may exist with `done = false`; that is normal
   because the request only waited for its own target snapshot
-- use `lean-beam hover` for stable semantic inspection and `lean-beam goals-prev` / `lean-beam goals-after` for
+- use `lean-beam hover` for semantic inspection and `lean-beam goals-prev` / `lean-beam goals-after` for
   existing proof state; use `lean-beam run-at` only when you need speculative execution
 - if you need a real ready/fresh boundary after edits, use `lean-beam sync`, not a successful probe
 

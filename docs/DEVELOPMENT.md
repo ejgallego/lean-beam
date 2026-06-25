@@ -3,7 +3,7 @@
 This repository is AI-first in practice, but the local workflow should work for both humans and AI
 agents.
 
-The public product surface is `lean-beam`. The local development harness is for maintainers and
+The primary product entry point is `lean-beam`. The local development harness is for maintainers and
 contributors.
 
 ## Current Priorities
@@ -44,7 +44,7 @@ Important local scripts:
 - `scripts/codex-harness.sh`: start and manage dedicated task worktrees
 - `scripts/codex-session-start.sh`: lower-level helper used by the harness
 - `scripts/validate-defensive.sh`: slower guarded validation in a cloned `/tmp` sandbox
-- `scripts/lean-beam`: public wrapper surface
+- `scripts/lean-beam`: installed wrapper entry point
 
 Preferred maintainer entrypoints:
 
@@ -77,7 +77,13 @@ Preferred maintainer entrypoints:
   async/pending boundaries, and stringify only at transport, CLI, or diagnostic display edges
 - do not add useless backward compatibility support; this alpha project has no legacy users, so
   remove obsolete aliases, inferred envelope shapes, and compatibility branches unless they support
-  an explicitly listed Lean/Rocq/tooling version
+  an explicitly listed Lean/Rocq/tooling version or another target named in
+  [Compatibility Policy](COMPATIBILITY.md)
+
+## Compatibility Policy
+
+The compatibility policy is [docs/COMPATIBILITY.md](COMPATIBILITY.md). Development changes that add
+shims, aliases, permissive decoders, or deprecated fields should name the concrete target there.
 
 ## Daemon Runtime Safety
 
@@ -104,7 +110,7 @@ MCP work should go through the shared Lean operation layer in
 CLI projection helpers in [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean) instead of
 constructing broker requests directly in the command dispatcher.
 `Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
-owns the tool input schemas. `Beam/Mcp/Projection.lean` names the public MCP tools and normalizes
+owns the tool input schemas. `Beam/Mcp/Projection.lean` names the MCP tools and normalizes
 selected broker results. Workspace/session setup is a shared Beam surface in
 [Beam/Workspace.lean](../Beam/Workspace.lean); MCP tools such as `lean_init_workspace` should
 project that contract instead of inventing MCP-only root policy or pretending setup is a raw Lean
@@ -130,7 +136,7 @@ The executable MCP path is split into importable runtime modules and tiny entry-
 Keep executable `main` declarations out of importable runtime modules. Otherwise test and adapter
 modules that import a runtime accidentally inherit the wrong root-level `main`.
 
-The installed `bin/lean-beam-mcp` wrapper is the public setup path. It pairs the MCP executable with
+The installed `bin/lean-beam-mcp` wrapper is the normal setup path. It pairs the MCP executable with
 the same installed `beam-cli` and passes `--beam-cli`; `Beam/Mcp/Runtime.lean` then asks
 `beam-cli --root <root> mcp-config` for the project-specific Lean command and runAt plugin after
 root selection. Keep this resolver as a narrow CLI/MCP setup boundary. Do not duplicate bundle
@@ -142,7 +148,7 @@ When adding an MCP-facing operation, use this order:
 1. Add or reuse a `Beam.Lean.Operation`. Define the typed input, broker-request adapter, description,
    and closed input schema there. Use [Beam/JsonSchema.lean](../Beam/JsonSchema.lean) for public
    tool schemas instead of hand-rolling schema JSON.
-2. If the operation should be a public MCP tool, make sure `Beam.Mcp.Projection` projects it from
+2. If the operation should be an MCP tool, make sure `Beam.Mcp.Projection` projects it from
    the shared Lean operation surface. Normal Lean MCP tool names derive from the operation key with
    the `lean_` prefix; `lean_init_workspace` is the MCP-only setup exception. Do not add raw LSP
    method names or expert/raw escape hatches such as `lean-request-at`.
@@ -170,7 +176,7 @@ When adding an MCP-facing operation, use this order:
 8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
    focused MCP test executables, `git diff --check`, and `bash tests/test-beam-fast.sh`.
 
-For setup tools that do not map to Lean execution, keep the public tool projection in `Beam.Mcp`,
+For setup tools that do not map to Lean execution, keep the tool projection in `Beam.Mcp`,
 put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary explicit
 in tests.
 
@@ -181,7 +187,7 @@ Local startup paths such as `beam --root` and `lean-beam-mcp --root` should use
 directory and then applies the same Lean/Lake project validation before `Beam.Workspace` session
 policy.
 
-When a public CLI command exposes the same Lean operation, add or update its request helper in
+When a CLI command exposes the same Lean operation, add or update its request helper in
 `Beam.Cli.LeanOperation` and keep request-shape parity coverage in
 [RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean). CLI-only validation,
 such as preserving broker-side validation for omitted text arguments, should stay at this projection
