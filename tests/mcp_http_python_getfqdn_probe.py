@@ -101,11 +101,12 @@ class ProbeHandler(http.server.BaseHTTPRequestHandler):
 
 def ctypes_gethostbyaddr(host):
     packed = socket.inet_aton(host)
+    buffer = ctypes.create_string_buffer(packed, len(packed))
     libc = ctypes.CDLL(None)
     gethostbyaddr = libc.gethostbyaddr
-    gethostbyaddr.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
+    gethostbyaddr.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
     gethostbyaddr.restype = ctypes.c_void_p
-    return gethostbyaddr(packed, len(packed), socket.AF_INET)
+    return gethostbyaddr(buffer, len(packed), socket.AF_INET)
 
 
 start = time.monotonic()
@@ -164,6 +165,104 @@ finally:
             helper.kill()
             helper.wait(timeout=5)
 """
+
+
+MINIMAL_CHILD_CODE = r"""
+import argparse
+import ctypes
+import faulthandler
+import os
+import platform
+import signal
+import socket
+import sys
+import time
+
+
+def log(message, **fields):
+    suffix = ""
+    if fields:
+        suffix = " " + " ".join(f"{key}={value!r}" for key, value in fields.items())
+    print(f"mcp-http-python-getfqdn-probe minimal child: {message}{suffix}", flush=True)
+
+
+def ctypes_gethostbyaddr(host):
+    packed = socket.inet_aton(host)
+    buffer = ctypes.create_string_buffer(packed, len(packed))
+    libc = ctypes.CDLL(None)
+    gethostbyaddr = libc.gethostbyaddr
+    gethostbyaddr.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    gethostbyaddr.restype = ctypes.c_void_p
+    return gethostbyaddr(buffer, len(packed), socket.AF_INET)
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--mode",
+    choices=(
+        "minimal-gethostbyaddr",
+        "minimal-ctypes-gethostbyaddr",
+        "minimal-getfqdn",
+    ),
+    required=True,
+)
+args = parser.parse_args()
+
+faulthandler.enable(all_threads=True)
+if hasattr(signal, "SIGUSR1"):
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
+
+log(
+    "starting",
+    pid=os.getpid(),
+    mode=args.mode,
+    python=sys.version.split()[0],
+    platform=platform.platform(),
+    cpu_count=os.cpu_count(),
+)
+
+start = time.monotonic()
+if args.mode == "minimal-gethostbyaddr":
+    log("socket.gethostbyaddr starting", host="127.0.0.1")
+    result = socket.gethostbyaddr("127.0.0.1")
+    log(
+        "socket.gethostbyaddr complete",
+        host="127.0.0.1",
+        elapsed=f"{time.monotonic() - start:.3f}s",
+        result=result,
+    )
+elif args.mode == "minimal-ctypes-gethostbyaddr":
+    log("ctypes gethostbyaddr starting", host="127.0.0.1")
+    result = ctypes_gethostbyaddr("127.0.0.1")
+    log(
+        "ctypes gethostbyaddr complete",
+        host="127.0.0.1",
+        elapsed=f"{time.monotonic() - start:.3f}s",
+        result=bool(result),
+    )
+else:
+    log("getfqdn starting", host="127.0.0.1")
+    result = socket.getfqdn("127.0.0.1")
+    log("getfqdn complete", host="127.0.0.1", elapsed=f"{time.monotonic() - start:.3f}s", result=result)
+"""
+
+
+FULL_MODES = [
+    "python-gethostbyaddr",
+    "ctypes-gethostbyaddr",
+    "direct",
+    "threaded-child",
+    "raw-bound-getfqdn",
+    "http-server",
+]
+
+MINIMAL_MODES = [
+    "minimal-gethostbyaddr",
+    "minimal-ctypes-gethostbyaddr",
+    "minimal-getfqdn",
+]
+
+ALL_MODES = MINIMAL_MODES + FULL_MODES
 
 
 def log(message, **fields):
@@ -247,8 +346,9 @@ def run_mode(mode, timeout, sample_duration):
     )
     with tempfile.TemporaryDirectory(prefix="lean-beam-python-getfqdn-") as tmp:
         output_dir = Path(tmp)
+        child_code = MINIMAL_CHILD_CODE if mode in MINIMAL_MODES else CHILD_CODE
         proc = subprocess.Popen(
-            [sys.executable, "-c", CHILD_CODE, "--mode", mode],
+            [sys.executable, "-c", child_code, "--mode", mode],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -288,26 +388,12 @@ def main():
     parser.add_argument(
         "--mode",
         action="append",
-        choices=(
-            "python-gethostbyaddr",
-            "ctypes-gethostbyaddr",
-            "direct",
-            "threaded-child",
-            "raw-bound-getfqdn",
-            "http-server",
-        ),
+        choices=ALL_MODES,
         default=[],
         help="Probe mode to run. Defaults to all modes.",
     )
     args = parser.parse_args()
-    modes = args.mode or [
-        "python-gethostbyaddr",
-        "ctypes-gethostbyaddr",
-        "direct",
-        "threaded-child",
-        "raw-bound-getfqdn",
-        "http-server",
-    ]
+    modes = args.mode or ALL_MODES
     rc = 0
     for mode in modes:
         rc = max(rc, run_mode(mode, args.timeout, args.sample_duration))
