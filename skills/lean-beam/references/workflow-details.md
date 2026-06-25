@@ -152,8 +152,8 @@ What is not a valid checkpoint target:
 - Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
   not a separate broker-side veto
 - save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot: current
-  full snapshot-tree reportable errors block save, while already-reported message history does not
-  block save by itself
+  save-blocking frontend errors block save; diagnostic streams, diagnostic summaries, and message
+  history are observations, so clients should not reconstruct save readiness from them
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
   `error.data.sync` contains the blocking sync verdict

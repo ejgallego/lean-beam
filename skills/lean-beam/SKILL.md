@@ -290,8 +290,8 @@ Diagnostic defaults on that path:
 - Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
   not a separate broker-side veto
 - save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot: current
-  full snapshot-tree reportable errors block save, while already-reported message history does not
-  block save by itself
+  save-blocking frontend errors block save; diagnostic streams, diagnostic summaries, and message
+  history are observations, so clients should not reconstruct save readiness from them
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
   `error.data.completionBlockingDiagnostics`
