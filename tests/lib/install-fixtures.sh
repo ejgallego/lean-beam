@@ -8,33 +8,20 @@
 # globals such as tmp_root, host_elan_home, source_checkout, and supported_toolchains.
 # shellcheck disable=SC2154
 
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
+
 expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/runat-install-*|/tmp/runat-validate-*/tmp/runat-install-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_owned_tmp_dir "$1" runat-install
 }
 
 expect_path_within_tmp_root() {
-  local path="$1"
-  case "$path" in
-    "$tmp_root"|"$tmp_root"/*)
-      ;;
-    *)
-      echo "refusing to touch path outside test temp root $tmp_root: $path" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_path_within_owned_tmp_dir "$1" "$tmp_root" runat-install
 }
 
 remove_tmp_tree() {
   local path="$1"
-  expect_path_within_tmp_root "$path"
-  rm -rf -- "$path"
+  beam_test_remove_tmp_tree_within_owned_tmp_dir "$path" "$tmp_root" runat-install
 }
 
 remove_tmp_file() {

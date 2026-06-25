@@ -7,6 +7,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
 
 toolchain="${1:-}"
 if [ -z "$toolchain" ]; then
@@ -18,14 +20,7 @@ tmp_bundle_dir="$(mktemp -d /tmp/beam-toolchain-bundles-XXXXXX)"
 tmp_env_root="$(mktemp -d /tmp/beam-toolchain-env-XXXXXX)"
 
 expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/beam-toolchain-bundles-*|/tmp/beam-toolchain-env-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_owned_tmp_dir "$1" beam-toolchain-bundles beam-toolchain-env
 }
 
 cleanup() {

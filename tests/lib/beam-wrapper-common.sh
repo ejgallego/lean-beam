@@ -13,6 +13,8 @@ declare -a beam_wrapper_managed_pids=()
 
 # shellcheck source=tests/lib/wait.sh
 . tests/lib/wait.sh
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
 
 beam_wrapper_require_bins() {
   beam_script="$PWD/scripts/lean-beam"
@@ -338,41 +340,22 @@ expect_file() {
 }
 
 expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/beam-wrapper-*|/tmp/runat-validate-*/tmp/beam-wrapper-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_owned_tmp_dir "$1" beam-wrapper
 }
 
 expect_path_within_tmp_dir() {
-  local path="$1"
-  local root="$2"
-  expect_owned_tmp_dir "$root"
-  case "$path" in
-    "$root"|"$root"/*)
-      ;;
-    *)
-      echo "refusing to touch path outside temp root $root: $path" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_path_within_owned_tmp_dir "$1" "$2" beam-wrapper
 }
 
 remove_owned_tmp_tree() {
   local path="$1"
-  expect_owned_tmp_dir "$path"
-  rm -rf -- "$path"
+  beam_test_remove_owned_tmp_tree "$path" beam-wrapper
 }
 
 remove_tmp_tree_within() {
   local path="$1"
   local root="$2"
-  expect_path_within_tmp_dir "$path" "$root"
-  rm -rf -- "$path"
+  beam_test_remove_tmp_tree_within_owned_tmp_dir "$path" "$root" beam-wrapper
 }
 
 beam_wrapper_expect_file() {

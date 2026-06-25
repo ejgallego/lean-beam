@@ -10,6 +10,8 @@ cd "$(dirname "$0")/.."
 
 # shellcheck source=tests/lib/ci-steps.sh
 . tests/lib/ci-steps.sh
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
 
 BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-beam-slow}"
 
@@ -21,20 +23,12 @@ tmp_bundle_dir="$(mktemp -d /tmp/beam-daemon-bundles-XXXXXX)"
 tmp_env_root="$(mktemp -d /tmp/beam-daemon-env-XXXXXX)"
 
 expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/beam-daemon-bundles-*|/tmp/beam-daemon-env-*|/tmp/runat-validate-*/tmp/beam-daemon-bundles-*|/tmp/runat-validate-*/tmp/beam-daemon-env-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_owned_tmp_dir "$1" beam-daemon-bundles beam-daemon-env
 }
 
 remove_owned_tmp_tree() {
   local path="$1"
-  expect_owned_tmp_dir "$path"
-  rm -rf -- "$path"
+  beam_test_remove_owned_tmp_tree "$path" beam-daemon-bundles beam-daemon-env
 }
 
 cleanup() {

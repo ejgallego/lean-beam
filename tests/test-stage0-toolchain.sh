@@ -9,6 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=tests/lib/assertions.sh
 . tests/lib/assertions.sh
+# shellcheck source=tests/lib/tmp-guards.sh
+. tests/lib/tmp-guards.sh
 
 toolchain="${BEAM_STAGE0_TOOLCHAIN:-lean4-stage0}"
 host_home="$HOME"
@@ -27,14 +29,7 @@ fi
 tmp_root="$(mktemp -d /tmp/beam-stage0-smoke-XXXXXX)"
 
 expect_owned_tmp_dir() {
-  case "$1" in
-    /tmp/beam-stage0-smoke-*|/tmp/runat-validate-*/tmp/beam-stage0-smoke-*)
-      ;;
-    *)
-      echo "refusing to touch unexpected temp dir: $1" >&2
-      exit 1
-      ;;
-  esac
+  beam_test_expect_owned_tmp_dir "$1" beam-stage0-smoke
 }
 
 cleanup() {

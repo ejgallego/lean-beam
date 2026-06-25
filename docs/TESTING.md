@@ -83,6 +83,13 @@ to matching toolchains already present in the host elan cache. Set
 `BEAM_INSTALL_TEST_PRESEED_ELAN=require` when working on a slow/offline connection and you want the
 test to fail fast if a supported toolchain is missing from the host cache.
 
+Installer tests should keep filesystem side effects inside their fake homes and owned temp roots.
+Use [tests/lib/install-fixtures.sh](../tests/lib/install-fixtures.sh) for installer-specific
+fixtures and [tests/lib/tmp-guards.sh](../tests/lib/tmp-guards.sh) for generic shell-test cleanup
+guards. New tests that remove temp paths should declare their expected `/tmp` prefix explicitly and
+use the guard helpers instead of raw `rm -rf`; the helpers also allow the nested
+`/tmp/runat-validate-*/tmp/...` layout used by [scripts/validate-defensive.sh](../scripts/validate-defensive.sh).
+
 ## Save Replay Timeout Investigation
 
 [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh) includes a save-race case
