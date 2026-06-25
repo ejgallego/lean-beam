@@ -78,12 +78,7 @@ structure VersionMarkResult where
 
 def trackedModuleName? (root path : System.FilePath) (backend : Backend) : Option String := do
   guard (backend == .lean)
-  let relPath ← Beam.pathRelativeToRoot? root path
-  guard (relPath.endsWith ".lean")
-  let relFile := System.FilePath.mk relPath
-  let stem ← relFile.fileStem
-  let parts := relFile.components.dropLast
-  some <| String.intercalate "." (parts ++ [stem])
+  Beam.leanModuleNameForPath? root path
 
 def requireDocState (docs : Docs) (uri : String) : IO DocState := do
   match docs.get? uri with
