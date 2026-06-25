@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Maintainer workflow helper for this repository.
-# This script is intentionally local contributor tooling, not part of the public runAt interface.
+# This script is intentionally local contributor tooling, not a product compatibility surface.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -36,7 +36,8 @@ Environment:
   RUNAT_CODEX_ALLOW_PRIMARY_WORKTREE=1   Allow session-start in the primary checkout
 
 Note:
-  This is maintainer workflow tooling for this repo. It is not part of the public runAt CLI.
+  This is maintainer workflow tooling for this repo. It is not part of the public runAt CLI
+  and its output is not a compatibility surface.
   By default, worktrees live under .codex-worktrees/lean-beam inside this repo.
   RUNAT_CODEX_WORKTREE_ROOT must also point inside this repo when set explicitly.
   Destructive cleanup must stay scoped to harness-owned worktrees under RUNAT_CODEX_WORKTREE_ROOT.

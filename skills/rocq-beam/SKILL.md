@@ -45,7 +45,7 @@ bash tests/setup-rocq-opam.sh
 
 ## Skill Surface
 
-This skill documents the supported Rocq-facing `lean-beam` workflow surface. Keep the surface narrow:
+This skill documents the current Rocq-facing `lean-beam` workflow surface. Keep the surface narrow:
 the current wrapper is for goal inspection against saved files, not for hidden proof-session
 mutation.
 
@@ -57,7 +57,7 @@ Supported command families:
   `lean-beam rocq-goals-prev`
 - inspect tracked files and daemon state: `lean-beam open-files`, `lean-beam stats`, `lean-beam reset-stats`
 
-What to treat as the current public skill surface:
+What to treat as the current agent workflow surface:
 
 - default command: `lean-beam rocq-goals-after`
 - intermediate-state command: `lean-beam rocq-goals-prev` with extra text when needed

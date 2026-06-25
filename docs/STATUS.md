@@ -6,6 +6,8 @@ The repository is public for collaboration and reuse, but it is not yet a polish
 general-purpose product. The main goal is still a small, type-safe, isolated execution surface for
 Lean, with a thin local Beam daemon around it for low-cost experimentation.
 
+Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
+
 ## Current Scope
 
 - standalone Lean plugin for `$/lean/runAt`
@@ -109,8 +111,9 @@ save-readiness, and sync-delta contract lives in
 preferred machine-readable surface is the JSON stream exposed by `beam-client request-stream`; the
 wrapper stderr format should be treated as human-facing.
 Beam broker responses include an explicit top-level `ok` boolean. Older response envelopes that omit
-`ok` still decode by inferring success from the absence of `error`, but new producer code should emit
-`ok` because it gives future projection layers an unambiguous success/error discriminator.
+`ok` still decode by inferring success from the absence of `error`, but that permissive decoder is a
+local robustness detail, not a compatibility promise. New producer code should emit `ok` because it
+gives future projection layers an unambiguous success/error discriminator.
 Other slow Lean Beam daemon calls may attach a compact top-level `fileProgress` summary when they
 had to wait on the same Lean elaboration progress. That is observability except where `sync`,
 `save`, and `close-save` explicitly use it as a diagnostics-completion barrier input. MCP setup
@@ -159,7 +162,8 @@ those modules.
 
 The field-level contract lives in [Sync And Diagnostics Contract](SYNC_AND_DIAGNOSTICS.md). In
 short, progress, streamed diagnostics, current readiness, and deltas are separate typed concepts.
-Machine consumers should prefer `syncSummary` over the flat top-level fields, and should use
+During alpha, `syncSummary` is the canonical current sync/readiness shape. Machine consumers should
+prefer it over the flat top-level fields, and should use
 `syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for the checkpoint decision.
 Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
 not a separate broker-side veto.
@@ -258,8 +262,8 @@ Near-term work is mostly about hardening and simplifying:
 
 The first Lean release should stay conservative:
 
-- keep the public `runAt`, `lean-beam`, and MCP surfaces small and documented
+- keep the current `runAt`, `lean-beam`, and MCP surfaces small and documented
 - keep CLI and MCP as thin projections over shared typed operation adapters
-- keep compatibility and install behavior covered across every supported Lean toolchain in CI
+- keep supported Lean-toolchain and install behavior covered in CI
 - take stability fixes when they materially improve release confidence
 - defer broader dependency/readiness redesigns until Lean or Lake expose stronger primitives
