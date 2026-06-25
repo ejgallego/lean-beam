@@ -83,9 +83,9 @@ did Lean report?", while readiness answers "can this synced version be checkpoin
 readiness API is authoritative for `saveReady`; diagnostic severity summaries are evidence and
 counts, not a separate broker-side veto.
 
-Lean-side readiness follows Lean batch/Lake's artifact gate for the current synced snapshot: errors
-in the full snapshot tree's current reportable messages block save, while errors that exist only in
-Lean's already-reported message history do not block save by themselves.
+Lean-side readiness follows Lean batch/Lake's artifact gate for the current synced snapshot:
+current save-blocking frontend errors block save. Diagnostic streams, diagnostic summaries, and
+message history are observations; clients should not reconstruct save readiness from them.
 
 The flat fields `errorCount`, `warningCount`, `saveReady`, `stateErrorCount`, and
 `stateCommandErrorCount` are top-level projections in the current alpha response shape. They should

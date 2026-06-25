@@ -209,7 +209,7 @@ def collectSaveReadiness
   let diagnostics ← collectCurrentDiagnosticsCompat(doc)
   let diagnosticErrors := diagnostics.filter (fun diag => diag.severity? == some .error)
   let diagnosticWarnings := diagnostics.filter (fun diag => diag.severity? == some .warning)
-  -- Mirror Lean batch/Lake's reportable-message gate for the current snapshot tree.
+  -- Mirror Lean batch/Lake's current save-blocking message gate for the snapshot tree.
   let frontendLog := snapshotTreeMessageLog <| Lean.Language.toSnapshotTree doc.initSnap |>.getAll
   let frontendMessages := frontendLog.unreported.toArray
   let frontendErrorCount := messageSeverityCount MessageSeverity.error frontendMessages

@@ -168,8 +168,8 @@ prefer it over the flat top-level fields, and should use
 Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
 not a separate broker-side veto.
 Beam save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot:
-full snapshot-tree reportable errors block saving, but already-reported message history does not
-block saving by itself.
+current save-blocking frontend errors block saving. Diagnostic streams, diagnostic summaries, and
+message history are observations; clients should not reconstruct save readiness from them.
 
 ## Known Limitations
 

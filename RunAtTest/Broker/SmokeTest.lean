@@ -146,6 +146,48 @@ private def runInteractiveOnlyDiagnosticSmoke
     throw <| IO.userError
       s!"expected interactive-only diagnostic sync_file to stream the fixture error, got {(toJson diagnostics).compress}"
 
+private def runReportedOnlyDiagnosticSmoke
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath) : IO Unit := do
+  let path := "tests/scenario/docs/ReportedOnlyError.lean"
+  let (resp, progress, diagnostics) ← runClientWithStream endpoint {
+    op := .syncFile
+    root? := some root.toString
+    path? := some path
+  }
+  let res : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? (← expectOk resp)
+  if !res.saveReady then
+    throw <| IO.userError
+      s!"expected reported-only diagnostic sync_file saveReady = true, got {(toJson res).compress}"
+  if res.errorCount != 0 || res.stateErrorCount != 0 || res.stateCommandErrorCount != 0 then
+    throw <| IO.userError
+      s!"expected reported-only diagnostic counts to be zero, got {(toJson res).compress}"
+  if res.saveReadyReason != "ok" then
+    throw <| IO.userError
+      s!"expected reported-only diagnostic saveReadyReason = ok, got {(toJson res).compress}"
+  unless res.blockingDiagnostics.isEmpty && res.blockingCommandMessages.isEmpty do
+    throw <| IO.userError
+      s!"expected reported-only diagnostic sync_file to omit blocking evidence, got {(toJson res).compress}"
+  let some summary := res.syncSummary?
+    | throw <| IO.userError s!"expected reported-only diagnostic sync_file to include syncSummary, got {(toJson res).compress}"
+  if summary.readiness.current.saveBlockingErrorCount != 0 ||
+      summary.readiness.current.commandErrorCount != 0 ||
+      !summary.readiness.current.saveReady then
+    throw <| IO.userError
+      s!"expected reported-only diagnostic syncSummary readiness to stay clean, got {(toJson summary).compress}"
+  unless summary.readiness.current.blockingDiagnostics.isEmpty &&
+      summary.readiness.current.blockingCommandMessages.isEmpty do
+    throw <| IO.userError
+      s!"expected reported-only diagnostic syncSummary to omit blocking evidence, got {(toJson summary).compress}"
+  let some lastProgress := progress.back?
+    | throw <| IO.userError "expected reported-only diagnostic sync_file to stream fileProgress"
+  if !lastProgress.done then
+    throw <| IO.userError
+      s!"expected reported-only diagnostic sync_file progress to finish, got {(toJson lastProgress).compress}"
+  unless diagnostics.isEmpty do
+    throw <| IO.userError
+      s!"expected reported-only diagnostic sync_file to stream no diagnostics, got {(toJson diagnostics).compress}"
+
 private def runPartialProgressSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
@@ -529,6 +571,7 @@ def smokeMain : IO Unit := do
     runSyncSmoke endpoint root
     runErrorOnlySyncSmoke endpoint root
     runInteractiveOnlyDiagnosticSmoke endpoint root
+    runReportedOnlyDiagnosticSmoke endpoint root
     runPartialProgressSmoke endpoint root
     runConcurrentSmoke endpoint root
     runRequestAndGoalsSmoke endpoint root
