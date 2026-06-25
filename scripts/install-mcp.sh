@@ -9,36 +9,30 @@
 # shellcheck disable=SC2034,SC2154
 
 prompt_mcp_registration_selection() {
-  local reply=""
-  local choice=""
-  print_section "$style_blue" "MCP Registration"
-  printf 'Register lean-beam-mcp with:\n' >&2
-  printf '  1) none (default)\n' >&2
-  printf '  2) Codex\n' >&2
-  printf '  3) Claude Code\n' >&2
-  printf '  4) both\n' >&2
-  printf 'MCP clients [Enter: none]: ' >&2
-  IFS= read -r reply
-  choice="$(normalize_choice "$reply")"
-  case "$choice" in
-    ""|1|n|no|none)
+  local selection=""
+  selection="$(prompt_agent_target_choice \
+    "MCP Registration" \
+    "Register lean-beam-mcp with:" \
+    "MCP clients" \
+    "Codex" \
+    "Claude Code" \
+    "MCP registration")"
+  case "$selection" in
+    none)
       register_codex_mcp=0
       register_claude_mcp=0
       ;;
-    2|c|codex)
+    codex)
       register_codex_mcp=1
       register_claude_mcp=0
       ;;
-    3|claude|"claude code"|claude-code)
+    claude)
       register_codex_mcp=0
       register_claude_mcp=1
       ;;
-    4|b|both|all)
+    both)
       register_codex_mcp=1
       register_claude_mcp=1
-      ;;
-    *)
-      die "unknown MCP registration selection: $reply"
       ;;
   esac
 }

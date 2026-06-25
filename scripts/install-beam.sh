@@ -691,36 +691,30 @@ prompt_toolchain_selection() {
 }
 
 prompt_skill_selection() {
-  local reply=""
-  local choice=""
-  print_section "$style_blue" "Agent Skills"
-  printf 'Lean agent skill targets to install:\n' >&2
-  printf '  1) none (default)\n' >&2
-  printf '  2) Codex (%s)\n' "$codex_skills_home" >&2
-  printf '  3) Claude Code (%s)\n' "$claude_skills_home" >&2
-  printf '  4) both\n' >&2
-  printf 'Install Lean skill [Enter: none]: ' >&2
-  IFS= read -r reply
-  choice="$(normalize_choice "$reply")"
-  case "$choice" in
-    ""|1|n|no|none)
+  local selection=""
+  selection="$(prompt_agent_target_choice \
+    "Agent Skills" \
+    "Lean agent skill targets to install:" \
+    "Install Lean skill" \
+    "Codex ($codex_skills_home)" \
+    "Claude Code ($claude_skills_home)" \
+    "skill")"
+  case "$selection" in
+    none)
       install_codex_skills=0
       install_claude_skills=0
       ;;
-    2|c|codex)
+    codex)
       install_codex_skills=1
       install_claude_skills=0
       ;;
-    3|claude|"claude code"|claude-code)
+    claude)
       install_codex_skills=0
       install_claude_skills=1
       ;;
-    4|b|both|all)
+    both)
       install_codex_skills=1
       install_claude_skills=1
-      ;;
-    *)
-      die "unknown skill selection: $reply"
       ;;
   esac
 }
@@ -1136,111 +1130,137 @@ install_requested_skills() {
   fi
 }
 
-print_install_summary() {
+target_list_contains_prefix() {
+  local prefix="$1"
   shift
-  local toolchain=""
-  local codex_skill_installed=0
-  local claude_skill_installed=0
-  local codex_mcp_registered=0
-  local claude_mcp_registered=0
-  local codex_skill_state="not installed"
-  local claude_skill_state="not installed"
-  local codex_mcp_state="not registered"
-  local claude_mcp_state="not registered"
-  local path_status="$bin_home is not on PATH yet"
-  local installed_skill_names=""
+  local target=""
+  for target in "$@"; do
+    case "$target" in
+      "$prefix":*)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
 
+install_path_status() {
   if path_contains_dir "$bin_home"; then
-    path_status="ready for direct \`lean-beam\` and \`lean-beam-mcp\` use in this shell"
-  fi
-  if [ -n "${installed_skill_targets[*]-}" ]; then
-    for toolchain in ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; do
-      case "$toolchain" in
-        Codex:*)
-          codex_skill_installed=1
-          ;;
-        "Claude Code:"*)
-          claude_skill_installed=1
-          ;;
-      esac
-    done
-  fi
-  if [ -n "${registered_mcp_targets[*]-}" ]; then
-    for toolchain in ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; do
-      case "$toolchain" in
-        Codex:*)
-          codex_mcp_registered=1
-          ;;
-        "Claude Code:"*)
-          claude_mcp_registered=1
-          ;;
-      esac
-    done
-  fi
-
-  print_section "$style_green" "Install Complete"
-  print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
-  print_field "runtime" "$current_root"
-  if [ "$#" -gt 0 ]; then
-    local first_prebuilt="$1"
-    if array_contains "$first_prebuilt" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
-      first_prebuilt="$first_prebuilt (custom)"
-    fi
-    print_field "prebuilt toolchains" "$first_prebuilt"
-    shift
-    for toolchain in "$@"; do
-      if array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
-        printf '  %s%-18s%s %s (custom)\n' "$style_dim" "" "$style_reset" "$toolchain" >&2
-      else
-        printf '  %s%-18s%s %s\n' "$style_dim" "" "$style_reset" "$toolchain" >&2
-      fi
-    done
+    printf 'ready for direct lean-beam and lean-beam-mcp use in this shell\n'
   else
-    print_field "prebuilt toolchains" "none"
+    printf '%s is not on PATH yet\n' "$bin_home"
   fi
-  print_field "shell PATH" "$path_status"
+}
 
-  print_section "$style_green" "Agent Setup"
-  if [ "$codex_skill_installed" -eq 1 ]; then
-    installed_skill_names="$(skill_install_names)"
-    codex_skill_state="$installed_skill_names installed"
+display_toolchain_for_summary() {
+  local toolchain="$1"
+  if array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
+    printf '%s (custom)\n' "$toolchain"
+  else
+    printf '%s\n' "$toolchain"
   fi
-  if [ "$claude_skill_installed" -eq 1 ]; then
-    installed_skill_names="$(skill_install_names)"
-    claude_skill_state="$installed_skill_names installed"
+}
+
+print_prebuilt_toolchain_summary() {
+  local toolchain=""
+  if [ "$#" -eq 0 ]; then
+    print_field "prebuilt toolchains" "none"
+    return 0
   fi
-  if [ "$codex_mcp_registered" -eq 1 ]; then
-    codex_mcp_state="registered"
+  print_field "prebuilt toolchains" "$(display_toolchain_for_summary "$1")"
+  shift
+  for toolchain in "$@"; do
+    print_field "" "$(display_toolchain_for_summary "$toolchain")"
+  done
+}
+
+skill_state_for_summary() {
+  if [ "$1" -eq 1 ]; then
+    printf '%s installed\n' "$(skill_install_names)"
+  else
+    printf 'not installed\n'
   fi
-  if [ "$claude_mcp_registered" -eq 1 ]; then
-    claude_mcp_state="registered"
+}
+
+mcp_state_for_summary() {
+  if [ "$1" -eq 1 ]; then
+    printf 'registered\n'
+  else
+    printf 'not registered\n'
   fi
-  print_field "Codex" "skills: $codex_skill_state; MCP: $codex_mcp_state"
-  print_field "Claude Code" "skills: $claude_skill_state; MCP: $claude_mcp_state"
-  print_field "MCP restart" "restart active MCP client sessions to use this runtime"
-  if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ]; then
+}
+
+print_codex_followup_hint() {
+  local skill_installed="$1"
+  local mcp_registered="$2"
+  if [ "$skill_installed" -eq 0 ] && [ "$mcp_registered" -eq 0 ]; then
     print_field "Codex setup" "$installer_cmd --codex --codex-mcp"
-  elif [ "$codex_skill_installed" -eq 0 ]; then
+  elif [ "$skill_installed" -eq 0 ]; then
     print_field "Codex Lean skill" "$installer_cmd --codex"
-  elif [ "$codex_mcp_registered" -eq 0 ]; then
+  elif [ "$mcp_registered" -eq 0 ]; then
     print_field "Codex MCP" "$installer_cmd --codex-mcp"
   fi
-  if [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ]; then
+}
+
+print_claude_followup_hint() {
+  local skill_installed="$1"
+  local mcp_registered="$2"
+  if [ "$skill_installed" -eq 0 ] && [ "$mcp_registered" -eq 0 ]; then
     print_field "Claude Code setup" "$installer_cmd --claude --claude-mcp"
-  elif [ "$claude_skill_installed" -eq 0 ]; then
+  elif [ "$skill_installed" -eq 0 ]; then
     print_field "Claude Lean skill" "$installer_cmd --claude"
-  elif [ "$claude_mcp_registered" -eq 0 ]; then
+  elif [ "$mcp_registered" -eq 0 ]; then
     print_field "Claude Code MCP" "$installer_cmd --claude-mcp"
   fi
-  if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ] \
-    && [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ]; then
-    print_field "both agents" "$installer_cmd --all-skills --all-mcp"
-  fi
+}
+
+print_install_references() {
   print_field "Lean Beam help" "$bin_home/lean-beam help"
   print_field "MCP help" "$bin_home/lean-beam-mcp --help"
   print_field "install guide" "$repo_root/docs/INSTALL.md"
   print_field "workflow guide" "$repo_root/skills/lean-beam/SKILL.md"
   print_field "Rocq guide" "$repo_root/docs/ROCQ.md"
+}
+
+print_agent_setup_summary() {
+  local codex_skill_installed=0
+  local claude_skill_installed=0
+  local codex_mcp_registered=0
+  local claude_mcp_registered=0
+
+  if target_list_contains_prefix "Codex" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
+    codex_skill_installed=1
+  fi
+  if target_list_contains_prefix "Claude Code" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
+    claude_skill_installed=1
+  fi
+  if target_list_contains_prefix "Codex" ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; then
+    codex_mcp_registered=1
+  fi
+  if target_list_contains_prefix "Claude Code" ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; then
+    claude_mcp_registered=1
+  fi
+
+  print_section "$style_green" "Agent Setup"
+  print_field "Codex" "skills: $(skill_state_for_summary "$codex_skill_installed"); MCP: $(mcp_state_for_summary "$codex_mcp_registered")"
+  print_field "Claude Code" "skills: $(skill_state_for_summary "$claude_skill_installed"); MCP: $(mcp_state_for_summary "$claude_mcp_registered")"
+  print_field "MCP restart" "restart active MCP client sessions to use this runtime"
+  print_codex_followup_hint "$codex_skill_installed" "$codex_mcp_registered"
+  print_claude_followup_hint "$claude_skill_installed" "$claude_mcp_registered"
+  if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ] \
+    && [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ]; then
+    print_field "both agents" "$installer_cmd --all-skills --all-mcp"
+  fi
+  print_install_references
+}
+
+print_install_summary() {
+  print_section "$style_green" "Install Complete"
+  print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
+  print_field "runtime" "$current_root"
+  print_prebuilt_toolchain_summary "$@"
+  print_field "shell PATH" "$(install_path_status)"
+  print_agent_setup_summary
 }
 
 main() {
@@ -1261,7 +1281,7 @@ main() {
   publish_runtime "$prepared_version_root"
   register_requested_mcp_servers
   install_requested_skills
-  print_install_summary "$prepared_version_root" ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
+  print_install_summary ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
   release_install_lock
   trap - EXIT
 }
