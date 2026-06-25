@@ -172,7 +172,7 @@ case "$cmd" in
     display_cmd="$cmd"
     ;;
   deps)
-    mapped=("lean-deps")
+    mapped=("deps")
     display_cmd="$cmd"
     ;;
   sync)

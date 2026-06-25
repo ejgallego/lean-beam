@@ -74,9 +74,9 @@ The current code now has a first executable MCP path plus the projection boundar
 The MCP server sits beside the CLI as another projection over the broker/public operation set, not
 inside the raw LSP runtime and not as an automatic mirror of LSP methods. It is a broker-owned stdio
 executable (`lean-beam-mcp`) rather than a separate client process that talks back to the daemon.
-Broker responses now include an explicit `ok` boolean and structured `error` object, while still
-accepting older inferred-`ok` responses on input. That gives an MCP projection a stable place to
-separate transport/tool errors from normal Lean semantic failures such as `result.success=false`.
+Broker responses include an explicit `ok` boolean and structured `error` object. That gives an MCP
+projection a stable place to separate transport/tool errors from normal Lean semantic failures such
+as `result.success=false`.
 
 `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` and intentionally does not
 advertise older revisions. Version support should stay narrow, so every advertised revision has

@@ -14,6 +14,7 @@ import Lake.Build.Common
 import Lake.Build.InitFacets
 import Lean.Elab.Term
 import Beam.Broker.Config
+import Beam.Broker.Errors
 import Beam.Path
 
 open Lean
@@ -58,6 +59,7 @@ elab "mkModuleOutputDescrsCompat(" isModule:term ", " olean:term ", " oleanServe
 structure LeanSaveSpec where
   relPath : String
   moduleName : Name
+  unsupportedSetupReason? : Option String := none
   oleanPath : FilePath
   oleanServerPath? : Option FilePath := none
   oleanPrivatePath? : Option FilePath := none
@@ -90,6 +92,19 @@ private def hashOfHashable [Hashable α] (a : α) : Hash :=
 
 private def addHashablePureTrace [ToString α] [Hashable α] (a : α) (caption := "pure") : JobM PUnit :=
   addTrace <| .ofHash (hashOfHashable a) s!"{caption}: {toString a}"
+
+private def unsupportedZeroBuildSaveReason? (mod : Lake.Module) (setup : ModuleSetup) :
+    Option String :=
+  if !setup.plugins.isEmpty then
+    some "Lake module setup loads Lean plugins"
+  else if !setup.dynlibs.isEmpty then
+    some "Lake module setup loads dynamic libraries"
+  else if !setup.options.values.isEmpty then
+    some "Lake module setup sets Lean options"
+  else if !mod.weakLeanArgs.isEmpty || !mod.leanArgs.isEmpty then
+    some "Lake module has custom Lean arguments"
+  else
+    none
 
 private def quietTraceConfig : BuildConfig :=
   { verbosity := .quiet }
@@ -168,7 +183,7 @@ private partial def collectLeanLibNamesInLines : List String → List String →
 private def leanLibNamesFromLakefileLean (text : String) : List String :=
   collectLeanLibNamesInLines (text.splitOn "\n") []
 
-private def compatTomlForLakefileLean (configFile : FilePath) : IO FilePath := do
+private def syntheticTomlForLakefileLean (configFile : FilePath) : IO FilePath := do
   let text ← IO.FS.readFile configFile
   let some packageName := packageNameFromLakefileLean? text
     | throw <| IO.userError s!"could not infer package name from {configFile}"
@@ -178,7 +193,7 @@ private def compatTomlForLakefileLean (configFile : FilePath) : IO FilePath := d
   let mut toml := s!"name = {repr packageName}\n"
   for libName in libNames do
     toml := toml ++ s!"\n[[lean_lib]]\nname = {repr libName}\n"
-  let tmpPath := System.FilePath.mk s!"/tmp/runat-lake-compat-{(← IO.monoNanosNow)}.toml"
+  let tmpPath := System.FilePath.mk s!"/tmp/runat-lake-synthetic-{(← IO.monoNanosNow)}.toml"
   IO.FS.writeFile tmpPath toml
   pure tmpPath
 
@@ -214,17 +229,17 @@ private def loadWorkspaceForSave (root : FilePath) (leanCmd? : Option String) : 
   if let some ws := ws? then
     pure ws
   else if relConfigFile == System.FilePath.mk "lakefile.lean" then
-    let compatConfig ← compatTomlForLakefileLean configFile
+    let fallbackConfig ← syntheticTomlForLakefileLean configFile
     try
-      let (ws?, compatMessages) ←
-        loadWorkspaceWithConfig root lakeEnv (System.FilePath.mk "lakefile.toml") compatConfig
+      let (ws?, fallbackMessages) ←
+        loadWorkspaceWithConfig root lakeEnv (System.FilePath.mk "lakefile.toml") fallbackConfig
       let some ws := ws?
         | throw <| IO.userError <| loadWorkspaceFailureMessage root messages
-            (#[s!"compat lakefile.toml fallback also failed: {compatConfig}"] ++ compatMessages)
+            (#[s!"synthetic lakefile.toml fallback also failed: {fallbackConfig}"] ++ fallbackMessages)
       pure ws
     finally
       try
-        IO.FS.removeFile compatConfig
+        IO.FS.removeFile fallbackConfig
       catch _ =>
         pure ()
   else
@@ -239,7 +254,7 @@ private def sourceTrace (path : FilePath) (snapshot : SourceSnapshot) : BuildTra
 
 private def buildDepTraceJob
     (mod : Lake.Module)
-    (snapshot : SourceSnapshot) : FetchM (Job (BuildTrace × Bool)) := do
+    (snapshot : SourceSnapshot) : FetchM (Job (BuildTrace × Bool × Option String)) := do
     let setupJob ← mod.setup.fetch
     setupJob.mapM (sync := true) fun setup => do
       addLeanTrace
@@ -250,7 +265,7 @@ private def buildDepTraceJob
       addHashablePureTrace mod.pkg.id? "Package.id?"
       addPureTrace mod.leanArgs "Module.leanArgs"
       setTraceCaption s!"{mod.name.toString}:leanArts"
-      return (← getTrace, setup.isModule)
+      return (← getTrace, setup.isModule, unsupportedZeroBuildSaveReason? mod setup)
 
 private def saveTraceStaleMessage (root path : FilePath) : String :=
   let relPath := Beam.pathRelativeToRootOrSelf root path
@@ -262,47 +277,73 @@ private def ensureSaveTraceReady
     (ws : Workspace)
     (root path : FilePath)
     (mod : Lake.Module)
-    (snapshot : SourceSnapshot) : IO Unit := do
+    (snapshot : SourceSnapshot) : IO (Except BrokerFailure Unit) := do
   -- Lake's no-build `runBuild` mode is CLI-oriented and may exit the process.
   -- The daemon must convert stale traces into an ordinary request
   -- error before running the trace job for real.
   unless ← ws.checkNoBuild (buildDepTraceJob mod snapshot) do
-    throw <| IO.userError <| saveTraceStaleMessage root path
+    return .error {
+      code := .saveTraceStale
+      message := saveTraceStaleMessage root path
+    }
+  pure (.ok ())
 
 private def buildDepTrace
     (ws : Workspace)
     (root path : FilePath)
     (mod : Lake.Module)
-    (snapshot : SourceSnapshot) : IO (BuildTrace × Bool) := do
-  ensureSaveTraceReady ws root path mod snapshot
-  ws.runBuild (cfg := quietTraceConfig) (buildDepTraceJob mod snapshot)
+    (snapshot : SourceSnapshot) : IO (Except BrokerFailure (BuildTrace × Bool × Option String)) := do
+  match ← ensureSaveTraceReady ws root path mod snapshot with
+  | .error failure => pure <| .error failure
+  | .ok () =>
+      try
+        .ok <$> ws.runBuild (cfg := quietTraceConfig) (buildDepTraceJob mod snapshot)
+      catch e =>
+        pure <| .error {
+          code := .internalError
+          message := e.toString
+        }
 
 def mkLeanSaveSpec
     (root path : FilePath)
     (snapshot : SourceSnapshot)
-    (leanCmd? : Option String := none) : IO LeanSaveSpec := do
-  let root ← Beam.resolveExistingPath root
-  let path ← Beam.resolvePathAgainstRoot root path
-  let ws ← loadWorkspaceForSave root leanCmd?
-  let some mod := ws.findModuleBySrc? path
-    | throw <| IO.userError <|
-        s!"could not resolve a Lake module for {path}. " ++
-        "lean-beam save only works for synced files that belong to the current Lake workspace package graph."
-  let (depTrace, isModule) ← buildDepTrace ws root path mod snapshot
-  let relPath := Beam.pathRelativeToRootOrSelf root path
-  pure {
-    relPath
-    moduleName := mod.name
-    oleanPath := mod.oleanFile
-    oleanServerPath? := if isModule then some mod.oleanServerFile else none
-    oleanPrivatePath? := if isModule then some mod.oleanPrivateFile else none
-    ileanPath := mod.ileanFile
-    irPath? := if isModule then some mod.irFile else none
-    cPath := mod.cFile
-    bcPath? := if Lean.Internal.hasLLVMBackend () then some mod.bcFile else none
-    tracePath := mod.traceFile
-    depTrace
-  }
+    (leanCmd? : Option String := none) : IO (Except BrokerFailure LeanSaveSpec) := do
+  try
+    let root ← Beam.resolveExistingPath root
+    let path ← Beam.resolvePathAgainstRoot root path
+    let ws ← loadWorkspaceForSave root leanCmd?
+    let some mod := ws.findModuleBySrc? path
+      | return .error {
+          code := .saveTargetNotModule
+          message :=
+            s!"could not resolve a Lake module for {path}. " ++
+            "lean-beam save only works for synced files that belong to the current Lake workspace package graph."
+        }
+    let depTraceResult ← buildDepTrace ws root path mod snapshot
+    let (depTrace, isModule, unsupportedSetupReason?) ←
+      match depTraceResult with
+      | .ok result => pure result
+      | .error failure => return .error failure
+    let relPath := Beam.pathRelativeToRootOrSelf root path
+    pure <| .ok {
+      relPath
+      moduleName := mod.name
+      unsupportedSetupReason?
+      oleanPath := mod.oleanFile
+      oleanServerPath? := if isModule then some mod.oleanServerFile else none
+      oleanPrivatePath? := if isModule then some mod.oleanPrivateFile else none
+      ileanPath := mod.ileanFile
+      irPath? := if isModule then some mod.irFile else none
+      cPath := mod.cFile
+      bcPath? := if Lean.Internal.hasLLVMBackend () then some mod.bcFile else none
+      tracePath := mod.traceFile
+      depTrace
+    }
+  catch e =>
+    pure <| .error {
+      code := .internalError
+      message := e.toString
+    }
 
 def checkLeanSaveTarget
     (root path : FilePath)

@@ -66,6 +66,48 @@ mkproj() {
   rsync -a tests/save_olean_project/ "$dest"/
 }
 
+mk_setup_sensitive_proj() {
+  local dest="$1"
+  expect_owned_tmp_path "$dest"
+  remove_owned_tmp_tree "$dest"
+  mkdir -p "$dest/SetupSensitive"
+  cat > "$dest/lean-toolchain" <<'EOF'
+leanprover/lean4:v4.30.0
+EOF
+  cat > "$dest/lakefile.lean" <<'EOF'
+import Lake
+open Lake DSL
+
+package "SetupSensitive" where
+  moreLeanArgs := #["-Dweak.setupSensitive=true"]
+
+lean_lib SetupSensitive where
+EOF
+  cat > "$dest/SetupSensitive/NeedsBatch.lean" <<'EOF'
+import Lean
+
+open Lean Elab Command
+
+elab "#batch_only_decl" : command => do
+  unless Elab.inServer.get (← getOptions) do
+    liftCoreM <| addDecl <| Declaration.defnDecl {
+      name := `batchOnlyValue
+      levelParams := []
+      type := mkConst ``Nat
+      value := mkNatLit 7
+      hints := ReducibilityHints.opaque
+      safety := DefinitionSafety.safe
+    }
+
+#batch_only_decl
+EOF
+  cat > "$dest/CheckBatchOnly.lean" <<'EOF'
+import SetupSensitive.NeedsBatch
+
+#check batchOnlyValue
+EOF
+}
+
 edit_b() {
   local dest="$1"
   python3 - "$dest/SaveSmoke/B.lean" <<'PY'
@@ -221,6 +263,7 @@ tmp3="$(mktemp -d /tmp/runat-save-olean-race-XXXXXX)"
 tmp4="$(mktemp -d /tmp/runat-save-olean-cancel-XXXXXX)"
 tmp5="$(mktemp -d /tmp/runat-save-olean-stale-XXXXXX)"
 tmp6="$(mktemp -d /tmp/runat-save-olean-stale-trace-XXXXXX)"
+tmp7="$(mktemp -d /tmp/runat-save-olean-unsupported-setup-XXXXXX)"
 race_sentinel="$(mktemp /tmp/runat-save-olean-race-sentinel-XXXXXX)"
 cancel_sentinel="$(mktemp /tmp/runat-save-olean-cancel-sentinel-XXXXXX)"
 log1="$(mktemp /tmp/runat-save-olean-build-log-XXXXXX)"
@@ -240,6 +283,7 @@ cleanup() {
   remove_owned_tmp_tree "$tmp4"
   remove_owned_tmp_tree "$tmp5"
   remove_owned_tmp_tree "$tmp6"
+  remove_owned_tmp_tree "$tmp7"
   remove_owned_tmp_file "$race_sentinel"
   remove_owned_tmp_file "$cancel_sentinel"
   remove_owned_tmp_file "$log1"
@@ -258,6 +302,7 @@ mkproj "$tmp3"
 mkproj "$tmp4"
 mkproj "$tmp5"
 mkproj "$tmp6"
+mk_setup_sensitive_proj "$tmp7"
 
 (cd "$tmp1" && lake_build > /dev/null)
 edit_b "$tmp1"
@@ -326,6 +371,40 @@ if grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log2"; then
   cat "$log2" >&2
   exit 1
 fi
+
+(cd "$tmp7" && lake_build SetupSensitive/NeedsBatch.lean > /dev/null)
+(cd "$tmp7" && LAKE_ARTIFACT_CACHE=false "$lake_cmd" env lean CheckBatchOnly.lean > /dev/null)
+(
+  cd "$tmp7"
+  beam --root "$tmp7" shutdown > /dev/null 2>&1 || true
+  unsupported_save_out="$(mktemp /tmp/runat-save-olean-unsupported-save-out-XXXXXX)"
+  unsupported_save_err="$(mktemp /tmp/runat-save-olean-unsupported-save-err-XXXXXX)"
+  if beam --root "$tmp7" lean-save SetupSensitive/NeedsBatch.lean \
+      >"$unsupported_save_out" 2>"$unsupported_save_err"; then
+    echo "expected lean-save to reject modules with unsupported Lake setup" >&2
+    cat "$unsupported_save_out" >&2
+    cat "$unsupported_save_err" >&2
+    rm -f "$unsupported_save_out" "$unsupported_save_err"
+    exit 1
+  fi
+  if ! grep -q '"code": "saveUnsupportedSetup"' "$unsupported_save_out"; then
+    echo "expected unsupported setup lean-save failure to expose saveUnsupportedSetup" >&2
+    cat "$unsupported_save_out" >&2
+    cat "$unsupported_save_err" >&2
+    rm -f "$unsupported_save_out" "$unsupported_save_err"
+    exit 1
+  fi
+  if ! grep -q 'restricted to Lake module setups' "$unsupported_save_out"; then
+    echo "expected unsupported setup lean-save failure to explain the restriction" >&2
+    cat "$unsupported_save_out" >&2
+    cat "$unsupported_save_err" >&2
+    rm -f "$unsupported_save_out" "$unsupported_save_err"
+    exit 1
+  fi
+  LAKE_ARTIFACT_CACHE=false "$lake_cmd" env lean CheckBatchOnly.lean > /dev/null
+  rm -f "$unsupported_save_out" "$unsupported_save_err"
+  beam --root "$tmp7" shutdown > /dev/null 2>&1 || true
+)
 
 (cd "$tmp3" && lake_build > /dev/null)
 (

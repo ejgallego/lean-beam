@@ -70,6 +70,15 @@ Preferred maintainer entrypoints:
 - keep destructive cleanup scoped to owned temp or worktree paths
 - if Lean reports stale or rebuild trouble unexpectedly, stop and surface it explicitly
 
+## Common Code Smells
+
+- do not stringify typed errors or responses and later parse the rendered exception text to recover
+  control flow; keep `Response`, `BrokerFailure`, or structured error data typed across
+  async/pending boundaries, and stringify only at transport, CLI, or diagnostic display edges
+- do not add useless backward compatibility support; this alpha project has no legacy users, so
+  remove obsolete aliases, inferred envelope shapes, and compatibility branches unless they support
+  an explicitly listed Lean/Rocq/tooling version
+
 ## Daemon Runtime Safety
 
 The Beam daemon embeds Lean and Lake as libraries. Daemon/importable broker code must treat
@@ -138,7 +147,7 @@ When adding an MCP-facing operation, use this order:
    the `lean_` prefix; `lean_init_workspace` is the MCP-only setup exception. Do not add raw LSP
    method names or expert/raw escape hatches such as `lean-request-at`.
 3. If the operation also belongs on the CLI, add or update the request helper in
-   [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Keep CLI compatibility behavior,
+   [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Keep CLI-specific validation,
    such as omitted-text validation, at the CLI projection boundary.
 4. Keep project-root selection in server/session setup, not in each Lean operation input. Root
    negotiation belongs to `lean_init_workspace`, explicit `--root`, or exactly one MCP `roots/list`
@@ -174,9 +183,9 @@ policy.
 
 When a public CLI command exposes the same Lean operation, add or update its request helper in
 `Beam.Cli.LeanOperation` and keep request-shape parity coverage in
-[RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean). CLI-only compatibility
-behavior, such as preserving broker-side validation for omitted text arguments, should stay at this
-projection boundary and should not leak into the typed MCP inputs.
+[RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean). CLI-only validation,
+such as preserving broker-side validation for omitted text arguments, should stay at this projection
+boundary and should not leak into the typed MCP inputs.
 
 `Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
 add support for another revision, only with a protocol audit: check the upstream MCP

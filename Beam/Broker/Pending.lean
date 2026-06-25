@@ -29,7 +29,7 @@ structure PendingResult where
 
 structure PendingRequest where
   clientRequestId? : Option String := none
-  promise : IO.Promise (Except String PendingResult)
+  promise : IO.Promise (Except Response PendingResult)
   tracked? : Option (DocumentUri × Nat) := none
   progressRef : IO.Ref (Option SyncFileProgress)
   diagnosticsRef : IO.Ref (Array Diagnostic)
@@ -94,22 +94,21 @@ def resolveError
     | some data => [("data", data)]
     | none => []
   try
-    pending.promise.resolve (.error s!"jsonrpcerr:{errJson.compress}")
+    pending.promise.resolve (.error (responseForJsonRpcErrorObject errJson))
   catch _ =>
     pure ()
 
 def resolveErrorJson (pending : PendingRequest) (errJson : Json) : IO Unit := do
   try
-    pending.promise.resolve (.error s!"jsonrpcerr:{errJson.compress}")
+    pending.promise.resolve (.error (responseForJsonRpcErrorObject errJson))
   catch _ =>
     pure ()
 
-def awaitResult (promise : IO.Promise (Except String PendingResult)) : IO PendingResult := do
+def awaitOutcome (promise : IO.Promise (Except Response PendingResult)) :
+    IO (Except Response PendingResult) := do
   let some result ← IO.wait promise.result?
     | throw <| IO.userError "pending broker request promise dropped"
-  match result with
-  | .ok result => pure result
-  | .error err => throw <| IO.userError err
+  pure result
 
 private def normalizePublishDiagnostics (params : PublishDiagnosticsParams) :
     PublishDiagnosticsParams := {
@@ -269,11 +268,11 @@ end PendingRequest
 
 namespace PendingRequestStore
 
-def failAll (store : PendingRequestStore) (message : String) : IO Unit := do
+def failAll (store : PendingRequestStore) (resp : Response) : IO Unit := do
   let pending ← clear store
   for req in pending do
     try
-      req.promise.resolve (.error message)
+      req.promise.resolve (.error resp)
     catch _ =>
       pure ()
 
@@ -365,14 +364,16 @@ def markCancelled (registry : ActiveRequestRegistry) (clientRequestId : String) 
 end ActiveRequestRegistry
 
 def ensureRequestNotCancelled
-    (cancelRef? : Option (IO.Ref Bool)) : IO Unit := do
+    (cancelRef? : Option (IO.Ref Bool)) : IO (Except Response Unit) := do
   match cancelRef? with
-  | none => pure ()
+  | none => pure (.ok ())
   | some cancelRef =>
       if ← cancelRef.get then
-        throwBrokerFailure {
+        pure <| .error <| BrokerFailure.toResponse {
           code := .requestCancelled
           message := "client requested cancellation"
         }
+      else
+        pure (.ok ())
 
 end Beam.Broker

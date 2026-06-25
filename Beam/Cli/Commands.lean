@@ -243,7 +243,7 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         (linear := true)
   | "lean-release" :: path :: args =>
       runLeanRelease home opts (← wrapperDisplayAction "lean-release") path args
-  | "lean-deps" :: path :: [] =>
+  | "deps" :: path :: [] =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       withWrapperLease root daemon.startedNew do

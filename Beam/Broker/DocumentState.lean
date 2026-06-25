@@ -55,7 +55,7 @@ structure FileSnapshot where
   textHash : UInt64
   textTraceHash : Lake.Hash
   textMTime : Lake.MTime
-  /-- Zero means legacy/in-session sync with no cross-request ordering token. -/
+  /-- Zero means in-session sync with no cross-request ordering token. -/
   readSeq : Nat := 0
   moduleName? : Option String := none
 

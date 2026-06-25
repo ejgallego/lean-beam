@@ -75,6 +75,9 @@ Core workflow contract:
   graph, for example `MyPkg/Sub/Module.lean`
 - `lean-beam save` validates and checkpoints only the module you save; it does not validate importers of
   that module
+- `lean-beam save` currently supports only Lake module setups Beam can replay from the LSP snapshot
+  without custom batch setup; modules with custom Lean options, Lean arguments, dynamic libraries, or
+  plugins fail with `saveUnsupportedSetup` and should be rebuilt with `lake build`
 - treat wrapper `stderr` as human-facing only; use stdout JSON or `beam-client request-stream`
   for machine-readable automation
 - do not assume hidden mutable session state carries across unrelated requests
@@ -270,6 +273,9 @@ Read the save path as a progression, not as three unrelated commands:
 - `lean-beam refresh` is `lean-beam close` plus `lean-beam sync`; use it when a tracked file needs a fresh basis after upstream changes
 - `lean-beam save` is `lean-beam sync` plus a zero-build checkpoint for that synced workspace module
 - `lean-beam save` validates only that saved module; it does not validate downstream importers
+- `lean-beam save` is restricted to simple Lake module setups that do not require custom Lean
+  options, Lean arguments, dynamic libraries, or plugins; unsupported setups fail with
+  `saveUnsupportedSetup`, after which use `lake build`
 - `lean-beam close-save` is `lean-beam save` plus closing the tracked file afterward
 
 Diagnostic defaults on that path:
@@ -281,8 +287,11 @@ Diagnostic defaults on that path:
   diagnostics
 - prefer `result.syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for
   save/checkpoint decisions
-- current error-severity diagnostics force a not-ready verdict; warning, information, and hint
-  diagnostics do not block saving by themselves
+- Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
+  not a separate broker-side veto
+- save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot: current
+  full snapshot-tree reportable errors block save, while already-reported message history does not
+  block save by itself
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
   `error.data.completionBlockingDiagnostics`

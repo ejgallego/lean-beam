@@ -28,23 +28,27 @@
  -/
  def saveReadinessMethod : String := "$/lean/runAt/saveReadiness"
 
- /-- Internal request payload for artifact serialization from the current worker snapshot. -/
- structure SaveArtifactsParams where
-   textDocument : Lean.Lsp.TextDocumentIdentifier
-   oleanFile : String
-   ileanFile : String
-   cFile : String
-   bcFile? : Option String := none
-   deriving FromJson, ToJson
+/-- Internal request payload for artifact serialization from the current worker snapshot. -/
+structure SaveArtifactsParams where
+  textDocument : Lean.Lsp.TextDocumentIdentifier
+  expectedVersion : Nat
+  expectedTextHash : UInt64
+  oleanFile : String
+  ileanFile : String
+  cFile : String
+  bcFile? : Option String := none
+  deriving FromJson, ToJson
 
 -- Keep this indirection while v4.28 stays supported; see the compat note in `RunAt.Protocol`.
 instance : Lean.Lsp.FileSource SaveArtifactsParams where
    fileSource p := Lean.Lsp.fileSource p.textDocument
 
- /-- Internal request payload for save-readiness checks from the current worker snapshot. -/
- structure SaveReadinessParams where
-   textDocument : Lean.Lsp.TextDocumentIdentifier
-   deriving FromJson, ToJson
+/-- Internal request payload for save-readiness checks from the current worker snapshot. -/
+structure SaveReadinessParams where
+  textDocument : Lean.Lsp.TextDocumentIdentifier
+  expectedVersion : Nat
+  expectedTextHash : UInt64
+  deriving FromJson, ToJson
 
 -- Keep this indirection while v4.28 stays supported; see the compat note in `RunAt.Protocol`.
 instance : Lean.Lsp.FileSource SaveReadinessParams where

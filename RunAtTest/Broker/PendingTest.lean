@@ -15,24 +15,20 @@ open RunAtTest.Broker.JsonAssert
 
 namespace RunAtTest.Broker.PendingTest
 
-private def expectIoErrorContains (label needle : String) (act : IO α) : IO Unit := do
-  let error? ←
-    try
-      discard <| act
-      pure none
-    catch e =>
-      pure <| some e.toString
-  match error? with
-  | some error =>
-      require label (error.contains needle)
+private def requireErrorCode (label expectedCode : String) (resp : Response) : IO Error := do
+  match resp.error? with
+  | some err =>
+      if err.code != expectedCode then
+        throw <| IO.userError s!"{label}: expected code={expectedCode}, got {(toJson resp).compress}"
+      pure err
   | none =>
-      throw <| IO.userError s!"{label}: expected IO error containing {needle}"
+      throw <| IO.userError s!"{label}: expected error response, got {(toJson resp).compress}"
 
 private def mkPending
     (clientRequestId? : Option String := none)
     (progress? : Option SyncFileProgress := none)
     (tracked? : Option (DocumentUri × Nat) := none) :
-    IO (PendingRequest × IO.Promise (Except String PendingResult)) := do
+    IO (PendingRequest × IO.Promise (Except Response PendingResult)) := do
   let promise ← IO.Promise.new
   let progressRef ← IO.mkRef progress?
   let diagnosticsRef ← IO.mkRef #[]
@@ -68,10 +64,14 @@ private def checkActiveRegistry : IO Unit := do
 
   require "mark active request cancelled"
     (← ActiveRequestRegistry.markCancelled registry "req-1")
-  expectIoErrorContains
-    "ensureRequestNotCancelled reports broker cancellation"
-    "requestCancelled"
-    (ensureRequestNotCancelled (some (ActiveRequest.cancelRef first)))
+  match ← ensureRequestNotCancelled (some (ActiveRequest.cancelRef first)) with
+  | .ok _ =>
+      throw <| IO.userError "ensureRequestNotCancelled reports broker cancellation: expected error"
+  | .error resp =>
+      discard <| requireErrorCode
+        "ensureRequestNotCancelled reports broker cancellation"
+        "requestCancelled"
+        resp
 
   ActiveRequestRegistry.unregister registry first?
   require "unregistered active request is no longer cancellable"
@@ -89,7 +89,11 @@ private def checkPendingStoreResolve : IO Unit := do
   let some pending ← PendingRequestStore.remove store id
     | throw <| IO.userError "pending store remove missed inserted request"
   PendingRequest.resolveResponse pending (Json.mkObj [("value", toJson true)])
-  let result ← PendingRequest.awaitResult promise
+  let result ←
+    match ← PendingRequest.awaitOutcome promise with
+    | .ok result => pure result
+    | .error resp =>
+        throw <| IO.userError s!"pending response result: expected success, got {(toJson resp).compress}"
   requireJsonBool "pending response result" "value" true result.result
   require "pending response preserves progress"
     (result.progress? == some { updates := 3, done := false })
@@ -102,11 +106,12 @@ private def checkPendingStoreFailAll : IO Unit := do
   let store ← PendingRequestStore.create
   let (pending, promise) ← mkPending
   PendingRequestStore.insert store 11 pending
-  PendingRequestStore.failAll store "worker exited"
-  expectIoErrorContains
-    "failAll resolves pending request as an error"
-    "worker exited"
-    (discard <| PendingRequest.awaitResult promise)
+  PendingRequestStore.failAll store (Response.error "workerExited" "worker exited")
+  match ← PendingRequest.awaitOutcome promise with
+  | .ok _ =>
+      throw <| IO.userError "failAll resolves pending request as an error: expected error"
+  | .error resp =>
+      discard <| requireErrorCode "failAll resolves pending request as an error" "workerExited" resp
   require "failAll clears pending store"
     ((← PendingRequestStore.snapshot store).isEmpty)
 
