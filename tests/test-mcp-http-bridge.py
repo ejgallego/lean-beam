@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import importlib.util
 import json
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -21,6 +23,43 @@ from mcp_test_util import (
 
 
 PROTOCOL_VERSION = "2025-11-25"
+
+
+def load_bridge_module(repo_root):
+    bridge_path = repo_root / "tests" / "mcp_http_bridge.py"
+    spec = importlib.util.spec_from_file_location("mcp_http_bridge", bridge_path)
+    require(spec is not None and spec.loader is not None, f"failed to load bridge module spec for {bridge_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def assert_bridge_bind_skips_reverse_lookup(repo_root):
+    bridge = load_bridge_module(repo_root)
+    original_getfqdn = socket.getfqdn
+
+    def fail_getfqdn(host):
+        fail(f"bridge bind unexpectedly called socket.getfqdn({host!r})")
+
+    socket.getfqdn = fail_getfqdn
+    try:
+        server = bridge.BridgeHttpServer(
+            ("127.0.0.1", 0),
+            bridge.McpBridgeHandler,
+            endpoint="/mcp",
+            allowed_origins=set(),
+            mcp=object(),
+        )
+        try:
+            host, port = server.server_address[:2]
+            require(host == "127.0.0.1", f"unexpected bridge bind host: {server.server_address}")
+            require(port > 0, f"expected ephemeral bridge port, got {server.server_address}")
+            require(server.server_name == host, f"unexpected bridge server name: {server.server_name!r}")
+            require(server.server_port == port, f"unexpected bridge server port: {server.server_port!r}")
+        finally:
+            server.server_close()
+    finally:
+        socket.getfqdn = original_getfqdn
 
 
 def wait_for_ready(ready_file, timeout):
@@ -107,6 +146,8 @@ def main():
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
+    assert_bridge_bind_skips_reverse_lookup(repo_root)
+
     exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
     plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
     lean_cmd = shutil.which("lean") or "lean"

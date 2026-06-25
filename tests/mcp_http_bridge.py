@@ -3,6 +3,7 @@
 import argparse
 import json
 import select
+import socketserver
 import subprocess
 import sys
 import threading
@@ -102,6 +103,12 @@ class BridgeHttpServer(HTTPServer):
         self.endpoint = endpoint
         self.allowed_origins = allowed_origins
         self.mcp = mcp
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
 
 
 class McpBridgeHandler(BaseHTTPRequestHandler):
