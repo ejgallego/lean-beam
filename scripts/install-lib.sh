@@ -130,3 +130,41 @@ array_contains() {
 normalize_choice() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
+
+prompt_agent_target_choice() {
+  local title="$1"
+  local intro="$2"
+  local prompt="$3"
+  local codex_label="$4"
+  local claude_label="$5"
+  local error_context="$6"
+  local reply=""
+  local choice=""
+
+  print_section "$style_blue" "$title"
+  printf '%s\n' "$intro" >&2
+  printf '  1) none (default)\n' >&2
+  printf '  2) %s\n' "$codex_label" >&2
+  printf '  3) %s\n' "$claude_label" >&2
+  printf '  4) both\n' >&2
+  printf '%s [Enter: none]: ' "$prompt" >&2
+  IFS= read -r reply || reply=""
+  choice="$(normalize_choice "$reply")"
+  case "$choice" in
+    ""|1|n|no|none)
+      printf 'none\n'
+      ;;
+    2|c|codex)
+      printf 'codex\n'
+      ;;
+    3|claude|"claude code"|claude-code)
+      printf 'claude\n'
+      ;;
+    4|b|both|all)
+      printf 'both\n'
+      ;;
+    *)
+      die "unknown $error_context selection: $reply"
+      ;;
+  esac
+}
