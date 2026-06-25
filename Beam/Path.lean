@@ -52,4 +52,21 @@ Return `path` relative to `root` when possible, otherwise return the original pa
 def pathRelativeToRootOrSelf (root path : System.FilePath) : String :=
   (pathRelativeToRoot? root path).getD path.toString
 
+/--
+Convert a workspace-relative Lean source path such as `Foo/Bar.lean` to its module name.
+-/
+def leanModuleNameFromRelPath? (relPath : String) : Option String := do
+  guard (relPath.endsWith ".lean")
+  let relFile := System.FilePath.mk relPath
+  let stem ← relFile.fileStem
+  let parts := relFile.components.dropLast
+  some <| String.intercalate "." (parts ++ [stem])
+
+/--
+Return the Lean module name for `path` when it is a `.lean` file under `root`.
+-/
+def leanModuleNameForPath? (root path : System.FilePath) : Option String := do
+  let relPath ← pathRelativeToRoot? root path
+  leanModuleNameFromRelPath? relPath
+
 end Beam

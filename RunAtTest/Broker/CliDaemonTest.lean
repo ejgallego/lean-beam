@@ -302,6 +302,22 @@ private def checkPathRelativeToRoot : IO Unit := do
     require s!"{c.label}: expected display path {c.display}, got {display}"
       (display == c.display)
 
+private def checkLeanModuleNamePathHelpers : IO Unit := do
+  let p := System.FilePath.mk
+  let root := p "/tmp/beam-root"
+  require "relative top-level Lean path should become module name"
+    (Beam.leanModuleNameFromRelPath? "Main.lean" == some "Main")
+  require "relative nested Lean path should become dotted module name"
+    (Beam.leanModuleNameFromRelPath? "Foo/Bar/Baz.lean" == some "Foo.Bar.Baz")
+  require "relative non-Lean path should not become module name"
+    (Beam.leanModuleNameFromRelPath? "Foo/Bar.v" == none)
+  require "rooted Lean path under workspace should become module name"
+    (Beam.leanModuleNameForPath? root (root / "Foo" / "Bar.lean") == some "Foo.Bar")
+  require "rooted non-Lean path should not become module name"
+    (Beam.leanModuleNameForPath? root (root / "Foo" / "Bar.v") == none)
+  require "outside rooted Lean path should not become module name"
+    (Beam.leanModuleNameForPath? root (p "/tmp/other-root/Foo.lean") == none)
+
 private def checkPathCanonicalization : IO Unit := do
   let stamp ← IO.monoNanosNow
   let root := System.FilePath.mk s!"/tmp/beam-path-canonical-root-{stamp}"
@@ -490,6 +506,7 @@ def main : IO Unit := do
   checkLeanOperationRequests
   checkStartupRetryPolicy
   checkPathRelativeToRoot
+  checkLeanModuleNamePathHelpers
   checkPathCanonicalization
   checkLockLifecycle
   checkRuntimeBundleHelpers
