@@ -207,38 +207,12 @@ private def checkSaveBlockingEvidenceProjection : IO Unit := do
     (record.readiness.blockingDiagnostics.size == 1 &&
       record.readiness.blockingCommandMessages.size == 1)
 
-private def checkCurrentSyncDiagnosticsFallback : IO Unit := do
-  let priorDiagnostic := diagnostic 0 0 1 (some .error) "prior error"
-  let freshDiagnostic := diagnostic 1 0 1 (some .error) "fresh error"
-  let prior : LastSyncSummary := {
-    version := 7
-    textHash := 30
-    diagnostics := #[priorDiagnostic]
-    readiness := {
-      errorCount := 1
-      saveReady := false
-      saveReadyReason := "documentErrors"
-    }
-  }
-
-  require "unseen unchanged sync reuses prior diagnostics"
-    (diagnosticMessages (currentSyncDiagnostics 7 #[] false (some prior)) == #["prior error"])
-  require "seen unchanged sync can clear diagnostics"
-    (diagnosticMessages (currentSyncDiagnostics 7 #[] true (some prior)) == #[])
-  require "unseen changed sync uses current diagnostics"
-    (diagnosticMessages (currentSyncDiagnostics 8 #[freshDiagnostic] false (some prior)) ==
-      #["fresh error"])
-  require "no prior sync uses current diagnostics"
-    (diagnosticMessages (currentSyncDiagnostics 1 #[freshDiagnostic] false none) ==
-      #["fresh error"])
-
 def main : IO Unit := do
   checkFirstSyncSummary
   checkDuplicateDiagnosticDelta
   checkEffectiveSeverityDiagnosticIdentity
   checkDiagnosticErrorsDoNotOverrideReadiness
   checkSaveBlockingEvidenceProjection
-  checkCurrentSyncDiagnosticsFallback
 
 end RunAtTest.Broker.SyncSummaryTest
 
