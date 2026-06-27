@@ -156,7 +156,7 @@ snapshot without custom batch setup. Modules whose Lake setup uses custom Lean o
 arguments, dynamic libraries, or plugins fail with `saveUnsupportedSetup`; use `lake build` for
 those modules.
 
-### Progress And Sync Delta Reporting
+### Sync Reporting Contract
 
 The field-level contract lives in [Sync And Diagnostics Contract](SYNC_AND_DIAGNOSTICS.md). In
 short, progress, streamed diagnostics, current readiness, and deltas are separate typed concepts.
@@ -240,8 +240,6 @@ Near-term work is mostly about hardening and simplifying:
 - reduce packaging and workspace rough edges
 - publish a smoother distribution path, likely GitHub-backed install for Codex and plugin marketplace packaging for Claude
 - improve stale-dependency handling
-- move toward a stronger backend-facing readiness primitive; see
-  [Upstream Readiness Direction](SYNC_AND_DIAGNOSTICS.md#upstream-readiness-direction)
 - add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
   structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result
