@@ -145,6 +145,51 @@ private def runInteractiveOnlyDiagnosticSmoke
     throw <| IO.userError
       s!"expected interactive-only diagnostic sync_file to stream the fixture error, got {(toJson diagnostics).compress}"
 
+private def runTodoThenSyncDiagnosticSummarySmoke
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath) : IO Unit := do
+  let path := "tests/scenario/docs/InteractiveOnlyDiagnostic.lean"
+  let todoResp ← runClient endpoint {
+    op := .todo
+    root? := some root.toString
+    path? := some path
+    line? := some 0
+    character? := some 0
+    endLine? := some 22
+    endCharacter? := some 0
+    kinds? := some #[.diagnostic]
+    suggest? := some .none
+  }
+  let todoResult : RunAt.TodoResult ← IO.ofExcept <| fromJson? (← expectOk todoResp)
+  unless todoResult.items.any (fun item =>
+      item.kind == .diagnostic &&
+        item.severity? == some .error &&
+        item.message?.map (·.contains "interactive-only diagnostic") == some true) do
+    throw <| IO.userError
+      s!"expected todo to observe interactive-only error diagnostic, got {(toJson todoResult).compress}"
+
+  let syncResp ← runClient endpoint {
+    op := .syncFile
+    root? := some root.toString
+    path? := some path
+  }
+  let syncRes ← requireSyncFileResult "todo-warmed diagnostic sync_file" (← expectOk syncResp)
+  let summary := syncRes.syncSummary
+  if summary.readiness.current.saveReady then
+    throw <| IO.userError
+      s!"expected todo-warmed diagnostic sync_file saveReady = false, got {(toJson summary).compress}"
+  if summary.diagnostics.current.error == 0 || summary.diagnostics.current.total == 0 then
+    throw <| IO.userError
+      s!"expected todo-warmed diagnostic syncSummary to retain current error counts, got {(toJson summary).compress}"
+  if summary.readiness.current.errorCount == 0 then
+    throw <| IO.userError
+      s!"expected todo-warmed diagnostic syncSummary readiness to stay blocked, got {(toJson summary).compress}"
+  discard <| expectOk <| ← runClient endpoint {
+    op := .close
+    root? := some root.toString
+    path? := some path
+  }
+
 private def runReportedOnlyDiagnosticSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
@@ -563,6 +608,7 @@ def smokeMain : IO Unit := do
     discard <| expectOk (← runClient endpoint { op := .resetStats })
     runSyncSmoke endpoint root
     runErrorOnlySyncSmoke endpoint root
+    runTodoThenSyncDiagnosticSummarySmoke endpoint root
     runInteractiveOnlyDiagnosticSmoke endpoint root
     runReportedOnlyDiagnosticSmoke endpoint root
     runPartialProgressSmoke endpoint root

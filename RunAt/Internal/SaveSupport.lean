@@ -89,6 +89,8 @@ private def optionalField? [FromJson α] (json : Json) (field : String) : Except
 /-- Internal success payload for save-readiness checks. -/
 structure SaveReadinessResult where
   version : Nat
+  /-- Current worker snapshot diagnostics for reporting, not the save-readiness verdict. -/
+  currentDiagnostics : Array Lean.Lsp.Diagnostic := #[]
   currentWarningCount : Nat := 0
   saveReady : Bool := true
   saveReadyReason : String := "ok"
@@ -100,6 +102,8 @@ structure SaveReadinessResult where
 instance : FromJson SaveReadinessResult where
   fromJson? json := do
     let version ← json.getObjValAs? Nat "version"
+    let currentDiagnostics? ←
+      optionalField? (α := Array Lean.Lsp.Diagnostic) json "currentDiagnostics"
     let currentWarningCount? ← optionalField? (α := Nat) json "currentWarningCount"
     let saveReady? ← optionalField? (α := Bool) json "saveReady"
     let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
@@ -110,6 +114,7 @@ instance : FromJson SaveReadinessResult where
       optionalField? (α := Array SaveBlockingCommandMessage) json "blockingCommandMessages"
     pure {
       version
+      currentDiagnostics := currentDiagnostics?.getD #[]
       currentWarningCount := currentWarningCount?.getD 0
       saveReady := saveReady?.getD true
       saveReadyReason := saveReadyReason?.getD "ok"

@@ -176,6 +176,11 @@ private def saveBlockingDiagnosticOfInteractive
     completionBlocking := false
   }
 
+private def currentDiagnosticOfInteractive
+    (diagnostic : Lean.Widget.InteractiveDiagnostic) : Lean.Lsp.Diagnostic :=
+  let plain := Lean.Widget.InteractiveDiagnostic.toDiagnostic diagnostic
+  { plain with fullRange? := some diagnostic.fullRange }
+
 private def saveBlockingDiagnosticsOfMessages
     (doc : Lean.Server.FileWorker.EditableDocument)
     (messages : Array Lean.Message) : RequestM (Array RunAt.Internal.SaveBlockingDiagnostic) := do
@@ -227,6 +232,7 @@ def collectSaveReadiness
   let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
     | return ({
       version := doc.meta.version
+      currentDiagnostics := diagnostics.map currentDiagnosticOfInteractive
       currentWarningCount :=
         if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
       saveReady := false
@@ -239,6 +245,7 @@ def collectSaveReadiness
   let saveReady := frontendErrorCount == 0
   let readiness : RunAt.Internal.SaveReadinessResult := {
     version := doc.meta.version
+    currentDiagnostics := diagnostics.map currentDiagnosticOfInteractive
     currentWarningCount :=
       if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
     saveReady := saveReady

@@ -87,6 +87,8 @@ def syncWarningCount (diagnostics : Array Diagnostic) : Nat :=
       count
 
 structure SyncSaveReadiness where
+  /-- Current backend diagnostics for reporting; `saveReady` remains the readiness authority. -/
+  currentDiagnostics : Array Diagnostic := #[]
   currentWarningCount? : Option Nat := none
   saveReady : Bool := true
   saveReadyReason : String := "ok"
@@ -114,6 +116,7 @@ private def syncBlockingCommandMessageOfResult
 def syncSaveReadinessOfResult
     (result : RunAt.Internal.SaveReadinessResult) : SyncSaveReadiness :=
   {
+    currentDiagnostics := result.currentDiagnostics
     currentWarningCount? := some result.currentWarningCount
     saveReady := result.saveReady
     saveReadyReason := result.saveReadyReason
@@ -146,7 +149,7 @@ def saveBlockingFallbackDiagnostics (diagnostics : Array Diagnostic) : Array Syn
     else
       none
 
-def withFallbackSaveBlockingEvidence
+def normalizeSyncSaveReadiness
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness) : SyncSaveReadiness :=
   if readiness.saveReady ||
@@ -155,11 +158,6 @@ def withFallbackSaveBlockingEvidence
     readiness
   else
     { readiness with blockingDiagnostics := saveBlockingFallbackDiagnostics diagnostics }
-
-def normalizeSyncSaveReadiness
-    (diagnostics : Array Diagnostic)
-    (readiness : SyncSaveReadiness) : SyncSaveReadiness :=
-  withFallbackSaveBlockingEvidence diagnostics readiness
 
 def diagnosticsIndicateIncompleteBarrier (diagnostics : Array Diagnostic) : Bool :=
   diagnostics.any isIncompleteBarrierDiagnostic

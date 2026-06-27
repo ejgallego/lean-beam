@@ -108,20 +108,6 @@ private def readinessDelta
     currentSaveReady := current.saveReady
   }
 
-def currentSyncDiagnostics
-    (version : Nat)
-    (diagnostics : Array Diagnostic)
-    (diagnosticsSeen : Bool)
-    (prior? : Option LastSyncSummary) : Array Diagnostic :=
-  if diagnosticsSeen then
-    diagnostics
-  else
-    match prior? with
-    | some prior =>
-        if prior.version == version then prior.diagnostics else diagnostics
-    | none =>
-        diagnostics
-
 def mkSyncSummary
     (version : Nat)
     (textHash : UInt64)
