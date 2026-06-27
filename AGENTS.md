@@ -84,6 +84,18 @@ Keep the Lean and Rocq skills fully separate.
 - do not introduce a shared skill helper, common skill file, or mixed Lean/Rocq skill layer
 - if a short instruction is needed in both skills, duplicate it instead of coupling the two skills
 
+## Public Writing
+
+Docs, skill text, and PR descriptions should be readable without local worktree history or private
+review context.
+
+- define project-specific terms before using them as shorthand
+- name concrete commands, CI jobs, fixtures, or failure codes when making testing claims
+- separate current behavior from unsupported cases, planned work, and safe follow-ups
+- in agent-facing skill text, prefer exact commands, stop conditions, stdout/stderr behavior, and
+  known stale-state recovery paths
+- do not describe aspirational or planned MCP/CLI behavior as if it already exists
+
 ## Local Tooling
 
 The repo includes:

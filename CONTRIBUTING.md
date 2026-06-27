@@ -15,6 +15,19 @@ sprawl.
 For local AI-first workflow guidance, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 For agent-specific runtime instructions, see [AGENTS.md](AGENTS.md).
 
+## Documentation
+
+Public docs should be readable without local worktree history or private review context. Prefer
+compact prose, but do not compress several policies or failure modes into one abstract phrase.
+
+Guidelines:
+
+- put one decision, expectation, or limitation in each sentence
+- define Beam-specific terms before using them as shorthand
+- make testing claims concrete by naming the command, CI job, scenario, fixture, or failure code
+- separate what exists now from what is intentionally unsupported, planned, or a safe follow-up
+- use examples when documenting a subtle policy, failure mode, or recovery path
+
 ## Commits
 
 Follow Lean upstream's commit-message shape:
