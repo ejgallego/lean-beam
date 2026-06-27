@@ -8,6 +8,7 @@ import Beam.Broker.Errors
 import Beam.Broker.Protocol
 import Beam.Broker.Readiness
 import Beam.Broker.RequestArgs
+import Beam.JsonPretty
 import RunAtTest.Broker.JsonAssert
 import Lean
 
@@ -27,6 +28,13 @@ private def expectDecodeFailure (label : String) (json : Json) : IO Unit := do
   match fromJson? (α := Response) json with
   | .ok resp =>
       throw <| IO.userError s!"{label}: expected decode failure, got {(toJson resp).compress}"
+  | .error _ =>
+      pure ()
+
+private def expectSyncFileResultDecodeFailure (label : String) (json : Json) : IO Unit := do
+  match fromJson? (α := SyncFileResult) json with
+  | .ok result =>
+      throw <| IO.userError s!"{label}: expected decode failure, got {(toJson result).compress}"
   | .error _ =>
       pure ()
 
@@ -82,6 +90,55 @@ private def diagnostic (severity : DiagnosticSeverity) (message : String) : Diag
     message
   }
 
+private def syncSummaryFor
+    (version : Nat)
+    (saveReady : Bool := true)
+    (saveReadyReason : String := "ok")
+    (warningCount : Nat := 0) : SyncSummary := {
+  currentVersion := version
+  readiness := {
+    current := {
+      warningCount
+      saveReady
+      saveReadyReason
+    }
+  }
+}
+
+private def syncDiagnosticCountsJson : Json :=
+  Json.mkObj [
+    ("error", toJson (0 : Nat)),
+    ("warning", toJson (0 : Nat)),
+    ("information", toJson (0 : Nat)),
+    ("hint", toJson (0 : Nat)),
+    ("unknown", toJson (0 : Nat)),
+    ("total", toJson (0 : Nat))
+  ]
+
+private def syncReadinessCurrentJson (saveReady : Bool := true) : Json :=
+  Json.mkObj [
+    ("errorCount", toJson (0 : Nat)),
+    ("warningCount", toJson (0 : Nat)),
+    ("saveReady", toJson saveReady),
+    ("saveReadyReason", toJson "ok"),
+    ("blockingDiagnostics", toJson (#[] : Array SyncBlockingDiagnostic)),
+    ("blockingCommandMessages", toJson (#[] : Array SyncBlockingCommandMessage))
+  ]
+
+private def syncSummaryJson (version : Nat) (readinessCurrent : Json) : Json :=
+  Json.mkObj [
+    ("currentVersion", toJson version),
+    ("sourceChangedSinceDeltaBase", toJson false),
+    ("diagnostics", Json.mkObj [("current", syncDiagnosticCountsJson)]),
+    ("readiness", Json.mkObj [("current", readinessCurrent)])
+  ]
+
+private def syncFileResultJson (version : Nat) (summary : Json) : Json :=
+  Json.mkObj [
+    ("version", toJson version),
+    ("syncSummary", summary)
+  ]
+
 private def checkResponseJsonShape : IO Unit := do
   let successJson := toJson <| Response.success (Json.mkObj [("value", toJson (1 : Nat))])
   requireJsonBool "success response" "ok" true successJson
@@ -126,6 +183,114 @@ private def checkResponseJsonDecode : IO Unit := do
   expectDecodeFailure "ok=false without error" <| Json.mkObj [
     ("ok", toJson false)
   ]
+
+private def checkOrderedJsonPretty : IO Unit := do
+  let summary : SyncSummary := {
+    currentVersion := 3
+    deltaBaseVersion? := some 2
+    diagnostics := {
+      current := {}
+      delta? := some {}
+    }
+    readiness := {
+      current := {}
+      delta? := some {}
+    }
+  }
+  let resp : Response := {
+    ok := true
+    result? := some <| toJson <| SyncFileResult.ofSummary summary
+    fileProgress? := some {
+      updates := 2
+      done := true
+      line? := some 1
+      totalLines? := some 1
+    }
+  }
+  let json := toJson resp
+  let rendered := Beam.orderedJsonPretty json
+  let expected := String.intercalate "\n" [
+    "{",
+    "  \"ok\": true,",
+    "  \"result\": {",
+    "    \"version\": 3,",
+    "    \"syncSummary\": {",
+    "      \"currentVersion\": 3,",
+    "      \"deltaBaseVersion\": 2,",
+    "      \"sourceChangedSinceDeltaBase\": false,",
+    "      \"readiness\": {",
+    "        \"current\": {",
+    "          \"saveReady\": true,",
+    "          \"errorCount\": 0,",
+    "          \"warningCount\": 0,",
+    "          \"saveReadyReason\": \"ok\",",
+    "          \"blockingDiagnostics\": [],",
+    "          \"blockingCommandMessages\": []",
+    "        },",
+    "        \"delta\": {",
+    "          \"saveReadyChanged\": false,",
+    "          \"baseSaveReady\": true,",
+    "          \"currentSaveReady\": true,",
+    "          \"errorCountDelta\": 0,",
+    "          \"warningCountDelta\": 0",
+    "        }",
+    "      },",
+    "      \"diagnostics\": {",
+    "        \"current\": {",
+    "          \"error\": 0,",
+    "          \"warning\": 0,",
+    "          \"information\": 0,",
+    "          \"hint\": 0,",
+    "          \"unknown\": 0,",
+    "          \"total\": 0",
+    "        },",
+    "        \"delta\": {",
+    "          \"added\": 0,",
+    "          \"removed\": 0,",
+    "          \"persisted\": 0",
+    "        }",
+    "      }",
+    "    }",
+    "  },",
+    "  \"fileProgress\": {",
+    "    \"done\": true,",
+    "    \"updates\": 2,",
+    "    \"line\": 1,",
+    "    \"totalLines\": 1",
+    "  }",
+    "}"
+  ]
+  if rendered != expected then
+    throw <| IO.userError s!"ordered JSON pretty output changed:\n{rendered}"
+  let parsed ← expectOk "ordered JSON pretty parse" (Json.parse rendered)
+  require "ordered JSON pretty output should round-trip" (parsed.compress == json.compress)
+
+private def checkSyncFileResultDecode : IO Unit := do
+  let valid := syncFileResultJson 7 (syncSummaryJson 7 (syncReadinessCurrentJson true))
+  discard <| IO.ofExcept <| fromJson? (α := SyncFileResult) valid
+  for field in #[
+    "saveReady",
+    "errorCount",
+    "warningCount",
+    "saveReadyReason",
+    "blockingDiagnostics",
+    "blockingCommandMessages",
+    "stateErrorCount",
+    "stateCommandErrorCount"
+  ] do
+    expectSyncFileResultDecodeFailure s!"sync result removed top-level field {field}" <|
+      valid.setObjVal! field Json.null
+  expectSyncFileResultDecodeFailure "sync result version mismatch" <|
+    syncFileResultJson 8 (syncSummaryJson 7 (syncReadinessCurrentJson true))
+  let incompleteReadiness := Json.mkObj [
+    ("errorCount", toJson (0 : Nat)),
+    ("warningCount", toJson (0 : Nat)),
+    ("saveReadyReason", toJson "ok"),
+    ("blockingDiagnostics", toJson (#[] : Array SyncBlockingDiagnostic)),
+    ("blockingCommandMessages", toJson (#[] : Array SyncBlockingCommandMessage))
+  ]
+  expectSyncFileResultDecodeFailure "sync result missing nested saveReady" <|
+    syncFileResultJson 7 (syncSummaryJson 7 incompleteReadiness)
 
 private def checkBrokerFailureResponse : IO Unit := do
   let data := Json.mkObj [("uri", toJson "file:///A.lean")]
@@ -215,62 +380,60 @@ private def checkReadinessBoundary : IO Unit := do
   require "readiness recovery plan should end with lake build"
     (recoveryPlan[2]? == some "lake build")
 
-  let warningDiagnostic := diagnostic .warning "warning only"
-  let successResp := syncFileSuccessResponse 9 #[warningDiagnostic] {
-    stateErrorCount := 1
-    stateCommandErrorCount := 2
-    saveReady := false
-    saveReadyReason := "documentErrors"
-  } (some { updates := 5, done := true })
+  let successResp := syncFileSuccessResponse
+    (syncSummaryFor 9 (saveReady := false) (saveReadyReason := "documentErrors"))
+    (some { updates := 5, done := true })
   require "readiness success response should be ok" successResp.ok
   require "readiness success response should keep fileProgress"
     (successResp.fileProgress? == some { updates := 5, done := true })
   let successResult ← requireResponseResult "readiness success response" successResp
   requireJsonInt "readiness success payload" "version" 9 successResult
-  requireJsonInt "readiness success payload" "warningCount" 1 successResult
-  requireJsonInt "readiness success payload" "stateErrorCount" 1 successResult
-  requireJsonInt "readiness success payload" "stateCommandErrorCount" 2 successResult
-  requireJsonBool "readiness success payload" "saveReady" false successResult
-  requireJsonString "readiness success payload" "saveReadyReason" "documentErrors" successResult
+  requireFieldAbsent "readiness success payload" "warningCount" successResult
+  requireFieldAbsent "readiness success payload" "stateErrorCount" successResult
+  requireFieldAbsent "readiness success payload" "stateCommandErrorCount" successResult
+  requireFieldAbsent "readiness success payload" "blockingDiagnostics" successResult
+  requireFieldAbsent "readiness success payload" "blockingCommandMessages" successResult
+  requireFieldAbsent "readiness success payload" "saveReady" successResult
+  requireFieldAbsent "readiness success payload" "saveReadyReason" successResult
+  let successSyncResult ← expectOk "readiness success payload decode" <|
+    fromJson? (α := SyncFileResult) successResult
+  require "readiness success payload nested saveReady"
+    (!successSyncResult.currentReadiness.saveReady)
 
   let streamedErrorDiagnostic := diagnostic .error "streamed error only"
-  let stableCountsResp := syncFileSuccessResponse 10 #[streamedErrorDiagnostic, warningDiagnostic] {
-    currentSaveBlockingErrorCount? := some 4
-    currentWarningCount? := some 5
-    stateErrorCount := 4
-    stateCommandErrorCount := 1
-    saveReady := false
-    saveReadyReason := "documentErrors"
-  } none
+  let stableCountsResp := syncFileSuccessResponse
+    (syncSummaryFor 10 (saveReady := false) (saveReadyReason := "documentErrors") (warningCount := 5))
+    none
   let stableCountsResult ← requireResponseResult "readiness stable-count response" stableCountsResp
-  requireJsonInt "readiness stable-count payload" "errorCount" 4 stableCountsResult
-  requireJsonInt "readiness stable-count payload" "warningCount" 5 stableCountsResult
-  requireJsonInt "readiness stable-count payload" "stateErrorCount" 4 stableCountsResult
+  requireFieldAbsent "readiness stable-count payload" "errorCount" stableCountsResult
+  requireFieldAbsent "readiness stable-count payload" "warningCount" stableCountsResult
+  requireFieldAbsent "readiness stable-count payload" "stateErrorCount" stableCountsResult
+  requireFieldAbsent "readiness stable-count payload" "stateCommandErrorCount" stableCountsResult
+  requireFieldAbsent "readiness stable-count payload" "blockingDiagnostics" stableCountsResult
+  requireFieldAbsent "readiness stable-count payload" "blockingCommandMessages" stableCountsResult
 
   if syncErrorCount #[streamedErrorDiagnostic] != 1 then
     throw <| IO.userError
       s!"readiness diagnostic fixture should count as an error, got {syncErrorCount #[streamedErrorDiagnostic]}"
 
-  let interactiveOnlyResp := syncFileSuccessResponse 11 #[streamedErrorDiagnostic] {
-    currentSaveBlockingErrorCount? := some 0
-    currentWarningCount? := some 0
-    stateErrorCount := 0
-    stateCommandErrorCount := 0
-    saveReady := true
-    saveReadyReason := "ok"
-  } none
+  let interactiveOnlyResp := syncFileSuccessResponse (syncSummaryFor 11) none
   let interactiveOnlyResult ← requireResponseResult
     "readiness interactive-only diagnostic response" interactiveOnlyResp
-  requireJsonInt "readiness interactive-only payload" "errorCount" 0 interactiveOnlyResult
-  requireJsonInt "readiness interactive-only payload" "stateErrorCount" 0 interactiveOnlyResult
-  requireJsonBool "readiness interactive-only payload" "saveReady" true interactiveOnlyResult
-  requireJsonString "readiness interactive-only payload" "saveReadyReason" "ok"
+  requireFieldAbsent "readiness interactive-only payload" "errorCount" interactiveOnlyResult
+  requireFieldAbsent "readiness interactive-only payload" "stateErrorCount" interactiveOnlyResult
+  requireFieldAbsent "readiness interactive-only payload" "stateCommandErrorCount"
     interactiveOnlyResult
-  let interactiveOnlyDecoded ← expectOk "readiness interactive-only decode"
-    (fromJson? (α := SyncFileResult) interactiveOnlyResult)
-  require "readiness interactive-only payload keeps diagnostics separate"
-    (interactiveOnlyDecoded.blockingDiagnostics.isEmpty &&
-      interactiveOnlyDecoded.blockingCommandMessages.isEmpty)
+  requireFieldAbsent "readiness interactive-only payload" "blockingDiagnostics"
+    interactiveOnlyResult
+  requireFieldAbsent "readiness interactive-only payload" "blockingCommandMessages"
+    interactiveOnlyResult
+  requireFieldAbsent "readiness interactive-only payload" "saveReady" interactiveOnlyResult
+  requireFieldAbsent "readiness interactive-only payload" "saveReadyReason"
+    interactiveOnlyResult
+  let interactiveOnlySyncResult ← expectOk "readiness interactive-only payload decode" <|
+    fromJson? (α := SyncFileResult) interactiveOnlyResult
+  require "readiness interactive-only payload nested saveReady"
+    interactiveOnlySyncResult.currentReadiness.saveReady
 
 private def checkRequestArgsBoundary : IO Unit := do
   let runAtMissingText : Request := {
@@ -310,6 +473,8 @@ private def checkRequestArgsBoundary : IO Unit := do
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
+  checkOrderedJsonPretty
+  checkSyncFileResultDecode
   checkBrokerFailureResponse
   checkJsonRpcErrorObjectMapping
   checkReadinessBoundary

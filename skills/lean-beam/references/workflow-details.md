@@ -109,9 +109,8 @@ What is not a valid checkpoint target:
   as one step, especially after saving an upstream dependency
 - treat `lean-beam sync` as the explicit supported boundary between real file edits and Beam daemon
   session state
-- `lean-beam sync` returns compact JSON on stdout, including current save-blocking
-  `result.errorCount` and current `result.warningCount`, and streams human diagnostics on stderr;
-  `result.errorCount` is not a count of Lean-published diagnostics whose severity is `error`
+- `lean-beam sync` returns ordered machine-readable JSON on stdout with the current `syncSummary`
+  and streams human diagnostics on stderr
 - if imported targets are stale or the Lean worker cannot finish that diagnostics barrier,
   `lean-beam sync` fails; do not treat a failed sync as safe to follow with `lean-beam save`
 - `lean-beam sync` keeps machine-readable JSON on stdout; interactive progress text goes to stderr
@@ -147,13 +146,8 @@ What is not a valid checkpoint target:
 - streamed diagnostics are request events, not a since-last-sync diff
 - successful `lean-beam save` includes the sync verdict it established in `result.sync`
 - successful `lean-beam close-save` includes the sync verdict in `result.saved.sync`
-- prefer `result.syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for
-  save/checkpoint decisions
-- Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
-  not a separate broker-side veto
-- save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot: current
-  save-blocking frontend errors block save; diagnostic streams, diagnostic summaries, and message
-  history are observations, so clients should not reconstruct save readiness from them
+- use `result.syncSummary.readiness.current.saveReady` for save/checkpoint decisions; use
+  `errorCount` and blocking evidence to explain blocked verdicts
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
   `error.data.sync` contains the blocking sync verdict
@@ -192,10 +186,8 @@ Interpretation:
 
 - after `lean-beam sync`, expect top-level `fileProgress.done = true`
 - successful `lean-beam sync` transport does not mean the file is error-free; inspect
-  `result.syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for current
-  save-readiness; the flat `result.errorCount`, `result.warningCount`, `result.saveReady`,
-  `result.stateErrorCount`, and `result.stateCommandErrorCount` fields are current alpha
-  projections of that verdict, not separate compatibility promises
+  `result.syncSummary.readiness.current.saveReady` for current save-readiness; use `errorCount`
+  and blocking evidence to explain blocked verdicts
 - if you need to know whether Lean published error-severity diagnostics, inspect
   `result.syncSummary.diagnostics.current.error`; do not use that field as the save/checkpoint
   decision

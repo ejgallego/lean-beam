@@ -490,8 +490,6 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
   if broken.saveReadyReason != "documentErrors" then
     throw <| IO.userError
       s!"broken saveReadiness: expected reason = documentErrors, got {broken.saveReadyReason}"
-  if broken.saveBlockingErrorCount == 0 then
-    throw <| IO.userError s!"broken saveReadiness: expected saveBlockingErrorCount > 0, got {(toJson broken).compress}"
   if broken.blockingDiagnostics.isEmpty && broken.blockingCommandMessages.isEmpty then
     throw <| IO.userError
       s!"broken saveReadiness: expected save-blocking evidence, got {(toJson broken).compress}"
@@ -511,12 +509,6 @@ private def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
   if !readiness.saveReady then
     throw <| IO.userError
       s!"reported-only saveReadiness: expected saveReady = true, got {(toJson readiness).compress}"
-  if readiness.saveBlockingErrorCount != 0 then
-    throw <| IO.userError
-      s!"reported-only saveReadiness: expected saveBlockingErrorCount = 0, got {(toJson readiness).compress}"
-  if readiness.commandErrorCount != 0 then
-    throw <| IO.userError
-      s!"reported-only saveReadiness: expected commandErrorCount = 0, got {(toJson readiness).compress}"
   unless readiness.blockingDiagnostics.isEmpty && readiness.blockingCommandMessages.isEmpty do
     throw <| IO.userError
       s!"reported-only saveReadiness: expected no save-blocking evidence, got {(toJson readiness).compress}"

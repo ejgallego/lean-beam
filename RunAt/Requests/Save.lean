@@ -227,11 +227,8 @@ def collectSaveReadiness
   let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
     | return ({
       version := doc.meta.version
-      saveBlockingErrorCount :=
-        if frontendErrorCount == 0 then diagnosticErrors.size else frontendErrorCount
       currentWarningCount :=
         if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
-      commandErrorCount := commandErrors.size
       saveReady := false
       saveReadyReason := saveReadinessNotElaboratedReason
       saveReadyMessage? := some (saveArtifactsErrorMessage diagnosticErrors commandErrors)
@@ -242,10 +239,8 @@ def collectSaveReadiness
   let saveReady := frontendErrorCount == 0
   let readiness : RunAt.Internal.SaveReadinessResult := {
     version := doc.meta.version
-    saveBlockingErrorCount := frontendErrorCount
     currentWarningCount :=
       if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
-    commandErrorCount := commandErrors.size
     saveReady := saveReady
     saveReadyReason := if saveReady then "ok" else saveReadinessDocumentErrorsReason
     saveReadyMessage? :=

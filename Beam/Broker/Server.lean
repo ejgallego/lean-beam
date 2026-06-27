@@ -1212,7 +1212,7 @@ private def saveOlean
   let (syncSummary, syncSummaryRecord) :=
     mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
   let syncVerdict :=
-    syncFileSuccessPayload started.version currentDiagnostics saveReadiness (some syncSummary)
+    syncFileSuccessPayload syncSummary
   recordCompletedSyncSummary server started.session started.uri started.version syncSummaryRecord
   let spec ← liftBrokerFailureIO <|
     mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
@@ -1324,7 +1324,7 @@ private def handleSyncFileOp
   liftHandlerIO <| traceBroker
     s!"sync_file response ready clientRequestId={optionLabel req.clientRequestId?} version={started.version} saveReady={saveReadiness.saveReady}"
   pure (syncFileSuccessResponse
-    started.version currentDiagnostics saveReadiness fileProgress? (some syncSummary) replyDiagnostics?,
+    syncSummary fileProgress? replyDiagnostics?,
     false)
 
 private def handleCloseOp

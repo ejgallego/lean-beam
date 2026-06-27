@@ -15,16 +15,6 @@ namespace RunAtTest.Broker.SyncSummaryDeltaTest
 
 open RunAtTest.Broker.TestUtil
 
-private def requireSyncSummary
-    (label : String)
-    (result : Beam.Broker.SyncFileResult) : IO Beam.Broker.SyncSummary := do
-  let some summary := result.syncSummary?
-    | throw <| IO.userError s!"expected {label} to include syncSummary, got {(toJson result).compress}"
-  if summary.currentVersion != result.version then
-    throw <| IO.userError
-      s!"expected {label} syncSummary.currentVersion to match result.version, got {(toJson summary).compress}"
-  pure summary
-
 private def requireDiagnosticDelta
     (label : String)
     (summary : Beam.Broker.SyncSummary) : IO Beam.Broker.SyncDiagnosticDelta := do
@@ -54,8 +44,8 @@ private def runSync
   let resp ← requireFinalStreamResponse label messages
   let payload ← expectOk resp
   expectNoReplayDiagnosticsField label payload
-  let result : Beam.Broker.SyncFileResult ← IO.ofExcept <| fromJson? payload
-  let summary ← requireSyncSummary label result
+  let result ← requireSyncFileResult label payload
+  let summary := result.syncSummary
   pure (result, summary, messages)
 
 private def checkInitialWarningSync
@@ -63,7 +53,7 @@ private def checkInitialWarningSync
     (root : System.FilePath) : IO Beam.Broker.SyncFileResult := do
   writeSaveWarningFile root "-- sync-summary initial warning"
   let (result, summary, messages) ← runSync "initial warning sync_file" port root
-  if result.errorCount != 0 || result.stateErrorCount != 0 || !result.saveReady then
+  if summary.readiness.current.errorCount != 0 || !summary.readiness.current.saveReady then
     throw <| IO.userError
       s!"expected initial warning sync_file to be save-ready with zero errors, got {(toJson result).compress}"
   if summary.deltaBaseVersion?.isSome || summary.diagnostics.delta?.isSome ||
@@ -86,14 +76,14 @@ private def checkBrokenSync
   if result.version <= base.version then
     throw <| IO.userError
       s!"expected broken sync_file to advance from version {base.version}, got {result.version}"
-  if result.errorCount == 0 || result.stateErrorCount == 0 || result.saveReady then
+  if summary.readiness.current.errorCount == 0 || summary.readiness.current.saveReady then
     throw <| IO.userError
       s!"expected broken sync_file to be save-blocked with nonzero save-blocking errors, got {(toJson result).compress}"
   if summary.deltaBaseVersion? != some base.version || !summary.sourceChangedSinceDeltaBase then
     throw <| IO.userError
       s!"expected broken sync_file to delta against changed base version {base.version}, got {(toJson summary).compress}"
   let delta ← requireDiagnosticDelta "broken sync_file" summary
-  if delta.baseVersion != base.version || delta.currentVersion != result.version || delta.added == 0 then
+  if delta.added == 0 then
     throw <| IO.userError
       s!"expected broken sync_file diagnostic delta to add an error, got {(toJson delta).compress}"
   let readinessDelta ← requireReadinessDelta "broken sync_file" summary
@@ -116,24 +106,20 @@ private def checkUnchangedBrokenResync
   if result.version != base.version then
     throw <| IO.userError
       s!"expected unchanged broken sync_file to keep version {base.version}, got {result.version}"
-  if result.errorCount == 0 || result.stateErrorCount == 0 || result.saveReady then
+  if summary.readiness.current.errorCount == 0 || summary.readiness.current.saveReady then
     throw <| IO.userError
       s!"expected unchanged broken sync_file save-blocking counts to stay nonzero, got {(toJson result).compress}"
   if summary.deltaBaseVersion? != some base.version || summary.sourceChangedSinceDeltaBase then
     throw <| IO.userError
       s!"expected unchanged broken sync_file to delta against unchanged version {base.version}, got {(toJson summary).compress}"
   let diagnosticDelta ← requireDiagnosticDelta "unchanged broken sync_file" summary
-  if diagnosticDelta.baseVersion != base.version ||
-      diagnosticDelta.currentVersion != result.version ||
-      diagnosticDelta.persisted == 0 ||
+  if diagnosticDelta.persisted == 0 ||
       diagnosticDelta.added != 0 ||
       diagnosticDelta.removed != 0 then
     throw <| IO.userError
       s!"expected unchanged broken sync_file diagnostic delta to persist the error, got {(toJson diagnosticDelta).compress}"
   let readinessDelta ← requireReadinessDelta "unchanged broken sync_file" summary
-  if readinessDelta.baseVersion != base.version ||
-      readinessDelta.currentVersion != result.version ||
-      readinessDelta.saveReadyChanged then
+  if readinessDelta.saveReadyChanged then
     throw <| IO.userError
       s!"expected unchanged broken sync_file readiness delta to keep saveReady=false, got {(toJson readinessDelta).compress}"
   pure result
@@ -147,16 +133,14 @@ private def checkRecoveredSync
   if result.version <= base.version then
     throw <| IO.userError
       s!"expected recovered sync_file to advance from version {base.version}, got {result.version}"
-  if result.errorCount != 0 || result.stateErrorCount != 0 || !result.saveReady then
+  if summary.readiness.current.errorCount != 0 || !summary.readiness.current.saveReady then
     throw <| IO.userError
       s!"expected recovered sync_file to be save-ready with zero errors, got {(toJson result).compress}"
   if summary.deltaBaseVersion? != some base.version || !summary.sourceChangedSinceDeltaBase then
     throw <| IO.userError
       s!"expected recovered sync_file to delta against changed base version {base.version}, got {(toJson summary).compress}"
   let diagnosticDelta ← requireDiagnosticDelta "recovered sync_file" summary
-  if diagnosticDelta.baseVersion != base.version ||
-      diagnosticDelta.currentVersion != result.version ||
-      diagnosticDelta.removed == 0 then
+  if diagnosticDelta.removed == 0 then
     throw <| IO.userError
       s!"expected recovered sync_file diagnostic delta to remove the prior error, got {(toJson diagnosticDelta).compress}"
   let readinessDelta ← requireReadinessDelta "recovered sync_file" summary

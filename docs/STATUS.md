@@ -103,17 +103,15 @@ long-term contract. Current handle behavior is:
 
 The local Beam daemon convenience layer is also still alpha. In particular, `lean-beam sync` is now
 the supported on-disk edit barrier for Lean files: it waits for diagnostics for the synced version,
-streams fresh request diagnostics, and returns a compact JSON verdict. By default `lean-beam sync`,
-`lean-beam save`, and `lean-beam close-save` stream only errors for the current request; `+full`
-widens that stream to warnings, info, and hints. The detailed progress, diagnostics,
-save-readiness, and sync-delta contract lives in
+streams fresh request diagnostics, and returns an ordered machine-readable JSON verdict on stdout.
+By default `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` stream only errors for the
+current request; `+full` widens that stream to warnings, info, and hints. The detailed progress,
+diagnostics, save-readiness, and sync-delta contract lives in
 [Sync And Diagnostics Contract](SYNC_AND_DIAGNOSTICS.md). For programmatic local consumers, the
 preferred machine-readable surface is the JSON stream exposed by `beam-client request-stream`; the
 wrapper stderr format should be treated as human-facing.
-Beam broker responses include an explicit top-level `ok` boolean. Older response envelopes that omit
-`ok` still decode by inferring success from the absence of `error`, but that permissive decoder is a
-local robustness detail, not a compatibility promise. New producer code should emit `ok` because it
-gives future projection layers an unambiguous success/error discriminator.
+Beam broker responses require an explicit top-level `ok` boolean, giving projection layers an
+unambiguous success/error discriminator.
 Other slow Lean Beam daemon calls may attach a compact top-level `fileProgress` summary when they
 had to wait on the same Lean elaboration progress. That is observability except where `sync`,
 `save`, and `close-save` explicitly use it as a diagnostics-completion barrier input. MCP setup
@@ -162,14 +160,8 @@ those modules.
 
 The field-level contract lives in [Sync And Diagnostics Contract](SYNC_AND_DIAGNOSTICS.md). In
 short, progress, streamed diagnostics, current readiness, and deltas are separate typed concepts.
-During alpha, `syncSummary` is the canonical current sync/readiness shape. Machine consumers should
-prefer it over the flat top-level fields, and should use
-`syncSummary.readiness.current.saveReady` plus `saveBlockingErrorCount` for the checkpoint decision.
-Lean-side save readiness is authoritative; diagnostic severity summaries are evidence and counts,
-not a separate broker-side veto.
-Beam save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot:
-current save-blocking frontend errors block saving. Diagnostic streams, diagnostic summaries, and
-message history are observations; clients should not reconstruct save readiness from them.
+During alpha, `syncSummary` is the canonical current sync/readiness shape; the contract doc defines
+which fields are decisions, evidence, and deltas.
 
 ## Known Limitations
 

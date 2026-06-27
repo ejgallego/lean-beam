@@ -33,6 +33,20 @@ private def diagnostic
     message
   }
 
+private def blockingEvidence (diagnostic : Diagnostic) : SyncBlockingDiagnostic := {
+  range := diagnostic.fullRange
+  severity? := diagnostic.severity?
+  message := diagnostic.message
+  saveBlocking := true
+  completionBlocking := false
+}
+
+private def commandEvidence (message : String) : SyncBlockingCommandMessage := {
+  message
+  saveBlocking := true
+  completionBlocking := false
+}
+
 private def requireDiagnosticDelta
     (label : String)
     (summary : SyncSummary) : IO SyncDiagnosticDelta := do
@@ -53,7 +67,6 @@ private def diagnosticMessages (diagnostics : Array Diagnostic) : Array String :
 private def checkFirstSyncSummary : IO Unit := do
   let warning := diagnostic 0 0 1 (some .warning) "warning only"
   let readiness : SyncSaveReadiness := {
-    currentSaveBlockingErrorCount? := some 0
     currentWarningCount? := some 1
     saveReady := true
     saveReadyReason := "ok"
@@ -82,19 +95,18 @@ private def checkDuplicateDiagnosticDelta : IO Unit := do
     textHash := 10
     diagnostics := #[duplicate, duplicate]
     readiness := {
-      saveBlockingErrorCount := 0
+      errorCount := 0
       warningCount := 2
-      commandErrorCount := 0
       saveReady := true
       saveReadyReason := "ok"
     }
   }
   let readiness : SyncSaveReadiness := {
-    currentSaveBlockingErrorCount? := some 1
     currentWarningCount? := some 1
-    stateCommandErrorCount := 1
     saveReady := false
     saveReadyReason := "documentErrors"
+    blockingDiagnostics := #[blockingEvidence added]
+    blockingCommandMessages := #[commandEvidence "new error"]
   }
   let (summary, record) := mkSyncSummary 3 11 #[duplicate, added] readiness (some prior)
   let diagnosticDelta ← requireDiagnosticDelta "duplicate diagnostic delta" summary
@@ -107,22 +119,19 @@ private def checkDuplicateDiagnosticDelta : IO Unit := do
       summary.diagnostics.current.error == 1 &&
       summary.diagnostics.current.total == 2)
   require "duplicate diagnostic bag delta counts"
-    (diagnosticDelta.baseVersion == 2 &&
-      diagnosticDelta.currentVersion == 3 &&
-      diagnosticDelta.added == 1 &&
+    (diagnosticDelta.added == 1 &&
       diagnosticDelta.removed == 1 &&
       diagnosticDelta.persisted == 1)
   require "readiness count deltas"
-    (readinessDelta.saveBlockingErrorCountDelta == (1 : Int) &&
-      readinessDelta.warningCountDelta == (-1 : Int) &&
-      readinessDelta.commandErrorCountDelta == (1 : Int))
+    (readinessDelta.errorCountDelta == (1 : Int) &&
+      readinessDelta.warningCountDelta == (-1 : Int))
   require "readiness boolean delta"
     (readinessDelta.saveReadyChanged &&
       readinessDelta.baseSaveReady &&
       !readinessDelta.currentSaveReady)
   require "duplicate diagnostic record updates current state"
     (record.version == 3 && record.textHash == 11 &&
-      record.readiness.saveBlockingErrorCount == 1 &&
+      record.readiness.errorCount == 1 &&
       !record.readiness.saveReady)
 
 private def checkEffectiveSeverityDiagnosticIdentity : IO Unit := do
@@ -134,16 +143,16 @@ private def checkEffectiveSeverityDiagnosticIdentity : IO Unit := do
     textHash := 20
     diagnostics := #[priorDiagnostic]
     readiness := {
-      saveBlockingErrorCount := 1
+      errorCount := 1
       saveReady := false
       saveReadyReason := "documentErrors"
     }
   }
   let readiness : SyncSaveReadiness := {
-    currentSaveBlockingErrorCount? := some 1
     currentWarningCount? := some 0
     saveReady := false
     saveReadyReason := "documentErrors"
+    blockingDiagnostics := #[blockingEvidence currentDiagnostic]
   }
   let (summary, _) := mkSyncSummary 5 20 #[currentDiagnostic] readiness (some prior)
   let delta ← requireDiagnosticDelta "effective severity diagnostic identity" summary
@@ -158,7 +167,6 @@ private def checkEffectiveSeverityDiagnosticIdentity : IO Unit := do
 private def checkDiagnosticErrorsDoNotOverrideReadiness : IO Unit := do
   let interactiveDiagnostic := diagnostic 0 0 1 (some .error) "interactive-only diagnostic"
   let readiness : SyncSaveReadiness := {
-    currentSaveBlockingErrorCount? := some 0
     currentWarningCount? := some 0
     saveReady := true
     saveReadyReason := "ok"
@@ -169,38 +177,24 @@ private def checkDiagnosticErrorsDoNotOverrideReadiness : IO Unit := do
     (summary.diagnostics.current.error == 1 &&
       summary.diagnostics.current.total == 1)
   require "diagnostics do not override Lean save-readiness"
-    (summary.readiness.current.saveBlockingErrorCount == 0 &&
+    (summary.readiness.current.errorCount == 0 &&
       summary.readiness.current.saveReady &&
       summary.readiness.current.saveReadyReason == "ok")
   require "summary does not synthesize save-blocking evidence while Lean is ready"
     (summary.readiness.current.blockingDiagnostics.isEmpty &&
       summary.readiness.current.blockingCommandMessages.isEmpty)
   require "summary record preserves Lean save-readiness verdict"
-    (record.readiness.saveBlockingErrorCount == 0 &&
+    (record.readiness.errorCount == 0 &&
       record.readiness.saveReady)
 
 private def checkSaveBlockingEvidenceProjection : IO Unit := do
   let blockingDiagnostic := diagnostic 0 0 1 (some .error) "save-blocking diagnostic"
-  let evidence : SyncBlockingDiagnostic := {
-    range := blockingDiagnostic.fullRange
-    severity? := some .error
-    message := "save-blocking diagnostic"
-    saveBlocking := true
-    completionBlocking := false
-  }
-  let commandEvidence : SyncBlockingCommandMessage := {
-    message := "save-blocking command message"
-    saveBlocking := true
-    completionBlocking := false
-  }
   let readiness : SyncSaveReadiness := {
-    currentSaveBlockingErrorCount? := some 1
     currentWarningCount? := some 0
-    stateCommandErrorCount := 1
     saveReady := false
     saveReadyReason := "documentErrors"
-    blockingDiagnostics := #[evidence]
-    blockingCommandMessages := #[commandEvidence]
+    blockingDiagnostics := #[blockingEvidence blockingDiagnostic]
+    blockingCommandMessages := #[commandEvidence "save-blocking command message"]
   }
   let (summary, record) := mkSyncSummary 7 28 #[blockingDiagnostic] readiness none
 
@@ -221,7 +215,7 @@ private def checkCurrentSyncDiagnosticsFallback : IO Unit := do
     textHash := 30
     diagnostics := #[priorDiagnostic]
     readiness := {
-      saveBlockingErrorCount := 1
+      errorCount := 1
       saveReady := false
       saveReadyReason := "documentErrors"
     }

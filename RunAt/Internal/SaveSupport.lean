@@ -89,9 +89,7 @@ private def optionalField? [FromJson α] (json : Json) (field : String) : Except
 /-- Internal success payload for save-readiness checks. -/
 structure SaveReadinessResult where
   version : Nat
-  saveBlockingErrorCount : Nat := 0
   currentWarningCount : Nat := 0
-  commandErrorCount : Nat := 0
   saveReady : Bool := true
   saveReadyReason : String := "ok"
   saveReadyMessage? : Option String := none
@@ -102,9 +100,7 @@ structure SaveReadinessResult where
 instance : FromJson SaveReadinessResult where
   fromJson? json := do
     let version ← json.getObjValAs? Nat "version"
-    let saveBlockingErrorCount? ← optionalField? (α := Nat) json "saveBlockingErrorCount"
     let currentWarningCount? ← optionalField? (α := Nat) json "currentWarningCount"
-    let commandErrorCount? ← optionalField? (α := Nat) json "commandErrorCount"
     let saveReady? ← optionalField? (α := Bool) json "saveReady"
     let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
     let saveReadyMessage? ← optionalField? (α := String) json "saveReadyMessage"
@@ -114,9 +110,7 @@ instance : FromJson SaveReadinessResult where
       optionalField? (α := Array SaveBlockingCommandMessage) json "blockingCommandMessages"
     pure {
       version
-      saveBlockingErrorCount := saveBlockingErrorCount?.getD 0
       currentWarningCount := currentWarningCount?.getD 0
-      commandErrorCount := commandErrorCount?.getD 0
       saveReady := saveReady?.getD true
       saveReadyReason := saveReadyReason?.getD "ok"
       saveReadyMessage?

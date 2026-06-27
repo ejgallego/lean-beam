@@ -80,8 +80,6 @@ assert data["runAtBatchWallTimeUs"] > 0, data
 assert data["changeBatchILeansWallTimeUs"] > 0, data
 assert data["saveReady"] is True, data
 assert data["saveReadyReason"] == "ok", data
-assert data["saveBlockingErrorCount"] == 0, data
-assert data["commandErrorCount"] == 0, data
 PY
   rm -f "$report"
   trap - RETURN

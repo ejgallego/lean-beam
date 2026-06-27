@@ -50,6 +50,13 @@ def requireFileProgress (label : String) (resp : Beam.Broker.Response) :
     | throw <| IO.userError s!"expected {label} to include top-level fileProgress"
   pure progress
 
+def requireSyncFileResult
+    (label : String)
+    (payload : Json) : IO Beam.Broker.SyncFileResult := do
+  match fromJson? payload with
+  | .ok result => pure result
+  | .error err => throw <| IO.userError s!"{label}: failed to decode sync result: {err}"
+
 def expectNoReplayDiagnosticsField (label : String) (payload : Json) : IO Unit := do
   match payload.getObjVal? "diagnostics" with
   | .ok diagnostics =>
