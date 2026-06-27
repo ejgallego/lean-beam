@@ -47,6 +47,8 @@ Current frozen request semantics:
 
 - the request is identified only by `textDocument`, `position`, and `text`
 - callers do not choose command vs tactic mode
+- command-mode `text` is one Lean command, not a top-level command sequence
+- proof-mode `text` is one tactic block
 - `position` uses Lean/LSP `Position` semantics against the current open document version
 - positions outside the document are invalid request parameters
 - request-level failures are reported as transport errors rather than as `Result`
@@ -232,6 +234,7 @@ Current frozen response semantics:
 - request-level failures are not encoded here; they are transport errors
 - `success = true` iff execution completes without any error-severity messages
 - semantic Lean failures stay in this payload through `messages`
+- command-mode top-level command sequences fail here with a `runAtSupportsOneCommandOnly` message
 - no backend tag is exposed in the public payload
 - no extra status enum is exposed beyond `success`
 - `handle?` is present only when the request asked the server to retain follow-up state

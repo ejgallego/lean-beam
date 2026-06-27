@@ -18,14 +18,38 @@ open RunAt.Lib
 
 namespace RunAt.Requests
 
+def runAtSupportsOneCommandOnlyCode : String :=
+  "runAtSupportsOneCommandOnly"
+
+private inductive CommandParseResult where
+  | ok (stx : Syntax)
+  | extraInput (err : String)
+  | error (err : String)
+
+private def parseOneCommandText (env : Environment) (text : String) : CommandParseResult :=
+  let p := Parser.andthenFn Parser.whitespace (Parser.categoryParserFnImpl `command)
+  let ictx := Parser.mkInputContext text "<runAt>"
+  let s := p.run ictx { env, options := {} } (Parser.getTokenTable env) (Parser.mkParserState text)
+  if !s.allErrors.isEmpty then
+    .error (s.toErrorMsg ictx)
+  else if ictx.atEnd s.pos then
+    .ok s.stxStack.back
+  else
+    .extraInput ((s.mkError "end of input").toErrorMsg ictx)
+
+private def oneCommandOnlyResult (err : String) : Result :=
+  errorResult
+    s!"{runAtSupportsOneCommandOnlyCode}: command-mode runAt accepts exactly one Lean command, not a top-level command sequence. Use a stored handle continuation for explicit speculative sequencing, or write the sequence to the file and sync it. Original parse error: {err}"
+
 def runCommandText (snap : Snapshots.Snapshot) (text : String) :
     RequestM (Result × Option StoredHandleState) := do
   checkRequestCancelled
   withInnerCancelToken fun innerCancelTk => do
     let rc ← readThe RequestContext
     let stx ←
-      match Parser.runParserCategory snap.env `command text "<runAt>" with
+      match parseOneCommandText snap.env text with
       | .ok stx => pure stx
+      | .extraInput err => return (oneCommandOnlyResult err, none)
       | .error err => return (errorResult err, none)
     let (output, response) ← IO.FS.withIsolatedStreams do
       EIO.toBaseIO do

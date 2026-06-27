@@ -10,6 +10,7 @@ Use this reference when a task is confused about what `lean-beam run-at` means. 
 - it is not implicit continuation from one speculative probe to the next
 - it is not an indentation or whitespace synthesizer
 - it does not insert missing `\n` separators or rewrite one-line text into a multi-line edit for you
+- in command mode, it does not accept a complete top-level command sequence in one request
 
 ## 1. Expecting Full-File Diagnostics After A Speculative Probe
 
@@ -59,7 +60,32 @@ If the task is branching or doing playouts, also open
 If a speculative step looks right and you want it to become real source, open
 [commit-speculative.md](commit-speculative.md).
 
-## 3. Expecting Indentation Or Newlines To Be Filled Automatically
+## 3. Expecting A Command Sequence In One Request
+
+Wrong expectation:
+
+```bash
+printf 'def tmpA : Nat := 1\n\n#check tmpA\n' | lean-beam run-at "Foo.lean" 30 0 --stdin
+```
+
+Correct workflows:
+
+```bash
+root="$(lean-beam run-at-handle "Foo.lean" 30 0 "def tmpA : Nat := 1")"
+printf '%s\n' "$root" | lean-beam run-with "Foo.lean" - "#check tmpA"
+```
+
+or make the command sequence a real saved edit and sync the file:
+
+```bash
+lean-beam sync "Foo.lean"
+```
+
+One command-mode `run-at` request accepts one Lean command. A top-level command sequence fails with
+`runAtSupportsOneCommandOnly` so clients do not mistake the result for an ordinary syntax problem in
+the second command.
+
+## 4. Expecting Indentation Or Newlines To Be Filled Automatically
 
 Wrong expectation:
 
