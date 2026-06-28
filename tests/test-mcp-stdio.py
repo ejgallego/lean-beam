@@ -21,7 +21,7 @@ from mcp_test_util import (
     notifications_by_method,
     progress_messages,
     require,
-    require_file_progress_line,
+    require_file_progress_range,
     save_warning_text,
     shared_lib_name,
 )
@@ -723,12 +723,12 @@ def require_progress_message_contains(notifications, label, *needles):
         )
 
 
-def require_file_progress_position(structured, label, line, total):
-    require_file_progress_line(structured, label)
+def require_file_progress_range_end(structured, label, range_end):
+    require_file_progress_range(structured, label)
     progress = structured["file_progress"]
     require(
-        progress.get("line") == line and progress.get("totalLines") == total,
-        f"{label}: expected file_progress line={line}/{total}, got {progress}",
+        progress.get("rangeEndLine") == range_end,
+        f"{label}: expected file_progress rangeEndLine={range_end}, got {progress}",
     )
 
 
@@ -1052,7 +1052,7 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
                     "preparing lean_sync",
                     "running lean_sync",
                     "lean_sync fileProgress",
-                    "line=",
+                    "range",
                     "done=true",
                 )
             else:
@@ -1138,7 +1138,7 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
             require(result.get("isError") is not True, f"lean_sync with progress token failed: {result}")
             structured = result.get("structuredContent")
             require(isinstance(structured, dict), f"lean_sync with progress token missing structuredContent: {result}")
-            require_file_progress_position(structured, "lean_sync progress", 1, 1)
+            require_file_progress_range_end(structured, "lean_sync progress", 1)
             token_notifications = [
                 notification
                 for notification in notifications_by_method(
@@ -1152,7 +1152,7 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
                 "lean_sync progress",
                 "running lean_sync",
                 "lean_sync fileProgress",
-                "line=1/1",
+                "rangeEndLine=1",
                 "done=true",
             )
 

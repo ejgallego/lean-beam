@@ -51,7 +51,8 @@ private def jsonFieldPriority : String -> Nat
   | "end" => 91
   | "line" => 92
   | "character" => 93
-  | "totalLines" => 94
+  | "rangeStartLine" => 94
+  | "rangeEndLine" => 95
   | _ => 1000
 
 private def jsonFieldLess (left right : Prod String Json) : Bool :=

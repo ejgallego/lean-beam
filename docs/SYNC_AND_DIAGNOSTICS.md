@@ -60,9 +60,11 @@ MCP clients can pass `_meta.progressToken` on `tools/call` requests to receive
 `notifications/progress` for setup and execution phases. Beam also reports throttled Lean
 file-progress observations when Lean publishes them.
 
-`fileProgress` and MCP `file_progress` fields contain compact Lean processing-range observations:
-`line`, `totalLines`, `updates`, and `done`. They are not verified source line counts and should not
-be compared to `wc -l`. Use them for coarse UI progress only. Final machine decisions should use
+`fileProgress` and MCP `file_progress` fields contain compact Lean processing-range observations.
+They always report `updates` and `done`; when Lean publishes range-bearing progress, they may also
+report `rangeStartLine` and/or `rangeEndLine`. `rangeEndLine` is the upper line bound reported by
+Lean's progress ranges, not the source file's line count; diagnostics may legitimately refer to
+lines beyond it. Use these fields for coarse UI progress only. Final machine decisions should use
 the readiness and diagnostic summary fields.
 
 For `sync`, `save`, and `close-save`, completed Lean file progress is one input to the

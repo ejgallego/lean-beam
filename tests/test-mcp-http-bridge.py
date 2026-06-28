@@ -16,7 +16,7 @@ from pathlib import Path
 from mcp_test_util import (
     fail,
     require,
-    require_file_progress_line,
+    require_file_progress_range,
     save_warning_text,
     shared_lib_name,
 )
@@ -282,7 +282,7 @@ def main():
             require(sync.get("isError") is not True, f"lean_sync returned tool error: {sync}")
             structured = sync.get("structuredContent")
             require(isinstance(structured, dict), f"sync missing structuredContent: {sync}")
-            require_file_progress_line(structured, "lean_sync")
+            require_file_progress_range(structured, "lean_sync")
 
             (project_root / "SaveSmoke" / "B.lean").write_text(
                 save_warning_text("-- mcp http diagnostic log"),

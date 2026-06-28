@@ -100,12 +100,7 @@ expect_sync_summary_version_matches() {
     cat "$broken_sync_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected broken lean-sync to report completed top-level fileProgress" >&2
-    printf '%s\n' "$broken_sync" >&2
-    cat "$broken_sync_err" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "broken lean-sync" "$broken_sync" fileProgress "$broken_sync_err"
   expect_sync_summary_version_matches "$broken_sync" result "broken lean-sync" "$broken_sync_err"
   expect_no_top_level_readiness_fields "$broken_sync" result "broken lean-sync" "$broken_sync_err"
   expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.warningCount 0 \
@@ -203,6 +198,8 @@ EOF
     cat "$warn_sync_err" >&2
     exit 1
   fi
+  assert_json_completed_file_progress "warning-only lean-sync" "$warn_sync" fileProgress \
+    "$warn_sync_err"
   expect_no_top_level_readiness_fields "$warn_sync" result "warning-only lean-sync" "$warn_sync_err"
   expect_json_int_at_least "$warn_sync" result.syncSummary.readiness.current.warningCount 1 \
     "warning-only lean-sync readiness summary" "$warn_sync_err"
@@ -224,6 +221,8 @@ EOF
     cat "$warn_save_err" >&2
     exit 1
   fi
+  assert_json_completed_file_progress "warning-only lean-save" "$warn_save" fileProgress \
+    "$warn_save_err"
   expect_no_top_level_readiness_fields "$warn_save" result.sync "warning-only lean-save" "$warn_save_err"
   expect_json_int_at_least "$warn_save" result.sync.syncSummary.readiness.current.warningCount 1 \
     "warning-only lean-save sync summary" "$warn_save_err"
@@ -260,6 +259,8 @@ EOF
     cat "$warn_sync_full_err" >&2
     exit 1
   fi
+  assert_json_completed_file_progress "warning-only lean-sync +full" "$warn_sync_full" \
+    fileProgress "$warn_sync_full_err"
   expect_no_top_level_readiness_fields "$warn_sync_full" result "warning-only lean-sync +full" "$warn_sync_full_err"
   expect_json_int_at_least "$warn_sync_full" result.syncSummary.readiness.current.warningCount 1 \
     "warning-only lean-sync +full readiness summary" "$warn_sync_full_err"
@@ -359,6 +360,8 @@ EOF
     cat "$warn_close_save_err" >&2
     exit 1
   fi
+  assert_json_completed_file_progress "warning-only lean-close-save +full" "$warn_close_save" \
+    fileProgress "$warn_close_save_err"
   expect_no_top_level_readiness_fields "$warn_close_save" result.saved.sync \
     "warning-only lean-close-save" "$warn_close_save_err"
   expect_json_int_at_least "$warn_close_save" \
@@ -502,9 +505,5 @@ EOF
     printf '%s\n' "$refreshed_a" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$refreshed_a" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected recovered lean-refresh to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$refreshed_a" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "recovered lean-refresh" "$refreshed_a" fileProgress
 )

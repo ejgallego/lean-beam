@@ -917,12 +917,29 @@ structured = result.get("structuredContent")
 if not isinstance(structured, dict) or not isinstance(structured.get("file_progress"), dict):
     raise RuntimeError(f"lean_sync result missing structured file_progress: {sync}")
 progress = structured["file_progress"]
-line = progress.get("line")
-total = progress.get("totalLines")
-if not isinstance(line, int) or isinstance(line, bool) or line < 1:
-    raise RuntimeError(f"lean_sync result has invalid file_progress line: {progress}")
-if not isinstance(total, int) or isinstance(total, bool) or total < line:
-    raise RuntimeError(f"lean_sync result has invalid file_progress totalLines: {progress}")
+updates = progress.get("updates")
+if not isinstance(updates, int) or isinstance(updates, bool) or updates < 0:
+    raise RuntimeError(f"lean_sync result has invalid file_progress updates: {progress}")
+done = progress.get("done")
+if not isinstance(done, bool):
+    raise RuntimeError(f"lean_sync result has invalid file_progress done: {progress}")
+if "line" in progress:
+    raise RuntimeError(f"lean_sync result should not expose file_progress line: {progress}")
+if "totalLines" in progress:
+    raise RuntimeError(f"lean_sync result should not expose file_progress totalLines: {progress}")
+range_end = progress.get("rangeEndLine")
+if range_end is not None and (
+    not isinstance(range_end, int) or isinstance(range_end, bool) or range_end < 1
+):
+    raise RuntimeError(f"lean_sync result has invalid file_progress rangeEndLine: {progress}")
+range_start = progress.get("rangeStartLine")
+if range_start is not None and (
+    not isinstance(range_start, int)
+    or isinstance(range_start, bool)
+    or range_start < 1
+    or (range_end is not None and range_start > range_end)
+):
+    raise RuntimeError(f"lean_sync result has invalid file_progress rangeStartLine: {progress}")
 
 send({"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
 shutdown = recv(3)
