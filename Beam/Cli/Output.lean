@@ -141,6 +141,10 @@ def decodeSyncFileResult? (resp : Response) : Option SyncFileResult := do
   let result ← resp.result?
   fromJson? result |>.toOption
 
+def decodeUpdateFileResult? (resp : Response) : Option UpdateFileResult := do
+  let result ← resp.result?
+  fromJson? result |>.toOption
+
 def responseFileProgress? (resp : Response) : Option SyncFileProgress :=
   resp.fileProgress?
 

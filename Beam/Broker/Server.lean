@@ -1304,6 +1304,8 @@ private def handleSyncFileOp
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     HandlerM (Response × Bool) := do
+  if req.backend != .lean then
+    return (reqError "invalidParams" "sync_file diagnostics barrier is only supported for Lean", false)
   let path ← requestArg req.pathArg
   liftResponseIO <| ensureRequestNotCancelled cancelRef?
   let root ← liftHandlerIO <| server.withState do

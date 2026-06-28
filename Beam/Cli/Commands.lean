@@ -27,20 +27,19 @@ private def wrapperDisplayAction (fallback : String) : IO String := do
   | some action => pure action
   | none => pure fallback
 
-private def syncVersionForRocqGoals
+private def updateVersionForRocqGoals
     (root : System.FilePath)
     (endpoint : Transport.Endpoint)
     (path : String) : IO Nat := do
   let resp ← sendRequest endpoint {
-    op := .syncFile
+    op := .updateFile
     backend := .rocq
     root? := some root.toString
     path? := some path
-    fullDiagnostics? := some false
   }
   failOnError resp
-  let some result := decodeSyncFileResult? resp
-    | throw <| IO.userError "sync_file returned an invalid response while obtaining document version"
+  let some result := decodeUpdateFileResult? resp
+    | throw <| IO.userError "update_file returned an invalid response while obtaining document version"
   pure result.version
 
 private def runLeanRunAt
@@ -322,7 +321,7 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let root ← projectRoot opts .rocq
       let daemon ← ensureProjectDaemon home root .rocq opts
       withWrapperLease root daemon.startedNew do
-        let version ← syncVersionForRocqGoals root daemon.endpoint path
+        let version ← updateVersionForRocqGoals root daemon.endpoint path
         callBroker root daemon.endpoint {
           op := .goals
           backend := .rocq
@@ -340,7 +339,7 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let root ← projectRoot opts .rocq
       let daemon ← ensureProjectDaemon home root .rocq opts
       withWrapperLease root daemon.startedNew do
-        let version ← syncVersionForRocqGoals root daemon.endpoint path
+        let version ← updateVersionForRocqGoals root daemon.endpoint path
         callBroker root daemon.endpoint {
           op := .goals
           backend := .rocq
