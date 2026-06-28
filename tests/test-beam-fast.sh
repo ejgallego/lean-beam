@@ -159,18 +159,51 @@ rm -rf -- "$cli_non_workspace_root"
 rm -f "$cli_non_workspace_err"
 
 wrapper_todo_control_dir="$(mktemp -d /tmp/lean-beam-wrapper-todo-XXXXXX)"
+wrapper_todo_sync_out="$(mktemp /tmp/lean-beam-wrapper-todo-sync-out-XXXXXX)"
+wrapper_todo_sync_err="$(mktemp /tmp/lean-beam-wrapper-todo-sync-err-XXXXXX)"
 wrapper_todo_out="$(mktemp /tmp/lean-beam-wrapper-todo-out-XXXXXX)"
 wrapper_todo_err="$(mktemp /tmp/lean-beam-wrapper-todo-err-XXXXXX)"
 wrapper_todo_cleanup() {
   BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
     scripts/lean-beam --root tests/save_olean_project shutdown > /dev/null 2>&1 || true
   rm -rf -- "$wrapper_todo_control_dir"
-  rm -f "$wrapper_todo_out" "$wrapper_todo_err"
+  rm -f "$wrapper_todo_sync_out" "$wrapper_todo_sync_err" "$wrapper_todo_out" "$wrapper_todo_err"
 }
 
 if ! BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
     scripts/lean-beam --root tests/save_olean_project \
-      todo TodoSmoke.lean 13 0 14 0 --kind sorry --suggest none \
+      sync TodoSmoke.lean \
+    > "$wrapper_todo_sync_out" 2>"$wrapper_todo_sync_err"; then
+  echo "expected lean-beam sync wrapper smoke to succeed before todo" >&2
+  cat "$wrapper_todo_sync_err" >&2
+  wrapper_todo_cleanup
+  exit 1
+fi
+
+if ! wrapper_todo_version="$(
+    WRAPPER_TODO_SYNC_OUT="$wrapper_todo_sync_out" python3 - <<'PY'
+import json
+import os
+import sys
+
+with open(os.environ["WRAPPER_TODO_SYNC_OUT"], encoding="utf-8") as f:
+    response = json.load(f)
+
+version = response.get("result", {}).get("version")
+if not isinstance(version, int):
+    print(f"expected wrapper sync response to return version, got {response}", file=sys.stderr)
+    sys.exit(1)
+
+print(version)
+PY
+)"; then
+  wrapper_todo_cleanup
+  exit 1
+fi
+
+if ! BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
+    scripts/lean-beam --root tests/save_olean_project \
+      todo TodoSmoke.lean "$wrapper_todo_version" 13 0 14 0 --kind sorry --suggest none \
     > "$wrapper_todo_out" 2>"$wrapper_todo_err"; then
   echo "expected lean-beam todo wrapper smoke to succeed" >&2
   cat "$wrapper_todo_err" >&2

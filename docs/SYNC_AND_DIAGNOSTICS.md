@@ -11,9 +11,10 @@ machine-readable JSON verdict for that version. Wrapper stdout uses stable, agen
 ordering; `beam-client request-stream` is the compact one-line JSON stream for programmatic event
 consumers.
 
-The returned document `version` is the snapshot token for direct broker and MCP callers. Position-
-or range-bound operations reject missing or stale versions; high-level wrapper commands sync first
-and inject the returned version internally.
+The returned document `version` is the snapshot token for broker, MCP, and wrapper callers.
+Position- or range-bound operations reject missing or stale versions; clients must obtain the
+version from `lean-beam sync`, broker `sync_file`, or MCP `lean_sync` before sending those
+operations.
 
 `lean-beam save` is `sync` plus a zero-build checkpoint for the synced Lake module. `lean-beam
 close-save` is `save` plus closing the tracked file afterward. Both commands return the sync verdict

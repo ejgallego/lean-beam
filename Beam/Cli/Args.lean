@@ -159,7 +159,7 @@ private def parseTodoSuggestArg (value : String) : IO RunAt.TodoSuggestMode := d
       throw <| IO.userError s!"invalid todo suggest mode '{value}' (expected one of: {allowed}): {err}"
 
 def leanTodoUsage : String :=
-  "usage: beam [--root PATH] [--socket PATH | --port N] lean-todo <path> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]"
+  "usage: beam [--root PATH] [--socket PATH | --port N] lean-todo <path> <version> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]"
 
 def parseLeanTodoArgs (args : List String) :
     IO (Option (Array RunAt.TodoKind) × Option RunAt.TodoSuggestMode) := do

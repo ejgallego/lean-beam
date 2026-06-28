@@ -118,7 +118,8 @@ names, including `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`, `lean_go
 Direct MCP clients should call `lean_sync` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_goals_prev`, `lean_goals_after`, and `lean_todo`; those
 calls require the `version` returned by the successful `lean_sync` for the same path. The
-`lean-beam` wrapper commands perform that sync-and-version step internally.
+`lean-beam` wrapper follows the same model: call `lean-beam sync <path>` first, then pass the
+returned `version` to `run-at`, `hover`, `goals-prev`, `goals-after`, or `todo`.
 
 Direct developer runs and single-project MCP registrations may still pass an explicit project root:
 

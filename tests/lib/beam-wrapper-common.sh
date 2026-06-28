@@ -152,6 +152,31 @@ json_file_array_len() {
   RUNAT_JSON_PAYLOAD="$(cat "$payload_file")" read_json_array_len "$field"
 }
 
+beam_wrapper_sync_version() {
+  local label="$1"
+  shift
+  local sync_out
+  if ! sync_out="$("$@")"; then
+    echo "expected $label sync to succeed" >&2
+    return 1
+  fi
+  if [ "$(json_text_field "$sync_out" ok)" != "true" ]; then
+    echo "expected $label sync response to be ok=true" >&2
+    printf '%s\n' "$sync_out" >&2
+    return 1
+  fi
+  local version
+  version="$(json_text_field "$sync_out" result.version)"
+  case "$version" in
+    ""|*[!0-9]*)
+      echo "expected $label sync response to include numeric result.version" >&2
+      printf '%s\n' "$sync_out" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$version"
+}
+
 print_json_file_assertion_context() {
   local payload_file="$1"
   local context_file

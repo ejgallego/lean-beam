@@ -111,9 +111,9 @@ diagnostics, save-readiness, and sync contract lives in
 preferred machine-readable surface is the JSON stream exposed by `beam-client request-stream`; the
 wrapper stderr format should be treated as human-facing.
 
-Direct broker and MCP position/range operations are version-bound: clients must first sync the file
-and pass the returned document version, while wrapper commands perform that sync-and-version step
-internally.
+Lean position/range operations are version-bound across the broker, MCP, and wrapper surfaces:
+clients must first sync the file and pass the returned document version. The version becomes
+available only from a successful sync response.
 
 Beam broker responses require an explicit top-level `ok` boolean, giving projection layers an
 unambiguous success/error discriminator.

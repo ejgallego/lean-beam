@@ -87,7 +87,7 @@ A standalone scratch file has a high fixed cost: it starts from a detached modul
 and environment, and encourages simplified contexts that may not match the real source position.
 
 A `lean-beam run-at` probe has low marginal cost once the per-project daemon and module context are
-warm: it asks one speculative question against the current saved file snapshot and the real module
+warm: it asks one speculative question against the synced file version and the real module
 environment.
 
 This changes the right agent behavior:
@@ -109,6 +109,8 @@ Prefer the smallest command that matches the actual task:
 - use `lean-beam todo` when you want actionable items in a saved file range, such as sorries, holes,
   diagnostics, code actions, or incomplete proofs
 - use `lean-beam run-at` when you want to try one speculative Lean snippet without editing the file
+- before `lean-beam run-at`, `lean-beam run-at-handle`, `lean-beam hover`, `lean-beam goals-*`, or
+  `lean-beam todo`, call `lean-beam sync <file>` and pass the returned `version`
 - for `lean-beam run-at`, `lean-beam hover`, `lean-beam goals-*`, and `lean-beam todo`, treat line and
   character arguments as Lean/LSP
   coordinates: line `0` is the first line, character `0` is the first UTF-16 code unit, and on a
@@ -143,7 +145,7 @@ probing.
 
 ## Lean-Run-At Semantics
 
-`lean-beam run-at` is a speculative execution request against one saved file snapshot. Read it as
+`lean-beam run-at` is a speculative execution request against one synced document version. Read it as
 "try this Lean text here", not as "edit the file here".
 
 What `lean-beam run-at` does not do:
@@ -253,13 +255,14 @@ lean-beam ensure
 lean-beam ensure --hold
 
 # inspect existing code or proof state
-lean-beam hover "Foo.lean" 10 2
-lean-beam goals-prev "Foo.lean" 10 2
+version="<version-from-lean-beam-sync>"
+lean-beam hover "Foo.lean" "$version" 10 2
+lean-beam goals-prev "Foo.lean" "$version" 10 2
 
 # try speculative Lean text without editing the file
-lean-beam run-at "Foo.lean" 10 2 "exact trivial"
+lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
 # for multiline probes, prefer stdin
-printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" 10 2 --stdin
+printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" "$version" 10 2 --stdin
 
 # after every real edit saved to disk, on that same workspace module path
 lean-beam sync "MyPkg/Sub/Module.lean"

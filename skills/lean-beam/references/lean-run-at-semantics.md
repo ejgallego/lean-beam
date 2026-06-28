@@ -1,7 +1,7 @@
 # Lean Run-At Semantics
 
 Use this reference when a task is confused about what `lean-beam run-at` means. The short rule is:
-`lean-beam run-at` is a speculative execution probe against one saved file snapshot, not a source edit.
+`lean-beam run-at` is a speculative execution probe against one synced document version, not a source edit.
 
 ## What It Is Not
 
@@ -17,7 +17,7 @@ Use this reference when a task is confused about what `lean-beam run-at` means. 
 Wrong expectation:
 
 ```bash
-lean-beam run-at "Foo.lean" 20 2 "exact h"
+lean-beam run-at "Foo.lean" <version-from-sync> 20 2 "exact h"
 # then expect diagnostics for unrelated later declarations as if Foo.lean had been edited
 ```
 
@@ -39,15 +39,15 @@ If the speculative probe looks right and you want to keep it, open
 Wrong expectation:
 
 ```bash
-lean-beam run-at "Foo.lean" 30 2 "tac1"
-lean-beam run-at "Foo.lean" 30 2 "tac2"
+lean-beam run-at "Foo.lean" <version-from-sync> 30 2 "tac1"
+lean-beam run-at "Foo.lean" <version-from-sync> 30 2 "tac2"
 # then expect the second call to continue from the speculative `tac1`
 ```
 
 Correct workflow:
 
 ```bash
-root="$(lean-beam run-at-handle "Foo.lean" 30 2 "tac1")"
+root="$(lean-beam run-at-handle "Foo.lean" <version-from-sync> 30 2 "tac1")"
 printf '%s\n' "$root" | lean-beam run-with-linear "Foo.lean" - "tac2"
 ```
 
@@ -65,13 +65,13 @@ If a speculative step looks right and you want it to become real source, open
 Wrong expectation:
 
 ```bash
-printf 'def tmpA : Nat := 1\n\n#check tmpA\n' | lean-beam run-at "Foo.lean" 30 0 --stdin
+printf 'def tmpA : Nat := 1\n\n#check tmpA\n' | lean-beam run-at "Foo.lean" <version-from-sync> 30 0 --stdin
 ```
 
 Correct workflows:
 
 ```bash
-root="$(lean-beam run-at-handle "Foo.lean" 30 0 "def tmpA : Nat := 1")"
+root="$(lean-beam run-at-handle "Foo.lean" <version-from-sync> 30 0 "def tmpA : Nat := 1")"
 printf '%s\n' "$root" | lean-beam run-with "Foo.lean" - "#check tmpA"
 ```
 
@@ -90,7 +90,7 @@ the second command.
 Wrong expectation:
 
 ```bash
-lean-beam run-at "Foo.lean" 18 0 "exact h"
+lean-beam run-at "Foo.lean" <version-from-sync> 18 0 "exact h"
 # where line 18 is a blank line inside an indented block, and expect the wrapper to infer indentation
 #
 # or expect the wrapper to add a leading/trailing newline around the text automatically
@@ -100,10 +100,10 @@ Correct workflow:
 
 ```bash
 # on a truly empty line, only column 0 is valid, so provide the indentation in the text yourself
-lean-beam run-at "Foo.lean" 18 0 "    exact h"
+lean-beam run-at "Foo.lean" <version-from-sync> 18 0 "    exact h"
 
 # or probe after the existing indentation and pass only the code text
-lean-beam run-at "Foo.lean" 18 4 "exact h"
+lean-beam run-at "Foo.lean" <version-from-sync> 18 4 "exact h"
 ```
 
 Or make the real edit in the file and save it before syncing:
@@ -125,13 +125,13 @@ For multi-line probes, include the actual newline characters you want Lean to pa
 
 ```bash
 # piping the exact text through stdin avoids shell-escape mistakes
-printf '  first | exact h1\n  | exact h2\n' | lean-beam run-at "Foo.lean" 18 0 --stdin
+printf '  first | exact h1\n  | exact h2\n' | lean-beam run-at "Foo.lean" <version-from-sync> 18 0 --stdin
 
 # or read the probe from a file
-lean-beam run-at "Foo.lean" 18 0 --text-file probe.lean
+lean-beam run-at "Foo.lean" <version-from-sync> 18 0 --text-file probe.lean
 
 # ANSI-C shell quoting also works when you do want to keep everything on one command line
-lean-beam run-at "Foo.lean" 18 0 $'  first | exact h1\n  | exact h2'
+lean-beam run-at "Foo.lean" <version-from-sync> 18 0 $'  first | exact h1\n  | exact h2'
 ```
 
 Do not expect the wrapper to turn `"first | exact h1 | exact h2"` into a properly line-broken block,
