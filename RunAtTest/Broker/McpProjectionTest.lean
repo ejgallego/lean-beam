@@ -115,6 +115,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
 
   let runAtInput : Beam.Mcp.RunAtInput := {
     path := "Demo.lean"
+    version := 12
     line := 4
     character := 2
     text := "exact h"
@@ -125,6 +126,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
   require "runAt backend" (runAtReq.backend == .lean)
   require "runAt root" (runAtReq.root? == some root)
   require "runAt path" (runAtReq.path? == some "Demo.lean")
+  require "runAt version" (runAtReq.version? == some 12)
   require "runAt line" (runAtReq.line? == some 4)
   require "runAt character" (runAtReq.character? == some 2)
   require "runAt text" (runAtReq.text? == some "exact h")
@@ -139,12 +141,14 @@ private def checkBrokerRequestAdapters : IO Unit := do
 
   let positionInput : Beam.Mcp.PositionInput := {
     path := "Demo.lean"
+    version := 13
     line := 7
     character := 3
   }
   let hoverReq ← expectOk "hover tool request" <|
     Beam.Mcp.ToolName.leanHover.toBrokerRequest root (toJson positionInput)
   require "hover uses requestAt broker op" (hoverReq.op == .requestAt)
+  require "hover version" (hoverReq.version? == some 13)
   require "hover injects hover method" (hoverReq.method? == some "textDocument/hover")
   require "hover hides raw params" hoverReq.params?.isNone
 
@@ -160,6 +164,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
 
   let todoInput : Beam.Mcp.TodoInput := {
     path := "Demo.lean"
+    version := 14
     startLine := 1
     startCharacter := 0
     endLine := 8
@@ -171,6 +176,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     Beam.Mcp.ToolName.leanTodo.toBrokerRequest root (toJson todoInput)
   require "todo op" (todoReq.op == .todo)
   require "todo backend" (todoReq.backend == .lean)
+  require "todo version" (todoReq.version? == some 14)
   require "todo start line" (todoReq.line? == some 1)
   require "todo start character" (todoReq.character? == some 0)
   require "todo end line" (todoReq.endLine? == some 8)

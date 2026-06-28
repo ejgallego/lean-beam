@@ -44,6 +44,18 @@ private def expectTodoKindOnly
     throw <| IO.userError s!"expected {label} to contain only todo kind {kind.key}, got {(toJson result).compress}"
   pure item
 
+private def syncVersion
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath)
+    (path : String) : IO Nat := do
+  let resp ← runClient endpoint {
+    op := .syncFile
+    root? := some root.toString
+    path? := some path
+  }
+  let result ← requireSyncFileResult s!"sync version for {path}" (← expectOk resp)
+  pure result.version
+
 def main : IO Unit := do
   let port ← freshTcpPort
   let endpoint : Beam.Broker.Endpoint := .tcp port
@@ -54,10 +66,12 @@ def main : IO Unit := do
     waitForBrokerReadyForRoot endpoint root
     discard <| expectOk (← runClient endpoint { op := .ensure, root? := some root.toString })
 
+    let todoVersion ← syncVersion endpoint root RunAtTest.TodoFixture.brokerPath
     let todoMessages ← requireSuccessStream "todo" <| ← runRequestStream port {
       op := .todo
       root? := some root.toString
       path? := some RunAtTest.TodoFixture.brokerPath
+      version? := some todoVersion
       line? := some RunAtTest.TodoFixture.startLine
       character? := some RunAtTest.TodoFixture.startCharacter
       endLine? := some RunAtTest.TodoFixture.endLine

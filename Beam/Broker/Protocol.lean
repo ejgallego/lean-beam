@@ -148,6 +148,7 @@ structure Request where
   cancelRequestId? : Option String := none
   root? : Option String := none
   path? : Option String := none
+  version? : Option Nat := none
   line? : Option Nat := none
   character? : Option Nat := none
   endLine? : Option Nat := none
@@ -188,6 +189,7 @@ instance : FromJson Request where
     let cancelRequestId? ← optionalField? (α := String) j "cancelRequestId"
     let root? ← optionalField? (α := String) j "root"
     let path? ← optionalField? (α := String) j "path"
+    let version? ← optionalField? (α := Nat) j "version"
     let line? ← optionalField? (α := Nat) j "line"
     let character? ← optionalField? (α := Nat) j "character"
     let endLine? ← optionalField? (α := Nat) j "endLine"
@@ -208,7 +210,7 @@ instance : FromJson Request where
     let handle? ← optionalField? (α := Handle) j "handle"
     pure {
       op, backend, clientRequestId?, cancelRequestId?,
-      root?, path?, line?, character?, endLine?, endCharacter?,
+      root?, path?, version?, line?, character?, endLine?, endCharacter?,
       method?, params?, text?, kinds?, suggest?, storeHandle?,
       linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
       saveArtifacts?, handle?
@@ -593,6 +595,11 @@ def Request.requirePath (req : Request) : Except String System.FilePath := do
   let some path := req.path?
     | throw "missing 'path'"
   pure <| System.FilePath.mk path
+
+def Request.requireVersion (req : Request) : Except String Nat := do
+  let some version := req.version?
+    | throw "missing 'version'"
+  pure version
 
 def Request.requireText (req : Request) : Except String String := do
   let some text := req.text?

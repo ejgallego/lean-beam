@@ -43,18 +43,19 @@ structure Handle where
 /--
 Public request payload for `$/lean/runAt`.
 
-Current frozen request semantics:
+Current request semantics:
 
-- the request is identified only by `textDocument`, `position`, and `text`
+- the request is identified by versioned `textDocument`, `position`, and `text`
+- `textDocument.version` is required and must match the current open document version
 - callers do not choose command vs tactic mode
 - command-mode `text` is one Lean command, not a top-level command sequence
 - proof-mode `text` is one tactic block
-- `position` uses Lean/LSP `Position` semantics against the current open document version
+- `position` uses Lean/LSP `Position` semantics against the matching document version
 - positions outside the document are invalid request parameters
 - request-level failures are reported as transport errors rather than as `Result`
 -/
 structure Params where
-  textDocument : Lean.Lsp.TextDocumentIdentifier
+  textDocument : Lean.Lsp.VersionedTextDocumentIdentifier
   position : Lean.Lsp.Position
   text : String
   storeHandle? : Option Bool := none
@@ -68,7 +69,7 @@ instance : Lean.Lsp.FileSource Params where
 
 /-- Request payload for read-only goal inspection at a file position. -/
 structure GoalsParams where
-  textDocument : Lean.Lsp.TextDocumentIdentifier
+  textDocument : Lean.Lsp.VersionedTextDocumentIdentifier
   position : Lean.Lsp.Position
   deriving FromJson, ToJson
 
@@ -136,7 +137,7 @@ instance : FromJson TodoSuggestMode where
 
 /-- Request payload for agent-oriented todo inspection over a document range. -/
 structure TodoParams where
-  textDocument : Lean.Lsp.TextDocumentIdentifier
+  textDocument : Lean.Lsp.VersionedTextDocumentIdentifier
   range : Lean.Lsp.Range
   kinds? : Option (Array TodoKind) := none
   suggest? : Option TodoSuggestMode := none

@@ -1,5 +1,6 @@
 {"textDocument":
- {"uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
  "text": "constructor",
  "position": {"line": 2, "character": 2}}
 {"traces": [],
@@ -16,7 +17,8 @@
     "goalPrefix": "⊢ "}]},
  "messages": []}
 {"textDocument":
- {"uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
  "text": "constructor",
  "position": {"line": 5, "character": 2}}
 {"traces": [],
@@ -30,7 +32,8 @@
     "goalPrefix": "⊢ "}]},
  "messages": []}
 {"textDocument":
- {"uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofNestedConstructorOrder.lean"},
  "text": "exact trivial",
  "position": {"line": 5, "character": 15}}
 {"traces": [],

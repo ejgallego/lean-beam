@@ -21,12 +21,13 @@ private def storeHandleFlag (storeHandle : Bool) : Option Bool :=
 def leanRunAtRequest
     (root : System.FilePath)
     (path : String)
+    (version : Nat)
     (line character : Nat)
     (text? : Option String)
     (storeHandle : Bool := false) : Request :=
   match text? with
   | some text =>
-      ({ path, line, character, text } : Beam.Lean.RunAtInput).toBrokerRequest
+      ({ path, version, line, character, text } : Beam.Lean.RunAtInput).toBrokerRequest
         (rootText root) (storeHandle := storeHandle)
   | none =>
       {
@@ -34,6 +35,7 @@ def leanRunAtRequest
         backend := .lean
         root? := some (rootText root)
         path? := some path
+        version? := some version
         line? := some line
         character? := some character
         storeHandle? := storeHandleFlag storeHandle
@@ -66,29 +68,34 @@ def leanReleaseRequest (root : System.FilePath) (path : String) (handle : Handle
 def leanHoverRequest
     (root : System.FilePath)
     (path : String)
+    (version : Nat)
     (line character : Nat) : Request :=
-  ({ path, line, character } : Beam.Lean.PositionInput).toHoverBrokerRequest (rootText root)
+  ({ path, version, line, character } : Beam.Lean.PositionInput).toHoverBrokerRequest (rootText root)
 
 def leanGoalsAfterRequest
     (root : System.FilePath)
     (path : String)
+    (version : Nat)
     (line character : Nat) : Request :=
-  ({ path, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .after
+  ({ path, version, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .after
 
 def leanGoalsPrevRequest
     (root : System.FilePath)
     (path : String)
+    (version : Nat)
     (line character : Nat) : Request :=
-  ({ path, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .prev
+  ({ path, version, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .prev
 
 def leanTodoRequest
     (root : System.FilePath)
     (path : String)
+    (version : Nat)
     (startLine startCharacter endLine endCharacter : Nat)
     (kinds? : Option (Array RunAt.TodoKind))
     (suggest? : Option RunAt.TodoSuggestMode) : Request :=
   ({
     path
+    version
     startLine
     startCharacter
     endLine

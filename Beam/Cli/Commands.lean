@@ -27,6 +27,23 @@ private def wrapperDisplayAction (fallback : String) : IO String := do
   | some action => pure action
   | none => pure fallback
 
+private def syncVersionForOperation
+    (root : System.FilePath)
+    (endpoint : Transport.Endpoint)
+    (backend : Backend)
+    (path : String) : IO Nat := do
+  let resp ← sendRequest endpoint {
+    op := .syncFile
+    backend
+    root? := some root.toString
+    path? := some path
+    fullDiagnostics? := some false
+  }
+  failOnError resp
+  let some result := decodeSyncFileResult? resp
+    | throw <| IO.userError "sync_file returned an invalid response while obtaining document version"
+  pure result.version
+
 private def runLeanRunAt
     (home : System.FilePath)
     (opts : CliOptions)
@@ -38,10 +55,11 @@ private def runLeanRunAt
   let line ← parseNatArg "line" lineText
   let character ← parseNatArg "character" characterText
   let parsedText ← parseTextArg s!"{action} <path> <line> <character>" textArgs
-  let req ← withEnvClientRequestId <|
-    leanRunAtRequest root path line character parsedText.text? (storeHandle := storeHandle)
-  maybeEmitTextDebug req.clientRequestId? action parsedText.source parsedText.text?
   withWrapperLease root daemon.startedNew do
+    let version ← syncVersionForOperation root daemon.endpoint .lean path
+    let req ← withEnvClientRequestId <|
+      leanRunAtRequest root path version line character parsedText.text? (storeHandle := storeHandle)
+    maybeEmitTextDebug req.clientRequestId? action parsedText.source parsedText.text?
     callBrokerWithProgress root daemon.endpoint req (leanRunAtWaitSpec action path line character)
 
 private def runLeanRunWith
@@ -178,8 +196,9 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let character ← parseNatArg "character" character
       let action ← wrapperDisplayAction "lean-hover"
       withWrapperLease root daemon.startedNew do
+        let version ← syncVersionForOperation root daemon.endpoint .lean path
         callBrokerWithProgress root daemon.endpoint
-          (leanHoverRequest root path line character)
+          (leanHoverRequest root path version line character)
           (leanHoverWaitSpec path line character action)
   | "lean-goals-after" :: path :: line :: character :: [] =>
       let root ← projectRoot opts .lean
@@ -188,8 +207,9 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let character ← parseNatArg "character" character
       let action ← wrapperDisplayAction "lean-goals-after"
       withWrapperLease root daemon.startedNew do
+        let version ← syncVersionForOperation root daemon.endpoint .lean path
         callBrokerWithProgress root daemon.endpoint
-          (leanGoalsAfterRequest root path line character)
+          (leanGoalsAfterRequest root path version line character)
           (leanGoalsWaitSpec path line character .after (some action))
   | "lean-goals-prev" :: path :: line :: character :: [] =>
       let root ← projectRoot opts .lean
@@ -198,8 +218,9 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let character ← parseNatArg "character" character
       let action ← wrapperDisplayAction "lean-goals-prev"
       withWrapperLease root daemon.startedNew do
+        let version ← syncVersionForOperation root daemon.endpoint .lean path
         callBrokerWithProgress root daemon.endpoint
-          (leanGoalsPrevRequest root path line character)
+          (leanGoalsPrevRequest root path version line character)
           (leanGoalsWaitSpec path line character .prev (some action))
   | "lean-todo" :: path :: startLine :: startCharacter :: endLine :: endCharacter :: extra => do
       let root ← projectRoot opts .lean
@@ -211,8 +232,9 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let (kinds?, suggest?) ← parseLeanTodoArgs extra
       let action ← wrapperDisplayAction "lean-todo"
       withWrapperLease root daemon.startedNew do
+        let version ← syncVersionForOperation root daemon.endpoint .lean path
         callBrokerWithProgress root daemon.endpoint
-          (leanTodoRequest root path startLine startCharacter endLine endCharacter kinds? suggest?)
+          (leanTodoRequest root path version startLine startCharacter endLine endCharacter kinds? suggest?)
           (leanTodoWaitSpec path startLine startCharacter endLine endCharacter action)
   | "lean-request-at" :: path :: line :: character :: method :: extra => do
       let root ← projectRoot opts .lean
@@ -226,11 +248,13 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         | [raw] => pure <| some (← parseJsonArg "request params json" raw)
         | _ => throw <| IO.userError usage
       withWrapperLease root daemon.startedNew do
+        let version ← syncVersionForOperation root daemon.endpoint .lean path
         callBrokerWithProgress root daemon.endpoint {
           op := .requestAt
           backend := .lean
           root? := some root.toString
           path? := some path
+          version? := some version
           line? := some line
           character? := some character
           method? := some method
@@ -294,11 +318,13 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let root ← projectRoot opts .rocq
       let daemon ← ensureProjectDaemon home root .rocq opts
       withWrapperLease root daemon.startedNew do
+        let version ← syncVersionForOperation root daemon.endpoint .rocq path
         callBroker root daemon.endpoint {
           op := .goals
           backend := .rocq
           root? := some root.toString
           path? := some path
+          version? := some version
           line? := some (← parseNatArg "line" line)
           character? := some (← parseNatArg "character" character)
           mode? := some .after
@@ -310,11 +336,13 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let root ← projectRoot opts .rocq
       let daemon ← ensureProjectDaemon home root .rocq opts
       withWrapperLease root daemon.startedNew do
+        let version ← syncVersionForOperation root daemon.endpoint .rocq path
         callBroker root daemon.endpoint {
           op := .goals
           backend := .rocq
           root? := some root.toString
           path? := some path
+          version? := some version
           line? := some (← parseNatArg "line" line)
           character? := some (← parseNatArg "character" character)
           mode? := some .prev

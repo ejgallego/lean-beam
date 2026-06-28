@@ -757,6 +757,8 @@ def run_iteration(client, suffix):
         Path(sync.get("active_root")).resolve() == client.project_root.resolve(),
         f"sync returned wrong active_root: {sync}",
     )
+    version = sync.get("version")
+    require(isinstance(version, int), f"sync did not return a document version: {sync}")
     progress = sync.get("file_progress")
     require(isinstance(progress, dict), f"sync did not return file_progress: {sync}")
 
@@ -764,6 +766,7 @@ def run_iteration(client, suffix):
         "lean_run_at",
         {
             "path": "PositionEmptyLine.lean",
+            "version": version,
             "line": 1,
             "character": 0,
             "text": f"def mcpProbe{suffix} : Nat :=\n  42",
@@ -776,6 +779,7 @@ def run_iteration(client, suffix):
         "lean_run_at",
         {
             "path": "PositionEmptyLine.lean",
+            "version": version,
             "line": 1,
             "character": 0,
             "text": f"def mcpBroken{suffix} : Nat := \"bad\"",
@@ -788,6 +792,7 @@ def run_iteration(client, suffix):
         "lean_run_at_handle",
         {
             "path": "PositionEmptyLine.lean",
+            "version": version,
             "line": 1,
             "character": 0,
             "text": f"def mcpBase{suffix} : Nat := 1",
@@ -824,9 +829,12 @@ def run_iteration(client, suffix):
     client.call_tool("lean_release", {"path": "PositionEmptyLine.lean", "handle": linear_handle})
     client.call_tool("lean_release", {"path": "PositionEmptyLine.lean", "handle": base_handle})
 
+    goal_sync = client.call_tool("lean_sync", {"path": "GoalSmoke.lean"})
+    goal_version = goal_sync.get("version")
+    require(isinstance(goal_version, int), f"GoalSmoke sync did not return a version: {goal_sync}")
     goals_prev = client.call_tool(
         "lean_goals_prev",
-        {"path": "GoalSmoke.lean", "line": 1, "character": 2},
+        {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2},
     )
     prev_goals = goals_prev.get("goals")
     require(isinstance(prev_goals, list) and prev_goals, f"goals-prev returned no goals: {goals_prev}")
@@ -834,7 +842,7 @@ def run_iteration(client, suffix):
 
     goals_after = client.call_tool(
         "lean_goals_after",
-        {"path": "GoalSmoke.lean", "line": 1, "character": 2},
+        {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2},
     )
     require(goals_after.get("goals") == [], f"goals-after should return no goals: {goals_after}")
 
@@ -1516,10 +1524,13 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
                 Path(sync.get("active_root")).resolve() == project_root.resolve(),
                 f"bad active_root before reset: {sync}",
             )
+            version = sync.get("version")
+            require(isinstance(version, int), f"pre-reset sync did not return a version: {sync}")
             minted = client.call_tool(
                 "lean_run_at_handle",
                 {
                     "path": "PositionEmptyLine.lean",
+                    "version": version,
                     "line": 1,
                     "character": 0,
                     "text": "def mcpResetBase : Nat := 1",
@@ -1549,10 +1560,16 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
                 Path(sync_after_same_reset.get("active_root")).resolve() == project_root.resolve(),
                 f"sync after same-root reset returned wrong active_root: {sync_after_same_reset}",
             )
+            same_reset_version = sync_after_same_reset.get("version")
+            require(
+                isinstance(same_reset_version, int),
+                f"sync after same-root reset did not return a version: {sync_after_same_reset}",
+            )
             reminted = client.call_tool(
                 "lean_run_at_handle",
                 {
                     "path": "PositionEmptyLine.lean",
+                    "version": same_reset_version,
                     "line": 1,
                     "character": 0,
                     "text": "def mcpResetBase : Nat := 1",

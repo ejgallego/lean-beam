@@ -511,6 +511,7 @@ private def todoResult
   }
 
 def handleTodo (p : TodoParams) : RequestM (RequestTask TodoResult) := do
+  requireDocumentVersion p.textDocument
   syncHandleStoreForCurrentDoc
   validateRange p.range
   checkRequestCancelled
@@ -528,7 +529,7 @@ def handleTodo (p : TodoParams) : RequestM (RequestTask TodoResult) := do
             else
               none
         let params : Lsp.CodeActionParams := {
-          textDocument := p.textDocument
+          textDocument := { uri := p.textDocument.uri }
           range := p.range
           context := { diagnostics := plainDiagnostics }
         }

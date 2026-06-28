@@ -89,6 +89,22 @@ def checkRequestCancelled : RequestM Unit := do
   if ← rc.cancelTk.wasCancelledByCancelRequest then
     throw RequestError.requestCancelled
 
+def requireDocumentVersion (textDocument : Lean.Lsp.VersionedTextDocumentIdentifier) :
+    RequestM Unit := do
+  let doc ← RequestM.readDoc
+  match textDocument.version? with
+  | none =>
+      throw <| RequestError.invalidParams
+        "textDocument.version is required for snapshot-bound runAt requests"
+  | some expectedVersion =>
+      unless doc.meta.version == expectedVersion do
+        throw {
+          code := Lean.JsonRpc.ErrorCode.contentModified
+          message :=
+            s!"document version mismatch: expected {expectedVersion}, got {doc.meta.version}"
+          : RequestError
+        }
+
 def withInnerCancelToken (k : IO.CancelToken → RequestM α) : RequestM α := do
   let rc ← readThe RequestContext
   let innerCancelTk ← IO.CancelToken.new

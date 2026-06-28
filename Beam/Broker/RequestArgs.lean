@@ -26,14 +26,16 @@ def Request.cancelRequestIdArg (req : Request) : Except Response String :=
 
 structure PositionArgs where
   path : System.FilePath
+  version : Nat
   line : Nat
   character : Nat
 
 def Request.positionArgs (req : Request) : Except Response PositionArgs := do
   let path ← asInvalidParams req.requirePath
+  let version ← asInvalidParams req.requireVersion
   let line ← asInvalidParams req.requireLine
   let character ← asInvalidParams req.requireCharacter
-  pure { path, line, character }
+  pure { path, version, line, character }
 
 structure RunAtArgs extends PositionArgs where
   text : String
@@ -45,6 +47,7 @@ def Request.runAtArgs (req : Request) : Except Response RunAtArgs := do
   let method ← asInvalidParams (runAtMethod req.backend)
   pure {
     path := position.path
+    version := position.version
     line := position.line
     character := position.character
     text
@@ -62,6 +65,7 @@ def Request.requestAtArgs (req : Request) : Except Response RequestAtArgs := do
   let extraParams ← asInvalidParams req.requireParamsObject
   pure {
     path := position.path
+    version := position.version
     line := position.line
     character := position.character
     method
@@ -76,6 +80,7 @@ def Request.goalsArgs (req : Request) : Except Response GoalsArgs := do
   let method ← asInvalidParams (goalsMethod req.backend req.mode?)
   pure {
     path := position.path
+    version := position.version
     line := position.line
     character := position.character
     method
@@ -93,6 +98,7 @@ def Request.todoArgs (req : Request) : Except Response TodoArgs := do
   let method ← asInvalidParams (todoMethod req.backend)
   pure {
     path := position.path
+    version := position.version
     line := position.line
     character := position.character
     endLine

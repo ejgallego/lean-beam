@@ -19,9 +19,9 @@
  -/
  def directImportsMethod : String := "$/lean/runAt/directImports"
 
- /-- Internal request payload for direct-import queries from the current tracked text snapshot. -/
+ /-- Internal request payload for direct-import queries from a known text snapshot. -/
  structure DirectImportsParams where
-   textDocument : Lean.Lsp.TextDocumentIdentifier
+   textDocument : Lean.Lsp.VersionedTextDocumentIdentifier
    deriving FromJson, ToJson
 
 -- Keep this indirection while v4.28 stays supported; see the compat note in `RunAt.Protocol`.

@@ -141,6 +141,7 @@ def runTacticAtBasis (basis : GoalsAtResult) (text : String) :
   runTacticText proofSnapshot initialProofState text
 
 def handleRunAt (p : Params) : RequestM (RequestTask Result) := do
+  requireDocumentVersion p.textDocument
   syncHandleStoreForCurrentDoc
   validatePosition p.position
   checkRequestCancelled

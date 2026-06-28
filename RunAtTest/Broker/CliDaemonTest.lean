@@ -173,33 +173,36 @@ private def checkLeanOperationRequests : IO Unit := do
 
   let runAtInput : Beam.Lean.RunAtInput := {
     path
+    version := 12
     line := 4
     character := 2
     text := "exact h"
   }
   requireRequestJson "runAt request should share the Lean operation adapter"
-    (Beam.Cli.leanRunAtRequest root path 4 2 (some "exact h"))
+    (Beam.Cli.leanRunAtRequest root path 12 4 2 (some "exact h"))
     (runAtInput.toBrokerRequest rootText)
   requireRequestJson "runAt handle request should share the Lean operation adapter"
-    (Beam.Cli.leanRunAtRequest root path 4 2 (some "exact h") (storeHandle := true))
+    (Beam.Cli.leanRunAtRequest root path 12 4 2 (some "exact h") (storeHandle := true))
     (runAtInput.toBrokerRequest rootText (storeHandle := true))
-  let missingRunAtText := Beam.Cli.leanRunAtRequest root path 4 2 none
+  let missingRunAtText := Beam.Cli.leanRunAtRequest root path 12 4 2 none
   require "runAt missing text should remain a broker validation error" missingRunAtText.text?.isNone
   require "runAt missing text should still target run_at" (missingRunAtText.op == .runAt)
+  require "runAt missing text should carry version" (missingRunAtText.version? == some 12)
 
   let positionInput : Beam.Lean.PositionInput := {
     path
+    version := 13
     line := 7
     character := 3
   }
   requireRequestJson "hover request should share the Lean operation adapter"
-    (Beam.Cli.leanHoverRequest root path 7 3)
+    (Beam.Cli.leanHoverRequest root path 13 7 3)
     (positionInput.toHoverBrokerRequest rootText)
   requireRequestJson "goals-after request should share the Lean operation adapter"
-    (Beam.Cli.leanGoalsAfterRequest root path 7 3)
+    (Beam.Cli.leanGoalsAfterRequest root path 13 7 3)
     (positionInput.toGoalsBrokerRequest rootText .after)
   requireRequestJson "goals-prev request should share the Lean operation adapter"
-    (Beam.Cli.leanGoalsPrevRequest root path 7 3)
+    (Beam.Cli.leanGoalsPrevRequest root path 13 7 3)
     (positionInput.toGoalsBrokerRequest rootText .prev)
 
   let runWithInput : Beam.Lean.RunWithInput := {

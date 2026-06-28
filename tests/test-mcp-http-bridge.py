@@ -282,7 +282,30 @@ def main():
             require(sync.get("isError") is not True, f"lean_sync returned tool error: {sync}")
             structured = sync.get("structuredContent")
             require(isinstance(structured, dict), f"sync missing structuredContent: {sync}")
+            version = structured.get("version")
+            require(isinstance(version, int), f"sync missing version: {sync}")
             require_file_progress_range(structured, "lean_sync")
+
+            probe = expect_result(http_json(
+                url,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "lean_run_at",
+                        "arguments": {
+                            "path": "PositionEmptyLine.lean",
+                            "version": version,
+                            "line": 1,
+                            "character": 0,
+                            "text": "def mcpHttpProbe : Nat := 1",
+                        },
+                    },
+                },
+                timeout=args.timeout,
+            ))
+            require(probe.get("isError") is not True, f"lean_run_at returned tool error: {probe}")
 
             (project_root / "SaveSmoke" / "B.lean").write_text(
                 save_warning_text("-- mcp http diagnostic log"),

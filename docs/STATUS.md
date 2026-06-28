@@ -110,6 +110,11 @@ diagnostics, save-readiness, and sync contract lives in
 [Sync And Diagnostics Contract](SYNC_AND_DIAGNOSTICS.md). For programmatic local consumers, the
 preferred machine-readable surface is the JSON stream exposed by `beam-client request-stream`; the
 wrapper stderr format should be treated as human-facing.
+
+Direct broker and MCP position/range operations are version-bound: clients must first sync the file
+and pass the returned document version, while wrapper commands perform that sync-and-version step
+internally.
+
 Beam broker responses require an explicit top-level `ok` boolean, giving projection layers an
 unambiguous success/error discriminator.
 Other slow Lean Beam daemon calls may attach a compact top-level `fileProgress` summary when they

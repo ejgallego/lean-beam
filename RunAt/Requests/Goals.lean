@@ -17,6 +17,7 @@ open RunAt.Lib
 namespace RunAt.Requests
 
 def handleGoalsAt (p : GoalsParams) (useAfter : Bool) : RequestM (RequestTask ProofState) := do
+  requireDocumentVersion p.textDocument
   syncHandleStoreForCurrentDoc
   validatePosition p.position
   checkRequestCancelled

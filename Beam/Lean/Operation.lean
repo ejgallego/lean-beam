@@ -85,6 +85,9 @@ def Operation.description : Operation → String
 private def pathField : String × Json :=
   ("path", Beam.JsonSchema.string "Lean file path, relative to the server root unless absolute.")
 
+private def versionField : String × Json :=
+  ("version", Beam.JsonSchema.natural "Document version returned by a successful lean_sync for this file.")
+
 private def lineField : String × Json :=
   ("line", Beam.JsonSchema.natural "Zero-based LSP line.")
 
@@ -136,11 +139,12 @@ private def includeDiagnosticsField : String × Json :=
     "When true, include the current request diagnostics in the final sync result; the full_diagnostics setting controls the severity filter.")
 
 private def positionFields : List (String × Json) :=
-  [pathField, lineField, characterField]
+  [pathField, versionField, lineField, characterField]
 
 private def rangeFields : List (String × Json) :=
   [
     pathField,
+    versionField,
     rangeStartLineField,
     rangeStartCharacterField,
     rangeEndLineField,
@@ -150,12 +154,12 @@ private def rangeFields : List (String × Json) :=
 open Beam.JsonSchema in
 def Operation.inputSchema : Operation → Json
   | .runAt | .runAtHandle =>
-      inputObject (positionFields ++ [runAtTextField]) #["path", "line", "character", "text"]
+      inputObject (positionFields ++ [runAtTextField]) #["path", "version", "line", "character", "text"]
   | .hover | .goalsAfter | .goalsPrev =>
-      inputObject positionFields #["path", "line", "character"]
+      inputObject positionFields #["path", "version", "line", "character"]
   | .todo =>
       inputObject (rangeFields ++ [kindsField, suggestField])
-        #["path", "start_line", "start_character", "end_line", "end_character"]
+        #["path", "version", "start_line", "start_character", "end_line", "end_character"]
   | .runWith | .runWithLinear =>
       inputObject [pathField, handleField, continuationTextField] #["path", "handle", "text"]
   | .release =>
@@ -174,6 +178,7 @@ def Operation.expectsRunAtResult : Operation → Bool
 /-- Input for position-based Lean execution. Coordinates use LSP zero-based line/character units. -/
 structure RunAtInput where
   path : String
+  version : Nat
   line : Nat
   character : Nat
   text : String
@@ -182,6 +187,7 @@ structure RunAtInput where
 /-- Input for position-based Lean inspection operations. -/
 structure PositionInput where
   path : String
+  version : Nat
   line : Nat
   character : Nat
   deriving FromJson, ToJson
@@ -198,6 +204,7 @@ private def optionalField? [FromJson α] (j : Json) (field : String) : Except St
 /-- Input for range-based Lean todo inspection operations. -/
 structure TodoInput where
   path : String
+  version : Nat
   startLine : Nat
   startCharacter : Nat
   endLine : Nat
@@ -209,6 +216,7 @@ instance : ToJson TodoInput where
   toJson input :=
     Json.mkObj <|
       [ ("path", toJson input.path)
+      , ("version", toJson input.version)
       , ("start_line", toJson input.startLine)
       , ("start_character", toJson input.startCharacter)
       , ("end_line", toJson input.endLine)
@@ -224,13 +232,14 @@ instance : ToJson TodoInput where
 instance : FromJson TodoInput where
   fromJson? j := do
     let path ← j.getObjValAs? String "path"
+    let version ← j.getObjValAs? Nat "version"
     let startLine ← j.getObjValAs? Nat "start_line"
     let startCharacter ← j.getObjValAs? Nat "start_character"
     let endLine ← j.getObjValAs? Nat "end_line"
     let endCharacter ← j.getObjValAs? Nat "end_character"
     let kinds? ← optionalField? (α := Array RunAt.TodoKind) j "kinds"
     let suggest? ← optionalField? (α := RunAt.TodoSuggestMode) j "suggest"
-    pure { path, startLine, startCharacter, endLine, endCharacter, kinds?, suggest? }
+    pure { path, version, startLine, startCharacter, endLine, endCharacter, kinds?, suggest? }
 
 /-- Input for handle-based Lean execution. -/
 structure RunWithInput where
@@ -282,6 +291,7 @@ def RunAtInput.toBrokerRequest
   backend := .lean
   root? := some root
   path? := some input.path
+  version? := some input.version
   line? := some input.line
   character? := some input.character
   text? := some input.text
@@ -293,6 +303,7 @@ def PositionInput.toHoverBrokerRequest (input : PositionInput) (root : String) :
   backend := .lean
   root? := some root
   path? := some input.path
+  version? := some input.version
   line? := some input.line
   character? := some input.character
   method? := some "textDocument/hover"
@@ -306,6 +317,7 @@ def PositionInput.toGoalsBrokerRequest
   backend := .lean
   root? := some root
   path? := some input.path
+  version? := some input.version
   line? := some input.line
   character? := some input.character
   mode? := some mode
@@ -316,6 +328,7 @@ def TodoInput.toBrokerRequest (input : TodoInput) (root : String) : Beam.Broker.
   backend := .lean
   root? := some root
   path? := some input.path
+  version? := some input.version
   line? := some input.startLine
   character? := some input.startCharacter
   endLine? := some input.endLine

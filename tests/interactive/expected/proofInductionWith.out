@@ -1,4 +1,5 @@
-{"textDocument": {"uri": "file:///tests/interactive/proofInductionWith.lean"},
+{"textDocument":
+ {"version": 1, "uri": "file:///tests/interactive/proofInductionWith.lean"},
  "text": "exact trivial",
  "position": {"line": 0, "character": 34}}
 {"traces": [],
@@ -11,7 +12,8 @@
     [{"type": "Nat", "names": ["n✝"]}, {"type": "True", "names": ["a✝"]}],
     "goalPrefix": "⊢ "}]},
  "messages": []}
-{"textDocument": {"uri": "file:///tests/interactive/proofInductionWith.lean"},
+{"textDocument":
+ {"version": 1, "uri": "file:///tests/interactive/proofInductionWith.lean"},
  "text": "exact trivial",
  "position": {"line": 3, "character": 34}}
 {"traces": [],
@@ -24,7 +26,8 @@
     [{"type": "Nat", "names": ["n✝"]}, {"type": "True", "names": ["a✝"]}],
     "goalPrefix": "⊢ "}]},
  "messages": []}
-{"textDocument": {"uri": "file:///tests/interactive/proofInductionWith.lean"},
+{"textDocument":
+ {"version": 1, "uri": "file:///tests/interactive/proofInductionWith.lean"},
  "text": "exact trivial",
  "position": {"line": 6, "character": 34}}
 {"traces": [], "success": true, "proofState": {"goals": []}, "messages": []}
