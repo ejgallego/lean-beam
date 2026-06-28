@@ -128,7 +128,6 @@ private def syncReadinessCurrentJson (saveReady : Bool := true) : Json :=
 private def syncSummaryJson (version : Nat) (readinessCurrent : Json) : Json :=
   Json.mkObj [
     ("currentVersion", toJson version),
-    ("sourceChangedSinceDeltaBase", toJson false),
     ("diagnostics", Json.mkObj [("current", syncDiagnosticCountsJson)]),
     ("readiness", Json.mkObj [("current", readinessCurrent)])
   ]
@@ -187,15 +186,8 @@ private def checkResponseJsonDecode : IO Unit := do
 private def checkOrderedJsonPretty : IO Unit := do
   let summary : SyncSummary := {
     currentVersion := 3
-    deltaBaseVersion? := some 2
-    diagnostics := {
-      current := {}
-      delta? := some {}
-    }
-    readiness := {
-      current := {}
-      delta? := some {}
-    }
+    diagnostics := { current := {} }
+    readiness := { current := {} }
   }
   let resp : Response := {
     ok := true
@@ -216,8 +208,6 @@ private def checkOrderedJsonPretty : IO Unit := do
     "    \"version\": 3,",
     "    \"syncSummary\": {",
     "      \"currentVersion\": 3,",
-    "      \"deltaBaseVersion\": 2,",
-    "      \"sourceChangedSinceDeltaBase\": false,",
     "      \"readiness\": {",
     "        \"current\": {",
     "          \"saveReady\": true,",
@@ -226,13 +216,6 @@ private def checkOrderedJsonPretty : IO Unit := do
     "          \"saveReadyReason\": \"ok\",",
     "          \"blockingDiagnostics\": [],",
     "          \"blockingCommandMessages\": []",
-    "        },",
-    "        \"delta\": {",
-    "          \"saveReadyChanged\": false,",
-    "          \"baseSaveReady\": true,",
-    "          \"currentSaveReady\": true,",
-    "          \"errorCountDelta\": 0,",
-    "          \"warningCountDelta\": 0",
     "        }",
     "      },",
     "      \"diagnostics\": {",
@@ -243,11 +226,6 @@ private def checkOrderedJsonPretty : IO Unit := do
     "          \"hint\": 0,",
     "          \"unknown\": 0,",
     "          \"total\": 0",
-    "        },",
-    "        \"delta\": {",
-    "          \"added\": 0,",
-    "          \"removed\": 0,",
-    "          \"persisted\": 0",
     "        }",
     "      }",
     "    }",

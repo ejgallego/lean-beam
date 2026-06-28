@@ -90,21 +90,15 @@ Lean-side readiness follows Lean batch/Lake's artifact gate for the current sync
 current save-blocking frontend errors block save. Diagnostic streams, diagnostic summaries, and
 message history are observations; clients should not reconstruct save readiness from them.
 
-## Deltas
+## Current Summary
 
-When a previous successful sync boundary exists, `syncSummary` also reports deltas. Delta-bearing
-payloads state both sides of the comparison:
+Each `syncSummary` describes only the current synced document version. It does not carry
+broker-stored deltas against previous responses. Clients that need comparisons should retain the
+previous response they care about and compare it explicitly.
 
 - `currentVersion`: the synced document version described by the current result
-- `deltaBaseVersion?`: the previous successful sync version used as the comparison base
-- `sourceChangedSinceDeltaBase`: whether the source text hash changed between the versions
 - `diagnostics.current`: current Lean-published diagnostic counts by severity and total
-- `diagnostics.delta`: added, removed, and persisted counts keyed by Beam's diagnostic identity
 - `readiness.current`: the current save-readiness verdict and blocking evidence
-- `readiness.delta`: readiness-state changes between the same base and current versions
-
-Nested delta objects do not repeat `currentVersion` or `deltaBaseVersion`; use the enclosing
-`syncSummary` fields as the single version coordinate.
 
 ## Failures And Recovery
 
