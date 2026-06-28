@@ -236,6 +236,9 @@ shapes the final Beam response. Keep that boundary explicit: the broker may orde
 typed observations such as `fileProgress`, and report stale direct-dependency hints, but save
 readiness is a backend/LSP verdict. Do not rebuild or override the save decision from progress,
 diagnostic counts, saved-olean bookkeeping, or other broker-side observations.
+For checkpoint decisions, the broker passes the expected document version and text hash to the
+Lean-side save-readiness and save-artifact requests. Streamed diagnostics and broker summaries are
+evidence attached to that verdict, not the authority for it.
 
 Do not remove broker-side ordered file snapshots when thinning orchestration. Beam requests are
 path-based and may run concurrently, while LSP document updates are an ordered client stream. The LSP
