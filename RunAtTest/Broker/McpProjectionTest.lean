@@ -328,6 +328,52 @@ private def checkTodoNormalization : IO Unit := do
   discard <| requireObjVal "todo code action item" "code_action" codeActionItem
   requireFieldAbsent "todo code action item" "codeAction" codeActionItem
 
+private def sampleStreamDiagnostic
+    (severity? : Option Lean.Lsp.DiagnosticSeverity)
+    (saveBlocking? : Option Bool)
+    (completionBlocking : Bool) : Beam.Broker.StreamDiagnostic := {
+  path := "Demo.lean"
+  uri := "file:///repo/Demo.lean"
+  version? := some 7
+  severity? := severity?
+  range := {
+    start := { line := 1, character := 2 }
+    «end» := { line := 1, character := 3 }
+  }
+  message := "sample diagnostic"
+  saveBlocking? := saveBlocking?
+  completionBlocking := completionBlocking
+}
+
+private def checkDiagnosticProjection : IO Unit := do
+  let warningJson := Beam.Mcp.diagnosticJson <|
+    sampleStreamDiagnostic (some .warning) none false
+  requireJsonString "warning diagnostic json" "severity" "warning" warningJson
+  requireJsonString "warning diagnostic json" "classification" "warning" warningJson
+  requireFieldAbsent "warning diagnostic json" "saveBlocking" warningJson
+
+  let softErrorJson := Beam.Mcp.diagnosticJson <|
+    sampleStreamDiagnostic (some .error) none false
+  requireJsonString "soft error diagnostic json" "severity" "error" softErrorJson
+  requireJsonString "soft error diagnostic json" "classification" "soft_failure" softErrorJson
+
+  let saveBlockingJson := Beam.Mcp.diagnosticJson <|
+    sampleStreamDiagnostic (some .error) (some true) false
+  requireJsonString "save-blocking diagnostic json" "classification" "hard_error" saveBlockingJson
+  requireJsonBool "save-blocking diagnostic json" "saveBlocking" true saveBlockingJson
+
+  let completionBlockingJson := Beam.Mcp.diagnosticJson <|
+    sampleStreamDiagnostic (some .information) none true
+  requireJsonString "completion-blocking diagnostic json" "classification" "hard_error"
+    completionBlockingJson
+  requireJsonBool "completion-blocking diagnostic json" "completionBlocking" true
+    completionBlockingJson
+
+  let infoJson := Beam.Mcp.diagnosticJson <|
+    sampleStreamDiagnostic none none false
+  requireJsonString "unknown diagnostic json" "severity" "unknown" infoJson
+  requireJsonString "unknown diagnostic json" "classification" "info" infoJson
+
 private def checkInvalidEnvelopeRejection : IO Unit := do
   discard <| expectToolError "missing error envelope" "invalidEnvelope" <|
     Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := false }
@@ -345,6 +391,7 @@ def main : IO Unit := do
   checkRunAtNormalization
   checkTransportErrorNormalization
   checkTodoNormalization
+  checkDiagnosticProjection
   checkInvalidEnvelopeRejection
 
 end RunAtTest.Broker.McpProjectionTest

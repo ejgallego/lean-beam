@@ -577,7 +577,7 @@ def diagnostic_log_notifications(client):
     return rows
 
 
-def expect_diagnostic_log(client, *, level, severity, path):
+def expect_diagnostic_log(client, *, level, severity, path, classification):
     for notification in diagnostic_log_notifications(client):
         params = notification_params(notification, "notifications/message", "diagnostic log notification")
         data = params.get("data", {})
@@ -591,11 +591,12 @@ def expect_diagnostic_log(client, *, level, severity, path):
             require(isinstance(data.get("version"), int), f"diagnostic log missing version: {notification}")
             require(isinstance(data.get("range"), dict), f"diagnostic log missing range: {notification}")
             require(isinstance(data.get("message"), str) and data["message"], f"diagnostic log missing message: {notification}")
+            require(data.get("classification") == classification, f"diagnostic log classification mismatch: {notification}")
             return notification
     fail(f"missing {level}/{severity} diagnostic log for {path}: {client.notifications}")
 
 
-def expect_reply_diagnostic(sync, *, severity, path):
+def expect_reply_diagnostic(sync, *, severity, path, classification):
     diagnostics = sync.get("diagnostics")
     require(isinstance(diagnostics, list) and diagnostics, f"sync reply missing diagnostics: {sync}")
     for diagnostic in diagnostics:
@@ -608,6 +609,7 @@ def expect_reply_diagnostic(sync, *, severity, path):
             require(isinstance(diagnostic.get("version"), int), f"reply diagnostic missing version: {diagnostic}")
             require(isinstance(diagnostic.get("range"), dict), f"reply diagnostic missing range: {diagnostic}")
             require(isinstance(diagnostic.get("message"), str) and diagnostic["message"], f"reply diagnostic missing message: {diagnostic}")
+            require(diagnostic.get("classification") == classification, f"reply diagnostic classification mismatch: {diagnostic}")
             return diagnostic
     fail(f"missing {severity} reply diagnostic for {path}: {sync}")
 
@@ -940,8 +942,14 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
                 readiness.get("warningCount", 0) >= 1,
                 f"warning-only sync summary should report readiness warnings: {sync}",
             )
-            expect_reply_diagnostic(sync, severity="warning", path="SaveSmoke/B.lean")
-            expect_diagnostic_log(client, level="warning", severity="warning", path="SaveSmoke/B.lean")
+            expect_reply_diagnostic(sync, severity="warning", path="SaveSmoke/B.lean", classification="warning")
+            expect_diagnostic_log(
+                client,
+                level="warning",
+                severity="warning",
+                path="SaveSmoke/B.lean",
+                classification="warning",
+            )
 
             expect_result(client.request("logging/setLevel", {"level": "error"}))
             client.notifications.clear()
@@ -972,12 +980,18 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
                 readiness.get("errorCount", 0) >= 1,
                 f"broken sync summary should report readiness errors: {sync}",
             )
-            expect_reply_diagnostic(sync, severity="error", path="SaveSmoke/B.lean")
+            expect_reply_diagnostic(sync, severity="error", path="SaveSmoke/B.lean", classification="soft_failure")
             require(
                 all(diagnostic.get("severity") == "error" for diagnostic in sync.get("diagnostics", [])),
                 f"default replayed diagnostics should be error-only: {sync}",
             )
-            expect_diagnostic_log(client, level="error", severity="error", path="SaveSmoke/B.lean")
+            expect_diagnostic_log(
+                client,
+                level="error",
+                severity="error",
+                path="SaveSmoke/B.lean",
+                classification="soft_failure",
+            )
         finally:
             client.close()
 

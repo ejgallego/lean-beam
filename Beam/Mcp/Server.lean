@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Broker.Server
 import Beam.Lean.Workspace
+import Beam.Mcp.Diagnostics
 import Beam.Mcp.Options
 import Beam.Mcp.Protocol
 import Beam.Mcp.Runtime
@@ -129,36 +130,12 @@ private def invalidRequestId (json : Json) : Json :=
 private def brokerClientRequestId (req : Request) : String :=
   s!"mcp:{requestIdLabel req.id}"
 
-private def diagnosticSeverityName : Option Lean.Lsp.DiagnosticSeverity → String
-  | some .error => "error"
-  | some .warning => "warning"
-  | some .information => "information"
-  | some .hint => "hint"
-  | none => "unknown"
-
 private def diagnosticLogLevel : Option Lean.Lsp.DiagnosticSeverity → LogLevel
   | some .error => .error
   | some .warning => .warning
   | some .information => .info
   | some .hint => .debug
   | none => .info
-
-private def streamDiagnosticLogData (diagnostic : Beam.Broker.StreamDiagnostic) : Json :=
-  Json.mkObj <|
-    [
-      ("path", toJson diagnostic.path),
-      ("uri", toJson diagnostic.uri),
-      ("severity", toJson <| diagnosticSeverityName diagnostic.severity?),
-      ("range", toJson diagnostic.range),
-      ("message", toJson diagnostic.message),
-      ("completionBlocking", toJson diagnostic.completionBlocking)
-    ] ++
-    (match diagnostic.saveBlocking? with
-    | some saveBlocking => [("saveBlocking", toJson saveBlocking)]
-    | none => []) ++
-    match diagnostic.version? with
-    | some version => [("version", toJson version)]
-    | none => []
 
 private def emitDiagnosticLog
     (notifier : Notifier)
@@ -167,7 +144,7 @@ private def emitDiagnosticLog
   let currentState ← notifier.state.get
   if currentState.logLevel.allows level then
     notifier.send <|
-      logMessageNotification level "lean.diagnostic" (streamDiagnosticLogData diagnostic)
+      logMessageNotification level "lean.diagnostic" (diagnosticJson diagnostic)
 
 private def runtimeOptions (opts : Options) : Runtime.Options := {
   leanCmd? := opts.leanCmd?

@@ -657,6 +657,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     discard <| requireObjVal "warning log data" "range" data
     discard <| requireObjVal "warning log data" "uri" data
     discard <| requireObjVal "warning log data" "version" data
+    requireJsonString "warning log data" "classification" "warning" data
     requireJsonBool "warning log data" "completionBlocking" false data
     requireFieldAbsent "warning log data" "saveBlocking" data
     let message ← IO.ofExcept <| data.getObjValAs? String "message"
@@ -683,6 +684,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let errorLog ← requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"
     let errorParams ← requireObjVal "error log notification" "params" errorLog
     let errorData ← requireObjVal "error log params" "data" errorParams
+    requireJsonString "error log data" "classification" "soft_failure" errorData
     requireJsonBool "error log data" "completionBlocking" false errorData
     requireFieldAbsent "error log data" "saveBlocking" errorData
   finally

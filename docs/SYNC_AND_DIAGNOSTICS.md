@@ -42,9 +42,12 @@ broker JSON stream exposed by `beam-client request-stream`.
 
 The MCP server advertises logging and forwards incremental Lean diagnostics as structured
 `notifications/message` log events. These events include path, URI, version, range, severity,
-message data, and `completionBlocking=true` when a diagnostic is known to block file completion.
-They are request-scoped observations; save-blocking evidence is attached to the final sync/save
-verdict.
+message data, `completionBlocking=true` when a diagnostic is known to block file completion, and a
+derived `classification` bucket. The current classification values are `hard_error` for diagnostics
+with `saveBlocking=true` or `completionBlocking=true`, `soft_failure` for non-blocking Lean error
+diagnostics, `warning`, and `info`. They are request-scoped observations; save-blocking evidence is
+attached to the final sync/save verdict. Classification is a convenience filter and does not
+replace `syncSummary.readiness.current` for save-readiness decisions.
 
 MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
 `include_diagnostics: true` to replay diagnostics in the final structured result. By default replay

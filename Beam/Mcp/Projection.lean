@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Lean.Operation
 import Beam.JsonSchema
+import Beam.Mcp.Diagnostics
 import Beam.Mcp.Json
 import Beam.Workspace
 import RunAt.Protocol
@@ -259,36 +260,12 @@ private def normalizeTodoResult (result : Json) : Except ToolError Json := do
   | .error err =>
       throw <| ToolError.invalidResult s!"todo result missing 'items': {err}"
 
-private def diagnosticSeverityName : Option Lean.Lsp.DiagnosticSeverity → String
-  | some .error => "error"
-  | some .warning => "warning"
-  | some .information => "information"
-  | some .hint => "hint"
-  | none => "unknown"
-
-private def mcpDiagnosticJson (diagnostic : Beam.Broker.StreamDiagnostic) : Json :=
-  Json.mkObj <|
-    [
-      ("path", toJson diagnostic.path),
-      ("uri", toJson diagnostic.uri),
-      ("severity", toJson <| diagnosticSeverityName diagnostic.severity?),
-      ("range", toJson diagnostic.range),
-      ("message", toJson diagnostic.message),
-      ("completionBlocking", toJson diagnostic.completionBlocking)
-    ] ++
-    (match diagnostic.saveBlocking? with
-    | some saveBlocking => [("saveBlocking", toJson saveBlocking)]
-    | none => []) ++
-    match diagnostic.version? with
-    | some version => [("version", toJson version)]
-    | none => []
-
 private def normalizeSyncResult (result : Json) : Except ToolError Json := do
   match result.getObjVal? "diagnostics" with
   | .ok (Json.arr diagnostics) =>
-      let diagnostics ← diagnostics.mapM fun diagnosticJson =>
-        match fromJson? (α := Beam.Broker.StreamDiagnostic) diagnosticJson with
-        | .ok diagnostic => pure <| mcpDiagnosticJson diagnostic
+      let diagnostics ← diagnostics.mapM fun rawDiagnosticJson =>
+        match fromJson? (α := Beam.Broker.StreamDiagnostic) rawDiagnosticJson with
+        | .ok diagnostic => pure <| diagnosticJson diagnostic
         | .error err => throw <| ToolError.invalidResult s!"sync diagnostic result is invalid: {err}"
       pure <| result.setObjVal! "diagnostics" (Json.arr diagnostics)
   | .ok _ =>
