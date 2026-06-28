@@ -13,8 +13,8 @@ the normal workflow docs rather than here.
 
 ## `lean-beam request-at`
 
-`lean-beam request-at` forwards a small whitelisted set of standard Lean LSP requests against the current
-on-disk file after syncing that file through the Beam daemon.
+`lean-beam request-at` forwards a small whitelisted set of standard Lean LSP requests against an
+explicit broker document version.
 
 Prefer the normal `lean-beam hover`, `lean-beam goals-prev`, and `lean-beam goals-after` wrappers for common
 read-only inspection. `lean-beam request-at` remains the unstable escape hatch for expert use and for
@@ -25,9 +25,10 @@ Use the normal goals commands for proof state. `lean-beam request-at` is not the
 Current command shape:
 
 ```bash
-lean-beam request-at <path> <line> <character> <method> [params-json|-]
+lean-beam request-at <path> <version> <line> <character> <method> [params-json|-]
 ```
 
+- `<version>` is the document version returned by `lean-beam update <path>` or `lean-beam sync <path>`
 - `<line>` and `<character>` use Lean/LSP `Position` semantics
 - `<method>` must currently be one of:
   - `textDocument/definition`
@@ -53,9 +54,9 @@ the CLI path/line/character arguments.
 Examples:
 
 ```bash
-lean-beam request-at "SaveSmoke/A.lean" 2 18 textDocument/definition
+lean-beam request-at "SaveSmoke/A.lean" <version-from-update> 2 18 textDocument/definition
 printf '%s\n' '{"context":{"includeDeclaration":true}}' | \
-  lean-beam request-at "SaveSmoke/A.lean" 2 18 textDocument/references -
+  lean-beam request-at "SaveSmoke/A.lean" <version-from-update> 2 18 textDocument/references -
 ```
 
 ## Stability

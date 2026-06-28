@@ -1,4 +1,5 @@
-{"textDocument": {"uri": "file:///tests/interactive/commandLoggedError.lean"},
+{"textDocument":
+ {"version": 1, "uri": "file:///tests/interactive/commandLoggedError.lean"},
  "text": "#guard_msgs in #check Nat",
  "position": {"line": 0, "character": 2}}
 {"traces": [],

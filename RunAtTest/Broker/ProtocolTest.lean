@@ -414,9 +414,19 @@ private def checkReadinessBoundary : IO Unit := do
     interactiveOnlySyncResult.currentReadiness.saveReady
 
 private def checkRequestArgsBoundary : IO Unit := do
+  let runAtMissingVersion : Request := {
+    op := .runAt
+    path? := some "Demo.lean"
+    line? := some 1
+    character? := some 2
+    text? := some "exact trivial"
+  }
+  expectRequestArgError "run_at args missing version" "missing 'version'" runAtMissingVersion.runAtArgs
+
   let runAtMissingText : Request := {
     op := .runAt
     path? := some "Demo.lean"
+    version? := some 7
     line? := some 1
     character? := some 2
   }
@@ -426,6 +436,7 @@ private def checkRequestArgsBoundary : IO Unit := do
     op := .runAt
     backend := .rocq
     path? := some "Demo.v"
+    version? := some 7
     line? := some 1
     character? := some 2
     text? := some "Check nat."
@@ -438,6 +449,7 @@ private def checkRequestArgsBoundary : IO Unit := do
   let requestAtBadPositionParam : Request := {
     op := .requestAt
     path? := some "Demo.lean"
+    version? := some 7
     line? := some 1
     character? := some 2
     method? := some "textDocument/hover"

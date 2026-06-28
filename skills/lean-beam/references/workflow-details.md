@@ -4,8 +4,8 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
 
 ## Position Semantics
 
-- `lean-beam run-at` and `lean-beam run-at-handle` take Lean/LSP `Position` coordinates as
-  `<line> <character>`
+- `lean-beam run-at` and `lean-beam run-at-handle` take the broker document version before
+  Lean/LSP `Position` coordinates: `<version> <line> <character>`
 - the wrapper passes those coordinates through directly; they are not editor-specific line numbers,
   byte offsets, or parser-token offsets
 - line `0` is the first line, and character `0` is the first UTF-16 code unit on that line
@@ -24,7 +24,7 @@ Use this reference when the task needs more than the default loop in `SKILL.md`.
   assume that from arbitrary file positions
 - those errors do not by themselves mean the Beam daemon is unhealthy
 - known-good proof probe in this repo:
-  `lean-beam run-at "tests/interactive/proofBasisBefore.lean" 2 2 "exact trivial"`
+  `lean-beam run-at "tests/interactive/proofBasisBefore.lean" <version-from-update> 2 2 "exact trivial"`
 
 ## Command Details
 
@@ -45,7 +45,7 @@ printf '%s\n' "$HANDLE_JSON" | lean-beam release "Foo.lean" -
 Short search helper:
 
 ```bash
-lean-beam-search mint "Foo.lean" 10 2 "constructor"
+lean-beam-search mint "Foo.lean" <version-from-update> 10 2 "constructor"
 printf '%s\n' "$HANDLE_JSON" | lean-beam-search branch "Foo.lean" "constructor"
 printf '%s\n' "$HANDLE_JSON" | lean-beam-search playout "Foo.lean" "exact trivial" "exact trivial"
 printf '%s\n' "$HANDLE_JSON" | lean-beam-search release "Foo.lean"
@@ -54,14 +54,14 @@ printf '%s\n' "$HANDLE_JSON" | lean-beam-search release "Foo.lean"
 Inspect Lean type/term information at a specific position:
 
 ```bash
-lean-beam hover "Foo.lean" 10 2
+lean-beam hover "Foo.lean" <version-from-update> 10 2
 ```
 
 Inspect Lean proof goals at an existing tactic position:
 
 ```bash
-lean-beam goals-prev "Foo.lean" 10 2
-lean-beam goals-after "Foo.lean" 10 2
+lean-beam goals-prev "Foo.lean" <version-from-update> 10 2
+lean-beam goals-after "Foo.lean" <version-from-update> 10 2
 ```
 
 These commands return structured goals in `result.goals`. A solved state uses
@@ -127,10 +127,10 @@ What is not a valid checkpoint target:
   is normal
 - the probe does not mutate the document's real elaboration state and does not create hidden state
   for the next probe
-- the Beam daemon may implicitly open or resync the file from disk before a probe, but that is not
-  the supported readiness barrier after edits
-- use `lean-beam sync` when the workflow needs an explicit ready/fresh boundary; `lean-beam run-at` only
-  waits for the snapshot it needs
+- the Beam daemon may implicitly open or update the file from disk before a probe, but that is not
+  the supported diagnostics/readiness barrier after edits
+- use `lean-beam sync` when the workflow needs an explicit diagnostics/readiness boundary;
+  `lean-beam run-at` only waits for the snapshot it needs
 - if the same document changes while a request or stored handle is pending, expect
   `contentModified` or handle invalidation instead of hidden reuse
 - `lean-beam save` / `lean-beam close-save` checkpoint the current synced Lake module only; they do not
@@ -177,8 +177,9 @@ Treat `fileProgress` as observability, not as proof that every call is a full ba
 lean-beam ensure
 sync_out="$(lean-beam sync "Foo.lean")"
 printf '%s\n' "$sync_out"
+version="<version-from-sync-out>"
 
-probe_out="$(lean-beam run-at "Foo.lean" 10 2 "exact trivial")"
+probe_out="$(lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial")"
 printf '%s\n' "$probe_out"
 ```
 
@@ -264,7 +265,8 @@ itself to prove the dependency cone is fresh.
 lean-beam ensure
 # make a real edit in A.lean and save the source file to disk
 lean-beam sync "A.lean"
-lean-beam run-at "B.lean" 12 2 "#check someNameFromA"
+b_version="<version-from-update-B.lean>"
+lean-beam run-at "B.lean" "$b_version" 12 2 "#check someNameFromA"
 ```
 
 Rules:

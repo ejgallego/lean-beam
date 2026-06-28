@@ -57,6 +57,13 @@ def requireSyncFileResult
   | .ok result => pure result
   | .error err => throw <| IO.userError s!"{label}: failed to decode sync result: {err}"
 
+def requireUpdateFileResult
+    (label : String)
+    (payload : Json) : IO Beam.Broker.UpdateFileResult := do
+  match fromJson? payload with
+  | .ok result => pure result
+  | .error err => throw <| IO.userError s!"{label}: failed to decode update result: {err}"
+
 def expectNoReplayDiagnosticsField (label : String) (payload : Json) : IO Unit := do
   match payload.getObjVal? "diagnostics" with
   | .ok diagnostics =>

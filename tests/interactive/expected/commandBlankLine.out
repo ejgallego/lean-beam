@@ -1,4 +1,5 @@
-{"textDocument": {"uri": "file:///tests/interactive/commandBlankLine.lean"},
+{"textDocument":
+ {"version": 1, "uri": "file:///tests/interactive/commandBlankLine.lean"},
  "text": "#check Nat",
  "position": {"line": 1, "character": 2}}
 {"error":

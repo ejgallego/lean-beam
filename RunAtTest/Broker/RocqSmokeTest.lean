@@ -56,6 +56,19 @@ private def expectSurfacedError (resp : Beam.Broker.Response) : IO Unit := do
   if err.message.trimAscii.isEmpty then
     throw <| IO.userError s!"expected non-empty surfaced Rocq error, got {(toJson resp).compress}"
 
+private def updateVersion
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath)
+    (path : String) : IO Nat := do
+  let resp ← runClient endpoint {
+    op := .updateFile
+    backend := .rocq
+    root? := some root.toString
+    path? := some path
+  }
+  let result ← requireUpdateFileResult s!"rocq update version for {path}" (← expectOk resp)
+  pure result.version
+
 def main : IO Unit := do
   let endpoint ← freshTcpEndpoint
   let root ← rocqRoot
@@ -64,11 +77,23 @@ def main : IO Unit := do
     waitForBrokerReadyForRoot endpoint root
     discard <| expectOk (← runClient endpoint { op := .ensure, backend := .rocq, root? := some root.toString })
     discard <| expectOk (← runClient endpoint { op := .resetStats })
+    let unsupportedSync ← runClient endpoint {
+      op := .syncFile
+      backend := .rocq
+      root? := some root.toString
+      path? := some "Demo.v"
+    }
+    expectErrCode unsupportedSync "invalidParams"
+    let demoVersion ← updateVersion endpoint root "Demo.v"
+    let semiVersion ← updateVersion endpoint root "Semi.v"
+    let errorVersion ← updateVersion endpoint root "Error.v"
+    let doneVersion ← updateVersion endpoint root "Done.v"
     let goals ← expectOk <| ← runClient endpoint {
       op := .goals
       backend := .rocq
       root? := some root.toString
       path? := some "Demo.v"
+      version? := some demoVersion
       line? := some 2
       character? := some 8
       mode? := some .after
@@ -81,6 +106,7 @@ def main : IO Unit := do
       backend := .rocq
       root? := some root.toString
       path? := some "Semi.v"
+      version? := some semiVersion
       line? := some 2
       character? := some 3
       mode? := some .prev
@@ -94,6 +120,7 @@ def main : IO Unit := do
       backend := .rocq
       root? := some root.toString
       path? := some "Error.v"
+      version? := some errorVersion
       line? := some 2
       character? := some 8
       mode? := some .after
@@ -106,6 +133,7 @@ def main : IO Unit := do
       backend := .rocq
       root? := some root.toString
       path? := some "Error.v"
+      version? := some errorVersion
       line? := some 4
       character? := some 2
       mode? := some .after
@@ -118,6 +146,7 @@ def main : IO Unit := do
       backend := .rocq
       root? := some root.toString
       path? := some "Done.v"
+      version? := some doneVersion
       line? := some 3
       character? := some 0
       mode? := some .prev

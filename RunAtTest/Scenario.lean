@@ -31,6 +31,7 @@ structure ChangeSpec where
   deriving Inhabited, Repr, ToJson
 
 structure SendRunAtSpec where
+  version? : Option Nat := none
   line : Nat
   character : Nat
   text : String
@@ -44,12 +45,14 @@ structure RunWithSpec where
   deriving Inhabited, Repr, ToJson
 
 structure GoalsSpec where
+  version? : Option Nat := none
   line : Nat
   character : Nat
   useAfter : Bool := true
   deriving Inhabited, Repr, ToJson
 
 structure TodoSpec where
+  version? : Option Nat := none
   startLine : Nat
   startCharacter : Nat
   endLine : Nat
@@ -96,6 +99,10 @@ instance : FromJson ChangeSpec where
 
 instance : FromJson SendRunAtSpec where
   fromJson? j := do
+    let version? :=
+      match j.getObjValAs? Nat "version" with
+      | .ok n => some n
+      | .error _ => none
     let line ← j.getObjValAs? Nat "line"
     let character ← j.getObjValAs? Nat "character"
     let text ← j.getObjValAs? String "text"
@@ -103,7 +110,7 @@ instance : FromJson SendRunAtSpec where
       match j.getObjValAs? Bool "storeHandle" with
       | .ok b => b
       | .error _ => false
-    pure { line, character, text, storeHandle }
+    pure { version?, line, character, text, storeHandle }
 
 instance : FromJson RunWithSpec where
   fromJson? j := do
@@ -404,7 +411,10 @@ def notifyWatchedFileChanged (path : System.FilePath)
 def sendRunAt (doc : DocHandle) (spec : SendRunAtSpec) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : RunAt.Params := {
-    textDocument := { uri := docState.uri }
+    textDocument := {
+      uri := docState.uri
+      version? := some (spec.version?.getD (docState.versionNo - 1))
+    }
     position := { line := spec.line, character := spec.character }
     text := spec.text
     storeHandle? := if spec.storeHandle then some true else none
@@ -427,7 +437,10 @@ def runWithHandle (doc : DocHandle) (handle : RunAt.Handle) (spec : RunWithSpec)
 def sendGoals (doc : DocHandle) (spec : GoalsSpec) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : RunAt.GoalsParams := {
-    textDocument := { uri := docState.uri }
+    textDocument := {
+      uri := docState.uri
+      version? := some (spec.version?.getD (docState.versionNo - 1))
+    }
     position := { line := spec.line, character := spec.character }
   }
   let method := if spec.useAfter then RunAt.goalsAfterMethod else RunAt.goalsPrevMethod
@@ -437,7 +450,10 @@ def sendGoals (doc : DocHandle) (spec : GoalsSpec) : ScenarioM ReqHandle := do
 def sendTodo (doc : DocHandle) (spec : TodoSpec) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : RunAt.TodoParams := {
-    textDocument := { uri := docState.uri }
+    textDocument := {
+      uri := docState.uri
+      version? := some (spec.version?.getD (docState.versionNo - 1))
+    }
     range := {
       start := { line := spec.startLine, character := spec.startCharacter }
       «end» := { line := spec.endLine, character := spec.endCharacter }
@@ -475,7 +491,7 @@ def sendSaveReadiness (doc : DocHandle) (spec : SaveReadinessSpec := {}) : Scena
 def sendDirectImports (doc : DocHandle) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : RunAt.Internal.DirectImportsParams := {
-    textDocument := { uri := docState.uri }
+    textDocument := { uri := docState.uri, version? := some (docState.versionNo - 1) }
   }
   let requestID ← sendRequest RunAt.Internal.directImportsMethod (toJson params)
   registerRequest requestID (toJson params)

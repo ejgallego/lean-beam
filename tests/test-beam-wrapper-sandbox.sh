@@ -179,8 +179,9 @@ if ! wait_for_registry; then
   cat "$owner_err" >&2
   exit 1
 fi
+follower_version="$(beam_wrapper_update_version "sandbox SlowPoll" sandbox_beam update tests/scenario/docs/SlowPoll.lean)"
 BEAM_PROGRESS=1 BEAM_REQUEST_ID=wrapper-sandbox-follower \
-  sandbox_beam run-at tests/scenario/docs/SlowPoll.lean 25 2 poll_sleep_cmd \
+  sandbox_beam run-at tests/scenario/docs/SlowPoll.lean "$follower_version" 25 2 poll_sleep_cmd \
   >"$follower_out" 2>"$follower_err" &
 follower_pid="$!"
 

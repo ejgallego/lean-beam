@@ -87,15 +87,16 @@ A standalone scratch file has a high fixed cost: it starts from a detached modul
 and environment, and encourages simplified contexts that may not match the real source position.
 
 A `lean-beam run-at` probe has low marginal cost once the per-project daemon and module context are
-warm: it asks one speculative question against the current saved file snapshot and the real module
-environment.
+warm: it asks one speculative question against an explicit broker document version and the real
+module environment.
 
 This changes the right agent behavior:
 
 - prefer many small `run-at` probes at the source position over one large scratch experiment
 - use `goals-prev`, `goals-after`, and `hover` instead of reconstructing proof state elsewhere
 - do not batch unrelated questions just to amortize Lean startup
-- after a real source edit, run `lean-beam sync <file>` before trusting later probes
+- after a real source edit, run `lean-beam update <file>` before later probes; run
+  `lean-beam sync <file>` when you need diagnostics/readiness
 - use `lake build` for dependency-cone or final validation, not as the inner loop
 - use scratch files only for context-free Lean syntax checks or Beam incident isolation
 
@@ -109,6 +110,8 @@ Prefer the smallest command that matches the actual task:
 - use `lean-beam todo` when you want actionable items in a saved file range, such as sorries, holes,
   diagnostics, code actions, or incomplete proofs
 - use `lean-beam run-at` when you want to try one speculative Lean snippet without editing the file
+- before `lean-beam run-at`, `lean-beam run-at-handle`, `lean-beam hover`, `lean-beam goals-*`, or
+  `lean-beam todo`, call `lean-beam update <file>` and pass the returned `version`
 - for `lean-beam run-at`, `lean-beam hover`, `lean-beam goals-*`, and `lean-beam todo`, treat line and
   character arguments as Lean/LSP
   coordinates: line `0` is the first line, character `0` is the first UTF-16 code unit, and on a
@@ -120,7 +123,7 @@ Prefer the smallest command that matches the actual task:
 - for handle-based continuation, prefer `--handle-file <path>` as the normal path; deeper shell-loop
   variants such as stdin handle piping live in the reference docs
 - do not expect one `lean-beam run-at` call to become the basis of the next one automatically
-- use `lean-beam sync` right after every real saved edit before the next speculative probe
+- use `lean-beam update` right after every real saved edit before the next speculative probe
 - use `lean-beam save` or `lean-beam close-save` only for a synced workspace module path such as
   `MyPkg/Sub/Module.lean`
 
@@ -143,8 +146,8 @@ probing.
 
 ## Lean-Run-At Semantics
 
-`lean-beam run-at` is a speculative execution request against one saved file snapshot. Read it as
-"try this Lean text here", not as "edit the file here".
+`lean-beam run-at` is a speculative execution request against one explicit broker document version.
+Read it as "try this Lean text here", not as "edit the file here".
 
 What `lean-beam run-at` does not do:
 
@@ -253,13 +256,14 @@ lean-beam ensure
 lean-beam ensure --hold
 
 # inspect existing code or proof state
-lean-beam hover "Foo.lean" 10 2
-lean-beam goals-prev "Foo.lean" 10 2
+version="<version-from-lean-beam-sync>"
+lean-beam hover "Foo.lean" "$version" 10 2
+lean-beam goals-prev "Foo.lean" "$version" 10 2
 
 # try speculative Lean text without editing the file
-lean-beam run-at "Foo.lean" 10 2 "exact trivial"
+lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
 # for multiline probes, prefer stdin
-printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" 10 2 --stdin
+printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" "$version" 10 2 --stdin
 
 # after every real edit saved to disk, on that same workspace module path
 lean-beam sync "MyPkg/Sub/Module.lean"
@@ -341,8 +345,8 @@ Open these only when the task needs the detail:
 ## Policy
 
 - prefer `lean-beam run-at` before editing when feasible
-- treat `lean-beam sync` as mandatory after every real Lean file edit before the next speculative probe
-- do not assume one successful probe changes the basis of the next one; each probe starts from the current synced snapshot
+- treat `lean-beam update` as mandatory after every real Lean file edit before the next speculative probe
+- do not assume one successful probe changes the basis of the next one; each probe starts from the explicit document version it names
 - when continuation really matters, prefer an explicit stored handle over hoping the next probe will
   recover the same internal basis by accident
 - prefer `lean-beam save` / `lean-beam close-save` over a full `lake build` when only one file needs checkpointing

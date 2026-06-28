@@ -109,6 +109,7 @@ private def checkToolsListShape : IO Unit := do
     (modeDescription.contains "invalidates handles")
   require "MCP capability names should include central Lean tools"
     (Beam.Mcp.capabilityNames.contains "lean_run_at" &&
+      Beam.Mcp.capabilityNames.contains "lean_update" &&
       Beam.Mcp.capabilityNames.contains "lean_sync" &&
       Beam.Mcp.capabilityNames.contains "lean_save" &&
       Beam.Mcp.capabilityNames.contains "lean_goals_prev" &&
@@ -117,14 +118,16 @@ private def checkToolsListShape : IO Unit := do
     (!Beam.Mcp.capabilityNames.contains RunAt.method)
 
   let schemaCases : Array (String × Array String) := #[
-    ("lean_run_at", #["path", "line", "character", "text"]),
-    ("lean_run_at_handle", #["path", "line", "character", "text"]),
-    ("lean_hover", #["path", "line", "character"]),
-    ("lean_goals_after", #["path", "line", "character"]),
-    ("lean_goals_prev", #["path", "line", "character"]),
+    ("lean_run_at", #["path", "version", "line", "character", "text"]),
+    ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
+    ("lean_hover", #["path", "version", "line", "character"]),
+    ("lean_goals_after", #["path", "version", "line", "character"]),
+    ("lean_goals_prev", #["path", "version", "line", "character"]),
+    ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character"]),
     ("lean_run_with", #["path", "handle", "text"]),
     ("lean_run_with_linear", #["path", "handle", "text"]),
     ("lean_release", #["path", "handle"]),
+    ("lean_update", #["path"]),
     ("lean_sync", #["path"]),
     ("lean_save", #["path"]),
     ("lean_deps", #["path"]),

@@ -159,18 +159,51 @@ rm -rf -- "$cli_non_workspace_root"
 rm -f "$cli_non_workspace_err"
 
 wrapper_todo_control_dir="$(mktemp -d /tmp/lean-beam-wrapper-todo-XXXXXX)"
+wrapper_todo_update_out="$(mktemp /tmp/lean-beam-wrapper-todo-update-out-XXXXXX)"
+wrapper_todo_update_err="$(mktemp /tmp/lean-beam-wrapper-todo-update-err-XXXXXX)"
 wrapper_todo_out="$(mktemp /tmp/lean-beam-wrapper-todo-out-XXXXXX)"
 wrapper_todo_err="$(mktemp /tmp/lean-beam-wrapper-todo-err-XXXXXX)"
 wrapper_todo_cleanup() {
   BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
     scripts/lean-beam --root tests/save_olean_project shutdown > /dev/null 2>&1 || true
   rm -rf -- "$wrapper_todo_control_dir"
-  rm -f "$wrapper_todo_out" "$wrapper_todo_err"
+  rm -f "$wrapper_todo_update_out" "$wrapper_todo_update_err" "$wrapper_todo_out" "$wrapper_todo_err"
 }
 
 if ! BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
     scripts/lean-beam --root tests/save_olean_project \
-      todo TodoSmoke.lean 13 0 14 0 --kind sorry --suggest none \
+      update TodoSmoke.lean \
+    > "$wrapper_todo_update_out" 2>"$wrapper_todo_update_err"; then
+  echo "expected lean-beam update wrapper smoke to succeed before todo" >&2
+  cat "$wrapper_todo_update_err" >&2
+  wrapper_todo_cleanup
+  exit 1
+fi
+
+if ! wrapper_todo_version="$(
+    WRAPPER_TODO_UPDATE_OUT="$wrapper_todo_update_out" python3 - <<'PY'
+import json
+import os
+import sys
+
+with open(os.environ["WRAPPER_TODO_UPDATE_OUT"], encoding="utf-8") as f:
+    response = json.load(f)
+
+version = response.get("result", {}).get("version")
+if not isinstance(version, int):
+    print(f"expected wrapper update response to return version, got {response}", file=sys.stderr)
+    sys.exit(1)
+
+print(version)
+PY
+)"; then
+  wrapper_todo_cleanup
+  exit 1
+fi
+
+if ! BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
+    scripts/lean-beam --root tests/save_olean_project \
+      todo TodoSmoke.lean "$wrapper_todo_version" 13 0 14 0 --kind sorry --suggest none \
     > "$wrapper_todo_out" 2>"$wrapper_todo_err"; then
   echo "expected lean-beam todo wrapper smoke to succeed" >&2
   cat "$wrapper_todo_err" >&2
@@ -214,57 +247,113 @@ then
 fi
 wrapper_todo_cleanup
 
-mcp_smoke_out="$(
-  printf '%s\n' \
-    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}' \
-    '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-    '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lean_todo","arguments":{"path":"TodoSmoke.lean","start_line":13,"start_character":0,"end_line":14,"end_character":0,"kinds":["sorry"],"suggest":"none"}}}' \
-    '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"$/lean/runAt","arguments":{}}}' \
-    '{"jsonrpc":"2.0","id":5,"method":"shutdown"}' |
-    scripts/lean-beam-mcp --root tests/save_olean_project
-)"
-
-MCP_SMOKE_OUT="${mcp_smoke_out}" python3 - <<'PY'
+python3 - <<'PY'
 import json
-import os
+import subprocess
 import sys
 
-lines = [json.loads(line) for line in os.environ["MCP_SMOKE_OUT"].splitlines() if line.strip()]
-if len(lines) != 5:
-    print(f"expected 5 MCP responses, got {len(lines)}", file=sys.stderr)
-    print(os.environ["MCP_SMOKE_OUT"], file=sys.stderr)
-    sys.exit(1)
+proc = subprocess.Popen(
+    ["scripts/lean-beam-mcp", "--root", "tests/save_olean_project"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    encoding="utf-8",
+    bufsize=1,
+)
 
-init, tools, todo, raw_tool, shutdown = lines
+def request(payload):
+    expected_id = payload.get("id")
+    proc.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    proc.stdin.flush()
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            stderr = proc.stderr.read()
+            raise SystemExit(f"missing MCP response for {payload}; stderr:\n{stderr}")
+        message = json.loads(line)
+        if message.get("id") == expected_id:
+            return message
+
+init = request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}}})
+proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+proc.stdin.flush()
+tools = request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+update = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_update", "arguments": {"path": "TodoSmoke.lean"}}})
+update_content = update.get("result", {}).get("structuredContent", {})
+version = update_content.get("version")
+if not isinstance(version, int):
+    print(f"expected lean_update MCP smoke to return a document version: {update}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+todo = request({
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+        "name": "lean_todo",
+        "arguments": {
+            "path": "TodoSmoke.lean",
+            "version": version,
+            "start_line": 13,
+            "start_character": 0,
+            "end_line": 14,
+            "end_character": 0,
+            "kinds": ["sorry"],
+            "suggest": "none",
+        },
+    },
+})
+raw_tool = request({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "$/lean/runAt", "arguments": {}}})
+shutdown = request({"jsonrpc": "2.0", "id": 6, "method": "shutdown"})
 if init.get("result", {}).get("protocolVersion") != "2025-11-25":
     print("MCP initialize did not negotiate the expected protocol version", file=sys.stderr)
+    proc.kill()
     sys.exit(1)
 
 tool_names = {tool.get("name") for tool in tools.get("result", {}).get("tools", [])}
-if "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
+if "lean_update" not in tool_names or "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
     print(f"unexpected MCP tool list: {sorted(tool_names)}", file=sys.stderr)
+    proc.kill()
     sys.exit(1)
 
 todo_content = todo.get("result", {}).get("structuredContent", {})
 todo_items = todo_content.get("items", [])
 if len(todo_items) != 1 or todo_items[0].get("kind") != "sorry":
     print(f"expected lean_todo MCP smoke to return one sorry item: {todo}", file=sys.stderr)
+    proc.kill()
     sys.exit(1)
 
 if todo_items[0].get("run_at_position") != {"line": 13, "character": 2}:
     print(f"unexpected MCP todo run_at_position: {todo}", file=sys.stderr)
+    proc.kill()
     sys.exit(1)
 
 if "run_at_text" in todo_items[0]:
     print(f"expected MCP todo suggest=none to omit run_at_text: {todo}", file=sys.stderr)
+    proc.kill()
     sys.exit(1)
 
 if raw_tool.get("error", {}).get("code") != -32602:
     print(f"expected raw LSP tool call to be rejected as invalid params: {raw_tool}", file=sys.stderr)
+    proc.kill()
     sys.exit(1)
 
 if shutdown.get("result") != {}:
     print(f"expected clean MCP shutdown response: {shutdown}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+proc.stdin.close()
+try:
+    code = proc.wait(timeout=5)
+except subprocess.TimeoutExpired:
+    proc.kill()
+    stderr = proc.stderr.read()
+    print(f"expected MCP smoke server to exit after shutdown; stderr:\n{stderr}", file=sys.stderr)
+    sys.exit(1)
+stderr = proc.stderr.read()
+if code != 0:
+    print(f"expected MCP smoke server to exit cleanly, got {code}\nstderr:\n{stderr}", file=sys.stderr)
     sys.exit(1)
 PY

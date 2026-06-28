@@ -14,6 +14,103 @@ namespace RunAtTest.Broker.SmokeTest
 
 open RunAtTest.Broker.TestUtil
 
+private def syncVersion
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath)
+    (path : String) : IO Nat := do
+  let resp ← runClient endpoint {
+    op := .syncFile
+    root? := some root.toString
+    path? := some path
+  }
+  let result ← requireSyncFileResult s!"sync version for {path}" (← expectOk resp)
+  pure result.version
+
+private def updateVersion
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath)
+    (path : String) : IO Nat := do
+  let resp ← runClient endpoint {
+    op := .updateFile
+    root? := some root.toString
+    path? := some path
+  }
+  let result ← requireUpdateFileResult s!"update version for {path}" (← expectOk resp)
+  pure result.version
+
+private def runUpdateSmoke
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath) : IO Unit := do
+  let dir := root / ".tmp" / s!"beam-update-smoke-{← IO.monoNanosNow}"
+  IO.FS.createDirAll dir
+  let path := dir / "UpdateSmoke.lean"
+  IO.FS.writeFile path "def updateSmokeVal : Nat := 1\n"
+  let relPath := Beam.pathRelativeToRootOrSelf root path
+  let firstResp ← runClient endpoint {
+    op := .updateFile
+    root? := some root.toString
+    path? := some relPath
+  }
+  let first ← requireUpdateFileResult "initial update_file" (← expectOk firstResp)
+  if first.version != 1 || !first.changed then
+    throw <| IO.userError s!"expected initial update_file version 1 changed=true, got {(toJson first).compress}"
+  let unchangedResp ← runClient endpoint {
+    op := .updateFile
+    root? := some root.toString
+    path? := some relPath
+  }
+  let unchanged ← requireUpdateFileResult "unchanged update_file" (← expectOk unchangedResp)
+  if unchanged.version != first.version || unchanged.changed then
+    throw <| IO.userError s!"expected unchanged update_file to preserve version and report changed=false, got {(toJson unchanged).compress}"
+  let syncResp ← runClient endpoint {
+    op := .syncFile
+    root? := some root.toString
+    path? := some relPath
+  }
+  let syncRes ← requireSyncFileResult "sync after update_file" (← expectOk syncResp)
+  if syncRes.version != first.version then
+    throw <| IO.userError s!"expected sync_file after update_file to reuse version {first.version}, got {syncRes.version}"
+  let runAtResp ← runClient endpoint {
+    op := .runAt
+    root? := some root.toString
+    path? := some relPath
+    version? := some first.version
+    line? := some 0
+    character? := some 0
+    text? := some "#check Nat"
+  }
+  let runAtRes ← expectOk runAtResp
+  let .ok true := runAtRes.getObjValAs? Bool "success"
+    | throw <| IO.userError s!"expected run_at with update_file version to succeed, got {runAtRes.compress}"
+
+  IO.FS.writeFile path "def updateSmokeVal : Nat := 2\n"
+  let changedResp ← runClient endpoint {
+    op := .updateFile
+    root? := some root.toString
+    path? := some relPath
+  }
+  let changed ← requireUpdateFileResult "changed update_file" (← expectOk changedResp)
+  if changed.version != first.version + 1 || !changed.changed then
+    throw <| IO.userError s!"expected changed update_file to bump version and report changed=true, got {(toJson changed).compress}"
+  let syncChangedResp ← runClient endpoint {
+    op := .syncFile
+    root? := some root.toString
+    path? := some relPath
+  }
+  let syncChanged ← requireSyncFileResult "sync after changed update_file" (← expectOk syncChangedResp)
+  if syncChanged.version != changed.version then
+    throw <| IO.userError s!"expected sync_file after changed update_file to reuse version {changed.version}, got {syncChanged.version}"
+  let staleRunAtResp ← runClient endpoint {
+    op := .runAt
+    root? := some root.toString
+    path? := some relPath
+    version? := some first.version
+    line? := some 0
+    character? := some 0
+    text? := some "#check Nat"
+  }
+  expectErrCode staleRunAtResp "contentModified"
+
 private def runSyncSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
@@ -149,10 +246,12 @@ private def runTodoThenSyncDiagnosticSummarySmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let path := "tests/scenario/docs/InteractiveOnlyDiagnostic.lean"
+  let version ← syncVersion endpoint root path
   let todoResp ← runClient endpoint {
     op := .todo
     root? := some root.toString
     path? := some path
+    version? := some version
     line? := some 0
     character? := some 0
     endLine? := some 22
@@ -230,11 +329,14 @@ private def runPartialProgressSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let partialRequestId := some "smoke-partial"
+  let path := "tests/scenario/docs/PartialProgress.lean"
+  let version ← syncVersion endpoint root path
   let (partialResp, partialEvents) ← runClientWithProgress endpoint {
     op := .runAt
     clientRequestId? := partialRequestId
     root? := some root.toString
-    path? := some "tests/scenario/docs/PartialProgress.lean"
+    path? := some path
+    version? := some version
     line? := some 7
     character? := some 2
     text? := some "#check partialProgressAnchor"
@@ -243,15 +345,12 @@ private def runPartialProgressSmoke
   let .ok true := partialRes.getObjValAs? Bool "success" | throw <| IO.userError "partial run_at did not succeed"
   let partialProgress := ← requireFileProgress "partial run_at" partialResp
   expectClientRequestId "partial run_at response" partialResp.clientRequestId? partialRequestId
-  if partialProgress.done then
-    throw <| IO.userError s!"expected partial run_at fileProgress.done = false, got {(toJson partialProgress).compress}"
-  if partialProgress.updates == 0 then
-    throw <| IO.userError s!"expected partial run_at to report at least one fileProgress update, got {(toJson partialProgress).compress}"
-  let some partialLast := partialEvents.back?
-    | throw <| IO.userError "expected partial run_at to stream fileProgress events"
-  expectClientRequestId "partial run_at progress" partialLast.clientRequestId? partialRequestId
-  if partialLast.progress.done then
-    throw <| IO.userError s!"expected final streamed partial run_at progress to stay incomplete, got {(toJson partialLast.progress).compress}"
+  if !partialProgress.done then
+    throw <| IO.userError s!"expected versioned run_at fileProgress.done = true after sync, got {(toJson partialProgress).compress}"
+  if let some partialLast := partialEvents.back? then
+    expectClientRequestId "partial run_at progress" partialLast.clientRequestId? partialRequestId
+    if !partialLast.progress.done then
+      throw <| IO.userError s!"expected final streamed versioned run_at progress to be complete, got {(toJson partialLast.progress).compress}"
 
 private def runConcurrentSmoke
     (endpoint : Beam.Broker.Endpoint)
@@ -259,6 +358,8 @@ private def runConcurrentSmoke
   let concurrentSyncId := some "concurrent-sync"
   let concurrentHoverId := some "concurrent-hover"
   let slowSyncPath ← writeSlowSyncFile root
+  let hoverPath := "tests/scenario/docs/CommandA.lean"
+  let hoverVersion ← updateVersion endpoint root hoverPath
   let syncTask ← IO.asTask (prio := Task.Priority.dedicated) <| runClientWithProgress endpoint {
     op := .syncFile
     clientRequestId? := concurrentSyncId
@@ -271,7 +372,8 @@ private def runConcurrentSmoke
     op := .requestAt
     clientRequestId? := concurrentHoverId
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some hoverPath
+    version? := some hoverVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/hover"
@@ -294,10 +396,15 @@ private def runConcurrentSmoke
 private def runRequestAndGoalsSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
+  let commandPath := "tests/scenario/docs/CommandA.lean"
+  let commandVersion ← updateVersion endpoint root commandPath
+  let proofPath := "tests/scenario/docs/SimpleProof.lean"
+  let proofVersion ← updateVersion endpoint root proofPath
   let cmdResp ← runClient endpoint {
     op := .runAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 2
     text? := some "#check answerA"
@@ -308,7 +415,8 @@ private def runRequestAndGoalsSmoke
   let requestAtHoverResp ← runClient endpoint {
     op := .requestAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/hover"
@@ -322,7 +430,8 @@ private def runRequestAndGoalsSmoke
   let goalsPrevResp ← runClient endpoint {
     op := .goals
     root? := some root.toString
-    path? := some "tests/scenario/docs/SimpleProof.lean"
+    path? := some proofPath
+    version? := some proofVersion
     line? := some 1
     character? := some 2
     mode? := some .prev
@@ -340,7 +449,8 @@ private def runRequestAndGoalsSmoke
   let goalsAfterResp ← runClient endpoint {
     op := .goals
     root? := some root.toString
-    path? := some "tests/scenario/docs/SimpleProof.lean"
+    path? := some proofPath
+    version? := some proofVersion
     line? := some 1
     character? := some 2
     mode? := some .after
@@ -354,7 +464,8 @@ private def runRequestAndGoalsSmoke
   let requestAtRefsResp ← runClient endpoint {
     op := .requestAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/references"
@@ -367,7 +478,8 @@ private def runRequestAndGoalsSmoke
   let requestAtUnsupported ← runClient endpoint {
     op := .requestAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/completion"
@@ -380,7 +492,8 @@ private def runRequestAndGoalsSmoke
   let requestAtBadTextDocument ← runClient endpoint {
     op := .requestAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/hover"
@@ -395,7 +508,8 @@ private def runRequestAndGoalsSmoke
   let requestAtBadPosition ← runClient endpoint {
     op := .requestAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/hover"
@@ -411,11 +525,14 @@ private def runCancelSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let slowRequestId := some "cancel-slow"
+  let slowPath := "tests/scenario/docs/SlowPoll.lean"
+  let slowVersion ← updateVersion endpoint root slowPath
   let slowTask ← IO.asTask (prio := Task.Priority.dedicated) <| runClientWithProgress endpoint {
     op := .runAt
     clientRequestId? := slowRequestId
     root? := some root.toString
-    path? := some "tests/scenario/docs/SlowPoll.lean"
+    path? := some slowPath
+    version? := some slowVersion
     line? := some 25
     character? := some 2
     text? := some "poll_sleep_cmd"
@@ -434,10 +551,13 @@ private def runCancelSmoke
   expectClientRequestId "cancelled run_at response" slowResp.clientRequestId? slowRequestId
   expectProgressIds "cancelled run_at progress" slowEvents slowRequestId
 
+  let commandPath := "tests/scenario/docs/CommandA.lean"
+  let commandVersion ← updateVersion endpoint root commandPath
   let postCancelHoverResp ← runClient endpoint {
     op := .requestAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/hover"
@@ -450,10 +570,13 @@ private def runCancelSmoke
 private def runWorkerExitSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
+  let branchPath := "tests/scenario/docs/BranchProof.lean"
+  let branchVersion ← updateVersion endpoint root branchPath
   let handleSeed ← expectOk <| ← runClient endpoint {
     op := .runAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/BranchProof.lean"
+    path? := some branchPath
+    version? := some branchVersion
     line? := some 0
     character? := some 27
     text? := some "constructor"
@@ -463,11 +586,14 @@ private def runWorkerExitSmoke
   let staleHandle : Beam.Broker.Handle ← IO.ofExcept <| fromJson? handleJson
 
   let workerExitRequestId := some "worker-exit-slow"
+  let slowPath := "tests/scenario/docs/SlowPoll.lean"
+  let slowVersion ← updateVersion endpoint root slowPath
   let slowTask ← IO.asTask (prio := Task.Priority.dedicated) <| runClientWithProgress endpoint {
     op := .runAt
     clientRequestId? := workerExitRequestId
     root? := some root.toString
-    path? := some "tests/scenario/docs/SlowPoll.lean"
+    path? := some slowPath
+    version? := some slowVersion
     line? := some 25
     character? := some 2
     text? := some "poll_sleep_cmd"
@@ -479,10 +605,13 @@ private def runWorkerExitSmoke
   expectClientRequestId "worker-exit run_at response" slowResp.clientRequestId? workerExitRequestId
   expectProgressIds "worker-exit run_at progress" slowEvents workerExitRequestId
 
+  let commandPath := "tests/scenario/docs/CommandA.lean"
+  let commandVersion ← updateVersion endpoint root commandPath
   let restartHoverResp ← runClient endpoint {
     op := .requestAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/CommandA.lean"
+    path? := some commandPath
+    version? := some commandVersion
     line? := some 0
     character? := some 4
     method? := some "textDocument/hover"
@@ -504,10 +633,13 @@ private def runWorkerExitSmoke
 private def runHandleAndDepsSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
+  let branchPath := "tests/scenario/docs/BranchProof.lean"
+  let branchVersion ← updateVersion endpoint root branchPath
   let proofRes ← expectOk <| ← runClient endpoint {
     op := .runAt
     root? := some root.toString
-    path? := some "tests/scenario/docs/BranchProof.lean"
+    path? := some branchPath
+    version? := some branchVersion
     line? := some 0
     character? := some 27
     text? := some "constructor"
@@ -582,6 +714,7 @@ private def runSaveAndStatsSmoke
 
   let stats ← expectOk <| ← runClient endpoint { op := .stats }
   expectOpCountAtLeast stats "lean" "sync_file" 1
+  expectOpCountAtLeast stats "lean" "update_file" 1
   expectOpCountAtLeast stats "lean" "run_at" 3
   expectOpCountAtLeast stats "lean" "request_at" 5
   expectOpCountAtLeast stats "lean" "goals" 2
@@ -606,6 +739,7 @@ def smokeMain : IO Unit := do
     let rootMismatch ← runClient endpoint { op := .ensure, root? := some otherRoot.toString }
     expectErrCode rootMismatch "invalidParams"
     discard <| expectOk (← runClient endpoint { op := .resetStats })
+    runUpdateSmoke endpoint root
     runSyncSmoke endpoint root
     runErrorOnlySyncSmoke endpoint root
     runTodoThenSyncDiagnosticSummarySmoke endpoint root

@@ -1,5 +1,6 @@
 {"textDocument":
- {"uri": "file:///tests/interactive/proofClosedTermBoundary.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofClosedTermBoundary.lean"},
  "text": "exact trivial",
  "position": {"line": 0, "character": 38}}
 {"traces": [],
@@ -7,7 +8,8 @@
  "proofState": {"goals": []},
  "messages": [{"text": "No goals to be solved", "severity": "error"}]}
 {"textDocument":
- {"uri": "file:///tests/interactive/proofClosedTermBoundary.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofClosedTermBoundary.lean"},
  "text": "exact trivial",
  "position": {"line": 3, "character": 39}}
 {"traces": [],

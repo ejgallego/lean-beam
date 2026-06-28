@@ -5,11 +5,23 @@ across the wrapper, broker stream, and MCP server.
 
 ## Command Model
 
-`lean-beam sync` is the on-disk edit barrier for a Lean file. It opens or updates the tracked file,
-waits for diagnostics for the synced version, streams fresh request diagnostics, and returns a
-machine-readable JSON verdict for that version. Wrapper stdout uses stable, agent-oriented field
-ordering; `beam-client request-stream` is the compact one-line JSON stream for programmatic event
-consumers.
+`lean-beam update` is the cheap on-disk edit observation for a Lean file. It reads the current file,
+opens or updates the broker's LSP mirror when needed, and returns the broker-owned document
+`version` immediately without waiting for diagnostics. Its `changed` flag means the broker sent
+`didOpen` or `didChange` to the LSP session for this request; unchanged files keep the previous
+document version and return `changed: false`.
+
+`lean-beam sync` is the diagnostics/readiness barrier for a Lean file. It opens or updates the
+tracked file, waits for diagnostics for the current document version, streams fresh request
+diagnostics, and returns a machine-readable JSON verdict for that version. Wrapper stdout uses
+stable, agent-oriented field ordering; `beam-client request-stream` is the compact one-line JSON
+stream for programmatic event consumers.
+
+The returned document `version` is the snapshot token for broker, MCP, and wrapper callers.
+Position- or range-bound operations reject missing or stale versions; clients can obtain the
+version from `lean-beam update`, broker `update_file`, or MCP `lean_update`. `lean-beam sync`,
+broker `sync_file`, and MCP `lean_sync` also return the current version when the caller needs the
+diagnostics/readiness barrier.
 
 `lean-beam save` is `sync` plus a zero-build checkpoint for the synced Lake module. `lean-beam
 close-save` is `save` plus closing the tracked file afterward. Both commands return the sync verdict

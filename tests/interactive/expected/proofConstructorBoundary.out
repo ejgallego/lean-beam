@@ -1,5 +1,6 @@
 {"textDocument":
- {"uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
  "text": "constructor",
  "position": {"line": 2, "character": 2}}
 {"traces": [],
@@ -10,7 +11,8 @@
    {"userName": "right", "target": "True", "hyps": [], "goalPrefix": "⊢ "}]},
  "messages": []}
 {"textDocument":
- {"uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
  "text": "exact trivial",
  "position": {"line": 2, "character": 2}}
 {"traces": [],
@@ -22,7 +24,8 @@
    "Type mismatch\n  trivial\nhas type\n  True\nbut is expected to have type\n  True ∧ True",
    "severity": "error"}]}
 {"textDocument":
- {"uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofConstructorBoundary.lean"},
  "text": "exact trivial",
  "position": {"line": 2, "character": 13}}
 {"traces": [],

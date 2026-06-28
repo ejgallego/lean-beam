@@ -17,8 +17,9 @@ open RunAt.Lib
 namespace RunAt.Requests
 
 def handleDirectImports
-    (_p : RunAt.Internal.DirectImportsParams) :
+    (p : RunAt.Internal.DirectImportsParams) :
     RequestM (RequestTask RunAt.Internal.DirectImportsResult) := do
+  requireDocumentVersion p.textDocument
   syncHandleStoreForCurrentDoc
   let doc ← RequestM.readDoc
   checkRequestCancelled

@@ -26,7 +26,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
 
-  probe_before="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_before_version="$(beam_wrapper_update_version "initial SaveSmoke/B.lean" "$beam_script" lean-update SaveSmoke/B.lean)"
+  probe_before="$("$beam_script" lean-run-at SaveSmoke/B.lean "$probe_before_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_before" read_json_text_field ok)" != "true" ]; then
     echo "expected initial wrapper probe to succeed" >&2
     printf '%s\n' "$probe_before" >&2
@@ -40,7 +41,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
 
   stats_out="$("$beam_script" stats)"
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "1" ]; then
-    echo "expected initial wrapper probe to open exactly one Beam daemon document" >&2
+    echo "expected initial wrapper sync/probe to open exactly one Beam daemon document" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
@@ -104,7 +105,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
 
-  probe_after="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_after_version="$(json_text_field "$sync_out" result.version)"
+  probe_after="$("$beam_script" lean-run-at SaveSmoke/B.lean "$probe_after_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_after" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper probe after lean-sync to succeed" >&2
     printf '%s\n' "$probe_after" >&2
@@ -220,14 +222,15 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
 
-  probe_second="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_second_version="$(json_text_field "$refresh_out" result.version)"
+  probe_second="$("$beam_script" lean-run-at SaveSmoke/B.lean "$probe_second_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_second" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper probe after a second lean-sync to succeed" >&2
+    echo "expected wrapper probe after lean-refresh to succeed" >&2
     printf '%s\n' "$probe_second" >&2
     exit 1
   fi
   if ! printf '%s\n' "$probe_second" | grep -q '"text": "3"'; then
-    echo "expected wrapper probe after a second lean-sync to observe bVal = 3" >&2
+    echo "expected wrapper probe after lean-refresh to observe bVal = 3" >&2
     printf '%s\n' "$probe_second" >&2
     exit 1
   fi
@@ -246,7 +249,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
 
-  probe_reopen="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  probe_reopen_version="$(beam_wrapper_update_version "reopened SaveSmoke/B.lean" "$beam_script" lean-update SaveSmoke/B.lean)"
+  probe_reopen="$("$beam_script" lean-run-at SaveSmoke/B.lean "$probe_reopen_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_reopen" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper probe after lean-close to reopen the document successfully" >&2
     printf '%s\n' "$probe_reopen" >&2

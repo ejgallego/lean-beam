@@ -35,17 +35,19 @@ fi
   cd "$signal_root"
   "$beam_script" --root "$signal_root" shutdown > /dev/null 2>&1 || true
   "$beam_script" --root "$signal_root" ensure lean > /dev/null
+  slow_version="$(beam_wrapper_update_version "signal SlowPoll" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/SlowPoll.lean)"
+  command_version="$(beam_wrapper_update_version "signal CommandA" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/CommandA.lean)"
 
   interrupt_out="$(beam_wrapper_mktemp_file interrupt-out)"
   interrupt_err="$(beam_wrapper_mktemp_file interrupt-err)"
-  interrupt_status="$(python3 - "$beam_script" "$signal_root" "$interrupt_out" "$interrupt_err" <<'PY'
+  interrupt_status="$(python3 - "$beam_script" "$signal_root" "$slow_version" "$interrupt_out" "$interrupt_err" <<'PY'
 import os
 import signal
 import subprocess
 import sys
 import time
 
-beam_script, project_root, out_path, err_path = sys.argv[1:]
+beam_script, project_root, version, out_path, err_path = sys.argv[1:]
 env = os.environ.copy()
 env["BEAM_PROGRESS"] = "1"
 env["BEAM_REQUEST_ID"] = "wrapper-sigint"
@@ -58,6 +60,7 @@ with open(out_path, "wb") as out, open(err_path, "wb") as err:
             project_root,
             "lean-run-at",
             "tests/scenario/docs/SlowPoll.lean",
+            version,
             "25",
             "2",
             "poll_sleep_cmd",
@@ -102,7 +105,7 @@ PY
     cat "$interrupt_err" >&2
     exit 1
   fi
-  post_interrupt_hover="$("$beam_script" --root "$signal_root" lean-hover tests/scenario/docs/CommandA.lean 0 4)"
+  post_interrupt_hover="$("$beam_script" --root "$signal_root" lean-hover tests/scenario/docs/CommandA.lean "$command_version" 0 4)"
   if [ "$(RUNAT_JSON_PAYLOAD="$post_interrupt_hover" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper SIGINT cancellation to preserve the isolated Beam daemon session" >&2
     printf '%s\n' "$post_interrupt_hover" >&2
@@ -116,19 +119,21 @@ PY
   cd "$signal_root"
   "$beam_script" --root "$signal_root" shutdown > /dev/null 2>&1 || true
   "$beam_script" --root "$signal_root" ensure lean > /dev/null
+  slow_version="$(beam_wrapper_update_version "duplicate SlowPoll" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/SlowPoll.lean)"
+  command_version="$(beam_wrapper_update_version "duplicate CommandA" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/CommandA.lean)"
 
   duplicate_slow_out="$(beam_wrapper_mktemp_file duplicate-slow-out)"
   duplicate_slow_err="$(beam_wrapper_mktemp_file duplicate-slow-err)"
   duplicate_out="$(beam_wrapper_mktemp_file duplicate-out)"
   duplicate_err="$(beam_wrapper_mktemp_file duplicate-err)"
   BEAM_PROGRESS=1 BEAM_REQUEST_ID=wrapper-duplicate-active \
-    "$beam_script" --root "$signal_root" lean-run-at tests/scenario/docs/SlowPoll.lean 25 2 "poll_sleep_cmd" \
+    "$beam_script" --root "$signal_root" lean-run-at tests/scenario/docs/SlowPoll.lean "$slow_version" 25 2 "poll_sleep_cmd" \
     >"$duplicate_slow_out" 2>"$duplicate_slow_err" &
   duplicate_slow_pid=$!
   sleep 1
 
   if BEAM_REQUEST_ID=wrapper-duplicate-active \
-      "$beam_script" --root "$signal_root" lean-hover tests/scenario/docs/CommandA.lean 0 4 \
+      "$beam_script" --root "$signal_root" lean-hover tests/scenario/docs/CommandA.lean "$command_version" 0 4 \
       >"$duplicate_out" 2>"$duplicate_err"; then
     echo "expected duplicate active BEAM_REQUEST_ID wrapper request to fail" >&2
     cat "$duplicate_out" >&2
@@ -236,7 +241,8 @@ fi
 (
   cd "$busy_port_root"
   "$beam_script" ensure lean > /dev/null
-  warm_out="$("$beam_script" lean-run-at SaveSmoke/B.lean 0 2 "#eval bVal")"
+  warm_version="$(beam_wrapper_update_version "busy-port SaveSmoke/B.lean" "$beam_script" lean-update SaveSmoke/B.lean)"
+  warm_out="$("$beam_script" lean-run-at SaveSmoke/B.lean "$warm_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warm_out" read_json_text_field ok)" != "true" ]; then
     echo "expected busy-port warmup probe to succeed before reuse check" >&2
     printf '%s\n' "$warm_out" >&2

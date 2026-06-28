@@ -1,4 +1,5 @@
-{"textDocument": {"uri": "file:///tests/interactive/commandEOF.lean"},
+{"textDocument":
+ {"version": 1, "uri": "file:///tests/interactive/commandEOF.lean"},
  "text": "#check Nat",
  "position": {"line": 2, "character": 2}}
 {"error":
