@@ -172,7 +172,7 @@ diagnostics streamed on stderr for that request. `lean-beam save` includes its s
 `result.sync`; `lean-beam close-save` includes it in `result.saved.sync`; document-error save
 failures include the blocking verdict in `error.data.sync`. See
 [docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md) for the exact progress, diagnostic,
-readiness, and delta fields.
+and readiness fields.
 
 When `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
 `error.data.staleDirectDeps`, `error.data.saveDeps`, and `error.data.recoveryPlan` to suggest a

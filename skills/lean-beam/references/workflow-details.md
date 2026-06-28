@@ -155,7 +155,7 @@ What is not a valid checkpoint target:
 - `beam-client request-stream ...` is the machine-facing streamed surface
 - streamed diagnostics are request-scoped observations; they may carry `completionBlocking=true`,
   but save-blocking evidence is attached to the final sync/save verdict
-- the field-level progress, diagnostic, readiness, and delta contract lives in
+- the field-level progress, diagnostic, and readiness contract lives in
   [../../../docs/SYNC_AND_DIAGNOSTICS.md](../../../docs/SYNC_AND_DIAGNOSTICS.md)
 - do not parse wrapper `stderr` in tooling
 - `BEAM_PROGRESS` controls stderr progress output for slow calls

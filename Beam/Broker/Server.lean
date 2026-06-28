@@ -1139,12 +1139,11 @@ private def collectStaleDirectDepHintsForSession
   else
     let importsResult ← fetchDirectImports server session uri
     withCurrentMatchingSession server session fun current => do
-      let targetLastSyncSeq :=
+      let targetLastSyncEventSeq :=
         match current.docs.get? uri with
-        | some docState => docState.lastSyncSeq
+        | some docState => docState.lastSyncEventSeq
         | none => 0
-      let history := DocumentState.moduleHistorySnapshots current.moduleHistory
-      pure <| collectStaleDirectDepHints importsResult version targetLastSyncSeq history
+      pure <| collectStaleDirectDepHints importsResult version targetLastSyncEventSeq current.moduleHistory
 
 private def brokerFailureCodeOfResponseCode : String → BrokerFailureCode
   | code => (BrokerFailureCode.ofName? code).getD .internalError
