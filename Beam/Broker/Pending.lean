@@ -189,18 +189,17 @@ private def observeSyncFileProgress
   | _, _, _ =>
       progress?
 
-private def trackedPublishDiagnostics?
-    [ToJson α]
+private def trackedPublishDiagnosticsParam?
     (trackedUri? : Option DocumentUri)
-    (param : α) : Option PublishDiagnosticsParams :=
-  match trackedUri?, fromJson? (toJson param) with
-  | some uri, .ok (diagnosticParam : PublishDiagnosticsParams) =>
+    (diagnosticParam : PublishDiagnosticsParams) : Option PublishDiagnosticsParams :=
+  match trackedUri? with
+  | some uri =>
       let diagnosticParam := normalizePublishDiagnostics diagnosticParam
       if diagnosticParam.uri == uri then
         some diagnosticParam
       else
         none
-  | _, _ =>
+  | none =>
       none
 
 private def diagnosticStreamKey (diagnostic : Diagnostic) : String :=
@@ -244,12 +243,11 @@ def observeProgress
     | _, _ =>
         pure ()
 
-def observeDiagnostics
-    [ToJson α]
+def observePublishDiagnostics
     (root : System.FilePath)
     (pending : PendingRequest)
-    (param : α) : IO Unit := do
-  match trackedPublishDiagnostics? (pending.tracked?.map Prod.fst) param with
+    (diagnosticParam : PublishDiagnosticsParams) : IO Unit := do
+  match trackedPublishDiagnosticsParam? (pending.tracked?.map Prod.fst) diagnosticParam with
   | none =>
       pure ()
   | some diagnosticParam =>
@@ -259,6 +257,17 @@ def observeDiagnostics
       let seen ←
         emitNewTrackedDiagnostics root seen diagnosticParam pending.fullDiagnostics pending.emitDiagnostic?
       pending.seenDiagnosticKeysRef.set seen
+
+def observeDiagnostics
+    [ToJson α]
+    (root : System.FilePath)
+    (pending : PendingRequest)
+    (param : α) : IO Unit := do
+  match fromJson? (toJson param) with
+  | .ok (diagnosticParam : PublishDiagnosticsParams) =>
+      observePublishDiagnostics root pending diagnosticParam
+  | .error _ =>
+      pure ()
 
 end PendingRequest
 

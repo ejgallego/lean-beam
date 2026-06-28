@@ -4,7 +4,6 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import Lake.Config.Env
 import Lake.Config.InstallPath
 import Lake.Load.Workspace
 import Lake.Build.Run
@@ -15,6 +14,7 @@ import Lake.Build.InitFacets
 import Lean.Elab.Term
 import Beam.Broker.Config
 import Beam.Broker.Errors
+import Beam.Broker.LakeEnv
 import Beam.Path
 
 open Lean
@@ -109,76 +109,6 @@ private def unsupportedZeroBuildSaveReason? (mod : Lake.Module) (setup : ModuleS
 private def quietTraceConfig : BuildConfig :=
   { verbosity := .quiet }
 
-private def computeLakeEnv (leanCmd? : Option String) : IO Lake.Env := do
-  let elan? ← Lake.findElanInstall?
-  let lean? ←
-    match leanCmd? with
-    | some leanCmd =>
-        if leanCmd.trimAscii.isEmpty then
-          pure none
-        else
-          Lake.findLeanCmdInstall? leanCmd
-    | none =>
-        pure none
-  let (lean?, lake?) ←
-    match lean? with
-    | some lean => pure (some lean, some (Lake.LakeInstall.ofLean lean))
-    | none =>
-        let (_, lean?, lake?) ← Lake.findInstall?
-        pure (lean?, lake?)
-  let some lean := lean?
-    | throw <| IO.userError "could not locate Lean installation for Lake workspace loading"
-  let some lake := lake?
-    | throw <| IO.userError "could not locate Lake installation for workspace loading"
-  match ← (Lake.Env.compute lake lean elan?).toBaseIO with
-  | .ok env => pure env
-  | .error err => throw <| IO.userError s!"failed to compute Lake environment: {err}"
-
-private def detectConfigFile (root : FilePath) : IO (FilePath × FilePath) := do
-  let leanConfig := root / "lakefile.lean"
-  if ← leanConfig.pathExists then
-    pure (System.FilePath.mk "lakefile.lean", leanConfig)
-  else
-    let tomlConfig := root / "lakefile.toml"
-    if ← tomlConfig.pathExists then
-      pure (System.FilePath.mk "lakefile.toml", tomlConfig)
-    else
-      throw <| IO.userError s!"could not find lakefile.lean or lakefile.toml under {root}"
-
-private def loadWorkspaceWithConfig (root : FilePath) (lakeEnv : Lake.Env)
-    (relConfigFile configFile : FilePath) : IO (Option Workspace × Array String) := do
-  let loadConfig : LoadConfig := {
-    lakeEnv := lakeEnv
-    wsDir := root
-    relPkgDir := System.FilePath.mk "."
-    pkgDir := root
-    relConfigFile := relConfigFile
-    configFile := configFile
-    updateToolchain := false
-  }
-  let (ws?, log) ← LoggerIO.captureLog <| Lake.loadWorkspace loadConfig
-  let messages := log.entries.map fun entry => entry.toString
-  pure (ws?, messages)
-
-private def loadWorkspaceFailureMessage
-    (root : FilePath)
-    (messages : Array String)
-    (extra : Array String := #[]) : String :=
-  let lines :=
-    #[s!"failed to load Lake workspace at {root}"] ++
-    (if messages.isEmpty then #[] else #["Lake log:"] ++ messages) ++
-    extra
-  String.intercalate "\n" lines.toList
-
-private def loadWorkspaceForSave (root : FilePath) (leanCmd? : Option String) : IO Workspace := do
-  let (relConfigFile, configFile) ← detectConfigFile root
-  let lakeEnv ← computeLakeEnv leanCmd?
-  let (ws?, messages) ← loadWorkspaceWithConfig root lakeEnv relConfigFile configFile
-  if let some ws := ws? then
-    pure ws
-  else
-    throw <| IO.userError <| loadWorkspaceFailureMessage root messages
-
 private def sourceTrace (path : FilePath) (snapshot : SourceSnapshot) : BuildTrace :=
   {
     caption := path.toString
@@ -245,7 +175,7 @@ def mkLeanSaveSpec
   try
     let root ← Beam.resolveExistingPath root
     let path ← Beam.resolvePathAgainstRoot root path
-    let ws ← loadWorkspaceForSave root leanCmd?
+    let ws ← loadWorkspaceForRoot root leanCmd?
     let some mod := ws.findModuleBySrc? path
       | return .error {
           code := .saveTargetNotModule
@@ -285,7 +215,7 @@ def checkLeanSaveTarget
   let root ← Beam.resolveExistingPath root
   let path ← Beam.resolvePathAgainstRoot root path
   try
-    let ws ← loadWorkspaceForSave root leanCmd?
+    let ws ← loadWorkspaceForRoot root leanCmd?
     match ws.findModuleBySrc? path with
     | some mod => pure <| .eligible mod.name
     | none => pure .notModule

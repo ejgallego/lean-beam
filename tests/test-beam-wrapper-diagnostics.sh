@@ -16,6 +16,7 @@ broken_root="$(beam_wrapper_prepare_project_root diagnostics-broken)"
 warn_root="$(beam_wrapper_prepare_project_root diagnostics-warn)"
 warn_full_root="$(beam_wrapper_prepare_project_root diagnostics-warn-full)"
 stale_root="$(beam_wrapper_prepare_project_root diagnostics-stale)"
+renamed_stale_root="$(beam_wrapper_prepare_project_root diagnostics-renamed-stale)"
 
 fail_json() {
   local message="$1"
@@ -376,6 +377,130 @@ EOF
     echo "expected warning-only lean-close-save +full to stream warning diagnostics" >&2
     printf '%s\n' "$warn_close_save" >&2
     cat "$warn_close_save_err" >&2
+    exit 1
+  fi
+)
+
+
+(
+  cd "$renamed_stale_root"
+
+  cat > SaveSmoke/B.lean <<'EOF'
+def old : Nat := 1
+EOF
+  cat > SaveSmoke/A.lean <<'EOF'
+import SaveSmoke.B
+
+def aVal : Nat := old
+EOF
+
+  lake build SaveSmoke/A.lean > /dev/null
+
+  renamed_initial_dep_sync_json="$(beam_wrapper_mktemp_file renamed-initial-dep-sync-json)"
+  renamed_initial_dep_sync_err="$(beam_wrapper_mktemp_file renamed-initial-dep-sync-err)"
+  "$beam_script" lean-sync SaveSmoke/B.lean >"$renamed_initial_dep_sync_json" 2>"$renamed_initial_dep_sync_err"
+  renamed_initial_dep_sync="$(cat "$renamed_initial_dep_sync_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$renamed_initial_dep_sync" read_json_text_field ok)" != "true" ]; then
+    echo "expected initial renamed dependency lean-sync to succeed" >&2
+    cat "$renamed_initial_dep_sync_json" >&2
+    cat "$renamed_initial_dep_sync_err" >&2
+    exit 1
+  fi
+
+  renamed_initial_sync_json="$(beam_wrapper_mktemp_file renamed-initial-sync-json)"
+  renamed_initial_sync_err="$(beam_wrapper_mktemp_file renamed-initial-sync-err)"
+  "$beam_script" lean-sync SaveSmoke/A.lean >"$renamed_initial_sync_json" 2>"$renamed_initial_sync_err"
+  renamed_initial_sync="$(cat "$renamed_initial_sync_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$renamed_initial_sync" read_json_text_field ok)" != "true" ]; then
+    echo "expected initial renamed-importer lean-sync to succeed" >&2
+    cat "$renamed_initial_sync_json" >&2
+    cat "$renamed_initial_sync_err" >&2
+    exit 1
+  fi
+
+  cat > SaveSmoke/B.lean <<'EOF'
+def new : Nat := 2
+EOF
+  cat > SaveSmoke/A.lean <<'EOF'
+import SaveSmoke.B
+
+def aVal : Nat := new
+EOF
+
+  renamed_dep_sync="$("$beam_script" lean-sync SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$renamed_dep_sync" read_json_text_field ok)" != "true" ]; then
+    echo "expected renamed dependency lean-sync to succeed" >&2
+    printf '%s\n' "$renamed_dep_sync" >&2
+    exit 1
+  fi
+  renamed_dep_save="$("$beam_script" lean-save SaveSmoke/B.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$renamed_dep_save" read_json_text_field ok)" != "true" ]; then
+    echo "expected renamed dependency lean-save to succeed" >&2
+    printf '%s\n' "$renamed_dep_save" >&2
+    exit 1
+  fi
+  lake build SaveSmoke/A.lean > /dev/null
+
+  renamed_stale_json="$(beam_wrapper_mktemp_file renamed-stale-json)"
+  renamed_stale_err="$(beam_wrapper_mktemp_file renamed-stale-err)"
+  if "$beam_script" lean-sync SaveSmoke/A.lean >"$renamed_stale_json" 2>"$renamed_stale_err"; then
+    echo "expected renamed importer lean-sync to fail until refresh" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$renamed_stale_json")" read_json_text_field error.code)" != "syncBarrierIncomplete" ]; then
+    echo "expected renamed importer stale failure to expose syncBarrierIncomplete" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$renamed_stale_json")" read_json_text_field error.data.completionBlockingDiagnostics.0.message)" != 'Imports are out of date and should be rebuilt; use the "Restart File" command in your editor.' ]; then
+    echo "expected renamed importer stale failure to carry Lean's stale-dependency diagnostic" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$renamed_stale_json")" read_json_text_field error.data.staleDirectDeps.0.path)" != "SaveSmoke/B.lean" ]; then
+    echo "expected renamed importer stale hint to name the direct dependency path" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$renamed_stale_json")" read_json_text_field error.data.staleDirectDeps.0.needsSave)" != "false" ]; then
+    echo "expected renamed importer stale hint to mark the dependency as already saved" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$renamed_stale_json")" read_json_array_len error.data.saveDeps)" != "0" ]; then
+    echo "expected renamed importer stale hint not to recommend saving an already saved dependency" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$(cat "$renamed_stale_json")" read_json_text_field error.data.recoveryPlan.0)" != "lean-beam refresh \"SaveSmoke/A.lean\"" ]; then
+    echo "expected renamed importer stale hint to recommend lean-refresh first" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+  if grep -F -q "Unknown identifier \`new\`" "$renamed_stale_err"; then
+    echo "expected renamed importer stale failure not to report stale unknown-name diagnostics" >&2
+    cat "$renamed_stale_json" >&2
+    cat "$renamed_stale_err" >&2
+    exit 1
+  fi
+
+  renamed_refreshed_a="$("$beam_script" lean-refresh SaveSmoke/A.lean)"
+  if [ "$(RUNAT_JSON_PAYLOAD="$renamed_refreshed_a" read_json_text_field ok)" != "true" ]; then
+    echo "expected lean-refresh to recover the renamed stale importer" >&2
+    printf '%s\n' "$renamed_refreshed_a" >&2
+    exit 1
+  fi
+  if [ "$(RUNAT_JSON_PAYLOAD="$renamed_refreshed_a" read_json_text_field result.syncSummary.readiness.current.saveReady)" != "true" ]; then
+    echo "expected recovered renamed lean-refresh to report saveReady = true" >&2
+    printf '%s\n' "$renamed_refreshed_a" >&2
     exit 1
   fi
 )

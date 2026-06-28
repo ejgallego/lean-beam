@@ -17,7 +17,8 @@ namespace Beam.Broker
 
 def isIncompleteBarrierDiagnostic (diagnostic : Diagnostic) : Bool :=
   diagnostic.message.contains "Failed to build module dependencies." ||
-    diagnostic.message.contains "error: target is out-of-date and needs to be rebuilt"
+    diagnostic.message.contains "error: target is out-of-date and needs to be rebuilt" ||
+    diagnostic.message.contains "Imports are out of date and should be rebuilt"
 
 def effectiveSyncDiagnosticSeverity (diagnostic : Diagnostic) :
     Option DiagnosticSeverity :=

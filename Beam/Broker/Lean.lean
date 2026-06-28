@@ -10,10 +10,14 @@ import Beam.Broker.Backend.Shared
 
 namespace Beam.Broker
 
-def backendCommand (config : BrokerConfig) (backend : Backend) : IO (String × Array String) := do
+def backendCommand
+    (config : BrokerConfig)
+    (backend : Backend) : IO (String × Array String × Array (String × Option String)) := do
   match backend with
   | .lean => Backend.Lean.command config
-  | .rocq => Backend.Rocq.command config
+  | .rocq =>
+      let (cmd, args) ← Backend.Rocq.command config
+      pure (cmd, args, #[])
 
 def initializeParams (backend : Backend) (root : System.FilePath) : Lean.Json :=
   match backend with
