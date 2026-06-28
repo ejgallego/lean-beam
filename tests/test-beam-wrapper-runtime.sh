@@ -35,8 +35,8 @@ fi
   cd "$signal_root"
   "$beam_script" --root "$signal_root" shutdown > /dev/null 2>&1 || true
   "$beam_script" --root "$signal_root" ensure lean > /dev/null
-  slow_version="$(beam_wrapper_sync_version "signal SlowPoll" "$beam_script" --root "$signal_root" lean-sync tests/scenario/docs/SlowPoll.lean)"
-  command_version="$(beam_wrapper_sync_version "signal CommandA" "$beam_script" --root "$signal_root" lean-sync tests/scenario/docs/CommandA.lean)"
+  slow_version="$(beam_wrapper_update_version "signal SlowPoll" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/SlowPoll.lean)"
+  command_version="$(beam_wrapper_update_version "signal CommandA" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/CommandA.lean)"
 
   interrupt_out="$(beam_wrapper_mktemp_file interrupt-out)"
   interrupt_err="$(beam_wrapper_mktemp_file interrupt-err)"
@@ -119,8 +119,8 @@ PY
   cd "$signal_root"
   "$beam_script" --root "$signal_root" shutdown > /dev/null 2>&1 || true
   "$beam_script" --root "$signal_root" ensure lean > /dev/null
-  slow_version="$(beam_wrapper_sync_version "duplicate SlowPoll" "$beam_script" --root "$signal_root" lean-sync tests/scenario/docs/SlowPoll.lean)"
-  command_version="$(beam_wrapper_sync_version "duplicate CommandA" "$beam_script" --root "$signal_root" lean-sync tests/scenario/docs/CommandA.lean)"
+  slow_version="$(beam_wrapper_update_version "duplicate SlowPoll" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/SlowPoll.lean)"
+  command_version="$(beam_wrapper_update_version "duplicate CommandA" "$beam_script" --root "$signal_root" lean-update tests/scenario/docs/CommandA.lean)"
 
   duplicate_slow_out="$(beam_wrapper_mktemp_file duplicate-slow-out)"
   duplicate_slow_err="$(beam_wrapper_mktemp_file duplicate-slow-err)"
@@ -241,7 +241,7 @@ fi
 (
   cd "$busy_port_root"
   "$beam_script" ensure lean > /dev/null
-  warm_version="$(beam_wrapper_sync_version "busy-port SaveSmoke/B.lean" "$beam_script" lean-sync SaveSmoke/B.lean)"
+  warm_version="$(beam_wrapper_update_version "busy-port SaveSmoke/B.lean" "$beam_script" lean-update SaveSmoke/B.lean)"
   warm_out="$("$beam_script" lean-run-at SaveSmoke/B.lean "$warm_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$warm_out" read_json_text_field ok)" != "true" ]; then
     echo "expected busy-port warmup probe to succeed before reuse check" >&2

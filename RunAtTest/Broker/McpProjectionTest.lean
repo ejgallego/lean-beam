@@ -209,6 +209,9 @@ private def checkBrokerRequestAdapters : IO Unit := do
   let depsReq ← expectOk "deps tool request" <|
     Beam.Mcp.ToolName.leanDeps.toBrokerRequest root (toJson pathInput)
   require "deps op" (depsReq.op == .deps)
+  let updateReq ← expectOk "update tool request" <|
+    Beam.Mcp.ToolName.leanUpdate.toBrokerRequest root (toJson pathInput)
+  require "update op" (updateReq.op == .updateFile)
   let closeReq ← expectOk "close tool request" <|
     Beam.Mcp.ToolName.leanClose.toBrokerRequest root (toJson pathInput)
   require "close op" (closeReq.op == .close)

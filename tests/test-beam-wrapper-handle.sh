@@ -21,7 +21,7 @@ handle_root="$(beam_wrapper_prepare_project_root handle)"
 example : True ∧ True := by
 EOF
 
-  handle_version="$(beam_wrapper_sync_version HandleSmoke "$beam_script" lean-sync HandleSmoke.lean)"
+  handle_version="$(beam_wrapper_update_version HandleSmoke "$beam_script" lean-update HandleSmoke.lean)"
 
   mint_handle_stdin="$(printf 'constructor' | "$beam_script" lean-run-at-handle HandleSmoke.lean "$handle_version" 0 27 --stdin)"
   if [ "$(RUNAT_JSON_PAYLOAD="$mint_handle_stdin" read_json_text_field ok)" != "true" ]; then
@@ -219,7 +219,7 @@ EOF
     exit 1
   fi
 
-  portable_helper_version="$(beam_wrapper_sync_version "portable HandleSmoke" "$beam_script" lean-sync HandleSmoke.lean)"
+  portable_helper_version="$(beam_wrapper_update_version "portable HandleSmoke" "$beam_script" lean-update HandleSmoke.lean)"
   portable_helper_root="$(PATH="$portable_wrapper_bin:$PATH" "$portable_wrapper_bin/lean-beam-search" mint HandleSmoke.lean "$portable_helper_version" 0 27 "constructor")"
   if [ "$(RUNAT_JSON_PAYLOAD="$portable_helper_root" read_json_text_field ok)" != "true" ]; then
     echo "expected symlinked helper to work when readlink -f is unavailable" >&2

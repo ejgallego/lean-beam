@@ -109,6 +109,7 @@ private def checkToolsListShape : IO Unit := do
     (modeDescription.contains "invalidates handles")
   require "MCP capability names should include central Lean tools"
     (Beam.Mcp.capabilityNames.contains "lean_run_at" &&
+      Beam.Mcp.capabilityNames.contains "lean_update" &&
       Beam.Mcp.capabilityNames.contains "lean_sync" &&
       Beam.Mcp.capabilityNames.contains "lean_save" &&
       Beam.Mcp.capabilityNames.contains "lean_goals_prev" &&
@@ -126,6 +127,7 @@ private def checkToolsListShape : IO Unit := do
     ("lean_run_with", #["path", "handle", "text"]),
     ("lean_run_with_linear", #["path", "handle", "text"]),
     ("lean_release", #["path", "handle"]),
+    ("lean_update", #["path"]),
     ("lean_sync", #["path"]),
     ("lean_save", #["path"]),
     ("lean_deps", #["path"]),

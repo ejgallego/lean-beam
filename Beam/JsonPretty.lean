@@ -23,8 +23,9 @@ private def jsonFieldPriority : String -> Nat
   | "result" => 1
   | "error" => 2
   | "version" => 10
-  | "saveReady" => 11
-  | "syncSummary" => 12
+  | "changed" => 11
+  | "saveReady" => 12
+  | "syncSummary" => 13
   | "fileProgress" => 20
   | "currentVersion" => 30
   | "readiness" => 31

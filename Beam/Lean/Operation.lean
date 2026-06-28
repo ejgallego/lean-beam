@@ -27,6 +27,7 @@ inductive Operation where
   | runWith
   | runWithLinear
   | release
+  | update
   | sync
   | deps
   | save
@@ -43,6 +44,7 @@ def Operation.all : Array Operation := #[
   .runWith,
   .runWithLinear,
   .release,
+  .update,
   .sync,
   .deps,
   .save,
@@ -59,6 +61,7 @@ def Operation.key : Operation → String
   | .runWith => "run_with"
   | .runWithLinear => "run_with_linear"
   | .release => "release"
+  | .update => "update"
   | .sync => "sync"
   | .deps => "deps"
   | .save => "save"
@@ -77,6 +80,7 @@ def Operation.description : Operation → String
   | .runWith => "Run one Lean continuation command or tactic block from a stored handle without consuming the parent handle."
   | .runWithLinear => "Run one Lean continuation command or tactic block from a stored handle and consume that handle on success or failure."
   | .release => "Release a stored Lean follow-up handle."
+  | .update => "Open or update a Lean file in the broker and return its document version without waiting for diagnostics."
   | .sync => "Synchronize a Lean file with the broker and wait for diagnostics."
   | .deps => "Refresh direct Lean dependency state for a file."
   | .save => "Synchronize a Lean file and save zero-build artifacts when possible."
@@ -86,7 +90,7 @@ private def pathField : String × Json :=
   ("path", Beam.JsonSchema.string "Lean file path, relative to the server root unless absolute.")
 
 private def versionField : String × Json :=
-  ("version", Beam.JsonSchema.natural "Document version returned by a successful lean_sync for this file.")
+  ("version", Beam.JsonSchema.natural "Document version returned by a successful lean_update or lean_sync for this file.")
 
 private def lineField : String × Json :=
   ("line", Beam.JsonSchema.natural "Zero-based LSP line.")
@@ -164,6 +168,8 @@ def Operation.inputSchema : Operation → Json
       inputObject [pathField, handleField, continuationTextField] #["path", "handle", "text"]
   | .release =>
       inputObject [pathField, releaseHandleField] #["path", "handle"]
+  | .update =>
+      inputObject [pathField] #["path"]
   | .sync =>
       inputObject [pathField, syncFullDiagnosticsField, includeDiagnosticsField] #["path"]
   | .save =>
@@ -373,6 +379,13 @@ def PathInput.toCloseBrokerRequest (input : PathInput) (root : String) : Beam.Br
   path? := some input.path
 }
 
+def PathInput.toUpdateBrokerRequest (input : PathInput) (root : String) : Beam.Broker.Request := {
+  op := .updateFile
+  backend := .lean
+  root? := some root
+  path? := some input.path
+}
+
 def SyncInput.toSyncBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
   op := .syncFile
   backend := .lean
@@ -413,6 +426,8 @@ def Operation.toBrokerRequest
       pure <| (← fromJson? (α := RunWithInput) input).toBrokerRequest root (linear := true)
   | .release =>
       pure <| (← fromJson? (α := ReleaseInput) input).toBrokerRequest root
+  | .update =>
+      pure <| (← fromJson? (α := PathInput) input).toUpdateBrokerRequest root
   | .sync =>
       pure <| (← fromJson? (α := SyncInput) input).toSyncBrokerRequest root
   | .deps =>

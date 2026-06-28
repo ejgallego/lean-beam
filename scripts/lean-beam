@@ -19,6 +19,7 @@ usage:
   lean-beam [--root PATH] [--socket PATH | --port N] run-with <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--socket PATH | --port N] run-with-linear <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--socket PATH | --port N] release <path> <handle-json|-|--handle-file <path>>
+  lean-beam [--root PATH] [--socket PATH | --port N] update <path>
   lean-beam [--root PATH] [--socket PATH | --port N] sync <path> [+full]
   lean-beam [--root PATH] [--socket PATH | --port N] refresh <path> [+full]
   lean-beam [--root PATH] [--socket PATH | --port N] save <path> [+full]
@@ -37,7 +38,8 @@ usage:
 notes:
   - lean-beam keeps the Lean wrapper surface primary; optional Rocq goal probes are documented in docs/ROCQ.md
   - common Rocq entry points are `lean-beam ensure rocq`, `lean-beam doctor rocq`, `lean-beam rocq-goals-after`, and `lean-beam rocq-goals-prev`
-  - run `lean-beam sync <path>` first, then pass its returned `version` to Lean position/range probes
+  - run `lean-beam update <path>` first, then pass its returned `version` to Lean position/range probes
+  - run `lean-beam sync <path>` when you also need the diagnostics/readiness barrier
   - for multiline text-carrying Lean probes, prefer `--stdin` or `--text-file <path>`; use `--` before text that starts with `--`
   - for handle-based commands, use `--handle-file <path>` when you do not want to inline handle json
   - use `ensure --hold` when a PID-isolated command runner needs one foreground process to keep a newly-started daemon alive
@@ -170,6 +172,10 @@ case "$cmd" in
     ;;
   release)
     mapped=("lean-release")
+    display_cmd="$cmd"
+    ;;
+  update)
+    mapped=("lean-update")
     display_cmd="$cmd"
     ;;
   deps)

@@ -233,6 +233,9 @@ private def checkLeanOperationRequests : IO Unit := do
   requireRequestJson "deps request should share the Lean operation adapter"
     (Beam.Cli.leanDepsRequest root path)
     (pathInput.toDepsBrokerRequest rootText)
+  requireRequestJson "update request should share the Lean operation adapter"
+    (Beam.Cli.leanUpdateRequest root path)
+    (pathInput.toUpdateBrokerRequest rootText)
   requireRequestJson "close request should share the Lean operation adapter"
     (Beam.Cli.leanCloseRequest root path)
     (pathInput.toCloseBrokerRequest rootText)

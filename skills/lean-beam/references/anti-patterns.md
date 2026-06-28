@@ -20,7 +20,7 @@ Use this reference as a short checklist of what not to assume in Lean `beam` wor
 
 - use `lean-beam hover` for existing semantic info
 - use `lean-beam goals-prev` / `lean-beam goals-after` for existing proof state
-- use `lean-beam run-at` for one speculative snippet on an explicit synced file version
+- use `lean-beam run-at` for one speculative snippet on an explicit broker document version
 - probe at the real source position with `lean-beam run-at`
 - pass multiline speculative text with `--stdin` instead of writing a temporary Lean file
 - use `lean-beam run-at-handle` plus `lean-beam run-with` / `lean-beam run-with-linear` for exact speculative chaining

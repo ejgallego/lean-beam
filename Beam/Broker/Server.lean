@@ -578,6 +578,12 @@ private structure FileSyncSnapshot where
   text : String
   file : DocumentState.FileSnapshot
 
+private structure SyncedFileSnapshot where
+  session : Session
+  uri : DocumentUri
+  version : Nat
+  changed : Bool
+
 private def readFileSyncSnapshot
     (root path : System.FilePath)
     (backend : Backend)
@@ -598,7 +604,9 @@ private def readFileSyncSnapshot
     }
   }
 
-private def syncFileSnapshot (session : Session) (snapshot : FileSyncSnapshot) : IO Session := do
+private def syncFileSnapshotDetailed
+    (session : Session)
+    (snapshot : FileSyncSnapshot) : IO SyncedFileSnapshot := do
   let decision := DocumentState.syncFileDecision session.docs snapshot.uri snapshot.file
   let session ←
     match decision.action with
@@ -621,7 +629,16 @@ private def syncFileSnapshot (session : Session) (snapshot : FileSyncSnapshot) :
         sendNotificationJson session "textDocument/didChange" param
     | .unchanged =>
         pure session
-  pure { session with docs := decision.docs }
+  pure {
+    session := { session with docs := decision.docs }
+    uri := snapshot.uri
+    version := decision.version
+    changed := decision.action != .unchanged
+  }
+
+private def syncFileSnapshot (session : Session) (snapshot : FileSyncSnapshot) : IO Session := do
+  let synced ← syncFileSnapshotDetailed session snapshot
+  pure synced.session
 
 private def requireDocState (session : Session) (uri : String) : IO DocState := do
   DocumentState.requireDocState session.docs uri
@@ -939,7 +956,7 @@ private def documentVersionMismatchResponse
     (expectedVersion actualVersion : Nat)
     (uri : DocumentUri) : Response :=
   reqError "contentModified" <|
-    s!"document version mismatch for {uri}: expected synced version {expectedVersion}, got {actualVersion}"
+    s!"document version mismatch for {uri}: expected document version {expectedVersion}, got {actualVersion}"
 
 private def startSyncedDocumentRequest
     (session : Session)
@@ -1334,6 +1351,25 @@ private def handleSyncFileOp
     syncSummary fileProgress? replyDiagnostics?,
     false)
 
+private def handleUpdateFileOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none) :
+    HandlerM (Response × Bool) := do
+  let path ← requestArg req.pathArg
+  liftResponseIO <| ensureRequestNotCancelled cancelRef?
+  let snapshot ← liftHandlerIO <| readRequestSyncSnapshot server req path
+  let updated ← liftHandlerIO <| server.withState do
+    let session ← ensureSession req.backend
+    let synced ← syncFileSnapshotDetailed session snapshot
+    updateSession synced.session
+    pure synced
+  pure (Response.success (toJson ({
+    version := updated.version
+    changed := updated.changed
+    : UpdateFileResult
+  })), false)
+
 private def handleCloseOp
     (server : ServerRuntime)
     (req : Request)
@@ -1625,6 +1661,7 @@ private def handleRequestIO
                 | .error resp => return (resp, false)
               let cancelled ← cancelActiveRequest server targetClientRequestId
               pure (Response.success (Json.mkObj [("cancelled", toJson cancelled)]), false)
+          | .updateFile => runHandler <| handleUpdateFileOp server req cancelRef?
           | .syncFile => runHandler <| handleSyncFileOp server req cancelRef? emitProgress? emitDiagnostic?
           | .close => runHandler <| handleCloseOp server req cancelRef? emitProgress? emitDiagnostic?
           | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress?

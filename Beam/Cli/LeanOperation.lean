@@ -110,6 +110,9 @@ def leanDepsRequest (root : System.FilePath) (path : String) : Request :=
 def leanCloseRequest (root : System.FilePath) (path : String) : Request :=
   ({ path } : Beam.Lean.PathInput).toCloseBrokerRequest (rootText root)
 
+def leanUpdateRequest (root : System.FilePath) (path : String) : Request :=
+  ({ path } : Beam.Lean.PathInput).toUpdateBrokerRequest (rootText root)
+
 def leanSyncRequest
     (root : System.FilePath)
     (path : String)

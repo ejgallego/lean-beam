@@ -26,7 +26,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
 
-  probe_before_version="$(beam_wrapper_sync_version "initial SaveSmoke/B.lean" "$beam_script" lean-sync SaveSmoke/B.lean)"
+  probe_before_version="$(beam_wrapper_update_version "initial SaveSmoke/B.lean" "$beam_script" lean-update SaveSmoke/B.lean)"
   probe_before="$("$beam_script" lean-run-at SaveSmoke/B.lean "$probe_before_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_before" read_json_text_field ok)" != "true" ]; then
     echo "expected initial wrapper probe to succeed" >&2
@@ -249,7 +249,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
 
-  probe_reopen_version="$(beam_wrapper_sync_version "reopened SaveSmoke/B.lean" "$beam_script" lean-sync SaveSmoke/B.lean)"
+  probe_reopen_version="$(beam_wrapper_update_version "reopened SaveSmoke/B.lean" "$beam_script" lean-update SaveSmoke/B.lean)"
   probe_reopen="$("$beam_script" lean-run-at SaveSmoke/B.lean "$probe_reopen_version" 0 2 "#eval bVal")"
   if [ "$(RUNAT_JSON_PAYLOAD="$probe_reopen" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper probe after lean-close to reopen the document successfully" >&2

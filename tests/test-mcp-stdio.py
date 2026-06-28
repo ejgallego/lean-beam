@@ -681,7 +681,7 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
     )
     capabilities = structured.get("capabilities")
     require(isinstance(capabilities, list), f"init workspace missing capabilities: {structured}")
-    for capability in ["lean_sync", "lean_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
+    for capability in ["lean_update", "lean_sync", "lean_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
         require(capability in capabilities, f"init workspace capabilities missing {capability}: {structured}")
     require("$/lean/runAt" not in capabilities, f"init workspace exposed raw LSP capability: {structured}")
     require(
@@ -752,15 +752,15 @@ def expect_stale_handle(client, handle, label):
 
 
 def run_iteration(client, suffix):
-    sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+    update = client.call_tool("lean_update", {"path": "PositionEmptyLine.lean"})
     require(
-        Path(sync.get("active_root")).resolve() == client.project_root.resolve(),
-        f"sync returned wrong active_root: {sync}",
+        Path(update.get("active_root")).resolve() == client.project_root.resolve(),
+        f"update returned wrong active_root: {update}",
     )
-    version = sync.get("version")
-    require(isinstance(version, int), f"sync did not return a document version: {sync}")
-    progress = sync.get("file_progress")
-    require(isinstance(progress, dict), f"sync did not return file_progress: {sync}")
+    version = update.get("version")
+    require(isinstance(version, int), f"update did not return a document version: {update}")
+    changed = update.get("changed")
+    require(isinstance(changed, bool), f"update did not return changed flag: {update}")
 
     probe = client.call_tool(
         "lean_run_at",
@@ -829,9 +829,9 @@ def run_iteration(client, suffix):
     client.call_tool("lean_release", {"path": "PositionEmptyLine.lean", "handle": linear_handle})
     client.call_tool("lean_release", {"path": "PositionEmptyLine.lean", "handle": base_handle})
 
-    goal_sync = client.call_tool("lean_sync", {"path": "GoalSmoke.lean"})
-    goal_version = goal_sync.get("version")
-    require(isinstance(goal_version, int), f"GoalSmoke sync did not return a version: {goal_sync}")
+    goal_update = client.call_tool("lean_update", {"path": "GoalSmoke.lean"})
+    goal_version = goal_update.get("version")
+    require(isinstance(goal_version, int), f"GoalSmoke update did not return a version: {goal_update}")
     goals_prev = client.call_tool(
         "lean_goals_prev",
         {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2},
@@ -899,6 +899,7 @@ def run_cycle(
             tools = expect_result(client.request("tools/list")).get("tools")
             names = {tool.get("name") for tool in tools}
             require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
+            require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
             require("lean_request_at" not in names, f"tools/list exposed raw request escape hatch: {tools}")

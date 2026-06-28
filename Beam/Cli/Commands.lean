@@ -280,6 +280,11 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         callBrokerWithProgress root daemon.endpoint
           (leanSaveRequest root path fullDiagnostics)
           (leanSaveWaitSpec path (action? := some action))
+  | "lean-update" :: path :: [] =>
+      let root ← projectRoot opts .lean
+      let daemon ← ensureProjectDaemon home root .lean opts
+      withWrapperLease root daemon.startedNew do
+        callBroker root daemon.endpoint <| leanUpdateRequest root path
   | "lean-sync" :: path :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts

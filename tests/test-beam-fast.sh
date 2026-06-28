@@ -159,39 +159,39 @@ rm -rf -- "$cli_non_workspace_root"
 rm -f "$cli_non_workspace_err"
 
 wrapper_todo_control_dir="$(mktemp -d /tmp/lean-beam-wrapper-todo-XXXXXX)"
-wrapper_todo_sync_out="$(mktemp /tmp/lean-beam-wrapper-todo-sync-out-XXXXXX)"
-wrapper_todo_sync_err="$(mktemp /tmp/lean-beam-wrapper-todo-sync-err-XXXXXX)"
+wrapper_todo_update_out="$(mktemp /tmp/lean-beam-wrapper-todo-update-out-XXXXXX)"
+wrapper_todo_update_err="$(mktemp /tmp/lean-beam-wrapper-todo-update-err-XXXXXX)"
 wrapper_todo_out="$(mktemp /tmp/lean-beam-wrapper-todo-out-XXXXXX)"
 wrapper_todo_err="$(mktemp /tmp/lean-beam-wrapper-todo-err-XXXXXX)"
 wrapper_todo_cleanup() {
   BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
     scripts/lean-beam --root tests/save_olean_project shutdown > /dev/null 2>&1 || true
   rm -rf -- "$wrapper_todo_control_dir"
-  rm -f "$wrapper_todo_sync_out" "$wrapper_todo_sync_err" "$wrapper_todo_out" "$wrapper_todo_err"
+  rm -f "$wrapper_todo_update_out" "$wrapper_todo_update_err" "$wrapper_todo_out" "$wrapper_todo_err"
 }
 
 if ! BEAM_CONTROL_DIR="$wrapper_todo_control_dir" \
     scripts/lean-beam --root tests/save_olean_project \
-      sync TodoSmoke.lean \
-    > "$wrapper_todo_sync_out" 2>"$wrapper_todo_sync_err"; then
-  echo "expected lean-beam sync wrapper smoke to succeed before todo" >&2
-  cat "$wrapper_todo_sync_err" >&2
+      update TodoSmoke.lean \
+    > "$wrapper_todo_update_out" 2>"$wrapper_todo_update_err"; then
+  echo "expected lean-beam update wrapper smoke to succeed before todo" >&2
+  cat "$wrapper_todo_update_err" >&2
   wrapper_todo_cleanup
   exit 1
 fi
 
 if ! wrapper_todo_version="$(
-    WRAPPER_TODO_SYNC_OUT="$wrapper_todo_sync_out" python3 - <<'PY'
+    WRAPPER_TODO_UPDATE_OUT="$wrapper_todo_update_out" python3 - <<'PY'
 import json
 import os
 import sys
 
-with open(os.environ["WRAPPER_TODO_SYNC_OUT"], encoding="utf-8") as f:
+with open(os.environ["WRAPPER_TODO_UPDATE_OUT"], encoding="utf-8") as f:
     response = json.load(f)
 
 version = response.get("result", {}).get("version")
 if not isinstance(version, int):
-    print(f"expected wrapper sync response to return version, got {response}", file=sys.stderr)
+    print(f"expected wrapper update response to return version, got {response}", file=sys.stderr)
     sys.exit(1)
 
 print(version)
@@ -279,11 +279,11 @@ init = request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"p
 proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
 proc.stdin.flush()
 tools = request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-sync = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_sync", "arguments": {"path": "TodoSmoke.lean"}}})
-sync_content = sync.get("result", {}).get("structuredContent", {})
-version = sync_content.get("version")
+update = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_update", "arguments": {"path": "TodoSmoke.lean"}}})
+update_content = update.get("result", {}).get("structuredContent", {})
+version = update_content.get("version")
 if not isinstance(version, int):
-    print(f"expected lean_sync MCP smoke to return a document version: {sync}", file=sys.stderr)
+    print(f"expected lean_update MCP smoke to return a document version: {update}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 todo = request({
@@ -312,7 +312,7 @@ if init.get("result", {}).get("protocolVersion") != "2025-11-25":
     sys.exit(1)
 
 tool_names = {tool.get("name") for tool in tools.get("result", {}).get("tools", [])}
-if "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
+if "lean_update" not in tool_names or "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
     print(f"unexpected MCP tool list: {sorted(tool_names)}", file=sys.stderr)
     proc.kill()
     sys.exit(1)

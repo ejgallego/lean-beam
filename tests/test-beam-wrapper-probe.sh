@@ -42,10 +42,10 @@ fi
 (
   cd "$project_root"
   "$beam_script" ensure lean > /dev/null
-  command_version="$(beam_wrapper_sync_version CommandA "$beam_script" lean-sync CommandA.lean)"
-  position_empty_version="$(beam_wrapper_sync_version PositionEmptyLine "$beam_script" lean-sync PositionEmptyLine.lean)"
-  position_utf16_version="$(beam_wrapper_sync_version PositionUtf16 "$beam_script" lean-sync PositionUtf16.lean)"
-  goal_version="$(beam_wrapper_sync_version GoalSmoke "$beam_script" lean-sync GoalSmoke.lean)"
+  command_version="$(beam_wrapper_update_version CommandA "$beam_script" lean-update CommandA.lean)"
+  position_empty_version="$(beam_wrapper_update_version PositionEmptyLine "$beam_script" lean-update PositionEmptyLine.lean)"
+  position_utf16_version="$(beam_wrapper_update_version PositionUtf16 "$beam_script" lean-update PositionUtf16.lean)"
+  goal_version="$(beam_wrapper_update_version GoalSmoke "$beam_script" lean-update GoalSmoke.lean)"
 
   cmd_err="$(beam_wrapper_mktemp_file progress)"
   cmd_out="$(BEAM_PROGRESS=1 "$beam_script" lean-run-at CommandA.lean "$command_version" 0 2 "#check answerA" 2>"$cmd_err")"

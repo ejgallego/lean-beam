@@ -101,8 +101,10 @@ long-term contract. Current handle behavior is:
 - exact continuation requires an explicit handle path; separate `lean-beam run-at` calls do not chain
   through hidden state
 
-The local Beam daemon convenience layer is also still alpha. In particular, `lean-beam sync` is now
-the supported on-disk edit barrier for Lean files: it waits for diagnostics for the synced version,
+The local Beam daemon convenience layer is also still alpha. `lean-beam update` is the supported
+cheap on-disk edit observation for Lean files: it opens or updates the broker's LSP mirror and
+returns the broker-owned document version without waiting for diagnostics. `lean-beam sync` is the
+supported diagnostics/readiness barrier: it waits for diagnostics for the current document version,
 streams fresh request diagnostics, and returns an ordered machine-readable JSON verdict on stdout.
 By default `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` stream only errors for the
 current request; `+full` widens that stream to warnings, info, and hints. The detailed progress,
@@ -112,8 +114,8 @@ preferred machine-readable surface is the JSON stream exposed by `beam-client re
 wrapper stderr format should be treated as human-facing.
 
 Lean position/range operations are version-bound across the broker, MCP, and wrapper surfaces:
-clients must first sync the file and pass the returned document version. The version becomes
-available only from a successful sync response.
+clients must first update or sync the file and pass the returned document version. `update` is the
+cheap version-producing step; `sync` is for clients that also need diagnostics/readiness.
 
 Beam broker responses require an explicit top-level `ok` boolean, giving projection layers an
 unambiguous success/error discriminator.

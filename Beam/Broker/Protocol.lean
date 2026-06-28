@@ -23,6 +23,7 @@ inductive Op where
   | ensure
   | openDocs
   | cancel
+  | updateFile
   | syncFile
   | close
   | runAt
@@ -42,6 +43,7 @@ def Op.key : Op → String
   | .ensure => "ensure"
   | .openDocs => "open_docs"
   | .cancel => "cancel"
+  | .updateFile => "update_file"
   | .syncFile => "sync_file"
   | .close => "close"
   | .runAt => "run_at"
@@ -64,6 +66,7 @@ instance : FromJson Op where
     | .str "ensure" => .ok .ensure
     | .str "open_docs" => .ok .openDocs
     | .str "cancel" => .ok .cancel
+    | .str "update_file" => .ok .updateFile
     | .str "sync_file" => .ok .syncFile
     | .str "close" => .ok .close
     | .str "run_at" => .ok .runAt
@@ -427,6 +430,11 @@ structure SyncFileResult where
   syncSummary : SyncSummary
   diagnostics? : Option (Array StreamDiagnostic) := none
   deriving Inhabited
+
+structure UpdateFileResult where
+  version : Nat
+  changed : Bool := false
+  deriving Inhabited, FromJson, ToJson, BEq, Repr
 
 namespace SyncFileResult
 
