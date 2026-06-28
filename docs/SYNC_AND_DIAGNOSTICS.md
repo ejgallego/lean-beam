@@ -7,7 +7,9 @@ across the wrapper, broker stream, and MCP server.
 
 `lean-beam update` is the cheap on-disk edit observation for a Lean file. It reads the current file,
 opens or updates the broker's LSP mirror when needed, and returns the broker-owned document
-`version` immediately without waiting for diagnostics.
+`version` immediately without waiting for diagnostics. Its `changed` flag means the broker sent
+`didOpen` or `didChange` to the LSP session for this request; unchanged files keep the previous
+document version and return `changed: false`.
 
 `lean-beam sync` is the diagnostics/readiness barrier for a Lean file. It opens or updates the
 tracked file, waits for diagnostics for the current document version, streams fresh request

@@ -1142,7 +1142,7 @@ private def fetchSyncSaveReadiness
         code := .contentModified
         message :=
           s!"save readiness reported version {readiness.version}, " ++
-            s!"expected synced version {expectedVersion}"
+            s!"expected document version {expectedVersion}"
       }
     pure (syncSaveReadinessOfResult readiness)
 
@@ -1283,7 +1283,7 @@ private def saveOlean
   let saveResult : RunAt.Internal.SaveArtifactsResult ← liftHandlerIO <| decodeResponseAs savePending.result
   if saveResult.version != started.version then
     throw <| Response.error "internalError"
-      s!"save_olean saved version {saveResult.version}, expected synced version {started.version}"
+      s!"save_olean saved version {saveResult.version}, expected document version {started.version}"
   if saveResult.textHash != textHash then
     throw <| Response.error "internalError"
       s!"save_olean saved text hash {saveResult.textHash}, expected synced hash {textHash}"
