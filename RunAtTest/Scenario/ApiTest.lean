@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import RunAtTest.Scenario
+import RunAt.Internal.SaveSupport
 
 open Lean
 open RunAtTest.Scenario
@@ -17,7 +18,7 @@ private def successJson : Json :=
 private def contentModifiedJson : Json :=
   Json.mkObj [("code", toJson "contentModified")]
 
-def main : IO Unit := RunAtTest.Scenario.run do
+private def checkConcurrentRequests : ScenarioM Unit := do
   let proofA ← openDoc "tests/scenario/docs/SimpleProof.lean"
   let proofB ← openDoc "tests/scenario/docs/SimpleProofB.lean"
   let cmdA ← openDoc "tests/scenario/docs/CommandA.lean"
@@ -44,6 +45,35 @@ def main : IO Unit := RunAtTest.Scenario.run do
   closeDoc proofA
   closeDoc proofB
   closeDoc cmdA
+
+private def checkDependentProbeAssembly : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/DependentProbeAssembly.lean"
+
+  -- Each probe is valid against the original snapshot, but committing only the value
+  -- edit makes the dependent proof stale.
+  let valueReq ← sendRunAt doc { line := 2, character := 4, text := "exact 1" }
+  let proofReq ← sendRunAt doc { line := 4, character := 4, text := "rfl" }
+
+  expectResponseContains valueReq successJson
+  expectResponseContains proofReq successJson
+
+  changeDoc doc { line := 2, character := 4, delete := "exact 0", insert := "exact 1" }
+  syncDoc doc
+
+  let readinessReq ← sendSaveReadiness doc
+  let readiness : RunAt.Internal.SaveReadinessResult ← awaitResponseAs readinessReq
+  if readiness.saveReady then
+    throw <| IO.userError
+      s!"dependent probe assembly: expected committed document to have errors, got {(toJson readiness).compress}"
+  if readiness.blockingDiagnostics.isEmpty && readiness.blockingCommandMessages.isEmpty then
+    throw <| IO.userError
+      s!"dependent probe assembly: expected save-blocking evidence, got {(toJson readiness).compress}"
+
+  closeDoc doc
+
+def main : IO Unit := RunAtTest.Scenario.run do
+  checkConcurrentRequests
+  checkDependentProbeAssembly
 
 end RunAtTest.Scenario.ApiTest
 
