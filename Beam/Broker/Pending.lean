@@ -119,55 +119,51 @@ private def normalizePublishDiagnostics (params : PublishDiagnosticsParams) :
     sorted.toArray
 }
 
-private structure FileProgressLineInfo where
-  line : Nat
-  totalLines : Nat
+private structure FileProgressRangeInfo where
+  rangeStartLine : Nat
+  rangeEndLine : Nat
 
-private def fileProgressTotalLines (range : Range) : Nat :=
+private def fileProgressRangeEndLine (range : Range) : Nat :=
   let endPos := range.«end»
   if endPos.line > 0 && endPos.character == 0 then
     endPos.line
   else
     endPos.line + 1
 
-private def mergeFileProgressLineInfo
-    (info? : Option FileProgressLineInfo)
-    (range : Range) : Option FileProgressLineInfo :=
-  let line := range.start.line + 1
-  let totalLines := fileProgressTotalLines range
+private def mergeFileProgressRangeInfo
+    (info? : Option FileProgressRangeInfo)
+    (range : Range) : Option FileProgressRangeInfo :=
+  let rangeStartLine := range.start.line + 1
+  let rangeEndLine := fileProgressRangeEndLine range
   match info? with
-  | none => some { line, totalLines }
+  | none => some { rangeStartLine, rangeEndLine }
   | some info =>
       some {
-        line := Nat.min info.line line
-        totalLines := Nat.max info.totalLines totalLines
+        rangeStartLine := Nat.min info.rangeStartLine rangeStartLine
+        rangeEndLine := Nat.max info.rangeEndLine rangeEndLine
       }
 
-private def fileProgressLineInfo? (params : LeanFileProgressParams) :
-    Option FileProgressLineInfo :=
+private def fileProgressRangeInfo? (params : LeanFileProgressParams) :
+    Option FileProgressRangeInfo :=
   params.processing.foldl
     (init := none)
-    (fun info? processing => mergeFileProgressLineInfo info? processing.range)
+    (fun info? processing => mergeFileProgressRangeInfo info? processing.range)
 
 private def updateSyncFileProgress (progress : SyncFileProgress) (params : LeanFileProgressParams) :
     SyncFileProgress :=
   let processing := params.processing.size
-  let lineInfo? := fileProgressLineInfo? params
+  let rangeInfo? := fileProgressRangeInfo? params
   let done := processing == 0
-  let totalLines? := lineInfo?.map (·.totalLines) |>.or progress.totalLines?
-  let line? :=
-    match lineInfo? with
-    | some info => some info.line
-    | none =>
-        if done then
-          totalLines?
-        else
-          progress.line?
+  let rangeEndLine? := rangeInfo?.map (·.rangeEndLine) |>.or progress.rangeEndLine?
+  let rangeStartLine? :=
+    match rangeInfo? with
+    | some info => some info.rangeStartLine
+    | none => if done then none else progress.rangeStartLine?
   {
     updates := progress.updates + 1
     done
-    line?
-    totalLines?
+    rangeStartLine?
+    rangeEndLine?
   }
 
 private def matchesSyncFileProgress

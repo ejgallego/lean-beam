@@ -125,6 +125,19 @@ private def mkFileProgress (ranges : Array Range) : LeanFileProgressParams := {
   processing := ranges.map fun range => { range }
 }
 
+private def mkDiagnostic (range : Range) (message : String) : Diagnostic := {
+  range
+  fullRange? := some range
+  severity? := some .error
+  message
+}
+
+private def mkPublishDiagnostics (diagnostics : Array Diagnostic) : PublishDiagnosticsParams := {
+  uri := "file:///workspace/Foo.lean"
+  version? := some 1
+  diagnostics
+}
+
 private def observeFileProgress
     (progress : SyncFileProgress)
     (ranges : Array Range) : IO SyncFileProgress := do
@@ -137,51 +150,79 @@ private def observeFileProgress
   pure next
 
 private def checkSyncFileProgressDisplay : IO Unit := do
-  require "display includes line and done=false"
+  require "display includes range and done=false"
     (SyncFileProgress.displayDetails {
       updates := 4
       done := false
-      line? := some 3
-      totalLines? := some 13
-    } == "line=3/13 updates=4 done=false")
+      rangeStartLine? := some 3
+      rangeEndLine? := some 13
+    } == "range=3..13 updates=4 done=false")
   require "display can omit done=true"
     (SyncFileProgress.displayDetails {
       updates := 5
       done := true
-      line? := some 13
-      totalLines? := some 13
-    } (includeDoneTrue := false) == "line=13/13 updates=5")
+      rangeEndLine? := some 13
+    } (includeDoneTrue := false) == "rangeEndLine=13 updates=5")
 
 private def checkSyncFileProgressLines : IO Unit := do
   let trailingNewline ← observeFileProgress {} #[mkRange 0 0 1 0]
-  require "progress trailing newline reports one physical line"
+  require "progress trailing newline reports one-line range bound"
     (trailingNewline == {
       updates := 1
       done := false
-      line? := some 1
-      totalLines? := some 1
+      rangeStartLine? := some 1
+      rangeEndLine? := some 1
     })
 
   let multipleRanges ← observeFileProgress {} #[
     mkRange 5 0 10 0,
     mkRange 2 0 12 3
   ]
-  require "progress multiple ranges use earliest active line and max total"
+  require "progress multiple ranges use earliest active line and max range end"
     (multipleRanges == {
       updates := 1
       done := false
-      line? := some 3
-      totalLines? := some 13
+      rangeStartLine? := some 3
+      rangeEndLine? := some 13
     })
 
   let finished ← observeFileProgress multipleRanges #[]
-  require "progress final empty processing preserves total and marks line complete"
+  require "progress final empty processing preserves range end and clears active range start"
     (finished == {
       updates := 2
       done := true
-      line? := some 13
-      totalLines? := some 13
+      rangeEndLine? := some 13
     })
+  let renderedProgress := toJson finished
+  requireFieldAbsent "finished progress" "line" renderedProgress
+  requireFieldAbsent "finished progress" "totalLines" renderedProgress
+  requireJsonInt "finished progress" "rangeEndLine" 13 renderedProgress
+
+private def checkDiagnosticLineCanExceedProgressRange : IO Unit := do
+  let active ← observeFileProgress {} #[mkRange 0 0 1 0]
+  let finished ← observeFileProgress active #[]
+  require "progress fixture ends at one-line range bound"
+    (finished == {
+      updates := 2
+      done := true
+      rangeEndLine? := some 1
+    })
+
+  let farDiagnostic := mkDiagnostic (mkRange 20 2 20 8) "diagnostic beyond progress range"
+  let (pending, _) ← mkPending
+    (progress? := some finished)
+    (tracked? := some ("file:///workspace/Foo.lean", 1))
+  PendingRequest.observeDiagnostics
+    (System.FilePath.mk ".")
+    pending
+    (mkPublishDiagnostics #[farDiagnostic])
+  require "diagnostic publication does not rewrite fileProgress range"
+    ((← pending.progressRef.get) == some finished)
+  let diagnostics ← pending.diagnosticsRef.get
+  let some diagnostic := diagnostics[0]?
+    | throw <| IO.userError "expected diagnostic beyond progress range"
+  require "diagnostic may start beyond progress rangeEndLine"
+    (diagnostic.range.start.line + 1 > finished.rangeEndLine?.getD 0)
 
 def main : IO Unit := do
   checkActiveRegistry
@@ -189,6 +230,7 @@ def main : IO Unit := do
   checkPendingStoreFailAll
   checkSyncFileProgressDisplay
   checkSyncFileProgressLines
+  checkDiagnosticLineCanExceedProgressRange
 
 end RunAtTest.Broker.PendingTest
 

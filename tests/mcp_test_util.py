@@ -33,13 +33,32 @@ def progress_messages(notifications):
     ]
 
 
-def require_file_progress_line(structured, label):
+def require_file_progress_range(structured, label):
     progress = structured.get("file_progress")
     require(isinstance(progress, dict), f"{label}: missing file_progress metadata: {structured}")
-    line = progress.get("line")
-    total = progress.get("totalLines")
-    require(type(line) is int and line >= 1, f"{label}: invalid file_progress line: {progress}")
-    require(type(total) is int and total >= line, f"{label}: invalid file_progress totalLines: {progress}")
+    updates = progress.get("updates")
+    require(
+        type(updates) is int and updates >= 0,
+        f"{label}: invalid file_progress updates: {progress}",
+    )
+    done = progress.get("done")
+    require(type(done) is bool, f"{label}: invalid file_progress done: {progress}")
+    require("line" not in progress, f"{label}: file_progress should not expose line: {progress}")
+    require("totalLines" not in progress, f"{label}: file_progress should not expose totalLines: {progress}")
+    range_end = progress.get("rangeEndLine")
+    if range_end is not None:
+        require(
+            type(range_end) is int and range_end >= 1,
+            f"{label}: invalid file_progress rangeEndLine: {progress}",
+        )
+    range_start = progress.get("rangeStartLine")
+    if range_start is not None:
+        require(
+            type(range_start) is int
+            and range_start >= 1
+            and (range_end is None or range_start <= range_end),
+            f"{label}: invalid file_progress rangeStartLine: {progress}",
+        )
 
 
 def save_warning_text(marker):

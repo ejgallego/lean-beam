@@ -195,8 +195,7 @@ private def checkOrderedJsonPretty : IO Unit := do
     fileProgress? := some {
       updates := 2
       done := true
-      line? := some 1
-      totalLines? := some 1
+      rangeEndLine? := some 1
     }
   }
   let json := toJson resp
@@ -233,8 +232,7 @@ private def checkOrderedJsonPretty : IO Unit := do
     "  \"fileProgress\": {",
     "    \"done\": true,",
     "    \"updates\": 2,",
-    "    \"line\": 1,",
-    "    \"totalLines\": 1",
+    "    \"rangeEndLine\": 1",
     "  }",
     "}"
   ]
@@ -242,6 +240,10 @@ private def checkOrderedJsonPretty : IO Unit := do
     throw <| IO.userError s!"ordered JSON pretty output changed:\n{rendered}"
   let parsed ← expectOk "ordered JSON pretty parse" (Json.parse rendered)
   require "ordered JSON pretty output should round-trip" (parsed.compress == json.compress)
+  let progress ← requireObjVal "ordered JSON pretty output" "fileProgress" json
+  requireFieldAbsent "ordered JSON pretty progress" "line" progress
+  requireFieldAbsent "ordered JSON pretty progress" "totalLines" progress
+  requireJsonInt "ordered JSON pretty progress" "rangeEndLine" 1 progress
 
 private def checkSyncFileResultDecode : IO Unit := do
   let valid := syncFileResultJson 7 (syncSummaryJson 7 (syncReadinessCurrentJson true))

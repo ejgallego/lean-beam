@@ -84,11 +84,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected lean-sync after first edit to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$sync_out" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "lean-sync after first edit" "$sync_out" fileProgress
   if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.syncSummary.readiness.current.saveReady)" != "true" ]; then
     echo "expected lean-sync after first edit to report saveReady = true" >&2
     printf '%s\n' "$sync_out" >&2
@@ -100,11 +96,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
   open_files_synced="$("$beam_script" open-files)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
-    echo "expected open-files after lean-sync to retain completed fileProgress" >&2
-    printf '%s\n' "$open_files_synced" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "open-files after lean-sync" "$open_files_synced" \
+    result.sessions.lean.files.0.fileProgress
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
     echo "expected open-files after lean-sync to keep savedOlean = false before lean-save" >&2
     printf '%s\n' "$open_files_synced" >&2
@@ -129,11 +122,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$save_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected lean-save to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$save_out" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "lean-save after synced edit" "$save_out" fileProgress
   if [ "$(RUNAT_JSON_PAYLOAD="$save_out" read_json_text_field result.version)" != "2" ]; then
     echo "expected lean-save to report saved version 2" >&2
     printf '%s\n' "$save_out" >&2
@@ -186,11 +175,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$sync_second" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_second" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected second lean-sync to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$sync_second" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "second lean-sync" "$sync_second" fileProgress
 
   open_files_second="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
@@ -198,11 +183,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$open_files_second" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.fileProgress.done)" != "true" ]; then
-    echo "expected open-files after second lean-sync to retain completed fileProgress" >&2
-    printf '%s\n' "$open_files_second" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "open-files after second lean-sync" "$open_files_second" \
+    result.sessions.lean.files.0.fileProgress
 
   sync_third="$("$beam_script" lean-sync SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field ok)" != "true" ]; then
@@ -215,11 +197,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$sync_third" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_third" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected unchanged third lean-sync to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$sync_third" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "unchanged third lean-sync" "$sync_third" fileProgress
 
   refresh_out="$("$beam_script" lean-refresh SaveSmoke/B.lean)"
   if [ "$(RUNAT_JSON_PAYLOAD="$refresh_out" read_json_text_field ok)" != "true" ]; then
@@ -232,11 +210,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$refresh_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$refresh_out" read_json_text_field fileProgress.done)" != "true" ]; then
-    echo "expected lean-refresh to expose completed top-level fileProgress" >&2
-    printf '%s\n' "$refresh_out" >&2
-    exit 1
-  fi
+  assert_json_completed_file_progress "lean-refresh" "$refresh_out" fileProgress
 
   sleep 1
   doctor_out="$("$beam_script" doctor lean)"
@@ -301,6 +275,7 @@ EOF
     printf '%s\n' "$standalone_sync" >&2
     exit 1
   fi
+  assert_json_completed_file_progress "standalone lean-sync" "$standalone_sync" fileProgress
 
   standalone_open="$("$beam_script" open-files)"
   if [ "$(RUNAT_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "false" ]; then

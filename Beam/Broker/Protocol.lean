@@ -223,22 +223,24 @@ structure Error where
 structure SyncFileProgress where
   updates : Nat := 0
   done : Bool := true
-  line? : Option Nat := none
-  totalLines? : Option Nat := none
+  /-- Earliest one-based line in Lean's current processing ranges, when any range is active. -/
+  rangeStartLine? : Option Nat := none
+  /-- One-based upper line bound from Lean's processing ranges; not the source file line count. -/
+  rangeEndLine? : Option Nat := none
   deriving Inhabited, FromJson, ToJson, BEq, Repr
 
 namespace SyncFileProgress
 
-def lineText? (progress : SyncFileProgress) : Option String :=
-  match progress.line?, progress.totalLines? with
-  | some line, some total => some s!"line={line}/{total}"
-  | some line, none => some s!"line={line}"
-  | none, some total => some s!"totalLines={total}"
+def rangeText? (progress : SyncFileProgress) : Option String :=
+  match progress.rangeStartLine?, progress.rangeEndLine? with
+  | some startLine, some endLine => some s!"range={startLine}..{endLine}"
+  | some startLine, none => some s!"rangeStartLine={startLine}"
+  | none, some endLine => some s!"rangeEndLine={endLine}"
   | none, none => none
 
 def displayDetails (progress : SyncFileProgress) (includeDoneTrue : Bool := true) : String :=
-  let linePrefix :=
-    match progress.lineText? with
+  let rangePrefix :=
+    match progress.rangeText? with
     | some text => text ++ " "
     | none => ""
   let doneSuffix :=
@@ -249,7 +251,7 @@ def displayDetails (progress : SyncFileProgress) (includeDoneTrue : Bool := true
         ""
     else
       " done=false"
-  s!"{linePrefix}updates={progress.updates}{doneSuffix}"
+  s!"{rangePrefix}updates={progress.updates}{doneSuffix}"
 
 end SyncFileProgress
 

@@ -268,6 +268,20 @@ assert_json_field_int_ge() {
   fi
 }
 
+assert_json_completed_file_progress() {
+  local label="$1"
+  local payload="$2"
+  local prefix="$3"
+  shift 3
+  assert_json_field_equals "$label" "$payload" "$prefix.done" true "$@"
+  assert_json_field_absent "$label" "$payload" "$prefix.rangeStartLine" "$@"
+  assert_json_field_absent "$label" "$payload" "$prefix.line" "$@"
+  assert_json_field_absent "$label" "$payload" "$prefix.totalLines" "$@"
+  if RUNAT_JSON_PAYLOAD="$payload" json_text_has_field "$prefix.rangeEndLine"; then
+    assert_json_field_int_ge "$label" "$payload" "$prefix.rangeEndLine" 1 "$@"
+  fi
+}
+
 assert_json_file_field_int_ge() {
   local label="$1"
   local payload_file="$2"
