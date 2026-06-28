@@ -897,14 +897,10 @@ private def recordCompletedSyncSummary
     (server : ServerRuntime)
     (session : Session)
     (uri : DocumentUri)
-    (version : Nat)
-    (syncSummaryRecord : LastSyncSummary) : HandlerM Unit := do
+    (version : Nat) : HandlerM Unit := do
   withCurrentMatchingSession server session fun current => do
     let current := markDocSyncedVersion current uri version
-    updateSession {
-      current with
-      docs := DocumentState.recordSyncSummary current.docs uri syncSummaryRecord
-    }
+    updateSession current
 
 private def sendCurrentSessionRequestDecode [FromJson α]
     (server : ServerRuntime)
@@ -1182,13 +1178,12 @@ private def saveOlean
     pure (← get).config.root
   let path ← liftHandlerIO <| resolvePath root path
   let started ← liftHandlerIO <| startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
-  let (textHash, textTraceHash, textMTime, priorSummary?, leanCmd?) ← liftHandlerIO <| server.withState do
+  let (textHash, textTraceHash, textMTime, leanCmd?) ← liftHandlerIO <| server.withState do
     let docState ← requireDocState started.session started.uri
     pure (
       docState.textHash,
       docState.textTraceHash,
       docState.textMTime,
-      docState.lastSyncSummary?,
       (← get).config.leanCmd?
     )
   liftHandlerIO <| propagatePendingCancellation started.session req.clientRequestId? cancelRef?
@@ -1207,11 +1202,11 @@ private def saveOlean
       started.version
       textHash
   let currentDiagnostics := saveReadiness.currentDiagnostics
-  let (syncSummary, syncSummaryRecord) :=
-    mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
+  let syncSummary :=
+    mkSyncSummary started.version currentDiagnostics saveReadiness
   let syncVerdict :=
     syncFileSuccessPayload syncSummary
-  recordCompletedSyncSummary server started.session started.uri started.version syncSummaryRecord
+  recordCompletedSyncSummary server started.session started.uri started.version
   let spec ← liftBrokerFailureIO <|
     mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
   if let some reason := spec.unsupportedSetupReason? then
@@ -1299,18 +1294,18 @@ private def handleSyncFileOp
     let targetPath := trackedPathLabel started.session.root started.uri
     return (syncBarrierIncompleteResponse
       started.uri started.version targetPath hints pending.diagnostics fileProgress?, false)
-  let (textHash, priorSummary?) ←
+  let textHash ←
     withCurrentMatchingSession server started.session fun current => do
       let docState ← requireDocState current started.uri
-      pure (docState.textHash, docState.lastSyncSummary?)
+      pure docState.textHash
   let saveReadiness ←
     fetchSyncSaveReadiness server started.session started.uri
       started.version
       textHash
   let currentDiagnostics := saveReadiness.currentDiagnostics
-  let (syncSummary, syncSummaryRecord) :=
-    mkSyncSummary started.version textHash currentDiagnostics saveReadiness priorSummary?
-  recordCompletedSyncSummary server started.session started.uri started.version syncSummaryRecord
+  let syncSummary :=
+    mkSyncSummary started.version currentDiagnostics saveReadiness
+  recordCompletedSyncSummary server started.session started.uri started.version
   let replyDiagnostics? :=
     if req.includeDiagnostics?.getD false then
       some <| streamDiagnosticsForReply started.session.root started.uri started.version

@@ -94,9 +94,6 @@ lean_exe "beam-daemon-request-stream-test" where
 lean_exe "beam-sync-summary-test" where
   root := `RunAtTest.Broker.SyncSummaryTest
 
-lean_exe "beam-sync-summary-delta-test" where
-  root := `RunAtTest.Broker.SyncSummaryDeltaTestMain
-
 lean_exe "beam-daemon-startup-handshake-test" where
   root := `RunAtTest.Broker.StartupHandshakeTestMain
 

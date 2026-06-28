@@ -279,23 +279,6 @@ instance : FromJson SyncDiagnosticCounts where
       total
     }
 
-structure SyncDiagnosticDelta where
-  added : Nat := 0
-  removed : Nat := 0
-  persisted : Nat := 0
-  deriving Inhabited, ToJson, BEq, Repr
-
-instance : FromJson SyncDiagnosticDelta where
-  fromJson? json := do
-    let added ← json.getObjValAs? Nat "added"
-    let removed ← json.getObjValAs? Nat "removed"
-    let persisted ← json.getObjValAs? Nat "persisted"
-    pure {
-      added
-      removed
-      persisted
-    }
-
 structure SyncBlockingDiagnostic where
   range : Lsp.Range
   severity? : Option Lsp.DiagnosticSeverity := some .error
@@ -338,16 +321,13 @@ instance : FromJson SyncBlockingCommandMessage where
 
 structure SyncDiagnosticsSummary where
   current : SyncDiagnosticCounts := {}
-  delta? : Option SyncDiagnosticDelta := none
   deriving Inhabited, ToJson, BEq, Repr
 
 instance : FromJson SyncDiagnosticsSummary where
   fromJson? json := do
     let current ← json.getObjValAs? SyncDiagnosticCounts "current"
-    let delta? ← optionalField? (α := SyncDiagnosticDelta) json "delta"
     pure {
       current
-      delta?
     }
 
 structure SyncReadinessCurrent where
@@ -378,47 +358,19 @@ instance : FromJson SyncReadinessCurrent where
       blockingCommandMessages
     }
 
-structure SyncReadinessDelta where
-  errorCountDelta : Int := 0
-  warningCountDelta : Int := 0
-  saveReadyChanged : Bool := false
-  baseSaveReady : Bool := true
-  currentSaveReady : Bool := true
-  deriving Inhabited, ToJson, BEq, Repr
-
-instance : FromJson SyncReadinessDelta where
-  fromJson? json := do
-    let errorCountDelta ← json.getObjValAs? Int "errorCountDelta"
-    let warningCountDelta ← json.getObjValAs? Int "warningCountDelta"
-    let saveReadyChanged ← json.getObjValAs? Bool "saveReadyChanged"
-    let baseSaveReady ← json.getObjValAs? Bool "baseSaveReady"
-    let currentSaveReady ← json.getObjValAs? Bool "currentSaveReady"
-    pure {
-      errorCountDelta
-      warningCountDelta
-      saveReadyChanged
-      baseSaveReady
-      currentSaveReady
-    }
-
 structure SyncReadinessSummary where
   current : SyncReadinessCurrent := {}
-  delta? : Option SyncReadinessDelta := none
   deriving Inhabited, ToJson, BEq, Repr
 
 instance : FromJson SyncReadinessSummary where
   fromJson? json := do
     let current ← json.getObjValAs? SyncReadinessCurrent "current"
-    let delta? ← optionalField? (α := SyncReadinessDelta) json "delta"
     pure {
       current
-      delta?
     }
 
 structure SyncSummary where
   currentVersion : Nat
-  deltaBaseVersion? : Option Nat := none
-  sourceChangedSinceDeltaBase : Bool := false
   diagnostics : SyncDiagnosticsSummary := {}
   readiness : SyncReadinessSummary := {}
   deriving Inhabited, ToJson, BEq, Repr
@@ -426,15 +378,10 @@ structure SyncSummary where
 instance : FromJson SyncSummary where
   fromJson? json := do
     let currentVersion ← json.getObjValAs? Nat "currentVersion"
-    let deltaBaseVersion? ← optionalField? (α := Nat) json "deltaBaseVersion"
-    let sourceChangedSinceDeltaBase ←
-      json.getObjValAs? Bool "sourceChangedSinceDeltaBase"
     let diagnostics ← json.getObjValAs? SyncDiagnosticsSummary "diagnostics"
     let readiness ← json.getObjValAs? SyncReadinessSummary "readiness"
     pure {
       currentVersion
-      deltaBaseVersion?
-      sourceChangedSinceDeltaBase
       diagnostics
       readiness
     }

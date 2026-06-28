@@ -106,7 +106,6 @@ expect_sync_summary_version_matches() {
     cat "$broken_sync_err" >&2
     exit 1
   fi
-  broken_version="$(RUNAT_JSON_PAYLOAD="$broken_sync" read_json_text_field result.version)"
   expect_sync_summary_version_matches "$broken_sync" result "broken lean-sync" "$broken_sync_err"
   expect_no_top_level_readiness_fields "$broken_sync" result "broken lean-sync" "$broken_sync_err"
   expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.warningCount 0 \
@@ -138,18 +137,6 @@ expect_sync_summary_version_matches() {
   expect_no_top_level_readiness_fields "$broken_resync" result "unchanged broken lean-sync" "$broken_resync_err"
   expect_json_int_at_least "$broken_resync" result.syncSummary.readiness.current.errorCount 1 \
     "unchanged broken lean-sync readiness summary" "$broken_resync_err"
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.syncSummary.deltaBaseVersion)" != "$broken_version" ]; then
-    echo "expected unchanged broken lean-sync summary to delta against first broken version" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    exit 1
-  fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$broken_resync" read_json_text_field result.syncSummary.sourceChangedSinceDeltaBase)" != "false" ]; then
-    echo "expected unchanged broken lean-sync summary to report no source change since delta base" >&2
-    printf '%s\n' "$broken_resync" >&2
-    cat "$broken_resync_err" >&2
-    exit 1
-  fi
 
   close_save_json="$(beam_wrapper_mktemp_file close-save-json)"
   close_save_err="$(beam_wrapper_mktemp_file close-save-err)"
