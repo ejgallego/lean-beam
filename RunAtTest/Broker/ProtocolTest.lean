@@ -327,8 +327,6 @@ private def checkReadinessBoundary : IO Unit := do
     module := "SaveSmoke.B"
     path := "SaveSmoke/B.lean"
     needsSave := true
-    lastSyncSeq := 4
-    lastSaveSeq := 3
   }]
   let incompleteResp :=
     syncBarrierIncompleteResponse uri 7 "SaveSmoke/A.lean" hints #[incompleteDiagnostic]

@@ -25,25 +25,21 @@ structure DocState where
   moduleName? : Option String := none
   savedOleanVersion? : Option Nat := none
   fileProgress? : Option SyncFileProgress := none
-  lastSyncSeq : Nat := 0
-  lastSaveSeq : Nat := 0
+  /-- Broker event sequence of the latest successful sync barrier for this document. -/
+  lastSyncEventSeq : Nat := 0
 
 structure ModuleHistory where
   path : String
-  lastSyncSeq : Nat := 0
-  lastSaveSeq : Nat := 0
+  /-- Broker event sequence of the latest successful sync barrier for this module. -/
+  lastSyncEventSeq : Nat := 0
+  /-- Broker event sequence of the latest successful save checkpoint for this module. -/
+  lastSaveEventSeq : Nat := 0
 
 namespace DocumentState
 
 abbrev Docs := Std.TreeMap String DocState
 
 abbrev ModuleHistories := Std.TreeMap String ModuleHistory
-
-structure ModuleHistorySnapshot where
-  path : String
-  lastSyncSeq : Nat := 0
-  lastSaveSeq : Nat := 0
-  deriving Inhabited
 
 structure FileSnapshot where
   textHash : UInt64
@@ -150,45 +146,32 @@ def syncFileDecision
             (docStateOfSnapshot version snapshot) with
             savedOleanVersion? := none
             fileProgress? := none
-            lastSyncSeq := docState.lastSyncSeq
-            lastSaveSeq := docState.lastSaveSeq
+            lastSyncEventSeq := docState.lastSyncEventSeq
           }
         }
 
 def updateModuleHistorySync
     (moduleHistory : ModuleHistories)
     (moduleName path : String)
-    (seq : Nat) : ModuleHistories :=
+    (eventSeq : Nat) : ModuleHistories :=
   let history := (moduleHistory.get? moduleName).getD { path }
   moduleHistory.insert moduleName {
     history with
     path
-    lastSyncSeq := seq
+    lastSyncEventSeq := eventSeq
   }
 
 def updateModuleHistorySave
     (moduleHistory : ModuleHistories)
     (moduleName path : String)
-    (seq : Nat) : ModuleHistories :=
+    (eventSeq : Nat) : ModuleHistories :=
   let history := (moduleHistory.get? moduleName).getD { path }
   moduleHistory.insert moduleName {
     history with
     path
-    lastSyncSeq := seq
-    lastSaveSeq := seq
+    lastSyncEventSeq := eventSeq
+    lastSaveEventSeq := eventSeq
   }
-
-def moduleHistorySnapshot (moduleHistory : ModuleHistory) : ModuleHistorySnapshot := {
-  path := moduleHistory.path
-  lastSyncSeq := moduleHistory.lastSyncSeq
-  lastSaveSeq := moduleHistory.lastSaveSeq
-}
-
-def moduleHistorySnapshots
-    (moduleHistory : ModuleHistories) :
-    Std.TreeMap String ModuleHistorySnapshot :=
-  moduleHistory.foldl (init := {}) fun snapshots moduleName moduleHistory =>
-    snapshots.insert moduleName (moduleHistorySnapshot moduleHistory)
 
 def markSyncedVersion
     (docs : Docs)
@@ -196,18 +179,18 @@ def markSyncedVersion
     (uri : DocumentUri)
     (version : Nat)
     (path : String)
-    (seq : Nat) : VersionMarkResult :=
+    (eventSeq : Nat) : VersionMarkResult :=
   match docs.get? uri with
   | some docState =>
       if docState.version == version then
         let moduleHistory :=
           match docState.moduleName? with
-          | some moduleName => updateModuleHistorySync moduleHistory moduleName path seq
+          | some moduleName => updateModuleHistorySync moduleHistory moduleName path eventSeq
           | none => moduleHistory
         {
           docs := docs.insert uri {
             docState with
-            lastSyncSeq := seq
+            lastSyncEventSeq := eventSeq
           }
           moduleHistory
           applied := true
@@ -223,20 +206,19 @@ def markSavedVersion
     (uri : DocumentUri)
     (version : Nat)
     (path : String)
-    (seq : Nat) : VersionMarkResult :=
+    (eventSeq : Nat) : VersionMarkResult :=
   match docs.get? uri with
   | some docState =>
       if docState.version == version then
         let moduleHistory :=
           match docState.moduleName? with
-          | some moduleName => updateModuleHistorySave moduleHistory moduleName path seq
+          | some moduleName => updateModuleHistorySave moduleHistory moduleName path eventSeq
           | none => moduleHistory
         {
           docs := docs.insert uri {
             docState with
             savedOleanVersion? := some version
-            lastSyncSeq := seq
-            lastSaveSeq := seq
+            lastSyncEventSeq := eventSeq
           }
           moduleHistory
           applied := true

@@ -297,7 +297,7 @@ Diagnostic defaults on that path:
 - when `lean-beam save` or `lean-beam close-save` fails with `invalidParams` because the document still has
   errors, `error.message` includes a compact preview of underlying diagnostics and/or command
   messages, and `error.data.sync` contains the blocking sync verdict
-- readiness semantics and the field-level progress/diagnostic/delta contract live in
+- readiness semantics and field-level progress/diagnostic/readiness details live in
   [../../docs/SYNC_AND_DIAGNOSTICS.md](../../docs/SYNC_AND_DIAGNOSTICS.md)
 
 Surface rule:

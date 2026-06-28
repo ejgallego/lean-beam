@@ -69,8 +69,7 @@ private def checkSyncFileDecisionUnchanged : IO Unit := do
       textHash := 10
       savedOleanVersion? := some 5
       fileProgress? := some { updates := 2, done := true }
-      lastSyncSeq := 8
-      lastSaveSeq := 7
+      lastSyncEventSeq := 8
     }
   let decision := DocumentState.syncFileDecision docs uri (mkSnapshot 10 (some "Foo"))
   require "syncFileDecision unchanged has no LSP action" (decision.action == .unchanged)
@@ -80,8 +79,7 @@ private def checkSyncFileDecisionUnchanged : IO Unit := do
   require "syncFileDecision unchanged preserves saved olean" (doc.savedOleanVersion? == some 5)
   require "syncFileDecision unchanged preserves progress" (doc.fileProgress? == some { updates := 2, done := true })
   require "syncFileDecision unchanged refreshes module" (doc.moduleName? == some "Foo")
-  require "syncFileDecision unchanged preserves sync seq" (doc.lastSyncSeq == 8)
-  require "syncFileDecision unchanged preserves save seq" (doc.lastSaveSeq == 7)
+  require "syncFileDecision unchanged preserves sync event seq" (doc.lastSyncEventSeq == 8)
 
 private def checkSyncFileDecisionChange : IO Unit := do
   let uri := "file:///workspace/Foo.lean"
@@ -91,8 +89,7 @@ private def checkSyncFileDecisionChange : IO Unit := do
       textHash := 10
       savedOleanVersion? := some 5
       fileProgress? := some { updates := 2, done := true }
-      lastSyncSeq := 8
-      lastSaveSeq := 7
+      lastSyncEventSeq := 8
     }
   let decision := DocumentState.syncFileDecision docs uri (mkSnapshot 11 (some "Foo"))
   require "syncFileDecision changed emits change action" (decision.action == .change)
@@ -103,8 +100,7 @@ private def checkSyncFileDecisionChange : IO Unit := do
   require "syncFileDecision changed records module" (doc.moduleName? == some "Foo")
   require "syncFileDecision changed clears saved olean" (doc.savedOleanVersion?.isNone)
   require "syncFileDecision changed clears progress" (doc.fileProgress?.isNone)
-  require "syncFileDecision changed preserves sync seq" (doc.lastSyncSeq == 8)
-  require "syncFileDecision changed preserves save seq" (doc.lastSaveSeq == 7)
+  require "syncFileDecision changed preserves sync event seq" (doc.lastSyncEventSeq == 8)
 
 private def checkMarkSyncedVersion : IO Unit := do
   let uri := "file:///workspace/Foo.lean"
@@ -113,17 +109,17 @@ private def checkMarkSyncedVersion : IO Unit := do
   require "markSyncedVersion applies matching version" result.applied
   let some doc := result.docs.get? uri
     | throw <| IO.userError "markSyncedVersion erased existing doc"
-  require "markSyncedVersion updates document sync seq" (doc.lastSyncSeq == 7)
+  require "markSyncedVersion updates document sync event seq" (doc.lastSyncEventSeq == 7)
   let some history := result.moduleHistory.get? "Foo"
     | throw <| IO.userError "markSyncedVersion did not update module history"
-  require "markSyncedVersion updates module sync seq" (history.lastSyncSeq == 7)
-  require "markSyncedVersion leaves save seq untouched" (history.lastSaveSeq == 0)
+  require "markSyncedVersion updates module sync event seq" (history.lastSyncEventSeq == 7)
+  require "markSyncedVersion leaves save event seq untouched" (history.lastSaveEventSeq == 0)
 
   let stale := DocumentState.markSyncedVersion result.docs result.moduleHistory uri 2 "Foo.lean" 8
   require "markSyncedVersion rejects stale version" (!stale.applied)
   let some staleDoc := stale.docs.get? uri
     | throw <| IO.userError "stale markSyncedVersion erased existing doc"
-  require "stale markSyncedVersion keeps sync seq" (staleDoc.lastSyncSeq == 7)
+  require "stale markSyncedVersion keeps sync event seq" (staleDoc.lastSyncEventSeq == 7)
 
 private def checkMarkSavedVersion : IO Unit := do
   let uri := "file:///workspace/Foo.lean"
@@ -133,32 +129,17 @@ private def checkMarkSavedVersion : IO Unit := do
   let some doc := result.docs.get? uri
     | throw <| IO.userError "markSavedVersion erased existing doc"
   require "markSavedVersion records saved version" (doc.savedOleanVersion? == some 4)
-  require "markSavedVersion updates document sync seq" (doc.lastSyncSeq == 9)
-  require "markSavedVersion updates document save seq" (doc.lastSaveSeq == 9)
+  require "markSavedVersion updates document sync event seq" (doc.lastSyncEventSeq == 9)
   let some history := result.moduleHistory.get? "Foo"
     | throw <| IO.userError "markSavedVersion did not update module history"
-  require "markSavedVersion updates module sync seq" (history.lastSyncSeq == 9)
-  require "markSavedVersion updates module save seq" (history.lastSaveSeq == 9)
+  require "markSavedVersion updates module sync event seq" (history.lastSyncEventSeq == 9)
+  require "markSavedVersion updates module save event seq" (history.lastSaveEventSeq == 9)
 
   let stale := DocumentState.markSavedVersion result.docs result.moduleHistory uri 3 "Foo.lean" 10
   require "markSavedVersion rejects stale version" (!stale.applied)
   let some staleDoc := stale.docs.get? uri
     | throw <| IO.userError "stale markSavedVersion erased existing doc"
-  require "stale markSavedVersion keeps save seq" (staleDoc.lastSaveSeq == 9)
-
-private def checkModuleHistorySnapshots : IO Unit := do
-  let history : DocumentState.ModuleHistories :=
-    Std.TreeMap.empty.insert "Foo" {
-      path := "Foo.lean"
-      lastSyncSeq := 11
-      lastSaveSeq := 10
-    }
-  let snapshots := DocumentState.moduleHistorySnapshots history
-  let some snapshot := snapshots.get? "Foo"
-    | throw <| IO.userError "moduleHistorySnapshots dropped module"
-  require "moduleHistorySnapshots preserves path" (snapshot.path == "Foo.lean")
-  require "moduleHistorySnapshots preserves sync seq" (snapshot.lastSyncSeq == 11)
-  require "moduleHistorySnapshots preserves save seq" (snapshot.lastSaveSeq == 10)
+  require "stale markSavedVersion keeps sync event seq" (staleDoc.lastSyncEventSeq == 9)
 
 def main : IO Unit := do
   checkTrackedModuleName
@@ -168,7 +149,6 @@ def main : IO Unit := do
   checkSyncFileDecisionChange
   checkMarkSyncedVersion
   checkMarkSavedVersion
-  checkModuleHistorySnapshots
 
 end RunAtTest.Broker.DocumentStateTest
 

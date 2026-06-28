@@ -106,7 +106,7 @@ the supported on-disk edit barrier for Lean files: it waits for diagnostics for 
 streams fresh request diagnostics, and returns an ordered machine-readable JSON verdict on stdout.
 By default `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` stream only errors for the
 current request; `+full` widens that stream to warnings, info, and hints. The detailed progress,
-diagnostics, save-readiness, and sync-delta contract lives in
+diagnostics, save-readiness, and sync contract lives in
 [Sync And Diagnostics Contract](SYNC_AND_DIAGNOSTICS.md). For programmatic local consumers, the
 preferred machine-readable surface is the JSON stream exposed by `beam-client request-stream`; the
 wrapper stderr format should be treated as human-facing.
@@ -159,9 +159,9 @@ those modules.
 ### Sync Reporting Contract
 
 The field-level contract lives in [Sync And Diagnostics Contract](SYNC_AND_DIAGNOSTICS.md). In
-short, progress, streamed diagnostics, current readiness, and deltas are separate typed concepts.
+short, progress, streamed diagnostics, and current readiness are separate typed concepts.
 During alpha, `syncSummary` is the canonical current sync/readiness shape; the contract doc defines
-which fields are decisions, evidence, and deltas.
+which fields are decisions and evidence.
 
 ## Known Limitations
 

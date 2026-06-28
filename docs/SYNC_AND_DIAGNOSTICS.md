@@ -27,14 +27,13 @@ instead of expecting Beam to write Lake artifacts.
 
 ## Reporting Surfaces
 
-Progress, streamed diagnostics, current summaries, and deltas are separate typed concepts.
+Progress, streamed diagnostics, and current summaries are separate typed concepts.
 
 | Concept | Scope | Current surface |
 | --- | --- | --- |
 | Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `progress` events; CLI progress text. |
 | Streamed diagnostics | Lean-published events observed while a request is pending. | MCP `notifications/message` with logger `lean.diagnostic`; Beam stream `diagnostic` events; CLI stderr diagnostics. |
 | Current summary | Stable synced-state verdict for one document version. | Final structured tool result and broker response fields such as `syncSummary` and `file_progress`. |
-| Delta summary | Comparison against one named previous sync boundary. | `syncSummary` diagnostic/readiness deltas when a previous sync boundary exists. |
 
 Wrapper stderr is the human-facing surface. Machine consumers should use final stdout JSON or the
 broker JSON stream exposed by `beam-client request-stream`.
@@ -92,9 +91,9 @@ message history are observations; clients should not reconstruct save readiness 
 
 ## Current Summary
 
-Each `syncSummary` describes only the current synced document version. It does not carry
-broker-stored deltas against previous responses. Clients that need comparisons should retain the
-previous response they care about and compare it explicitly.
+Each `syncSummary` describes only the current synced document version. It does not carry deltas
+against previous responses. Clients that need comparisons should retain the previous response they
+care about and compare it explicitly.
 
 - `currentVersion`: the synced document version described by the current result
 - `diagnostics.current`: current Lean-published diagnostic counts by severity and total
