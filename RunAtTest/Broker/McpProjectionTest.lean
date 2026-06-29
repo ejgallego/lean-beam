@@ -61,6 +61,10 @@ private def requireSameOperationSurface
     require s!"{label}: unexpected operation {repr op}" (expected.contains op)
 
 private def checkToolNames : IO Unit := do
+  let decodedBeamVersion ← expectOk "decode beam_version" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_version")
+  require "decode beam_version: wrong tool" (decodedBeamVersion == .beamVersion)
+
   let initWorkspace ← expectOk "decode lean_init_workspace" <|
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_init_workspace")
   require "decode lean_init_workspace: wrong tool" (initWorkspace == .leanInitWorkspace)
@@ -101,8 +105,8 @@ private def checkToolDescriptors : IO Unit := do
     require s!"generated tool key should decode back to {repr tool}" (decoded == tool)
   require "Lean operation tool names track shared operation surface"
     (Beam.Mcp.leanOperationToolNames.size == Beam.Lean.Operation.all.size)
-  require "tool names are init workspace plus shared Lean operations"
-    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 1)
+  require "tool names are version, init workspace, plus shared Lean operations"
+    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 2)
   for op in Beam.Lean.Operation.all do
     let projectedTool := Beam.Mcp.ToolName.ofLeanOperation op
     require s!"Lean operation {repr op} should round-trip through MCP projection"
@@ -116,6 +120,13 @@ private def checkToolDescriptors : IO Unit := do
   require "init workspace descriptor is exposed as setup tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanInitWorkspace && desc.kind == .workspaceInit))
+  require "beam version descriptor is exposed as server info tool"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .beamVersion && desc.kind == .serverInfo))
+  let some versionDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamVersion)
+    | throw <| IO.userError "beam version descriptor is missing"
+  let versionSchemaProperties ← requireObjVal "beam version schema" "properties" versionDesc.inputSchema
+  require "beam version schema should have no input properties" (versionSchemaProperties == Json.mkObj [])
   let some initDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanInitWorkspace)
     | throw <| IO.userError "init workspace descriptor is missing"
   let schemaProperties ← requireObjVal "init workspace schema" "properties" initDesc.inputSchema
@@ -133,6 +144,12 @@ private def checkToolDescriptors : IO Unit := do
 
 private def checkBrokerRequestAdapters : IO Unit := do
   let root := "/repo"
+  match Beam.Mcp.ToolName.beamVersion.toBrokerRequest root (Json.mkObj []) with
+  | .ok req =>
+      throw <| IO.userError s!"beam version produced broker request unexpectedly: {repr req.op}"
+  | .error err =>
+      require "beam version broker adapter error names server identity behavior" (err.contains "server identity")
+
   match Beam.Mcp.ToolName.leanInitWorkspace.toBrokerRequest root (toJson ({ root := root } : Beam.Mcp.InitWorkspaceInput)) with
   | .ok req =>
       throw <| IO.userError s!"init workspace produced broker request unexpectedly: {repr req.op}"

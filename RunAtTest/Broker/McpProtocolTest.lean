@@ -108,7 +108,8 @@ private def checkToolsListShape : IO Unit := do
   require "lean_init_workspace mode description should explain destructive reset"
     (modeDescription.contains "invalidates handles")
   require "MCP capability names should include central Lean tools"
-    (Beam.Mcp.capabilityNames.contains "lean_run_at" &&
+    (Beam.Mcp.capabilityNames.contains "beam_version" &&
+      Beam.Mcp.capabilityNames.contains "lean_run_at" &&
       Beam.Mcp.capabilityNames.contains "lean_update" &&
       Beam.Mcp.capabilityNames.contains "lean_sync" &&
       Beam.Mcp.capabilityNames.contains "lean_save" &&
@@ -118,6 +119,7 @@ private def checkToolsListShape : IO Unit := do
     (!Beam.Mcp.capabilityNames.contains RunAt.method)
 
   let schemaCases : Array (String × Array String) := #[
+    ("beam_version", #[]),
     ("lean_run_at", #["path", "version", "line", "character", "text"]),
     ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
     ("lean_hover", #["path", "version", "line", "character"]),
@@ -478,6 +480,9 @@ private def checkServerBasics : IO Unit := do
     ]
   let initResult ← requireObjVal "initialize response" "result" initResp
   requireJsonString "initialize result" "protocolVersion" Beam.Mcp.protocolVersion initResult
+  let serverInfo ← requireObjVal "initialize result" "serverInfo" initResult
+  requireJsonString "initialize serverInfo" "name" Beam.Mcp.serverName serverInfo
+  requireJsonString "initialize serverInfo" "version" Beam.Mcp.serverVersion serverInfo
   let capabilities ← requireObjVal "initialize result" "capabilities" initResult
   discard <| requireObjVal "initialize capabilities" "logging" capabilities
   let toolsCapability ← requireObjVal "initialize capabilities" "tools" capabilities
@@ -511,6 +516,16 @@ private def checkServerBasics : IO Unit := do
   let listResp ← handleRpcRequest state opts stdin "tools/list" 2 "tools/list"
   let listResult ← requireObjVal "tools/list response" "result" listResp
   discard <| requireObjVal "tools/list response" "tools" listResult
+
+  let versionResp ← handleRpcRequest state opts stdin "beam version" 21 "tools/call" <|
+    some <| toolCallParams "beam_version"
+  let versionResult ← requireObjVal "beam version response" "result" versionResp
+  requireJsonBool "beam version result" "isError" false versionResult
+  let versionStructured ← requireObjVal "beam version result" "structuredContent" versionResult
+  requireJsonString "beam version structured" "name" Beam.Mcp.serverName versionStructured
+  requireJsonString "beam version structured" "version" Beam.Mcp.serverVersion versionStructured
+  requireJsonString "beam version structured" "mcp_protocol" Beam.Mcp.protocolVersion versionStructured
+  requireJsonBool "beam version structured" "runtime_active" false versionStructured
 
   let rawToolResp ← handleRpcRequest state opts stdin "raw tool rejection" 3 "tools/call" <|
     some <| toolCallParams RunAt.method

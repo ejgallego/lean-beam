@@ -11,6 +11,8 @@ namespace Beam.Cli
 def usage : String :=
   String.intercalate "\n" [
     "usage:",
+    "  beam --version",
+    "  beam version",
     "  beam [--root PATH] [--socket PATH | --port N] ensure [lean|rocq] [--hold]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",

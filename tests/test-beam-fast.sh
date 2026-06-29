@@ -46,6 +46,81 @@ lake build \
 .lake/build/bin/beam-sync-summary-test > /dev/null
 .lake/build/bin/beam-daemon-startup-handshake-test > /dev/null
 
+assert_version_output_contains() {
+  local label="$1"
+  local output="$2"
+  local expected="$3"
+  if ! printf '%s\n' "$output" | grep -Fq "$expected"; then
+    echo "expected $label to contain: $expected" >&2
+    printf '%s\n' "$output" >&2
+    exit 1
+  fi
+}
+
+source_tree_commit="$(git rev-parse HEAD 2>/dev/null || true)"
+source_tree_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+source_tree_dirty=""
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ -n "$(git status --short)" ]; then
+    source_tree_dirty="true"
+  else
+    source_tree_dirty="false"
+  fi
+fi
+
+beam_cli_version="$(.lake/build/bin/beam-cli --version)"
+assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam-cli 0.1.0-alpha"
+assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam home: "
+assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam cli: "
+assert_version_output_contains "beam-cli --version" "$beam_cli_version" ".lake/build/bin/beam-cli"
+if [ -n "$source_tree_commit" ]; then
+  assert_version_output_contains "beam-cli --version" "$beam_cli_version" "source commit: $source_tree_commit"
+fi
+if [ -n "$source_tree_branch" ] && [ "$source_tree_branch" != "HEAD" ]; then
+  assert_version_output_contains "beam-cli --version" "$beam_cli_version" "source branch: $source_tree_branch"
+fi
+if [ -n "$source_tree_dirty" ]; then
+  assert_version_output_contains "beam-cli --version" "$beam_cli_version" "source dirty: $source_tree_dirty"
+fi
+
+lean_beam_version="$(scripts/lean-beam --version)"
+assert_version_output_contains "lean-beam --version" "$lean_beam_version" "lean-beam 0.1.0-alpha"
+assert_version_output_contains "lean-beam --version" "$lean_beam_version" "wrapper: "
+assert_version_output_contains "lean-beam --version" "$lean_beam_version" "scripts/lean-beam"
+assert_version_output_contains "lean-beam --version" "$lean_beam_version" ".lake/build/bin/beam-cli"
+assert_version_output_contains "lean-beam --version" "$lean_beam_version" "runtime payload: (source tree)"
+if [ -n "$source_tree_commit" ]; then
+  assert_version_output_contains "lean-beam --version" "$lean_beam_version" "source commit: $source_tree_commit"
+fi
+if [ -n "$source_tree_branch" ] && [ "$source_tree_branch" != "HEAD" ]; then
+  assert_version_output_contains "lean-beam --version" "$lean_beam_version" "source branch: $source_tree_branch"
+fi
+if [ -n "$source_tree_dirty" ]; then
+  assert_version_output_contains "lean-beam --version" "$lean_beam_version" "source dirty: $source_tree_dirty"
+fi
+
+mcp_bin_version="$(.lake/build/bin/lean-beam-mcp --version)"
+assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "lean-beam-mcp 0.1.0-alpha"
+assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "mcp protocol: 2025-11-25"
+assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "server binary: "
+
+mcp_wrapper_version="$(scripts/lean-beam-mcp --version)"
+assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "lean-beam-mcp 0.1.0-alpha"
+assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "wrapper: "
+assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "scripts/lean-beam-mcp"
+assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "server binary: "
+assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" ".lake/build/bin/lean-beam-mcp"
+assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "runtime payload: (source tree)"
+if [ -n "$source_tree_commit" ]; then
+  assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source commit: $source_tree_commit"
+fi
+if [ -n "$source_tree_branch" ] && [ "$source_tree_branch" != "HEAD" ]; then
+  assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source branch: $source_tree_branch"
+fi
+if [ -n "$source_tree_dirty" ]; then
+  assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source dirty: $source_tree_dirty"
+fi
+
 mcp_stdio_timeout="${BEAM_MCP_STDIO_TIMEOUT:-60}"
 mcp_stdio_env=()
 if [ "${BEAM_MCP_STDIO_SERVER_TRACE:-1}" != "0" ]; then
@@ -277,6 +352,7 @@ init = request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"p
 proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
 proc.stdin.flush()
 tools = request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+server_version = request({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "beam_version", "arguments": {}}})
 update = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_update", "arguments": {"path": "TodoSmoke.lean"}}})
 update_content = update.get("result", {}).get("structuredContent", {})
 version = update_content.get("version")
@@ -310,8 +386,33 @@ if init.get("result", {}).get("protocolVersion") != "2025-11-25":
     sys.exit(1)
 
 tool_names = {tool.get("name") for tool in tools.get("result", {}).get("tools", [])}
-if "lean_update" not in tool_names or "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
+if "beam_version" not in tool_names or "lean_update" not in tool_names or "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
     print(f"unexpected MCP tool list: {sorted(tool_names)}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+server_version_content = server_version.get("result", {}).get("structuredContent", {})
+if not server_version_content.get("wrapper", "").endswith("scripts/lean-beam-mcp"):
+    print(f"expected wrapper-launched MCP beam_version to report wrapper path: {server_version}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+expected_commit = subprocess.run(["git", "rev-parse", "HEAD"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout.strip()
+if expected_commit and server_version_content.get("source_commit") != expected_commit:
+    print(f"expected wrapper-launched MCP beam_version to report source_commit={expected_commit}: {server_version}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+expected_branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout.strip()
+if expected_branch and expected_branch != "HEAD" and server_version_content.get("source_branch") != expected_branch:
+    print(f"expected wrapper-launched MCP beam_version to report source_branch={expected_branch}: {server_version}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+status = subprocess.run(["git", "status", "--short"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+if status.returncode == 0 and server_version_content.get("source_dirty") is not bool(status.stdout.strip()):
+    print(f"expected wrapper-launched MCP beam_version to report source_dirty={bool(status.stdout.strip())}: {server_version}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+if server_version_content.get("runtime_active") is not False:
+    print(f"expected pre-update MCP beam_version to report runtime_active=false: {server_version}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 

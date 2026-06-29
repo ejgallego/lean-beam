@@ -112,8 +112,8 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 [STATUS.md](STATUS.md#mcp-workspace-initialization).
 
 Successful `lean_init_workspace` results include a `capabilities` array with projected MCP tool
-names, including `lean_run_at`, `lean_update`, `lean_sync`, `lean_save`, `lean_hover`,
-`lean_goals_prev`, and `lean_goals_after`.
+names, including `beam_version`, `lean_run_at`, `lean_update`, `lean_sync`, `lean_save`,
+`lean_hover`, `lean_goals_prev`, and `lean_goals_after`.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_goals_prev`, `lean_goals_after`, and `lean_todo`; those
@@ -137,6 +137,23 @@ not accidentally bind a session to a root interpreted from the server process cw
 The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt plugin for each
 project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
 `--lean-plugin` explicitly.
+
+Use `lean-beam --version` for bug reports and CLI refresh checks. It prints the public command
+version, resolved wrapper path when launched through the wrapper, `beam-cli`, runtime payload hash,
+manifest path, installed source commit when the manifest records one, and source checkout git
+commit/branch/dirty state when no install manifest is present. Use `lean-beam doctor` when the
+report also needs project-specific Lean/Lake bundle details.
+
+Use `lean-beam-mcp --version` to check which MCP server command a client registration resolves.
+The raw server executable reports the MCP server version, protocol revision, and server binary path;
+the installed wrapper also prints the resolved wrapper path, server binary, `beam-cli`, runtime
+payload hash, and manifest path, plus the installed source commit when the manifest records one.
+Source checkout wrappers also include git commit/branch/dirty state when available. From a live MCP
+session, call the `beam_version` tool to report the running server process identity as structured
+content.
+This is separate from `lean_init_workspace` with `mode: "reset"`, which restarts the Lean runtime
+inside an already-running MCP server process but does not prove the MCP server binary itself
+changed.
 
 To verify the MCP path from a Lean project without writing JSON-RPC by hand, run:
 

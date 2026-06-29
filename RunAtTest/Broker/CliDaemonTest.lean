@@ -55,6 +55,7 @@ private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
   Beam.Mcp.toolDescriptors.foldl (init := #[]) fun acc desc =>
     match desc.kind with
     | .leanOperation op => acc.push op
+    | .serverInfo => acc
     | .workspaceInit => acc
 
 private def requireSameOperationSurface

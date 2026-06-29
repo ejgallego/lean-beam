@@ -708,7 +708,7 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
     )
     capabilities = structured.get("capabilities")
     require(isinstance(capabilities, list), f"init workspace missing capabilities: {structured}")
-    for capability in ["lean_update", "lean_sync", "lean_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
+    for capability in ["beam_version", "lean_update", "lean_sync", "lean_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
         require(capability in capabilities, f"init workspace capabilities missing {capability}: {structured}")
     require("$/lean/runAt" not in capabilities, f"init workspace exposed raw LSP capability: {structured}")
     require(
@@ -956,11 +956,19 @@ def run_cycle(
 
             tools = expect_result(client.request("tools/list")).get("tools")
             names = {tool.get("name") for tool in tools}
+            require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
             require("lean_request_at" not in names, f"tools/list exposed raw request escape hatch: {tools}")
+
+            version = client.call_tool("beam_version")
+            require(version.get("name") == "lean-beam-mcp", f"beam_version returned wrong name: {version}")
+            require(version.get("version") == "0.1.0-alpha", f"beam_version returned wrong version: {version}")
+            require(version.get("mcp_protocol") == SUPPORTED_PROTOCOL_VERSION, f"beam_version returned wrong protocol: {version}")
+            require(isinstance(version.get("server_binary"), str) and version["server_binary"], f"beam_version missing server_binary: {version}")
+            require(version.get("runtime_active") is False, f"beam_version should not start runtime: {version}")
 
             for iteration in range(iterations):
                 run_iteration(client, f"Cycle{cycle}Iter{iteration}")

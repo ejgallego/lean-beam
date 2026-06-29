@@ -10,12 +10,24 @@ import Beam.Cli.InstallLayout
 import Beam.Cli.Output
 import Beam.Cli.Project
 import Beam.Cli.RuntimeBundle
+import Beam.Version
 
 open Lean
 
 namespace Beam.Cli
 
 open Beam.Broker
+
+def printVersion (home : System.FilePath) : IO Unit := do
+  let appPath ← IO.appPath
+  let wrapper? ← IO.getEnv "BEAM_WRAPPER_PATH"
+  let publicCommand? ← IO.getEnv "BEAM_PUBLIC_COMMAND"
+  let identity ← Beam.Version.mkRuntimeIdentity
+    (publicCommand?.getD "beam-cli")
+    (some home)
+    (wrapper? := wrapper?)
+    (beamCli? := some appPath.toString)
+  IO.println identity.text
 
 private def rejectedToolchainDiagnosticText : String :=
   "(not resolved for rejected toolchain)"

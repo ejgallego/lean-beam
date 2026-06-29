@@ -13,6 +13,7 @@ import Beam.Mcp.Roots
 import Beam.Mcp.SelfCheck
 import Beam.Mcp.Stdio
 import Beam.Workspace
+import Beam.Version
 
 open Lean
 
@@ -311,6 +312,40 @@ private def handleInitWorkspace
       emitProgress? progress? "completed lean_init_workspace"
       pure <| callToolResult <| withCapabilities <| toJson <| Beam.Workspace.initResult plan root
 
+private def resolvedBeamHome? : IO (Option System.FilePath) := do
+  match ← IO.getEnv "BEAM_HOME" with
+  | some home =>
+      try
+        pure <| some (← IO.FS.realPath <| System.FilePath.mk home)
+      catch _ =>
+        pure <| some (System.FilePath.mk home)
+  | none => pure none
+
+private def serverIdentity
+    (opts : Options)
+    (activeRoot? : Option System.FilePath := none)
+    (runtimeActive? : Option Bool := none) : IO Beam.Version.Identity := do
+  let home? ← resolvedBeamHome?
+  let appPath ← IO.appPath
+  let wrapper? ← IO.getEnv "BEAM_WRAPPER_PATH"
+  Beam.Version.mcpServerIdentity
+    home?
+    opts.beamCli?
+    (some appPath.toString)
+    activeRoot?
+    runtimeActive?
+    (wrapper? := wrapper?)
+
+private def serverVersionText (opts : Options) : IO String := do
+  pure (← serverIdentity opts).text
+
+private def handleBeamVersion
+    (state : IO.Ref ProtocolState)
+    (opts : Options) : IO Json := do
+  let currentState ← state.get
+  let identity ← serverIdentity opts currentState.root? (some currentState.runtime?.isSome)
+  pure <| callToolResult identity.asJson
+
 private def brokerRequestForTool
     (root : System.FilePath)
     (params : CallToolParams)
@@ -336,6 +371,10 @@ private def handleToolCall
     emitProgress? progress? s!"starting {params.name.key}"
     let result ← handleInitWorkspace state opts params.arguments progress?
     traceMcp s!"tools/call init complete id={requestIdLabel req.id} tool={params.name.key}"
+    return .ok result
+  if params.name == .beamVersion then
+    let result ← handleBeamVersion state opts
+    traceMcp s!"tools/call version complete id={requestIdLabel req.id} tool={params.name.key}"
     return .ok result
   let root ←
     match ← ensureRoot state stdin notifier with
@@ -524,6 +563,9 @@ def main (args : List String) : IO Unit := do
     match Beam.Mcp.parseOptions {} args with
     | .ok opts => pure opts
     | .error err => throw <| IO.userError err
+  if opts.showVersion then
+    IO.println (← serverVersionText opts)
+    return
   match opts.selfCheckPath? with
   | some path =>
       SelfCheck.run {

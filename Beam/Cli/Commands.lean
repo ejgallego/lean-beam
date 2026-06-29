@@ -155,6 +155,8 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   match opts.args with
   | [] =>
       throw <| IO.userError usage
+  | "version" :: [] | "--version" :: [] =>
+      printVersion home
   | "experimental" :: [] =>
       printExperimentalInfo home
   | "bundle-install" :: toolchain :: [] =>
