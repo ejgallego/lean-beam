@@ -11,6 +11,7 @@ import RunAt.Protocol
 import RunAt.Internal.DirectImports
 import RunAt.Internal.SaveSupport
 import Beam.Broker.Config
+import Beam.Broker.LakeEnv
 import Beam.Broker.Protocol
 import Beam.Path
 
@@ -24,11 +25,16 @@ private def pluginPath (config : BrokerConfig) : IO System.FilePath := do
   | some path => Beam.resolveExistingPath path
   | none => throw <| IO.userError "missing Beam daemon --lean-plugin configuration"
 
-def command (config : BrokerConfig) : IO (String × Array String) := do
+def command (config : BrokerConfig) : IO (String × Array String × Array (String × Option String)) := do
   let some cmd := config.leanCmd?
     | throw <| IO.userError "missing Beam daemon --lean-cmd configuration"
   let plugin := ← pluginPath config
-  pure (cmd, #["--server", s!"--plugin={plugin}", "-DstderrAsMessages=false", "-Dexperimental.module=true"])
+  let lakeEnv ← leanServerLakeEnv config.root config.leanCmd?
+  pure (
+    cmd,
+    #["--server"] ++ lakeEnv.moreServerArgs ++
+      #[s!"--plugin={plugin}", "-DstderrAsMessages=false", "-Dexperimental.module=true"],
+    lakeEnv.env)
 
 def initializeParams (root : System.FilePath) : Json :=
   let rootUri := System.Uri.pathToUri root

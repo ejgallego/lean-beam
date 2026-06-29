@@ -231,8 +231,13 @@ which fields are decisions and evidence.
   solution.
 - If you edit a dependency of the target file, downstream speculative results should be treated as
   stale until rebuild or checkpoint.
-- Lean does not yet expose a better plugin-facing restart-required / stale-dependency hook here, so
-  this limitation is currently explicit and user-visible.
+- For open files in Lake workspaces, Beam uses Lean's native stale-dependency diagnostic when a synced
+  source change makes an importer need refresh. Beam does not yet implement Lean's dynamic watched-file
+  registration, so external source changes that never pass through `sync` remain outside the current
+  watcher surface.
+- `error.data.staleDirectDeps` recovery hints are still broker-derived metadata. The planned
+  direction is to patch Lean's stale-dependency signal to expose the stale dependency information
+  Beam needs, then derive these hints from Lean instead of duplicating that state in the broker.
 - agent-skill distribution currently relies on a local checkout and local install script; it is not
   yet published through a registry or marketplace flow.
 - Optional Rocq support is currently limited to goal inspection through `coq-lsp`; it is not yet a
@@ -246,7 +251,8 @@ Near-term work is mostly about hardening and simplifying:
 - preserve strict per-request isolation
 - reduce packaging and workspace rough edges
 - publish a smoother distribution path, likely GitHub-backed install for Codex and plugin marketplace packaging for Claude
-- improve stale-dependency handling
+- improve stale-dependency handling, especially by moving stale dependency metadata into Lean's
+  native stale-dependency signal instead of broker-side reconstruction
 - add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
   structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result

@@ -69,6 +69,8 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
     cwd := root.toString
   }
   let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID Beam.Broker.PendingRequest)
+  let incompleteBarrierDiagnostics ←
+    IO.mkRef ({} : Std.TreeMap Lean.Lsp.DocumentUri (Array Lean.Lsp.Diagnostic))
   let session : Beam.Broker.Session := {
     backend := .lean
     root
@@ -78,6 +80,7 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
     stdin := IO.FS.Stream.ofHandle proc.stdin
     stdout := IO.FS.Stream.ofHandle proc.stdout
     pending
+    incompleteBarrierDiagnostics
   }
   let _ ← IO.asTask (prio := Task.Priority.dedicated) <| Beam.Broker.sessionReaderLoop session
   pure session

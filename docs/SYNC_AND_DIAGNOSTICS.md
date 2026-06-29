@@ -120,7 +120,17 @@ instead of reporting partial success. `lean-beam save` and `lean-beam close-save
 past that incomplete barrier.
 
 Sync failures may include `error.data.staleDirectDeps`, `error.data.saveDeps`,
-`error.data.recoveryPlan`, and `error.data.completionBlockingDiagnostics`. Recovery hints are based
-on direct imports whose saved checkpoint is newer than the target file's last successful sync
-boundary. `completionBlockingDiagnostics` entries carry `completionBlocking=true` when they explain
-why the file could not reach a diagnostics-complete barrier.
+`error.data.recoveryPlan`, and `error.data.completionBlockingDiagnostics`. For now, recovery hints
+are based on direct imports whose saved checkpoint is newer than the target file's last successful
+sync boundary, but the intended direction is to get stale-dependency metadata from Lean's native
+stale-dependency signal instead of reconstructing it in Beam. `completionBlockingDiagnostics`
+entries carry `completionBlocking=true` when they explain why the file could not reach a
+diagnostics-complete barrier.
+
+For Lake workspaces, Beam starts the Lean server with Lake's workspace environment so Lean's own
+import graph can detect stale open importers. When `sync` observes a real source change for an open
+Lean file, Beam sends `textDocument/didChange` followed by `textDocument/didSave`; Lean may then
+publish its native "Imports are out of date" diagnostic on open dependents, and Beam reports that
+diagnostic as `syncBarrierIncomplete`. Beam does not currently implement Lean's dynamic
+`workspace/didChangeWatchedFiles` watcher registration, so external source changes that never pass
+through `sync` are not treated as a complete file-watcher surface.
