@@ -52,6 +52,7 @@ lean_exe "beam-lsp-nested-handle-failure-test" where
   root := `BeamTest.LSP.Handle.NestedHandleFailureTest
 
 lean_exe "beam-lsp-request-surface-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.RequestSurfaceTest
 
 lean_exe "beam-lsp-search-workload-report" where

@@ -126,7 +126,7 @@ run_nested_handle_failure_case() {
 
 run_request_surface_case() {
   echo "request-surface"
-  lake env lean --run tests/lean/BeamTest/LSP/RequestSurfaceTest.lean > /dev/null
+  lake exe beam-lsp-request-surface-test > /dev/null
 }
 
 run_case asyncEditAwait

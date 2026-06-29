@@ -17,6 +17,10 @@ The LSP surface also has a lightweight coverage registry under
 [tests/lsp-coverage](../tests/lsp-coverage). The registry ties every method registered by
 [Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean) to concrete test pointers and required coverage
 tags such as isolation, stale-edit, cancellation, handle lifecycle, and mixed concurrency.
+Method-isolated Lean request tests live under
+[tests/lean/BeamTest/LSP/Requests](../tests/lean/BeamTest/LSP/Requests), with
+[tests/lean/BeamTest/LSP/RequestSurfaceTest.lean](../tests/lean/BeamTest/LSP/RequestSurfaceTest.lean)
+remaining as the aggregate request-surface runner.
 
 ## Race-Test Discipline
 
@@ -52,7 +56,7 @@ Current LSP coverage includes:
 - programmatic scenario API coverage in [tests/lean/BeamTest/LSP/Scenario/ApiTest.lean](../tests/lean/BeamTest/LSP/Scenario/ApiTest.lean)
 - shuffled concurrent workload coverage in [tests/lean/BeamTest/LSP/Scenario/StressTest.lean](../tests/lean/BeamTest/LSP/Scenario/StressTest.lean)
 - handle API, restart, lifecycle, and nested-failure coverage in [tests/lean/BeamTest/LSP/Handle](../tests/lean/BeamTest/LSP/Handle)
-- full registered LSP request coverage in [tests/lean/BeamTest/LSP/RequestSurfaceTest.lean](../tests/lean/BeamTest/LSP/RequestSurfaceTest.lean), including `$/lean/todo` and `$/lean/runAt` composition
+- full registered LSP request coverage through request-family tests under [tests/lean/BeamTest/LSP/Requests](../tests/lean/BeamTest/LSP/Requests), aggregated by [tests/lean/BeamTest/LSP/RequestSurfaceTest.lean](../tests/lean/BeamTest/LSP/RequestSurfaceTest.lean), including `$/lean/todo` and `$/lean/runAt` composition
 - search-style handle workflows in [tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean](../tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean)
 - parallel multi-sorry workflow coverage in [tests/lean/BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean](../tests/lean/BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean), which queries actionable todos with `$/lean/todo`, validates one `$/lean/runAt` request per returned item, and then mirrors those exact replacements in one atomic batched `didChange`
 - lightweight search-workload latency reporting in [tests/lean/BeamTest/LSP/Scenario/SearchWorkloadReport.lean](../tests/lean/BeamTest/LSP/Scenario/SearchWorkloadReport.lean) and [scripts/search-workload-report.sh](../scripts/search-workload-report.sh)

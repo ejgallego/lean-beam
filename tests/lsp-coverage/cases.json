@@ -64,49 +64,49 @@
       "id": "goalsAfter.basic",
       "method": "$/lean/goalsAfter",
       "coverage": ["isolation", "proof-state"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkGoalsRequests"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
     },
     {
       "id": "goalsPrev.basic",
       "method": "$/lean/goalsPrev",
       "coverage": ["isolation", "proof-state"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkGoalsRequests"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
     },
     {
       "id": "todo.basic-kinds-and-composition",
       "method": "$/lean/todo",
       "coverage": ["isolation", "kind-filter", "runAt-composition"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkTodoRequest"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoRequest"
     },
     {
       "id": "todo.diagnostics",
       "method": "$/lean/todo",
       "coverage": ["diagnostics"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkComplexTodoDiagnostics"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkComplexTodoDiagnostics"
     },
     {
       "id": "todo.code-action",
       "method": "$/lean/todo",
       "coverage": ["code-action"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkTodoCodeActions"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoCodeActions"
     },
     {
       "id": "saveArtifacts.basic-and-stale",
       "method": "$/beam/saveArtifacts",
       "coverage": ["isolation", "stale-version", "stale-hash"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkDirectImportsAndSave"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
     },
     {
       "id": "saveReadiness.basic-and-stale",
       "method": "$/beam/saveReadiness",
       "coverage": ["isolation", "stale-version", "stale-hash", "document-errors"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkDirectImportsAndSave"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
     },
     {
       "id": "directImports.basic",
       "method": "$/beam/directImports",
       "coverage": ["isolation"],
-      "pointer": "tests/lean/BeamTest/LSP/RequestSurfaceTest.lean#checkDirectImportsAndSave"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/DirectImports/BasicTest.lean#checkDirectImports"
     }
   ]
 }
