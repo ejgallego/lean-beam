@@ -567,6 +567,50 @@ private def expectNoDiagnosticLogs (label : String) (notifications : Array Json)
   unless logs.isEmpty do
     throw <| IO.userError s!"expected no {label} diagnostic logs, got {(toJson logs).compress}"
 
+private def expectNoDiagnosticLog
+    (label : String)
+    (notifications : Array Json)
+    (severity path : String) : IO Unit := do
+  let logs := diagnosticLogNotifications notifications
+  let found := logs.any fun notification =>
+    match notification.getObjVal? "params" with
+    | .error _ => false
+    | .ok params =>
+        match params.getObjVal? "data" with
+        | .error _ => false
+        | .ok data =>
+            (data.getObjValAs? String "severity").toOption == some severity &&
+              (data.getObjValAs? String "path").toOption == some path
+  if found then
+    throw <| IO.userError
+      s!"expected no {label} {severity} diagnostic log for {path}, got {(toJson logs).compress}"
+
+private def requireDiagnosticsArray (label : String) (structured : Json) : IO (Array Json) := do
+  let diagnosticsJson ← requireObjVal label "diagnostics" structured
+  match diagnosticsJson with
+  | Json.arr diagnostics => pure diagnostics
+  | other =>
+      throw <| IO.userError s!"expected {label} diagnostics array, got {other.compress}"
+
+private def requireNoDiagnosticSeverity
+    (label : String)
+    (diagnostics : Array Json)
+    (severity : String) : IO Unit := do
+  if diagnostics.any (fun diagnostic =>
+      (diagnostic.getObjValAs? String "severity").toOption == some severity) then
+    throw <| IO.userError
+      s!"expected {label} to omit {severity} diagnostics, got {(toJson diagnostics).compress}"
+
+private def requireDiagnosticSeverityForPath
+    (label : String)
+    (diagnostics : Array Json)
+    (severity path : String) : IO Unit := do
+  unless diagnostics.any (fun diagnostic =>
+      (diagnostic.getObjValAs? String "path").toOption == some path &&
+        (diagnostic.getObjValAs? String "severity").toOption == some severity) do
+    throw <| IO.userError
+      s!"expected {label} {severity} diagnostic for {path}, got {(toJson diagnostics).compress}"
+
 private def mcpOptionsWithPlugin : IO Beam.Mcp.Server.Options := do
   pure {
     leanCmd? := some "lean"
@@ -634,27 +678,40 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     }
     initMcpSession state opts stdin notifications
 
-    writeSaveWarningFile root "-- mcp diagnostic log"
-    let syncResp ← callLeanSync state opts stdin notifications 2 "SaveSmoke/B.lean"
+    writeSaveWarningFile root "-- mcp diagnostic log default"
+    let defaultSyncResp ← callLeanSync state opts stdin notifications 2 "SaveSmoke/B.lean"
+      (fullDiagnostics := false)
+      (includeDiagnostics := true)
+    let defaultSyncResult ← requireObjVal "default lean_sync response" "result" defaultSyncResp
+    requireJsonBool "default lean_sync result" "isError" false defaultSyncResult
+    let defaultStructured ←
+      requireObjVal "default lean_sync result" "structuredContent" defaultSyncResult
+    let defaultDiagnostics ←
+      requireDiagnosticsArray "default lean_sync structured result" defaultStructured
+    requireNoDiagnosticSeverity "default lean_sync include_diagnostics" defaultDiagnostics "warning"
+    expectNoDiagnosticLog
+      "default lean_sync with full_diagnostics=false"
+      (← notificationsRef.get)
+      "warning"
+      "SaveSmoke/B.lean"
+
+    notificationsRef.set #[]
+    writeSaveWarningFile root "-- mcp diagnostic log full"
+    let syncResp ← callLeanSync state opts stdin notifications 3 "SaveSmoke/B.lean"
+      (fullDiagnostics := true)
       (includeDiagnostics := true)
     let syncResult ← requireObjVal "lean_sync response" "result" syncResp
     requireJsonBool "lean_sync result" "isError" false syncResult
     let syncStructured ← requireObjVal "lean_sync result" "structuredContent" syncResult
-    let replyDiagnosticsJson ← requireObjVal "lean_sync structured result" "diagnostics" syncStructured
-    let replyDiagnostics ←
-      match replyDiagnosticsJson with
-      | Json.arr diagnostics => pure diagnostics
-      | other =>
-          throw <| IO.userError
-            s!"expected lean_sync include_diagnostics diagnostics array, got {other.compress}"
+    let replyDiagnostics ← requireDiagnosticsArray "lean_sync structured result" syncStructured
     if replyDiagnostics.isEmpty then
       throw <| IO.userError
         s!"expected lean_sync include_diagnostics to replay diagnostics, got {syncStructured.compress}"
-    unless replyDiagnostics.any (fun diagnostic =>
-        (diagnostic.getObjValAs? String "path").toOption == some "SaveSmoke/B.lean" &&
-        (diagnostic.getObjValAs? String "severity").toOption == some "warning") do
-      throw <| IO.userError
-        s!"expected lean_sync include_diagnostics warning diagnostic, got {syncStructured.compress}"
+    requireDiagnosticSeverityForPath
+      "lean_sync include_diagnostics"
+      replyDiagnostics
+      "warning"
+      "SaveSmoke/B.lean"
     let warningLog ← requireDiagnosticLog (← notificationsRef.get) "warning" "warning" "SaveSmoke/B.lean"
     let params ← requireObjVal "warning log notification" "params" warningLog
     let data ← requireObjVal "warning log params" "data" params
@@ -666,13 +723,13 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let message ← IO.ofExcept <| data.getObjValAs? String "message"
     require "warning log should preserve diagnostic message" (!message.isEmpty)
 
-    let _ ← handleRpcRequestWithNotifications state opts stdin notifications "set error log level" 3
+    let _ ← handleRpcRequestWithNotifications state opts stdin notifications "set error log level" 4
       "logging/setLevel" <| some <| Json.mkObj [
         ("level", toJson "error")
       ]
     notificationsRef.set #[]
     writeSaveWarningFile root "-- mcp warning suppressed"
-    let suppressedResp ← callLeanSync state opts stdin notifications 4 "SaveSmoke/B.lean"
+    let suppressedResp ← callLeanSync state opts stdin notifications 5 "SaveSmoke/B.lean"
     let suppressedResult ← requireObjVal "suppressed lean_sync response" "result" suppressedResp
     requireJsonBool "suppressed lean_sync result" "isError" false suppressedResult
     let suppressedStructured ← requireObjVal "suppressed lean_sync result" "structuredContent" suppressedResult
@@ -681,7 +738,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
     notificationsRef.set #[]
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
-    let errorResp ← callLeanSync state opts stdin notifications 5 "SaveSmoke/B.lean"
+    let errorResp ← callLeanSync state opts stdin notifications 6 "SaveSmoke/B.lean"
     let errorResult ← requireObjVal "error lean_sync response" "result" errorResp
     requireJsonBool "error lean_sync result" "isError" false errorResult
     let errorLog ← requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"
