@@ -33,13 +33,28 @@ build_stdout="$tmp_env_root/build.stdout"
 build_stderr="$tmp_env_root/build.stderr"
 bundle_stdout="$tmp_env_root/bundle-install.stdout"
 bundle_stderr="$tmp_env_root/bundle-install.stderr"
+stale_project_root="$tmp_env_root/stale-diagnostic-project"
+stale_build_stdout="$tmp_env_root/stale-build.stdout"
+stale_build_stderr="$tmp_env_root/stale-build.stderr"
+stale_sync_stdout="$tmp_env_root/stale-sync.stdout"
+stale_sync_stderr="$tmp_env_root/stale-sync.stderr"
 toolchain_failed=false
+
+if [ -z "${ELAN_HOME:-}" ] && [ -d "$HOME/.elan" ]; then
+  export ELAN_HOME="$HOME/.elan"
+fi
+host_elan_home="${ELAN_HOME:-$HOME/.elan}"
 
 expect_owned_tmp_dir() {
   beam_test_expect_owned_tmp_dir "$1" beam-toolchain-bundles beam-toolchain-env
 }
 
 cleanup() {
+  if [ -n "${stale_project_root:-}" ] && [ -d "$stale_project_root" ]; then
+    HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
+      ELAN_HOME="$host_elan_home" BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+      ./scripts/lean-beam --root "$stale_project_root" shutdown > /dev/null 2>&1 || true
+  fi
   if [ "$toolchain_failed" = "true" ]; then
     case "$keep_tmp_on_failure" in
       1|true|True|TRUE|yes|Yes|YES|on|On|ON)
@@ -86,6 +101,10 @@ print_toolchain_context() {
   tail_file "build stderr" "$build_stderr"
   tail_file "bundle stdout" "$bundle_stdout"
   tail_file "bundle stderr" "$bundle_stderr"
+  tail_file "stale build stdout" "$stale_build_stdout"
+  tail_file "stale build stderr" "$stale_build_stderr"
+  tail_file "stale sync stdout" "$stale_sync_stdout"
+  tail_file "stale sync stderr" "$stale_sync_stderr"
 }
 
 run_build() {
@@ -143,5 +162,129 @@ run_bundle_install() {
   fi
 }
 
+prepare_stale_diagnostic_project() {
+  rm -rf -- "$stale_project_root"
+  mkdir -p "$stale_project_root"
+  cp -R tests/save_olean_project/. "$stale_project_root"/
+  printf '%s\n' "$toolchain" > "$stale_project_root/lean-toolchain"
+  rm -rf -- "$stale_project_root/.beam"
+  mkdir -p "$stale_project_root/.beam"
+}
+
+assert_stale_diagnostic_payload() {
+  python3 - "$stale_sync_stdout" <<'PY'
+import json
+import sys
+
+expected = 'Imports are out of date and should be rebuilt; use the "Restart File" command in your editor.'
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        payload = json.load(f)
+except Exception as ex:
+    raise SystemExit(f"expected stale sync stdout to be JSON, got {ex}")
+
+error = payload.get("error")
+if not isinstance(error, dict):
+    raise SystemExit(f"expected stale sync response to be an error, got {payload!r}")
+if error.get("code") != "syncBarrierIncomplete":
+    raise SystemExit(f"expected syncBarrierIncomplete, got {error.get('code')!r}")
+data = error.get("data")
+if not isinstance(data, dict):
+    raise SystemExit(f"expected error.data object, got {data!r}")
+diagnostics = data.get("completionBlockingDiagnostics")
+if not isinstance(diagnostics, list):
+    raise SystemExit(f"expected completionBlockingDiagnostics array, got {diagnostics!r}")
+messages = [diag.get("message") for diag in diagnostics if isinstance(diag, dict)]
+if expected not in messages:
+    raise SystemExit(
+        "expected Lean stale-import diagnostic wording in completionBlockingDiagnostics; "
+        f"messages were {messages!r}"
+    )
+PY
+}
+
+run_stale_wrapper() {
+  env \
+    HOME="$tmp_env_root/home" \
+    CODEX_HOME="$tmp_env_root/codex" \
+    CLAUDE_HOME="$tmp_env_root/claude" \
+    ELAN_HOME="$host_elan_home" \
+    BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+    ./scripts/lean-beam --root "$stale_project_root" "$@"
+}
+
+run_stale_wrapper_checked() {
+  local label="$1"
+  shift
+  if ! run_stale_wrapper "$@" > "$stale_sync_stdout" 2> "$stale_sync_stderr"; then
+    print_toolchain_context "$label"
+    return 1
+  fi
+}
+
+run_stale_diagnostic_compat() {
+  local rc=0
+  prepare_stale_diagnostic_project
+  cat > "$stale_project_root/SaveSmoke/B.lean" <<'EOF'
+def old : Nat := 1
+EOF
+  cat > "$stale_project_root/SaveSmoke/A.lean" <<'EOF'
+import SaveSmoke.B
+
+def aVal : Nat := old
+EOF
+  (
+    cd "$stale_project_root"
+    lake build SaveSmoke/A.lean > "$stale_build_stdout" 2> "$stale_build_stderr"
+  ) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    print_toolchain_context "stale diagnostic fixture build failed"
+    return "$rc"
+  fi
+
+  if ! run_stale_wrapper_checked "initial dependency sync failed" sync SaveSmoke/B.lean; then
+    return 1
+  fi
+  if ! run_stale_wrapper_checked "initial importer sync failed" sync SaveSmoke/A.lean; then
+    return 1
+  fi
+
+  cat > "$stale_project_root/SaveSmoke/B.lean" <<'EOF'
+def new : Nat := 2
+EOF
+  cat > "$stale_project_root/SaveSmoke/A.lean" <<'EOF'
+import SaveSmoke.B
+
+def aVal : Nat := new
+EOF
+  if ! run_stale_wrapper_checked "changed dependency sync failed" sync SaveSmoke/B.lean; then
+    return 1
+  fi
+  if ! run_stale_wrapper_checked "changed dependency save failed" save SaveSmoke/B.lean; then
+    return 1
+  fi
+  (
+    cd "$stale_project_root"
+    lake build SaveSmoke/A.lean > "$stale_build_stdout" 2> "$stale_build_stderr"
+  ) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    print_toolchain_context "changed stale diagnostic fixture build failed"
+    return "$rc"
+  fi
+
+  rc=0
+  run_stale_wrapper sync SaveSmoke/A.lean > "$stale_sync_stdout" 2> "$stale_sync_stderr" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    print_toolchain_context "stale diagnostic sync unexpectedly succeeded"
+    return 1
+  fi
+  if ! assert_stale_diagnostic_payload; then
+    print_toolchain_context "stale diagnostic wording changed"
+    return 1
+  fi
+}
+
 run_step "build beam-cli" run_build
 run_step "bundle install $toolchain" run_bundle_install
+run_step "stale diagnostic wording $toolchain" run_stale_diagnostic_compat

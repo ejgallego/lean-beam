@@ -58,7 +58,7 @@ Default Beam entrypoints:
 
 Additional Beam lanes:
 
-- [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`: supported-toolchain bundle validation
+- [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`: supported-toolchain bundle validation and stale-import diagnostic wording compatibility
 - [tests/test-beam-rocq.sh](../tests/test-beam-rocq.sh): Rocq broker and wrapper coverage
 - [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): external MCP conformance scenarios over the local Streamable HTTP bridge
 
@@ -107,10 +107,12 @@ BEAM_INSTALL_TEST_PRESEED_ELAN=require bash tests/test-beam-install.sh
 ```
 
 Use [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) to validate one
-supported bundle lane at a time. If bundle installation stalls on a slow machine, raise
+supported bundle lane at a time. The lane also checks that Lean's stale-import diagnostic wording
+still matches Beam's temporary text-based detector while the structured Lean stale-dependency API is
+pending. If bundle installation stalls on a slow machine, raise
 `BEAM_TOOLCHAIN_COMPAT_TIMEOUT` from its default 600 seconds. On failure, the test prints the fake
-home, Codex/Claude homes, bundle directory, platform, and captured build/bundle log tails so the
-bundle state can be diagnosed from the test log. Set
+home, Codex/Claude homes, bundle directory, platform, and captured build/bundle/stale-diagnostic
+log tails so the bundle or stale-diagnostic state can be diagnosed from the test log. Set
 `BEAM_TOOLCHAIN_COMPAT_KEEP_TMP_ON_FAILURE=1` to preserve the fake roots for local inspection after
 a failed run.
 
