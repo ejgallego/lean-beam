@@ -31,6 +31,10 @@ lean-beam sync "Foo.lean"
 Use `lean-beam sync` when you need diagnostics for the saved file version as a whole. `lean-beam run-at`
 only waits for the snapshot needed by that speculative request.
 
+It should still report errors produced by the speculative text itself. For example, a top-level
+theorem command whose proof body fails should return `success=false`; that is different from
+replaying diagnostics from unrelated saved declarations.
+
 If the speculative probe looks right and you want to keep it, open
 [commit-speculative.md](commit-speculative.md).
 

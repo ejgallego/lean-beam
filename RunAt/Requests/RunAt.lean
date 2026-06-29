@@ -41,6 +41,27 @@ private def oneCommandOnlyResult (err : String) : Result :=
   errorResult
     s!"{runAtSupportsOneCommandOnlyCode}: command-mode runAt accepts exactly one Lean command, not a top-level command sequence. Use a stored handle continuation for explicit speculative sequencing, or write the sequence to the file and sync it. Original parse error: {err}"
 
+-- With `Elab.async`, `elabCommandTopLevel` may return before nested work has produced its
+-- diagnostics. Top-level theorem commands use this path for proof-body elaboration, so these
+-- snapshot messages are part of the command-mode `runAt` result even though unrelated full-file
+-- diagnostics remain out of scope.
+private def collectSnapshotTaskArtifacts
+    (tasks : Array (Language.SnapshotTask Language.SnapshotTree)) :
+    BaseIO (List Lean.Message × List TraceElem) := do
+  if tasks.isEmpty then
+    return ([], [])
+  let tree := Language.SnapshotTree.mk { diagnostics := .empty } tasks
+  let waitTask ← tree.waitAll
+  -- Force every child snapshot before reading the tree; otherwise theorem proof failures can be
+  -- hidden behind unfinished async tasks.
+  let _ := waitTask.get
+  let snapshots := tree.getAll
+  let messages := snapshots.foldl (init := []) fun acc snapshot =>
+    acc ++ snapshot.diagnostics.msgLog.toList
+  let traces := snapshots.foldl (init := []) fun acc snapshot =>
+    acc ++ snapshot.traces.traces.toList
+  return (messages, traces)
+
 def runCommandText (snap : Snapshots.Snapshot) (text : String) :
     RequestM (Result × Option StoredHandleState) := do
   checkRequestCancelled
@@ -54,6 +75,9 @@ def runCommandText (snap : Snapshots.Snapshot) (text : String) :
     let (output, response) ← IO.FS.withIsolatedStreams do
       EIO.toBaseIO do
         runCommandElabMWithCancel snap rc.doc.meta (some innerCancelTk) do
+          -- The incoming snapshot can carry already-accounted-for async work from the saved file.
+          -- A speculative command result should include only tasks spawned by this command.
+          modify fun state => { state with snapshotTasks := #[] }
           let initialMsgCount := (← get).messages.toList.length
           let initialTraceCount := (← getTraces).size
           let error? ← try
@@ -66,7 +90,15 @@ def runCommandText (snap : Snapshots.Snapshot) (text : String) :
           let state ← get
           let messages := state.messages.toList.drop initialMsgCount
           let traces := (← getTraces).toList.drop initialTraceCount
-          return (error?, messages, traces, state)
+          let (snapshotMessages, snapshotTraces) ←
+            collectSnapshotTaskArtifacts state.snapshotTasks
+          return (
+            error?,
+            messages ++ snapshotMessages,
+            traces ++ snapshotTraces,
+            -- Completed snapshot tasks have been folded into the result. Do not leak them into a
+            -- stored command handle, where a later `runWith` would report them again.
+            { state with snapshotTasks := #[] })
     let (error?, newMessages, newTraces, newState) ←
       match response with
       | .ok response => pure response

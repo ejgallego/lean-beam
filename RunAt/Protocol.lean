@@ -235,6 +235,7 @@ Current frozen response semantics:
 - request-level failures are not encoded here; they are transport errors
 - `success = true` iff execution completes without any error-severity messages
 - semantic Lean failures stay in this payload through `messages`
+- command-mode proof-body diagnostics from the probed theorem are part of execution
 - command-mode top-level command sequences fail here with a `runAtSupportsOneCommandOnly` message
 - no backend tag is exposed in the public payload
 - no extra status enum is exposed beyond `success`

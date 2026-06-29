@@ -144,6 +144,22 @@ private def checkRunAtOneCommandOnly : ScenarioM Unit := do
     "runAtSupportsOneCommandOnly"
   closeDoc doc
 
+private def checkRunAtTheoremProofFailure : ScenarioM Unit := do
+  let doc ← openDoc "RunAtTest/Deps/DepA.lean"
+  syncDoc doc
+  requireRunAtFailureMessage "runAt theorem proof failure" doc { line := 8, character := 0 }
+    "theorem runAtImpossibleProbe : False := by\n  trivial"
+    "False"
+  closeDoc doc
+
+private def checkRunAtTheoremTacticFailure : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/TopLevelTheoremRunAtFailure.lean"
+  syncDoc doc
+  requireRunAtFailureMessage "runAt theorem tactic failure" doc { line := 7, character := 0 }
+    "theorem runAtTacticFailureProbe : True := by\n  runat_fail_tac"
+    "runAt custom tactic failure"
+  closeDoc doc
+
 private def checkGoalsRequests : ScenarioM Unit := do
   let doc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
 
@@ -554,6 +570,8 @@ private def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
 
 def main : IO Unit := RunAtTest.Scenario.run do
   checkRunAtOneCommandOnly
+  checkRunAtTheoremProofFailure
+  checkRunAtTheoremTacticFailure
   checkGoalsRequests
   checkTodoRequest
   checkTodoCodeActions
