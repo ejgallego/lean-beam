@@ -46,7 +46,7 @@ host_elan_home="${ELAN_HOME:-$HOME/.elan}"
 run_step "shell lint" bash scripts/lint-shell.sh
 
 run_step "build" lake build \
-  RunAt:shared \
+  Beam.LSP:shared \
   beam-cli \
   beam-daemon \
   beam-client \

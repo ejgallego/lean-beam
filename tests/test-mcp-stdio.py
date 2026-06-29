@@ -196,7 +196,7 @@ class McpClient:
         plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
         lean_cmd = shutil.which("lean") or "lean"
         require(exe.exists(), f"missing lean-beam-mcp executable at {exe}")
-        require(plugin.exists(), f"missing runAt plugin shared library at {plugin}")
+        require(plugin.exists(), f"missing Beam LSP plugin shared library at {plugin}")
         cmd = [str(exe)]
         if use_root_arg:
             cmd.extend(["--root", str(self.root_arg)])

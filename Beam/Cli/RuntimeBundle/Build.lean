@@ -115,7 +115,7 @@ private def lakeBuildInvocationFor (bundleDir : System.FilePath) (toolchain : St
     IO LakeBuildInvocation := do
   let default := {
     cmd := "elan",
-    args := #["run", toolchain, "lake", "build", "RunAt:shared", "beam-daemon", "beam-client"]
+    args := #["run", toolchain, "lake", "build", "Beam.LSP:shared", "beam-daemon", "beam-client"]
   }
   let leanPrefix := System.FilePath.mk fingerprint.leanPrefix
   let libDir := System.FilePath.mk fingerprint.leanLibDir
@@ -126,7 +126,7 @@ private def lakeBuildInvocationFor (bundleDir : System.FilePath) (toolchain : St
     let lakeHome ← prepareNonstandardLakeHome bundleDir leanPrefix libDir
     pure {
       cmd := (lakeHome / ".lake" / "build" / "bin" / "lake").toString
-      args := #["build", "RunAt:shared", "beam-daemon", "beam-client"]
+      args := #["build", "Beam.LSP:shared", "beam-daemon", "beam-client"]
       env := #[
         ("LAKE_HOME", some lakeHome.toString),
         ("LEAN", some (leanPrefix / "bin" / "lean").toString)

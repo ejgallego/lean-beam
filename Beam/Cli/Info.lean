@@ -194,7 +194,7 @@ def printMcpConfig (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   let some leanCmd := desired.leanCmd?
     | throw <| IO.userError s!"could not resolve Lean command for MCP project root {root}"
   let some plugin := desired.plugin?
-    | throw <| IO.userError s!"could not resolve runAt plugin for MCP project root {root}"
+    | throw <| IO.userError s!"could not resolve Beam LSP plugin for MCP project root {root}"
   printJsonLine <| Json.mkObj [
     ("root", toJson root.toString),
     ("lean_cmd", toJson leanCmd),

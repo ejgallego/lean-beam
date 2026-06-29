@@ -5,7 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import RunAt.Protocol
+import Beam.LSP.Todo
 
 open Lean
 
@@ -156,8 +156,8 @@ structure Request where
   method? : Option String := none
   params? : Option Json := none
   text? : Option String := none
-  kinds? : Option (Array RunAt.TodoKind) := none
-  suggest? : Option RunAt.TodoSuggestMode := none
+  kinds? : Option (Array Beam.LSP.Todo.TodoKind) := none
+  suggest? : Option Beam.LSP.Todo.TodoSuggestMode := none
   storeHandle? : Option Bool := none
   linear? : Option Bool := none
   mode? : Option GoalMode := none
@@ -197,8 +197,8 @@ instance : FromJson Request where
     let method? ← optionalField? (α := String) j "method"
     let params? ← optionalField? (α := Json) j "params"
     let text? ← optionalField? (α := String) j "text"
-    let kinds? ← optionalField? (α := Array RunAt.TodoKind) j "kinds"
-    let suggest? ← optionalField? (α := RunAt.TodoSuggestMode) j "suggest"
+    let kinds? ← optionalField? (α := Array Beam.LSP.Todo.TodoKind) j "kinds"
+    let suggest? ← optionalField? (α := Beam.LSP.Todo.TodoSuggestMode) j "suggest"
     let storeHandle? ← optionalField? (α := Bool) j "storeHandle"
     let linear? ← optionalField? (α := Bool) j "linear"
     let mode? ← optionalField? (α := GoalMode) j "mode"

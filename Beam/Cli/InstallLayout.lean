@@ -5,7 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import RunAt.Lib.NativeLib
+import Beam.LSP.Lib.NativeLib
 
 open Lean
 
@@ -20,18 +20,18 @@ structure InstallLayout where
   deriving ToJson
 
 def bundleRootFiles : List String :=
-  ["RunAt.lean", "Beam.lean", "lakefile.lean", "lakefile.toml", "lake-manifest.json", "lean-toolchain",
+  ["Beam.lean", "lakefile.lean", "lakefile.toml", "lake-manifest.json", "lean-toolchain",
     "supported-lean-toolchains", "custom-lean-toolchains"]
 
 def bundleSourceDirs : List String :=
-  ["RunAt", "Beam", "ffi"]
+  ["Beam", "ffi"]
 
 def bundleSourceHashInputLabels : List String :=
   bundleRootFiles ++ bundleSourceDirs.map (· ++ "/**")
 
 def installRuntimePaths : List String :=
   ["libexec/beam-cli", "libexec/beam-daemon", "libexec/beam-client",
-    "libexec/lean-beam-mcp", s!"libexec/{RunAt.Lib.pluginSharedLibName}", ".lake/packages"]
+    "libexec/lean-beam-mcp", s!"libexec/{Beam.LSP.Lib.pluginSharedLibName}", ".lake/packages"]
 
 def installWrapperPaths : List String :=
   ["bin/lean-beam", "bin/lean-beam-search", "bin/lean-beam-mcp"]

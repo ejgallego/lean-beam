@@ -78,7 +78,7 @@ def save_warning_text(marker):
 def shared_lib_name():
     system = platform.system()
     if system == "Darwin":
-        return "librunAt_RunAt.dylib"
+        return "libbeam_Beam_LSP.dylib"
     if system.startswith("Windows") or system in {"MSYS_NT", "MINGW_NT"}:
-        return "runAt_RunAt.dll"
-    return "librunAt_RunAt.so"
+        return "beam_Beam_LSP.dll"
+    return "libbeam_Beam_LSP.so"

@@ -7,7 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Broker.Client
 import Beam.Path
-import RunAt.Protocol
+import Beam.LSP.Todo
 
 open Lean
 
@@ -144,30 +144,30 @@ def parseLeanCloseSaveArgs (args : List String) : IO Bool := do
   | ["+full"] => pure true
   | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-close-save <path> [+full]"
 
-private def parseTodoKindArg (value : String) : IO RunAt.TodoKind := do
-  match fromJson? (α := RunAt.TodoKind) (Json.str value) with
+private def parseTodoKindArg (value : String) : IO Beam.LSP.Todo.TodoKind := do
+  match fromJson? (α := Beam.LSP.Todo.TodoKind) (Json.str value) with
   | .ok kind => pure kind
   | .error err =>
-      let allowed := String.intercalate ", " RunAt.TodoKind.allKeys.toList
+      let allowed := String.intercalate ", " Beam.LSP.Todo.TodoKind.allKeys.toList
       throw <| IO.userError s!"invalid todo kind '{value}' (expected one of: {allowed}): {err}"
 
-private def parseTodoSuggestArg (value : String) : IO RunAt.TodoSuggestMode := do
-  match fromJson? (α := RunAt.TodoSuggestMode) (Json.str value) with
+private def parseTodoSuggestArg (value : String) : IO Beam.LSP.Todo.TodoSuggestMode := do
+  match fromJson? (α := Beam.LSP.Todo.TodoSuggestMode) (Json.str value) with
   | .ok mode => pure mode
   | .error err =>
-      let allowed := String.intercalate ", " RunAt.TodoSuggestMode.allKeys.toList
+      let allowed := String.intercalate ", " Beam.LSP.Todo.TodoSuggestMode.allKeys.toList
       throw <| IO.userError s!"invalid todo suggest mode '{value}' (expected one of: {allowed}): {err}"
 
 def leanTodoUsage : String :=
   "usage: beam [--root PATH] [--socket PATH | --port N] lean-todo <path> <version> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]"
 
 def parseLeanTodoArgs (args : List String) :
-    IO (Option (Array RunAt.TodoKind) × Option RunAt.TodoSuggestMode) := do
+    IO (Option (Array Beam.LSP.Todo.TodoKind) × Option Beam.LSP.Todo.TodoSuggestMode) := do
   let rec loop
       (args : List String)
-      (kinds : Array RunAt.TodoKind)
-      (suggest? : Option RunAt.TodoSuggestMode) :
-      IO (Option (Array RunAt.TodoKind) × Option RunAt.TodoSuggestMode) := do
+      (kinds : Array Beam.LSP.Todo.TodoKind)
+      (suggest? : Option Beam.LSP.Todo.TodoSuggestMode) :
+      IO (Option (Array Beam.LSP.Todo.TodoKind) × Option Beam.LSP.Todo.TodoSuggestMode) := do
     match args with
     | [] =>
         pure (if kinds.isEmpty then none else some kinds, suggest?)

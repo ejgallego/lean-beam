@@ -7,12 +7,14 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Lean.Data.Lsp.Extra
 import Lean.Data.Lsp.LanguageFeatures
-import RunAt.Protocol
-import RunAt.Internal.DirectImports
-import RunAt.Internal.SaveSupport
 import Beam.Broker.Config
 import Beam.Broker.LakeEnv
 import Beam.Broker.Protocol
+import Beam.LSP.DirectImports
+import Beam.LSP.Goals
+import Beam.LSP.RunAt
+import Beam.LSP.Save
+import Beam.LSP.Todo
 import Beam.Path
 
 open Lean
@@ -55,7 +57,7 @@ def initializeParams (root : System.FilePath) : Json :=
   })
 
 def runAtMethod : String :=
-  RunAt.method
+  Beam.LSP.RunAt.method
 
 def requestAtMethod (method : String) : Except String String :=
   match method with
@@ -65,26 +67,26 @@ def requestAtMethod (method : String) : Except String String :=
   | _ => .error s!"lean backend experimental request_at does not support '{method}'"
 
 def runWithMethod : String :=
-  RunAt.runWithMethod
+  Beam.LSP.RunAt.runWithMethod
 
 def releaseMethod : String :=
-  RunAt.releaseHandleMethod
+  Beam.LSP.RunAt.releaseHandleMethod
 
 def saveArtifactsMethod : String :=
-  RunAt.Internal.saveArtifactsMethod
+  Beam.LSP.Save.saveArtifactsMethod
 
 def saveReadinessMethod : String :=
-  RunAt.Internal.saveReadinessMethod
+  Beam.LSP.Save.saveReadinessMethod
 
 def directImportsMethod : String :=
-  RunAt.Internal.directImportsMethod
+  Beam.LSP.DirectImports.method
 
 def goalsMethod (mode? : Option GoalMode := none) : String :=
   match mode?.getD .after with
-  | .after => RunAt.goalsAfterMethod
-  | .prev => RunAt.goalsPrevMethod
+  | .after => Beam.LSP.Goals.afterMethod
+  | .prev => Beam.LSP.Goals.prevMethod
 
 def todoMethod : String :=
-  RunAt.todoMethod
+  Beam.LSP.Todo.method
 
 end Beam.Broker.Backend.Lean

@@ -5,7 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import RunAt.Internal.SaveSupport
+import Beam.LSP.Save
 import Beam.Broker.LakeSave
 import Beam.Broker.Protocol
 import Beam.Path
@@ -140,7 +140,7 @@ structure SyncSaveReadiness where
   deriving Inhabited
 
 private def syncBlockingDiagnosticOfResult
-    (diagnostic : RunAt.Internal.SaveBlockingDiagnostic) : SyncBlockingDiagnostic := {
+    (diagnostic : Beam.LSP.Save.SaveBlockingDiagnostic) : SyncBlockingDiagnostic := {
   range := diagnostic.range
   severity? := diagnostic.severity?
   message := diagnostic.message
@@ -149,14 +149,14 @@ private def syncBlockingDiagnosticOfResult
 }
 
 private def syncBlockingCommandMessageOfResult
-    (message : RunAt.Internal.SaveBlockingCommandMessage) : SyncBlockingCommandMessage := {
+    (message : Beam.LSP.Save.SaveBlockingCommandMessage) : SyncBlockingCommandMessage := {
   message := message.message
   saveBlocking := message.saveBlocking
   completionBlocking := message.completionBlocking
 }
 
 def syncSaveReadinessOfResult
-    (result : RunAt.Internal.SaveReadinessResult) : SyncSaveReadiness :=
+    (result : Beam.LSP.Save.SaveReadinessResult) : SyncSaveReadiness :=
   {
     currentDiagnostics := result.currentDiagnostics
     currentWarningCount? := some result.currentWarningCount

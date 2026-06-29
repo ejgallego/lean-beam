@@ -9,7 +9,8 @@ import Beam.JsonSchema
 import Beam.Mcp.Json
 import Beam.Version
 import Beam.Workspace
-import RunAt.Protocol
+import Beam.LSP.Lib.Goal
+import Beam.LSP.RunAt
 
 open Lean
 
@@ -194,18 +195,18 @@ private def optionJson (value? : Option α) [ToJson α] : Json :=
 /-- Broker-level `runAt` result shape after the broker has wrapped any retained handle. -/
 structure RunAtBrokerResult where
   success : Bool := true
-  messages : Array RunAt.Message := #[]
+  messages : Array Beam.LSP.RunAt.Message := #[]
   traces : Array String := #[]
   handle? : Option Beam.Broker.Handle := none
-  proofState? : Option RunAt.ProofState := none
+  proofState? : Option Beam.LSP.Lib.ProofState := none
 
 instance : FromJson RunAtBrokerResult where
   fromJson? j := do
     let success? ← optionalField? (α := Bool) j "success"
-    let messages? ← optionalField? (α := Array RunAt.Message) j "messages"
+    let messages? ← optionalField? (α := Array Beam.LSP.RunAt.Message) j "messages"
     let traces? ← optionalField? (α := Array String) j "traces"
     let handle? ← optionalField? (α := Beam.Broker.Handle) j "handle"
-    let proofState? ← optionalField? (α := RunAt.ProofState) j "proofState"
+    let proofState? ← optionalField? (α := Beam.LSP.Lib.ProofState) j "proofState"
     pure {
       success := success?.getD true
       messages := messages?.getD #[]

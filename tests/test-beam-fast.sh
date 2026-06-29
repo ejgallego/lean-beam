@@ -13,12 +13,12 @@ bash scripts/check-task-priority.sh
 bash scripts/check-markdown-links.sh
 
 lake build \
-  RunAt:shared \
+  Beam.LSP:shared \
   beam-cli \
   beam-daemon \
   beam-client \
   lean-beam-mcp \
-  RunAtTest.Broker.StreamDedupTest \
+  BeamTest.Broker.StreamDedupTest \
   beam-broker-protocol-test \
   beam-broker-pending-test \
   beam-broker-document-state-test \

@@ -52,7 +52,7 @@ if ! printf '%s\n' ${supported_toolchains[@]+"${supported_toolchains[@]}"} | gre
   exit 1
 fi
 source_checkout="$tmp_root/source-checkout"
-runat_plugin_shared_lib="$(beam_shared_lib_name runAt_RunAt)"
+beam_lsp_plugin_shared_lib="$(beam_shared_lib_name beam_Beam_LSP)"
 
 assert_no_skill_socket_guidance() {
   local skill_doc="$1"
@@ -92,15 +92,15 @@ assert_runtime_layout() {
   local runtime_root="$1"
   assert_file "$runtime_root/Beam.lean"
   assert_file "$runtime_root/Beam/Broker/Server.lean"
-  assert_file "$runtime_root/RunAt/Internal/SaveSupport.lean"
-  assert_file "$runtime_root/RunAt/Internal/DirectImports.lean"
+  assert_file "$runtime_root/Beam/LSP/Save.lean"
+  assert_file "$runtime_root/Beam/LSP/DirectImports.lean"
   assert_file "$runtime_root/supported-lean-toolchains"
   assert_file "$runtime_root/custom-lean-toolchains"
   assert_file "$runtime_root/libexec/beam-cli"
   assert_file "$runtime_root/libexec/beam-daemon"
   assert_file "$runtime_root/libexec/beam-client"
   assert_file "$runtime_root/libexec/lean-beam-mcp"
-  assert_file "$runtime_root/libexec/$runat_plugin_shared_lib"
+  assert_file "$runtime_root/libexec/$beam_lsp_plugin_shared_lib"
   assert_not_exists "$runtime_root/.lake/build"
   assert_file "$runtime_root/bin/lean-beam"
   assert_file "$runtime_root/bin/lean-beam-search"
@@ -239,11 +239,11 @@ assert_bundle_layout() {
     assert_file "$workspace/.lean-beam-bundle-workspace"
     assert_file "$workspace/Beam.lean"
     assert_file "$workspace/Beam/Broker/Server.lean"
-    assert_file "$workspace/RunAt/Internal/SaveSupport.lean"
-    assert_file "$workspace/RunAt/Internal/DirectImports.lean"
+    assert_file "$workspace/Beam/LSP/Save.lean"
+    assert_file "$workspace/Beam/LSP/DirectImports.lean"
     assert_file "$workspace/.lake/build/bin/beam-daemon"
     assert_file "$workspace/.lake/build/bin/beam-client"
-    assert_file "$workspace/.lake/build/lib/$runat_plugin_shared_lib"
+    assert_file "$workspace/.lake/build/lib/$beam_lsp_plugin_shared_lib"
   done
 }
 

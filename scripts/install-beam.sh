@@ -60,7 +60,7 @@ style_green=""
 style_blue=""
 style_yellow=""
 style_dim=""
-runat_plugin_shared_lib="$(beam_shared_lib_name runAt_RunAt)"
+beam_lsp_plugin_shared_lib="$(beam_shared_lib_name beam_Beam_LSP)"
 install_root_marker=".lean-beam-install-root"
 skill_owner_marker=".lean-beam-skill"
 install_lock_dir=""
@@ -102,7 +102,6 @@ set_claude_home "${CLAUDE_HOME:-$HOME/.claude}"
 set_claude_mcp_user_config "${BEAM_CLAUDE_MCP_CONFIG:-$HOME/.claude.json}"
 
 runtime_payload_spec=(
-  "copy|rootFiles|RunAt.lean|RunAt.lean"
   "copy|rootFiles|Beam.lean|Beam.lean"
   "copy|rootFiles|lakefile.lean|lakefile.lean"
   "copy|rootFiles|lakefile.toml|lakefile.toml"
@@ -110,14 +109,13 @@ runtime_payload_spec=(
   "copy|rootFiles|lean-toolchain|lean-toolchain"
   "copy|rootFiles|supported-lean-toolchains|supported-lean-toolchains"
   "generated|rootFiles|custom-lean-toolchains|custom-lean-toolchains"
-  "copy|sourceDirs|RunAt|RunAt"
   "copy|sourceDirs|Beam|Beam"
   "copy|sourceDirs|ffi|ffi"
   "copy|runtimePaths|.lake/build/bin/beam-cli|libexec/beam-cli"
   "copy|runtimePaths|.lake/build/bin/beam-daemon|libexec/beam-daemon"
   "copy|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"
   "copy|runtimePaths|.lake/build/bin/lean-beam-mcp|libexec/lean-beam-mcp"
-  "copy|runtimePaths|.lake/build/lib/$runat_plugin_shared_lib|libexec/$runat_plugin_shared_lib"
+  "copy|runtimePaths|.lake/build/lib/$beam_lsp_plugin_shared_lib|libexec/$beam_lsp_plugin_shared_lib"
   "copy|runtimePaths|.lake/packages|.lake/packages"
   "copy|wrapperPaths|scripts/lean-beam|bin/lean-beam"
   "copy|wrapperPaths|scripts/lean-beam-search|bin/lean-beam-search"
@@ -809,7 +807,7 @@ runtime_artifacts_ready() {
     && [ -x "$repo_root/.lake/build/bin/beam-daemon" ] \
     && [ -x "$repo_root/.lake/build/bin/beam-client" ] \
     && [ -x "$repo_root/.lake/build/bin/lean-beam-mcp" ] \
-    && [ -f "$repo_root/.lake/build/lib/$runat_plugin_shared_lib" ]
+    && [ -f "$repo_root/.lake/build/lib/$beam_lsp_plugin_shared_lib" ]
 }
 
 print_install_plan() {
@@ -888,7 +886,7 @@ ensure_runtime_artifacts() {
   echo "building beam runtime artifacts" >&2
   (
     cd "$repo_root"
-    lake build RunAt:shared beam-cli beam-daemon beam-client lean-beam-mcp
+    lake build Beam.LSP:shared beam-cli beam-daemon beam-client lean-beam-mcp
   )
   if ! runtime_artifacts_ready; then
     die "Beam runtime build completed but required artifacts are missing"

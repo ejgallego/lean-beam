@@ -9,63 +9,64 @@ import Lake
 open Lake DSL
 open System
 
-package "runAt" where
+package "beam" where
 
-def runatUnixOTarget (pkg : Package) : FetchM (Job FilePath) := do
-  let oFile := pkg.buildDir / "ffi" / "runat_unix.o"
-  let srcTarget ← inputTextFile <| pkg.dir / "ffi" / "runat_unix.c"
+def beamUnixOTarget (pkg : Package) : FetchM (Job FilePath) := do
+  let oFile := pkg.buildDir / "ffi" / "beam_unix.o"
+  let srcTarget ← inputTextFile <| pkg.dir / "ffi" / "beam_unix.c"
   buildFileAfterDep oFile srcTarget fun srcFile => do
     let flags := #["-I", (← getLeanIncludeDir).toString, "-fPIC"]
     compileO oFile srcFile flags
 
-extern_lib runat_unix (pkg) := do
-  let name := nameToStaticLib "runat_unix"
-  let ffiO ← runatUnixOTarget pkg
+extern_lib beam_unix (pkg) := do
+  let name := nameToStaticLib "beam_unix"
+  let ffiO ← beamUnixOTarget pkg
   buildStaticLib (pkg.staticLibDir / name) #[ffiO]
 
-lean_lib RunAt where
+lean_lib Beam.LSP where
+  globs := #[.andSubmodules `Beam.LSP]
   defaultFacets := #[`shared]
 
 lean_lib Beam where
   defaultFacets := #[`shared]
 
-lean_lib RunAtTest where
+lean_lib BeamTest where
 
-lean_exe "runAt-test" where
-  root := `RunAtTest.TestRunner
+lean_exe "beam-lsp-test" where
+  root := `BeamTest.LSP.TestRunner
 
-lean_exe "runAt-scenario-test" where
-  root := `RunAtTest.ScenarioRunner
+lean_exe "beam-lsp-scenario-test" where
+  root := `BeamTest.LSP.ScenarioRunner
 
-lean_exe "runAt-scenario-api-test" where
-  root := `RunAtTest.Scenario.ApiTest
+lean_exe "beam-lsp-scenario-api-test" where
+  root := `BeamTest.LSP.Scenario.ApiTest
 
-lean_exe "runAt-scenario-stress-test" where
-  root := `RunAtTest.Scenario.StressTest
+lean_exe "beam-lsp-scenario-stress-test" where
+  root := `BeamTest.LSP.Scenario.StressTest
 
-lean_exe "runAt-handle-api-test" where
-  root := `RunAtTest.Handle.ApiTest
+lean_exe "beam-lsp-handle-api-test" where
+  root := `BeamTest.LSP.Handle.ApiTest
 
-lean_exe "runAt-handle-restart-test" where
-  root := `RunAtTest.Handle.RestartTest
+lean_exe "beam-lsp-handle-restart-test" where
+  root := `BeamTest.LSP.Handle.RestartTest
 
-lean_exe "runAt-handle-lifecycle-test" where
-  root := `RunAtTest.Handle.LifecycleTest
+lean_exe "beam-lsp-handle-lifecycle-test" where
+  root := `BeamTest.LSP.Handle.LifecycleTest
 
-lean_exe "runAt-mcts-proof-search-test" where
-  root := `RunAtTest.Scenario.MctsProofSearchTest
+lean_exe "beam-lsp-mcts-proof-search-test" where
+  root := `BeamTest.LSP.Scenario.MctsProofSearchTest
 
-lean_exe "runAt-parallel-grind-batch-test" where
-  root := `RunAtTest.Scenario.ParallelGrindBatchTest
+lean_exe "beam-lsp-parallel-grind-batch-test" where
+  root := `BeamTest.LSP.Scenario.ParallelGrindBatchTest
 
-lean_exe "runAt-nested-handle-failure-test" where
-  root := `RunAtTest.Handle.NestedHandleFailureTest
+lean_exe "beam-lsp-nested-handle-failure-test" where
+  root := `BeamTest.LSP.Handle.NestedHandleFailureTest
 
-lean_exe "runAt-request-surface-test" where
-  root := `RunAtTest.RequestSurfaceTest
+lean_exe "beam-lsp-request-surface-test" where
+  root := `BeamTest.LSP.RequestSurfaceTest
 
-lean_exe "runAt-search-workload-report" where
-  root := `RunAtTest.Scenario.SearchWorkloadReport
+lean_exe "beam-lsp-search-workload-report" where
+  root := `BeamTest.LSP.Scenario.SearchWorkloadReport
 
 lean_exe "beam-daemon" where
   root := `Beam.Broker.ServerMain
@@ -83,40 +84,40 @@ lean_exe "beam-cli" where
   root := `Beam.Cli
 
 lean_exe "beam-daemon-smoke-test" where
-  root := `RunAtTest.Broker.SmokeTestMain
+  root := `BeamTest.Broker.SmokeTestMain
 
 lean_exe "beam-daemon-save-stream-test" where
-  root := `RunAtTest.Broker.SaveStreamTestMain
+  root := `BeamTest.Broker.SaveStreamTestMain
 
 lean_exe "beam-daemon-request-stream-test" where
-  root := `RunAtTest.Broker.RequestStreamContractTestMain
+  root := `BeamTest.Broker.RequestStreamContractTestMain
 
 lean_exe "beam-sync-summary-test" where
-  root := `RunAtTest.Broker.SyncSummaryTest
+  root := `BeamTest.Broker.SyncSummaryTest
 
 lean_exe "beam-daemon-startup-handshake-test" where
-  root := `RunAtTest.Broker.StartupHandshakeTestMain
+  root := `BeamTest.Broker.StartupHandshakeTestMain
 
 lean_exe "beam-broker-protocol-test" where
-  root := `RunAtTest.Broker.ProtocolTest
+  root := `BeamTest.Broker.ProtocolTest
 
 lean_exe "beam-broker-pending-test" where
-  root := `RunAtTest.Broker.PendingTest
+  root := `BeamTest.Broker.PendingTest
 
 lean_exe "beam-broker-document-state-test" where
-  root := `RunAtTest.Broker.DocumentStateTest
+  root := `BeamTest.Broker.DocumentStateTest
 
 lean_exe "beam-broker-open-docs-test" where
-  root := `RunAtTest.Broker.OpenDocsTest
+  root := `BeamTest.Broker.OpenDocsTest
 
 lean_exe "beam-cli-daemon-test" where
-  root := `RunAtTest.Broker.CliDaemonTest
+  root := `BeamTest.Broker.CliDaemonTest
 
 lean_exe "beam-mcp-projection-test" where
-  root := `RunAtTest.Broker.McpProjectionTest
+  root := `BeamTest.Broker.McpProjectionTest
 
 lean_exe "beam-mcp-protocol-test" where
-  root := `RunAtTest.Broker.McpProtocolTest
+  root := `BeamTest.Broker.McpProtocolTest
 
 lean_exe "beam-daemon-rocq-smoke-test" where
-  root := `RunAtTest.Broker.RocqSmokeTest
+  root := `BeamTest.Broker.RocqSmokeTest

@@ -6,7 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Beam.Cli.Lock
-import RunAt.Lib.NativeLib
+import Beam.LSP.Lib.NativeLib
 
 open Lean
 
@@ -21,10 +21,10 @@ structure BundlePaths where
 def defaultBundlePaths (home : System.FilePath) : IO BundlePaths := do
   let installedDaemon := home / "libexec" / "beam-daemon"
   let installedClient := home / "libexec" / "beam-client"
-  let installedPlugin := RunAt.Lib.pluginSharedLibPath (home / "libexec")
+  let installedPlugin := Beam.LSP.Lib.pluginSharedLibPath (home / "libexec")
   let checkoutDaemon := home / ".lake" / "build" / "bin" / "beam-daemon"
   let checkoutClient := home / ".lake" / "build" / "bin" / "beam-client"
-  let checkoutPlugin := RunAt.Lib.pluginSharedLibPath (home / ".lake" / "build" / "lib")
+  let checkoutPlugin := Beam.LSP.Lib.pluginSharedLibPath (home / ".lake" / "build" / "lib")
   let installedReady :=
     (← installedDaemon.pathExists) &&
     (← installedClient.pathExists) &&
@@ -53,7 +53,7 @@ def ensureBundleExists (paths : BundlePaths) : IO Unit := do
 
 def ensureLeanBundleExists (paths : BundlePaths) : IO Unit := do
   ensureBundleExists paths
-  ensurePathExists "runAt plugin" paths.plugin
+  ensurePathExists "Beam LSP plugin" paths.plugin
 
 def runAtStateDirName : String :=
   ".beam"
@@ -201,7 +201,7 @@ def bundlePathsFor (workspace : System.FilePath) : BundlePaths :=
   {
     daemon := workspace / ".lake" / "build" / "bin" / "beam-daemon"
     client := workspace / ".lake" / "build" / "bin" / "beam-client"
-    plugin := RunAt.Lib.pluginSharedLibPath (workspace / ".lake" / "build" / "lib")
+    plugin := Beam.LSP.Lib.pluginSharedLibPath (workspace / ".lake" / "build" / "lib")
   }
 
 end Beam.Cli
