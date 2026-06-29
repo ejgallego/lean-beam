@@ -20,6 +20,45 @@ def isIncompleteBarrierDiagnostic (diagnostic : Diagnostic) : Bool :=
     diagnostic.message.contains "error: target is out-of-date and needs to be rebuilt" ||
     diagnostic.message.contains "Imports are out of date and should be rebuilt"
 
+private def isFileWorkerSetupProgressRange (range : Range) : Bool :=
+  range.start.line == 0 &&
+    range.start.character == 0 &&
+    range.«end».line == 1 &&
+    range.«end».character == 0
+
+private def lakeBuildMonitorPrefixes : Array String :=
+  #["✔ [", "✖ [", "⚠ [", "ℹ ["]
+
+private def lakeBuildMonitorVerbs : Array String :=
+  #[
+    "Ran", "Running",
+    "Reused", "Reusing",
+    "Replayed", "Replaying",
+    "Unpacked", "Unpacking",
+    "Fetched", "Fetching",
+    "Built", "Building"
+  ]
+
+private def isLakeBuildMonitorLine (message : String) : Bool :=
+  let line := message.trimAscii.toString
+  lakeBuildMonitorPrefixes.any (fun linePrefix => line.startsWith linePrefix) &&
+    lakeBuildMonitorVerbs.any (fun verb => line.contains s!" {verb} ")
+
+/--
+Best-effort recognizer for Lean file-worker `lake setup-file` progress.
+
+Lean currently exposes this as ordinary information diagnostics, so Beam has to match the
+temporary diagnostic envelope and Lake build-monitor line shape. Keep this narrow until Lean
+exposes typed setup/build progress.
+-/
+def isLakeSetupFileProgressDiagnostic (diagnostic : Diagnostic) : Bool :=
+  match diagnostic.severity? with
+  | some .information =>
+      isFileWorkerSetupProgressRange diagnostic.range &&
+        isLakeBuildMonitorLine diagnostic.message
+  | _ =>
+      false
+
 def effectiveSyncDiagnosticSeverity (diagnostic : Diagnostic) :
     Option DiagnosticSeverity :=
   if isIncompleteBarrierDiagnostic diagnostic then
@@ -42,7 +81,9 @@ def filterSyncDiagnostics (fullDiagnostics : Bool) (diagnostics : Array Diagnost
   if fullDiagnostics then
     diagnostics
   else
-    diagnostics.filter isSyncErrorDiagnostic
+    diagnostics.filter fun diagnostic =>
+      isSyncErrorDiagnostic diagnostic ||
+        isLakeSetupFileProgressDiagnostic diagnostic
 
 def diagnosticDisplayPath (root : System.FilePath) (uri : DocumentUri) : String :=
   match System.Uri.fileUriToPath? uri with

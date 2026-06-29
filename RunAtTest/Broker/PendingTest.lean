@@ -27,7 +27,9 @@ private def requireErrorCode (label expectedCode : String) (resp : Response) : I
 private def mkPending
     (clientRequestId? : Option String := none)
     (progress? : Option SyncFileProgress := none)
-    (tracked? : Option (DocumentUri × Nat) := none) :
+    (tracked? : Option (DocumentUri × Nat) := none)
+    (fullDiagnostics : Bool := false)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO (PendingRequest × IO.Promise (Except Response PendingResult)) := do
   let promise ← IO.Promise.new
   let progressRef ← IO.mkRef progress?
@@ -42,6 +44,8 @@ private def mkPending
     diagnosticsRef
     diagnosticsSeenRef
     seenDiagnosticKeysRef
+    fullDiagnostics
+    emitDiagnostic?
   }, promise)
 
 private def checkActiveRegistry : IO Unit := do
@@ -129,6 +133,16 @@ private def mkDiagnostic (range : Range) (message : String) : Diagnostic := {
   range
   fullRange? := some range
   severity? := some .error
+  message
+}
+
+private def mkDiagnosticWithSeverity
+    (range : Range)
+    (severity : DiagnosticSeverity)
+    (message : String) : Diagnostic := {
+  range
+  fullRange? := some range
+  severity? := some severity
   message
 }
 
@@ -224,6 +238,42 @@ private def checkDiagnosticLineCanExceedProgressRange : IO Unit := do
   require "diagnostic may start beyond progress rangeEndLine"
     (diagnostic.range.start.line + 1 > finished.rangeEndLine?.getD 0)
 
+private def observeStreamedDiagnostics
+    (fullDiagnostics : Bool)
+    (diagnostics : Array Diagnostic) : IO (Array StreamDiagnostic) := do
+  let streamedRef ← IO.mkRef #[]
+  let (pending, _) ← mkPending
+    (tracked? := some ("file:///workspace/Foo.lean", 1))
+    (fullDiagnostics := fullDiagnostics)
+    (emitDiagnostic? := some fun diagnostic =>
+      streamedRef.modify (·.push diagnostic))
+  PendingRequest.observeDiagnostics
+    (System.FilePath.mk "/workspace")
+    pending
+    (mkPublishDiagnostics diagnostics)
+  streamedRef.get
+
+private def checkSetupFileProgressStreamsWithoutFullDiagnostics : IO Unit := do
+  let setupProgress :=
+    mkDiagnosticWithSeverity
+      (mkRange 0 0 1 0)
+      .information
+      "✔ [1/2] Built Liris.Iris.HeapLang.PrimitiveLaws (12s)\n"
+  let warning :=
+    mkDiagnosticWithSeverity
+      (mkRange 3 0 3 6)
+      .warning
+      "unused variable"
+  let defaultStreamed ← observeStreamedDiagnostics false #[setupProgress, warning]
+  require "default sync streams setup-file status"
+    (defaultStreamed.map (·.message) == #[setupProgress.message])
+  require "default setup-file status stays informational"
+    (defaultStreamed.all (fun diagnostic => diagnostic.severity? == some .information))
+
+  let fullStreamed ← observeStreamedDiagnostics true #[setupProgress, warning]
+  require "full sync streams setup-file status and warning"
+    (fullStreamed.map (·.message) == #[setupProgress.message, warning.message])
+
 def main : IO Unit := do
   checkActiveRegistry
   checkPendingStoreResolve
@@ -231,6 +281,7 @@ def main : IO Unit := do
   checkSyncFileProgressDisplay
   checkSyncFileProgressLines
   checkDiagnosticLineCanExceedProgressRange
+  checkSetupFileProgressStreamsWithoutFullDiagnostics
 
 end RunAtTest.Broker.PendingTest
 
