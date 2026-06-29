@@ -133,6 +133,9 @@ What is not a valid checkpoint target:
   `lean-beam run-at` only waits for the snapshot it needs
 - if the same document changes while a request or stored handle is pending, expect
   `contentModified` or handle invalidation instead of hidden reuse
+- when `contentModified` includes `error.data.reason = "documentVersionMismatch"`,
+  `error.data.acceptedVersion` names the broker-accepted version to retry with, and
+  `error.data.currentVersion` may echo the current tracked document version
 - `lean-beam save` / `lean-beam close-save` checkpoint the current synced Lake module only; they do not
   rebuild reverse dependencies or make downstream files fresh by themselves
 ## Diagnostics, Progress, And Request IDs

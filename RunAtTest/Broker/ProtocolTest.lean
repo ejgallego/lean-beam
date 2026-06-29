@@ -288,6 +288,16 @@ private def checkBrokerFailureResponse : IO Unit := do
   | none =>
       throw <| IO.userError "broker failure response: expected error data"
 
+private def checkDocumentVersionMismatchErrorData : IO Unit := do
+  let data := documentVersionMismatchErrorData 1 2
+    (currentVersion? := some 2)
+    (uri? := some "file:///A.lean")
+  requireJsonString "version mismatch data" "reason" "documentVersionMismatch" data
+  requireJsonInt "version mismatch data" "expectedVersion" 1 data
+  requireJsonInt "version mismatch data" "acceptedVersion" 2 data
+  requireJsonInt "version mismatch data" "currentVersion" 2 data
+  requireJsonString "version mismatch data" "uri" "file:///A.lean" data
+
 private def checkJsonRpcErrorObjectMapping : IO Unit := do
   discard <| requireError
     "jsonrpc known numeric error"
@@ -466,6 +476,7 @@ def main : IO Unit := do
   checkOrderedJsonPretty
   checkSyncFileResultDecode
   checkBrokerFailureResponse
+  checkDocumentVersionMismatchErrorData
   checkJsonRpcErrorObjectMapping
   checkReadinessBoundary
   checkRequestArgsBoundary

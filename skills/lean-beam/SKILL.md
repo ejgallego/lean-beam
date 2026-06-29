@@ -111,6 +111,9 @@ Prefer the smallest command that matches the actual task:
 - use `lean-beam run-at` when you want to try one speculative Lean snippet without editing the file
 - before `lean-beam run-at`, `lean-beam run-at-handle`, `lean-beam hover`, `lean-beam goals-*`, or
   `lean-beam todo`, call `lean-beam update <file>` and pass the returned `version`
+- if a versioned request fails with `contentModified` and
+  `error.data.reason = "documentVersionMismatch"`, use `error.data.acceptedVersion` for the next
+  retry or run `lean-beam update` / `lean-beam sync` again; do not guess a version
 - for `lean-beam run-at`, `lean-beam hover`, `lean-beam goals-*`, and `lean-beam todo`, treat line and
   character arguments as Lean/LSP
   coordinates: line `0` is the first line, character `0` is the first UTF-16 code unit, and on a

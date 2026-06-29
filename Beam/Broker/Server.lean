@@ -973,10 +973,14 @@ private def trackedLeanDocumentVersion
     none
 
 private def documentVersionMismatchResponse
-    (expectedVersion actualVersion : Nat)
+    (expectedVersion acceptedVersion : Nat)
     (uri : DocumentUri) : Response :=
-  reqError "contentModified" <|
-    s!"document version mismatch for {uri}: expected document version {expectedVersion}, got {actualVersion}"
+  reqError
+    "contentModified"
+    (s!"document version mismatch for {uri}: expected document version {expectedVersion}, got {acceptedVersion}")
+    (some <| documentVersionMismatchErrorData expectedVersion acceptedVersion
+      (currentVersion? := some acceptedVersion)
+      (uri? := some uri))
 
 private def startSyncedDocumentRequest
     (session : Session)
@@ -1176,6 +1180,9 @@ private def fetchSyncSaveReadiness
         message :=
           s!"save readiness reported version {readiness.version}, " ++
             s!"expected document version {expectedVersion}"
+        data? := some <| documentVersionMismatchErrorData expectedVersion readiness.version
+          (currentVersion? := some readiness.version)
+          (uri? := some uri)
       }
     pure (syncSaveReadinessOfResult readiness)
 
