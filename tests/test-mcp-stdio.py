@@ -6,7 +6,7 @@ import concurrent.futures
 import json
 import os
 import platform
-import select
+import queue
 import shutil
 import subprocess
 import sys
@@ -167,6 +167,7 @@ class McpClient:
         root_arg=None,
         label="mcp-client",
         server_trace=False,
+        drain_stdout=True,
     ):
         self.repo_root = repo_root
         self.project_root = project_root
@@ -191,6 +192,7 @@ class McpClient:
         self.event_log = collections.deque(maxlen=80)
         self.started_at = time.monotonic()
         self.last_notification_at = None
+        self.stdout_lines = queue.Queue()
         self.stderr_lines = collections.deque(maxlen=80)
         exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
         plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
@@ -223,9 +225,21 @@ class McpClient:
             encoding="utf-8",
             bufsize=1,
         )
+        self.stdout_thread = None
+        if drain_stdout:
+            self.stdout_thread = threading.Thread(target=self._drain_stdout, daemon=True)
+            self.stdout_thread.start()
         self.stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self.stderr_thread.start()
         self._record_event(f"process started pid={self.proc.pid}")
+
+    def _drain_stdout(self):
+        try:
+            for line in self.proc.stdout:
+                self.stdout_lines.put(("line", line))
+            self.stdout_lines.put(("eof", None))
+        except Exception as err:
+            self.stdout_lines.put(("error", str(err)))
 
     def _drain_stderr(self):
         try:
@@ -248,6 +262,8 @@ class McpClient:
         except subprocess.TimeoutExpired:
             self.proc.kill()
             self.proc.wait(timeout=5)
+        if self.stdout_thread is not None:
+            self.stdout_thread.join(timeout=1)
         self.stderr_thread.join(timeout=1)
         stderr = "\n".join(self.stderr_lines)
         if not self.server_trace:
@@ -426,21 +442,26 @@ class McpClient:
         )
 
     def read_response(self, expected_id):
+        require(self.stdout_thread is not None, "MCP stdout reader is disabled")
         deadline = time.monotonic() + self.timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 fail(self._timeout_message(expected_id))
-            if self.proc.poll() is not None:
-                self.stderr_thread.join(timeout=1)
-                stderr = "\n".join(self.stderr_lines)
-                fail(f"lean-beam-mcp exited early with code {self.proc.returncode}\n{stderr}")
-            ready, _, _ = select.select([self.proc.stdout], [], [], remaining)
-            if not ready:
+            try:
+                kind, payload = self.stdout_lines.get(timeout=min(remaining, 0.1))
+            except queue.Empty:
+                if self.proc.poll() is not None:
+                    self.stdout_thread.join(timeout=1)
+                    self.stderr_thread.join(timeout=1)
+                    stderr = "\n".join(self.stderr_lines)
+                    fail(f"lean-beam-mcp exited early with code {self.proc.returncode}\n{stderr}")
                 continue
-            line = self.proc.stdout.readline()
-            if line == "":
+            if kind == "error":
+                fail(f"failed reading lean-beam-mcp stdout: {payload}")
+            if kind == "eof":
                 fail(f"lean-beam-mcp closed stdout before response id {expected_id}")
+            line = payload
             try:
                 response = json.loads(line)
             except json.JSONDecodeError as err:
@@ -1829,7 +1850,13 @@ def run_closed_stdout_regression(repo_root, fixture_root, timeout):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-closed-stdout-") as tmp:
         project_root = Path(tmp) / "project"
         shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout, label="closed-stdout-regression")
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            label="closed-stdout-regression",
+            drain_stdout=False,
+        )
         stderr = ""
         try:
             client.proc.stdout.close()
@@ -1850,7 +1877,18 @@ def run_closed_stdout_regression(repo_root, fixture_root, timeout):
             client.stderr_thread.join(timeout=1)
             stderr = "\n".join(client.stderr_lines)
             require(client.proc.returncode == 0, f"lean-beam-mcp exited with {client.proc.returncode}\n{stderr}")
-            require(stderr.strip() == "", f"lean-beam-mcp wrote unexpected stderr after closed stdout:\n{stderr}")
+            if client.server_trace:
+                unexpected = [
+                    line for line in stderr.splitlines()
+                    if not line.startswith("lean-beam-mcp trace ")
+                ]
+                require(
+                    not unexpected,
+                    "lean-beam-mcp wrote unexpected non-trace stderr after closed stdout:\n"
+                    + "\n".join(unexpected),
+                )
+            else:
+                require(stderr.strip() == "", f"lean-beam-mcp wrote unexpected stderr after closed stdout:\n{stderr}")
         finally:
             if client.proc.poll() is None:
                 client.proc.kill()

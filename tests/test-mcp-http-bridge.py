@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -140,6 +141,52 @@ def expect_tool_error(response, code):
     require(structured.get("code") == code, f"expected tool error code {code}, got {structured}")
 
 
+def text_tail(text, limit=80):
+    lines = text.splitlines()
+    return "\n".join(lines[-limit:]) if lines else "<empty>"
+
+
+def stop_bridge_process(bridge):
+    if bridge.poll() is None:
+        bridge.terminate()
+        try:
+            bridge.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            bridge.kill()
+            bridge.wait(timeout=5)
+
+
+def stream_text(stream):
+    if stream is None:
+        return ""
+    try:
+        return stream.read()
+    except Exception as err:
+        return f"<failed to read stream: {err}>"
+
+
+def file_text(path):
+    try:
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    except Exception as err:
+        return f"<failed to read {path}: {err}>"
+    return ""
+
+
+def bridge_failure_context(bridge, child_stderr_file):
+    stop_bridge_process(bridge)
+    return "\n".join([
+        f"bridge return code: {bridge.returncode}",
+        "bridge stdout tail:",
+        text_tail(stream_text(bridge.stdout)),
+        "bridge stderr tail:",
+        text_tail(stream_text(bridge.stderr)),
+        "lean-beam-mcp stderr tail:",
+        text_tail(file_text(child_stderr_file)),
+    ])
+
+
 def main():
     parser = argparse.ArgumentParser(description="Smoke-test the local MCP stdio-to-HTTP bridge.")
     parser.add_argument("--timeout", type=float, default=30.0)
@@ -159,6 +206,10 @@ def main():
         project_root = tmp_path / "project"
         shutil.copytree(repo_root / "tests" / "save_olean_project", project_root)
         ready_file = tmp_path / "ready.json"
+        child_stderr_file = tmp_path / "lean-beam-mcp.stderr"
+        bridge_env = os.environ.copy()
+        bridge_env["LEAN_BEAM_MCP_TRACE"] = "1"
+        bridge_env["LEAN_BEAM_BROKER_TRACE"] = "1"
         bridge = subprocess.Popen(
             [
                 sys.executable,
@@ -173,10 +224,13 @@ def main():
                 str(plugin),
                 "--ready-file",
                 str(ready_file),
+                "--server-stderr-file",
+                str(child_stderr_file),
                 "--timeout",
                 str(args.timeout),
             ],
             cwd=str(repo_root),
+            env=bridge_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -340,15 +394,14 @@ def main():
 
             expect_result(http_json(url, {"jsonrpc": "2.0", "id": 8, "method": "shutdown"}, timeout=args.timeout))
             bridge.wait(timeout=5)
-            require(bridge.returncode == 0, f"bridge exited with {bridge.returncode}\n{bridge.stderr.read()}")
+            if bridge.returncode != 0:
+                raise RuntimeError(f"bridge exited with {bridge.returncode}\n{bridge_failure_context(bridge, child_stderr_file)}")
+        except Exception as err:
+            if "bridge return code:" in str(err):
+                raise
+            raise RuntimeError(f"{err}\n{bridge_failure_context(bridge, child_stderr_file)}") from err
         finally:
-            if bridge.poll() is None:
-                bridge.terminate()
-                try:
-                    bridge.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    bridge.kill()
-                    bridge.wait(timeout=5)
+            stop_bridge_process(bridge)
 
 
 if __name__ == "__main__":

@@ -48,9 +48,6 @@ private def ProtocolState.initState (state : ProtocolState) : Beam.Workspace.Ini
 
 abbrev Options := Beam.Mcp.Options
 
-private def writeJsonLine (json : Json) : IO Unit := do
-  Beam.Mcp.Stdio.writeStdoutJsonLine json
-
 private def traceEnabled (envName : String) : IO Bool := do
   match ← IO.getEnv envName with
   | some value => pure (!value.isEmpty && value != "0")
@@ -60,6 +57,41 @@ private def traceMcp (message : String) : IO Unit := do
   if ← traceEnabled "LEAN_BEAM_MCP_TRACE" then
     let now ← IO.monoNanosNow
     IO.eprintln s!"lean-beam-mcp trace {now}: {message}"
+
+private def outgoingJsonLabel (json : Json) : String :=
+  let idLabel :=
+    match json.getObjVal? "id" with
+    | .ok id => requestIdLabel id
+    | .error _ => "<none>"
+  let methodLabel :=
+    match json.getObjVal? "method" with
+    | .ok (.str method) => method
+    | .ok method => method.compress
+    | .error _ => "<none>"
+  let kind :=
+    if methodLabel != "<none>" then
+      "method"
+    else if (json.getObjVal? "error").isOk then
+      "error"
+    else
+      "response"
+  s!"kind={kind} id={idLabel} method={methodLabel}"
+
+private def writeJsonLine (json : Json) : IO Unit := do
+  let payload := json.compress
+  let trace := ← traceEnabled "LEAN_BEAM_MCP_TRACE"
+  if trace then
+    let now ← IO.monoNanosNow
+    IO.eprintln s!"lean-beam-mcp trace {now}: stdout write start {outgoingJsonLabel json} chars={payload.length}"
+  let stdout ← IO.getStdout
+  stdout.putStr (payload ++ "\n")
+  if trace then
+    let now ← IO.monoNanosNow
+    IO.eprintln s!"lean-beam-mcp trace {now}: stdout write putStr done {outgoingJsonLabel json}"
+  stdout.flush
+  if trace then
+    let now ← IO.monoNanosNow
+    IO.eprintln s!"lean-beam-mcp trace {now}: stdout write flush done {outgoingJsonLabel json}"
 
 private structure ProgressEmitter where
   progressToken : Json

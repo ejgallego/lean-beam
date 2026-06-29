@@ -22,9 +22,11 @@ class BridgeError(Exception):
 
 
 class StdioMcpServer:
-    def __init__(self, command, cwd, timeout):
+    def __init__(self, command, cwd, timeout, *, mirror_stderr=False, stderr_file=None):
         self.command = command
         self.timeout = timeout
+        self.mirror_stderr = mirror_stderr
+        self.stderr_file = stderr_file
         self.lock = threading.Lock()
         self.stderr = []
         self.proc = subprocess.Popen(
@@ -42,8 +44,23 @@ class StdioMcpServer:
         self.stderr_thread.start()
 
     def _drain_stderr(self):
-        for line in self.proc.stderr:
-            self.stderr.append(line)
+        trace = None
+        try:
+            if self.stderr_file is not None:
+                trace = open(self.stderr_file, "a", encoding="utf-8")
+            for line in self.proc.stderr:
+                self.stderr.append(line)
+                if trace is not None:
+                    trace.write(line)
+                    trace.flush()
+                if self.mirror_stderr:
+                    print(line, file=sys.stderr, end="")
+        finally:
+            if trace is not None:
+                trace.close()
+
+    def stderr_tail(self, limit=80):
+        return "".join(self.stderr[-limit:])
 
     def close(self):
         if self.proc.poll() is None:
@@ -75,9 +92,12 @@ class StdioMcpServer:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise BridgeError("timed out waiting for lean-beam-mcp response")
+                raise BridgeError(
+                    "timed out waiting for lean-beam-mcp response\n"
+                    f"lean-beam-mcp stderr tail:\n{self.stderr_tail() or '<empty>'}"
+                )
             if self.proc.poll() is not None:
-                stderr = "".join(self.stderr)
+                stderr = self.stderr_tail()
                 raise BridgeError(f"lean-beam-mcp exited with code {self.proc.returncode}\n{stderr}")
             ready, _, _ = select.select([self.proc.stdout], [], [], remaining)
             if not ready:
@@ -243,6 +263,8 @@ def parse_args():
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--endpoint", default="/mcp")
     parser.add_argument("--ready-file")
+    parser.add_argument("--server-trace", action="store_true")
+    parser.add_argument("--server-stderr-file")
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
@@ -260,7 +282,13 @@ def main():
         "--lean-plugin",
         args.lean_plugin,
     ]
-    mcp = StdioMcpServer(command, repo_root, args.timeout)
+    mcp = StdioMcpServer(
+        command,
+        repo_root,
+        args.timeout,
+        mirror_stderr=args.server_trace,
+        stderr_file=args.server_stderr_file,
+    )
     try:
         server = BridgeHttpServer(
             (args.host, args.port),
