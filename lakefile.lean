@@ -19,41 +19,54 @@ lean_lib Beam where
   defaultFacets := #[`shared]
 
 lean_lib BeamTest where
+  srcDir := "tests/lean"
 
 lean_exe "beam-lsp-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.TestRunner
 
 lean_exe "beam-lsp-scenario-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.ScenarioRunner
 
 lean_exe "beam-lsp-scenario-api-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Scenario.ApiTest
 
 lean_exe "beam-lsp-scenario-stress-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Scenario.StressTest
 
 lean_exe "beam-lsp-handle-api-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Handle.ApiTest
 
 lean_exe "beam-lsp-handle-restart-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Handle.RestartTest
 
 lean_exe "beam-lsp-handle-lifecycle-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Handle.LifecycleTest
 
 lean_exe "beam-lsp-mcts-proof-search-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Scenario.MctsProofSearchTest
 
 lean_exe "beam-lsp-parallel-grind-batch-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Scenario.ParallelGrindBatchTest
 
 lean_exe "beam-lsp-nested-handle-failure-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Handle.NestedHandleFailureTest
 
 lean_exe "beam-lsp-request-surface-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.RequestSurfaceTest
 
 lean_exe "beam-lsp-search-workload-report" where
+  srcDir := "tests/lean"
   root := `BeamTest.LSP.Scenario.SearchWorkloadReport
 
 lean_exe "beam-daemon" where
@@ -72,40 +85,53 @@ lean_exe "beam-cli" where
   root := `Beam.Cli
 
 lean_exe "beam-daemon-smoke-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.SmokeTestMain
 
 lean_exe "beam-daemon-save-stream-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.SaveStreamTestMain
 
 lean_exe "beam-daemon-request-stream-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.RequestStreamContractTestMain
 
 lean_exe "beam-sync-summary-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.SyncSummaryTest
 
 lean_exe "beam-daemon-startup-handshake-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.StartupHandshakeTestMain
 
 lean_exe "beam-broker-protocol-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.ProtocolTest
 
 lean_exe "beam-broker-pending-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.PendingTest
 
 lean_exe "beam-broker-document-state-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.DocumentStateTest
 
 lean_exe "beam-broker-open-docs-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.OpenDocsTest
 
 lean_exe "beam-cli-daemon-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.CliDaemonTest
 
 lean_exe "beam-mcp-projection-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.McpProjectionTest
 
 lean_exe "beam-mcp-protocol-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.McpProtocolTest
 
 lean_exe "beam-daemon-rocq-smoke-test" where
+  srcDir := "tests/lean"
   root := `BeamTest.Broker.RocqSmokeTest

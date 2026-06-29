@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 lake build Beam.LSP:shared > /dev/null
 lake build BeamTest > /dev/null
 lake build BeamTest.Fixtures.Deps.DepA > /dev/null
+python3 tests/lsp-coverage/check.py
 
 run_case() {
   local name="$1"
@@ -18,7 +19,7 @@ run_case() {
   echo "interactive: $name"
   actual="$(mktemp)"
   trap 'rm -f "$actual"' RETURN
-  lake env lean --run BeamTest/LSP/TestRunner.lean "tests/interactive/${name}.lean" > /dev/null 2> "$actual"
+  lake env lean --run tests/lean/BeamTest/LSP/TestRunner.lean "tests/interactive/${name}.lean" > /dev/null 2> "$actual"
   diff -u "tests/interactive/expected/${name}.out" "$actual"
   rm -f "$actual"
   trap - RETURN
@@ -27,37 +28,37 @@ run_case() {
 run_scenario_case() {
   local name="$1"
   echo "scenario: $name"
-  lake env lean --run BeamTest/LSP/ScenarioRunner.lean "tests/scenario/${name}.scn" > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/ScenarioRunner.lean "tests/scenario/${name}.scn" > /dev/null
 }
 
 run_scenario_api_case() {
   echo "scenario-api"
-  lake env lean --run BeamTest/LSP/Scenario/ApiTest.lean > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/Scenario/ApiTest.lean > /dev/null
 }
 
 run_scenario_stress_case() {
   echo "scenario-stress"
-  lake env lean --run BeamTest/LSP/Scenario/StressTest.lean > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/Scenario/StressTest.lean > /dev/null
 }
 
 run_handle_api_case() {
   echo "handle-api"
-  lake env lean --run BeamTest/LSP/Handle/ApiTest.lean > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/Handle/ApiTest.lean > /dev/null
 }
 
 run_handle_restart_case() {
   echo "handle-restart"
-  lake env lean --run BeamTest/LSP/Handle/RestartTest.lean > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/Handle/RestartTest.lean > /dev/null
 }
 
 run_handle_lifecycle_case() {
   echo "handle-lifecycle"
-  lake env lean --run BeamTest/LSP/Handle/LifecycleTest.lean > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/Handle/LifecycleTest.lean > /dev/null
 }
 
 run_mcts_proof_search_case() {
   echo "mcts-proof-search"
-  lake env lean --run BeamTest/LSP/Scenario/MctsProofSearchTest.lean > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean > /dev/null
 }
 
 run_parallel_grind_batch_case() {
@@ -65,7 +66,7 @@ run_parallel_grind_batch_case() {
   echo "parallel-grind-batch"
   report="$(mktemp)"
   trap 'rm -f "$report"' RETURN
-  lake env lean --run BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean > "$report"
+  lake env lean --run tests/lean/BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean > "$report"
   python3 - "$report" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
@@ -90,7 +91,7 @@ run_search_workload_case() {
   echo "search-workload"
   report="$(mktemp)"
   trap 'rm -f "$report"' RETURN
-  lake env lean --run BeamTest/LSP/Scenario/SearchWorkloadReport.lean 48 20260321 > "$report"
+  lake env lean --run tests/lean/BeamTest/LSP/Scenario/SearchWorkloadReport.lean 48 20260321 > "$report"
   python3 - "$report" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
@@ -120,12 +121,12 @@ PY
 
 run_nested_handle_failure_case() {
   echo "nested-handle-failure"
-  lake env lean --run BeamTest/LSP/Handle/NestedHandleFailureTest.lean > /dev/null
+  lake env lean --run tests/lean/BeamTest/LSP/Handle/NestedHandleFailureTest.lean > /dev/null
 }
 
 run_request_surface_case() {
   echo "request-surface"
-  lake env lean --run BeamTest/LSP/RequestSurfaceTest.lean > /dev/null
+  lake exe beam-lsp-request-surface-test > /dev/null
 }
 
 run_case asyncEditAwait

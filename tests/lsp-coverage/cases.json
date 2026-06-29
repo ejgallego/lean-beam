@@ -1,0 +1,112 @@
+{
+  "cases": [
+    {
+      "id": "runAt.proof-isolation",
+      "method": "$/lean/runAt",
+      "coverage": ["isolation"],
+      "pointer": "tests/interactive/proofBasis.lean"
+    },
+    {
+      "id": "runAt.invalid-position-line",
+      "method": "$/lean/runAt",
+      "coverage": ["invalid-position"],
+      "pointer": "tests/scenario/outOfRangeLine.scn"
+    },
+    {
+      "id": "runAt.invalid-position-character",
+      "method": "$/lean/runAt",
+      "coverage": ["invalid-position"],
+      "pointer": "tests/scenario/outOfRangeCharacter.scn"
+    },
+    {
+      "id": "runAt.stale-edit",
+      "method": "$/lean/runAt",
+      "coverage": ["stale-edit"],
+      "pointer": "tests/scenario/changePending.scn"
+    },
+    {
+      "id": "runAt.cancellation",
+      "method": "$/lean/runAt",
+      "coverage": ["cancellation"],
+      "pointer": "tests/scenario/cancelPending.scn"
+    },
+    {
+      "id": "runAt.mixed-concurrency",
+      "method": "$/lean/runAt",
+      "coverage": ["mixed-concurrency"],
+      "pointer": "tests/lean/BeamTest/LSP/Scenario/StressTest.lean#main"
+    },
+    {
+      "id": "runWith.handle-continuation",
+      "method": "$/lean/runWith",
+      "coverage": ["handle-continuation"],
+      "pointer": "tests/scenario/handleDsl.scn"
+    },
+    {
+      "id": "runWith.handle-invalidation",
+      "method": "$/lean/runWith",
+      "coverage": ["handle-invalidation"],
+      "pointer": "tests/scenario/handleInvalidationDsl.scn"
+    },
+    {
+      "id": "runWith.linear-handle",
+      "method": "$/lean/runWith",
+      "coverage": ["linear-handle"],
+      "pointer": "tests/scenario/handleLinearDsl.scn"
+    },
+    {
+      "id": "releaseHandle.release-and-reject",
+      "method": "$/lean/releaseHandle",
+      "coverage": ["handle-release", "released-handle-rejected"],
+      "pointer": "tests/scenario/handleDsl.scn"
+    },
+    {
+      "id": "goalsAfter.basic",
+      "method": "$/lean/goalsAfter",
+      "coverage": ["isolation", "proof-state"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
+    },
+    {
+      "id": "goalsPrev.basic",
+      "method": "$/lean/goalsPrev",
+      "coverage": ["isolation", "proof-state"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
+    },
+    {
+      "id": "todo.basic-kinds-and-composition",
+      "method": "$/lean/todo",
+      "coverage": ["isolation", "kind-filter", "runAt-composition"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoRequest"
+    },
+    {
+      "id": "todo.diagnostics",
+      "method": "$/lean/todo",
+      "coverage": ["diagnostics"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkComplexTodoDiagnostics"
+    },
+    {
+      "id": "todo.code-action",
+      "method": "$/lean/todo",
+      "coverage": ["code-action"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoCodeActions"
+    },
+    {
+      "id": "saveArtifacts.basic-and-stale",
+      "method": "$/beam/saveArtifacts",
+      "coverage": ["isolation", "stale-version", "stale-hash"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
+    },
+    {
+      "id": "saveReadiness.basic-and-stale",
+      "method": "$/beam/saveReadiness",
+      "coverage": ["isolation", "stale-version", "stale-hash", "document-errors"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
+    },
+    {
+      "id": "directImports.basic",
+      "method": "$/beam/directImports",
+      "coverage": ["isolation"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/DirectImports/BasicTest.lean#checkDirectImports"
+    }
+  ]
+}

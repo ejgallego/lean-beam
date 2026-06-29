@@ -15,7 +15,7 @@ import sys
 
 roots = [pathlib.Path(arg) for arg in sys.argv[1:]] or [
     pathlib.Path("Beam"),
-    pathlib.Path("BeamTest"),
+    pathlib.Path("tests/lean/BeamTest"),
 ]
 
 direct_as_task = re.compile(r"\b(?:IO|BaseIO|EIO)\.asTask\b")

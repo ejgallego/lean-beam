@@ -711,7 +711,7 @@ private def runSaveAndStatsSmoke
   let saveResp ← runClient endpoint {
     op := .saveOlean
     root? := some root.toString
-    path? := some "BeamTest/Fixtures/Deps/DepA.lean"
+    path? := some "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
   }
   let savePayload ← expectOk saveResp
   let saveVersion ← IO.ofExcept <| savePayload.getObjValAs? Nat "version"
