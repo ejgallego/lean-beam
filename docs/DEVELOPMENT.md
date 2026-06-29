@@ -85,6 +85,23 @@ Preferred maintainer entrypoints:
 The compatibility policy is [docs/COMPATIBILITY.md](COMPATIBILITY.md). Development changes that add
 shims, aliases, permissive decoders, or deprecated fields should name the concrete target there.
 
+## Lean LSP Request Families
+
+[Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean) should stay a thin registration module. Each
+request family owns its method constants, JSON payload types, handler, and request-local helpers:
+
+- [Beam/LSP/RunAt.lean](../Beam/LSP/RunAt.lean): `$/lean/runAt`, `$/lean/runWith`, and
+  `$/lean/releaseHandle`; handle state lives under
+  [Beam/LSP/RunAt](../Beam/LSP/RunAt)
+- [Beam/LSP/Goals.lean](../Beam/LSP/Goals.lean): `$/lean/goalsAfter` and `$/lean/goalsPrev`
+- [Beam/LSP/Todo.lean](../Beam/LSP/Todo.lean): `$/lean/todo`
+- [Beam/LSP/Save.lean](../Beam/LSP/Save.lean): broker-only save readiness and artifact requests
+- [Beam/LSP/DirectImports.lean](../Beam/LSP/DirectImports.lean): broker-only direct-import queries
+
+Use `Beam.LSP.Lib.*` only for helpers shared across multiple families, such as request hygiene,
+proof-state projection, diagnostics compatibility, and native shared-library naming. Keep
+feature-specific mutable state in the owning family.
+
 ## Daemon Runtime Safety
 
 The Beam daemon embeds Lean and Lake as libraries. Daemon/importable broker code must treat
@@ -138,7 +155,7 @@ modules that import a runtime accidentally inherit the wrong root-level `main`.
 
 The installed `bin/lean-beam-mcp` wrapper is the normal setup path. It pairs the MCP executable with
 the same installed `beam-cli` and passes `--beam-cli`; `Beam/Mcp/Runtime.lean` then asks
-`beam-cli --root <root> mcp-config` for the project-specific Lean command and runAt plugin after
+`beam-cli --root <root> mcp-config` for the project-specific Lean command and Beam LSP plugin after
 root selection. Keep this resolver as a narrow CLI/MCP setup boundary. Do not duplicate bundle
 selection logic in the MCP server, and do not make MCP clients pass raw plugin paths in normal
 installed use.
@@ -170,9 +187,9 @@ When adding an MCP-facing operation, use this order:
    sync/save barrier input, but it is not a general proof that every operation is semantically ready.
    Setup latency should be attributed to setup phases such as `lean_init_workspace`, not reported as
    a later Lean operation timeout.
-7. Add or update [RunAtTest/Broker/McpProjectionTest.lean](../RunAtTest/Broker/McpProjectionTest.lean)
+7. Add or update [BeamTest/Broker/McpProjectionTest.lean](../BeamTest/Broker/McpProjectionTest.lean)
    for operation-to-broker mapping and result normalization, then update
-   [RunAtTest/Broker/McpProtocolTest.lean](../RunAtTest/Broker/McpProtocolTest.lean) for generated
+   [BeamTest/Broker/McpProtocolTest.lean](../BeamTest/Broker/McpProtocolTest.lean) for generated
    tool schema, lifecycle, root setup, and protocol error-shape expectations.
 8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
    focused MCP test executables, `git diff --check`, and `bash tests/test-beam-fast.sh`.
@@ -190,7 +207,7 @@ policy.
 
 When a CLI command exposes the same Lean operation, add or update its request helper in
 `Beam.Cli.LeanOperation` and keep request-shape parity coverage in
-[RunAtTest/Broker/CliDaemonTest.lean](../RunAtTest/Broker/CliDaemonTest.lean). CLI-only validation,
+[BeamTest/Broker/CliDaemonTest.lean](../BeamTest/Broker/CliDaemonTest.lean). CLI-only validation,
 such as preserving broker-side validation for omitted text arguments, should stay at this projection
 boundary and should not leak into the typed MCP inputs.
 
@@ -386,7 +403,8 @@ support lands, prefer deleting the workaround over preserving compatibility bran
 Current validated support includes Lean `v4.28.0`, which requires two local compatibility shims.
 When support for `v4.28.0` is eventually dropped, re-check and likely simplify these spots:
 
-- `RunAt/Protocol.lean`, `RunAt/Internal/SaveSupport.lean`, and `RunAt/Internal/DirectImports.lean`:
+- `Beam/LSP/RunAt.lean`, `Beam/LSP/Goals.lean`, `Beam/LSP/Todo.lean`,
+  `Beam/LSP/Save.lean`, and `Beam/LSP/DirectImports.lean`:
   `FileSource` instances route through `Lean.Lsp.fileSource p.textDocument` so the same code works
   across the older `FileIdent` return type in `v4.28.0` and the newer `DocumentUri` API.
 - `Beam/Broker/LakeSave.lean`: `hashOfHashable` / `addHashablePureTrace` exist because Lake
@@ -399,9 +417,9 @@ Current validated support spans Lean `v4.29.0` through `v4.31.0`, which requires
 compatibility code. When the support window no longer crosses these API boundaries, re-check and
 likely simplify these spots:
 
-- `RunAt/Requests/Save.lean`: `emitCForSavedModule` selects between the older `Lean.IR.emitC` API and
+- `Beam/LSP/Save.lean`: `emitCForSavedModule` selects between the older `Lean.IR.emitC` API and
   the newer `Lean.Compiler.LCNF.emitC` API.
-- `RunAt/Requests/DiagnosticsCompat.lean`: `collectCurrentDiagnosticsCompat` selects between the
+- `Beam/LSP/Lib/DiagnosticsCompat.lean`: `collectCurrentDiagnosticsCompat` selects between the
   older `EditableDocument.diagnosticsRef` API and the newer
   `EditableDocumentCore.collectCurrentDiagnostics` API.
 - `Beam/Broker/Transport.lean`: the transport uses `Std.Internal.UV.TCP` directly because the async

@@ -19,9 +19,7 @@ structure RegistryEntry where
   daemonId : String
   pid : Nat
   pidNamespace? : Option String := none
-  transport : String := "unix"
   port? : Option Nat := none
-  socket? : Option String := none
   root : String
   configHash : String
   leanCmd? : Option String := none
@@ -51,10 +49,7 @@ def natToPort? (n : Nat) : Option UInt16 :=
   if n < UInt16.size then some n.toUInt16 else none
 
 def registryEndpoint? (entry : RegistryEntry) : Option Transport.Endpoint := do
-  match entry.transport with
-  | "tcp" => (natToPort? =<< entry.port?).map Transport.Endpoint.tcp
-  | "unix" => entry.socket?.map (fun path => Transport.Endpoint.unix (System.FilePath.mk path))
-  | _ => none
+  (natToPort? =<< entry.port?).map Transport.Endpoint.tcp
 
 def endpointFromEntry (entry : RegistryEntry) : IO Transport.Endpoint := do
   match registryEndpoint? entry with

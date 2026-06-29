@@ -10,9 +10,6 @@ import Lean.Data.Lsp.Extra
 import Lean.Data.Lsp.LanguageFeatures
 import Lean.Data.Lsp.Internal
 import Lean.Parser.Module
-import RunAt.Protocol
-import RunAt.Internal.DirectImports
-import RunAt.Internal.SaveSupport
 import Beam.Broker.Config
 import Beam.Broker.DocumentState
 import Beam.Broker.Errors
@@ -26,6 +23,8 @@ import Beam.Broker.Lean
 import Beam.Broker.LakeSave
 import Beam.Broker.Readiness
 import Beam.Broker.SyncSummary
+import Beam.LSP.DirectImports
+import Beam.LSP.Save
 import Beam.Path
 import Std.Sync.Mutex
 
@@ -1170,9 +1169,9 @@ private def fetchSyncSaveReadiness
       textDocument := ({ uri := uri : TextDocumentIdentifier })
       expectedVersion
       expectedTextHash
-      : RunAt.Internal.SaveReadinessParams
+      : Beam.LSP.Save.SaveReadinessParams
     })
-    let readiness : RunAt.Internal.SaveReadinessResult ←
+    let readiness : Beam.LSP.Save.SaveReadinessResult ←
       sendCurrentSessionRequestDecode server session method params
     if readiness.version != expectedVersion then
       throwBrokerFailure {
@@ -1194,9 +1193,9 @@ private def fetchDirectImports
   let method ← requestMethod <| directImportsMethod session.backend
   let params := toJson ({
     textDocument := ({ uri := uri, version? := some version : VersionedTextDocumentIdentifier })
-    : RunAt.Internal.DirectImportsParams
+    : Beam.LSP.DirectImports.DirectImportsParams
   })
-  let result : RunAt.Internal.DirectImportsResult ←
+  let result : Beam.LSP.DirectImports.DirectImportsResult ←
     sendCurrentSessionRequestDecode server session method params
   pure {
     version := result.version
@@ -1303,7 +1302,7 @@ private def saveOlean
     ileanFile := spec.ileanPath.toString
     cFile := spec.cPath.toString
     bcFile? := spec.bcPath?.map (fun bcPath => System.FilePath.toString bcPath)
-    : RunAt.Internal.SaveArtifactsParams
+    : Beam.LSP.Save.SaveArtifactsParams
   })
   let (session, savePromise) ← withCurrentMatchingSession server started.session fun current => do
     let (current, savePromise) ← startRequestJsonTrackedDetailed current method params
@@ -1320,7 +1319,7 @@ private def saveOlean
             some (syncVerdictErrorData syncVerdict)
           else
             err.data?
-  let saveResult : RunAt.Internal.SaveArtifactsResult ← liftHandlerIO <| decodeResponseAs savePending.result
+  let saveResult : Beam.LSP.Save.SaveArtifactsResult ← liftHandlerIO <| decodeResponseAs savePending.result
   if saveResult.version != started.version then
     throw <| Response.error "internalError"
       s!"save_olean saved version {saveResult.version}, expected document version {started.version}"
@@ -1818,8 +1817,6 @@ private def parsePortArg (value : String) : Except String UInt16 := do
 
 private partial def parseCliOptions (opts : CliOptions) : List String → Except String CliOptions
   | [] => pure opts
-  | "--socket" :: socketPath :: rest =>
-      parseCliOptions { opts with endpoint := .unix (System.FilePath.mk socketPath) } rest
   | "--port" :: port :: rest => do
       let port ← parsePortArg port
       parseCliOptions { opts with endpoint := .tcp port } rest

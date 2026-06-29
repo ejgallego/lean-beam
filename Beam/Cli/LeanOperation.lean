@@ -91,8 +91,8 @@ def leanTodoRequest
     (path : String)
     (version : Nat)
     (startLine startCharacter endLine endCharacter : Nat)
-    (kinds? : Option (Array RunAt.TodoKind))
-    (suggest? : Option RunAt.TodoSuggestMode) : Request :=
+    (kinds? : Option (Array Beam.LSP.Todo.TodoKind))
+    (suggest? : Option Beam.LSP.Todo.TodoSuggestMode) : Request :=
   ({
     path
     version

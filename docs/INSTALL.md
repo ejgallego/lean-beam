@@ -134,7 +134,7 @@ The `--root` startup flag accepts absolute paths and paths relative to the serve
 directory. The `lean_init_workspace` tool intentionally accepts only absolute paths so clients do
 not accidentally bind a session to a root interpreted from the server process cwd.
 
-The wrapper resolves the matching installed `beam-cli`, Lean command, and runAt plugin for each
+The wrapper resolves the matching installed `beam-cli`, Lean command, and Beam LSP plugin for each
 project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
 `--lean-plugin` explicitly.
 

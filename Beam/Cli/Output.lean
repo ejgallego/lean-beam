@@ -9,7 +9,7 @@ import Beam.Cli.Args
 import Beam.Cli.RuntimeBundle
 import Beam.JsonPretty
 import Beam.Broker.Client
-import RunAt.Protocol
+import Beam.LSP.RunAt
 
 open Lean
 
@@ -60,7 +60,7 @@ def maybeEmitTextDebug (clientRequestId? : Option String) (action source : Strin
         IO.eprintln <| annotateRunatMessage clientRequestId?
           s!"beam: debug text utf8Hex={utf8Hex bytes}"
 
-def decodeRunAtResult? (resp : Response) : Option RunAt.Result :=
+def decodeRunAtResult? (resp : Response) : Option Beam.LSP.RunAt.Result :=
   match resp.result? with
   | none => none
   | some result =>

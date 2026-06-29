@@ -52,15 +52,7 @@ if ! printf '%s\n' ${supported_toolchains[@]+"${supported_toolchains[@]}"} | gre
   exit 1
 fi
 source_checkout="$tmp_root/source-checkout"
-runat_plugin_shared_lib="$(beam_shared_lib_name runAt_RunAt)"
-
-assert_no_skill_socket_guidance() {
-  local skill_doc="$1"
-  if grep -E -- '--socket|Unix domain socket|unix domain socket' "$skill_doc" > /dev/null; then
-    echo "unexpected socket guidance in installed skill: $skill_doc" >&2
-    exit 1
-  fi
-}
+beam_lsp_plugin_shared_lib="$(beam_shared_lib_name beam_Beam_LSP)"
 
 assert_doctor_contains() {
   local label="$1"
@@ -92,15 +84,15 @@ assert_runtime_layout() {
   local runtime_root="$1"
   assert_file "$runtime_root/Beam.lean"
   assert_file "$runtime_root/Beam/Broker/Server.lean"
-  assert_file "$runtime_root/RunAt/Internal/SaveSupport.lean"
-  assert_file "$runtime_root/RunAt/Internal/DirectImports.lean"
+  assert_file "$runtime_root/Beam/LSP/Save.lean"
+  assert_file "$runtime_root/Beam/LSP/DirectImports.lean"
   assert_file "$runtime_root/supported-lean-toolchains"
   assert_file "$runtime_root/custom-lean-toolchains"
   assert_file "$runtime_root/libexec/beam-cli"
   assert_file "$runtime_root/libexec/beam-daemon"
   assert_file "$runtime_root/libexec/beam-client"
   assert_file "$runtime_root/libexec/lean-beam-mcp"
-  assert_file "$runtime_root/libexec/$runat_plugin_shared_lib"
+  assert_file "$runtime_root/libexec/$beam_lsp_plugin_shared_lib"
   assert_not_exists "$runtime_root/.lake/build"
   assert_file "$runtime_root/bin/lean-beam"
   assert_file "$runtime_root/bin/lean-beam-search"
@@ -239,11 +231,11 @@ assert_bundle_layout() {
     assert_file "$workspace/.lean-beam-bundle-workspace"
     assert_file "$workspace/Beam.lean"
     assert_file "$workspace/Beam/Broker/Server.lean"
-    assert_file "$workspace/RunAt/Internal/SaveSupport.lean"
-    assert_file "$workspace/RunAt/Internal/DirectImports.lean"
+    assert_file "$workspace/Beam/LSP/Save.lean"
+    assert_file "$workspace/Beam/LSP/DirectImports.lean"
     assert_file "$workspace/.lake/build/bin/beam-daemon"
     assert_file "$workspace/.lake/build/bin/beam-client"
-    assert_file "$workspace/.lake/build/lib/$runat_plugin_shared_lib"
+    assert_file "$workspace/.lake/build/lib/$beam_lsp_plugin_shared_lib"
   done
 }
 
@@ -642,7 +634,6 @@ for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-beam/SKILL.md"
   assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
   assert_not_exists "$skills_home/skills/rocq-beam"
-  assert_no_skill_socket_guidance "$skills_home/skills/lean-beam/SKILL.md"
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
@@ -654,8 +645,6 @@ for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
   assert_file "$skills_home/skills/rocq-beam/SKILL.md"
   assert_file "$skills_home/skills/rocq-beam/.lean-beam-skill"
-  assert_no_skill_socket_guidance "$skills_home/skills/lean-beam/SKILL.md"
-  assert_no_skill_socket_guidance "$skills_home/skills/rocq-beam/SKILL.md"
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"

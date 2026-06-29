@@ -199,7 +199,7 @@ def main():
     plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
     lean_cmd = shutil.which("lean") or "lean"
     require(exe.exists(), f"missing lean-beam-mcp executable at {exe}")
-    require(plugin.exists(), f"missing runAt plugin shared library at {plugin}")
+    require(plugin.exists(), f"missing Beam LSP plugin shared library at {plugin}")
 
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-http-") as tmp:
         tmp_path = Path(tmp)

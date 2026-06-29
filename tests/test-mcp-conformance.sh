@@ -81,7 +81,7 @@ start_bridge() {
     --root "$project_root" \
     --server .lake/build/bin/lean-beam-mcp \
     --lean-cmd "$(command -v lean)" \
-    --lean-plugin ".lake/build/lib/$(beam_shared_lib_name runAt_RunAt)" \
+    --lean-plugin ".lake/build/lib/$(beam_shared_lib_name beam_Beam_LSP)" \
     --ready-file "$ready_file" \
     > "$scenario_dir/bridge.stdout" \
     2> "$scenario_dir/bridge.stderr" &
@@ -89,7 +89,7 @@ start_bridge() {
   bridge_url="$(wait_for_ready_url "$ready_file")" || return
 }
 
-run_step "build MCP server" lake build RunAt:shared lean-beam-mcp
+run_step "build MCP server" lake build Beam.LSP:shared lean-beam-mcp
 mkdir -p "$npm_cache"
 
 scenarios="${MCP_CONFORMANCE_SCENARIOS:-server-initialize ping tools-list}"

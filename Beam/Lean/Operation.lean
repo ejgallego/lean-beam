@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Beam.Broker.Protocol
 import Beam.JsonSchema
+import Beam.LSP.Todo
 
 open Lean
 
@@ -120,11 +121,11 @@ private def releaseHandleField : String × Json :=
 
 private def kindsField : String × Json :=
   ("kinds", Beam.JsonSchema.enumStringArray "Todo kinds to include. Omit or pass [] for all kinds."
-    RunAt.TodoKind.allKeys)
+    Beam.LSP.Todo.TodoKind.allKeys)
 
 private def suggestField : String × Json :=
   ("suggest", Beam.JsonSchema.enumString "Suggestion mode for optional run_at_text hints."
-    RunAt.TodoSuggestMode.allKeys)
+    Beam.LSP.Todo.TodoSuggestMode.allKeys)
 
 private def syncFullDiagnosticsField : String × Json :=
   ("full_diagnostics", Beam.JsonSchema.bool
@@ -211,8 +212,8 @@ structure TodoInput where
   startCharacter : Nat
   endLine : Nat
   endCharacter : Nat
-  kinds? : Option (Array RunAt.TodoKind) := none
-  suggest? : Option RunAt.TodoSuggestMode := none
+  kinds? : Option (Array Beam.LSP.Todo.TodoKind) := none
+  suggest? : Option Beam.LSP.Todo.TodoSuggestMode := none
 
 instance : ToJson TodoInput where
   toJson input :=
@@ -239,8 +240,8 @@ instance : FromJson TodoInput where
     let startCharacter ← j.getObjValAs? Nat "start_character"
     let endLine ← j.getObjValAs? Nat "end_line"
     let endCharacter ← j.getObjValAs? Nat "end_character"
-    let kinds? ← optionalField? (α := Array RunAt.TodoKind) j "kinds"
-    let suggest? ← optionalField? (α := RunAt.TodoSuggestMode) j "suggest"
+    let kinds? ← optionalField? (α := Array Beam.LSP.Todo.TodoKind) j "kinds"
+    let suggest? ← optionalField? (α := Beam.LSP.Todo.TodoSuggestMode) j "suggest"
     pure { path, version, startLine, startCharacter, endLine, endCharacter, kinds?, suggest? }
 
 /-- Input for handle-based Lean execution. -/

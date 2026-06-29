@@ -11,7 +11,7 @@ playouts="${1:-100}"
 base_seed="${2:-20260311}"
 output_path="${3:-}"
 
-cmd=(lake exe runAt-search-workload-report "$playouts" "$base_seed")
+cmd=(lake exe beam-lsp-search-workload-report "$playouts" "$base_seed")
 
 if [ -n "$output_path" ]; then
   mkdir -p "$(dirname "$output_path")"

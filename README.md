@@ -190,12 +190,13 @@ Detailed Lean workflow guidance lives in [skills/lean-beam/SKILL.md](skills/lean
 - Use the Beam broker if you want one long-lived local process per project root while keeping a narrower local protocol than raw LSP
 - Use the Lean LSP extension directly if you already own the LSP session and want the smallest typed surface, or if you want to build custom agents doing MCTS or other advanced setups
 
-The public request and response types live in [RunAt/Protocol.lean](RunAt/Protocol.lean). The Lean
-plugin implementation lives in [RunAt/Plugin.lean](RunAt/Plugin.lean).
+The Lean LSP extension lives under [Beam/LSP](Beam/LSP). [Beam/LSP/Plugin.lean](Beam/LSP/Plugin.lean)
+loads the registered LSP extensions, while each request family owns its method constants, payload
+types, handler, and request-local helpers.
 
 ## How The Code Is Organized
 
-- `RunAt`: Lean LSP server plugin providing the `$/lean/runAt` request for speculative execution at arbitrary document points
+- `Beam.LSP`: Lean LSP server plugin providing `$/lean/runAt`, related follow-up handle methods, and the other Beam-owned Lean LSP extensions
 - `Beam`: local broker, daemon/client pair, and CLI wrappers exposing a narrower agent-facing surface over LSP and Beam-specific extensions
 - `skills`: installed Claude/Codex workflow guidance built around `lean-beam`
 - `tests`: scenario-DSL coverage for LSP-level behavior, concurrent stress coverage, broker and wrapper regression suites, and install/runtime validation
