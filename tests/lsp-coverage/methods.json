@@ -1,0 +1,103 @@
+{
+  "methods": [
+    {
+      "method": "$/lean/runAt",
+      "family": "RunAt",
+      "registrySymbol": "Beam.LSP.RunAt.method",
+      "definition": "Beam/LSP/RunAt.lean#method",
+      "requiredCoverage": [
+        "isolation",
+        "invalid-position",
+        "stale-edit",
+        "cancellation",
+        "mixed-concurrency"
+      ]
+    },
+    {
+      "method": "$/lean/runWith",
+      "family": "RunAt",
+      "registrySymbol": "Beam.LSP.RunAt.runWithMethod",
+      "definition": "Beam/LSP/RunAt.lean#runWithMethod",
+      "requiredCoverage": [
+        "handle-continuation",
+        "handle-invalidation",
+        "linear-handle"
+      ]
+    },
+    {
+      "method": "$/lean/releaseHandle",
+      "family": "RunAt",
+      "registrySymbol": "Beam.LSP.RunAt.releaseHandleMethod",
+      "definition": "Beam/LSP/RunAt.lean#releaseHandleMethod",
+      "requiredCoverage": [
+        "handle-release",
+        "released-handle-rejected"
+      ]
+    },
+    {
+      "method": "$/lean/goalsAfter",
+      "family": "Goals",
+      "registrySymbol": "Goals.afterMethod",
+      "definition": "Beam/LSP/Goals.lean#afterMethod",
+      "requiredCoverage": [
+        "isolation",
+        "proof-state"
+      ]
+    },
+    {
+      "method": "$/lean/goalsPrev",
+      "family": "Goals",
+      "registrySymbol": "Goals.prevMethod",
+      "definition": "Beam/LSP/Goals.lean#prevMethod",
+      "requiredCoverage": [
+        "isolation",
+        "proof-state"
+      ]
+    },
+    {
+      "method": "$/lean/todo",
+      "family": "Todo",
+      "registrySymbol": "Todo.method",
+      "definition": "Beam/LSP/Todo.lean#method",
+      "requiredCoverage": [
+        "isolation",
+        "kind-filter",
+        "runAt-composition",
+        "diagnostics",
+        "code-action"
+      ]
+    },
+    {
+      "method": "$/beam/saveArtifacts",
+      "family": "Save",
+      "registrySymbol": "Save.saveArtifactsMethod",
+      "definition": "Beam/LSP/Save.lean#saveArtifactsMethod",
+      "requiredCoverage": [
+        "isolation",
+        "stale-version",
+        "stale-hash"
+      ]
+    },
+    {
+      "method": "$/beam/saveReadiness",
+      "family": "Save",
+      "registrySymbol": "Save.saveReadinessMethod",
+      "definition": "Beam/LSP/Save.lean#saveReadinessMethod",
+      "requiredCoverage": [
+        "isolation",
+        "stale-version",
+        "stale-hash",
+        "document-errors"
+      ]
+    },
+    {
+      "method": "$/beam/directImports",
+      "family": "DirectImports",
+      "registrySymbol": "DirectImports.method",
+      "definition": "Beam/LSP/DirectImports.lean#method",
+      "requiredCoverage": [
+        "isolation"
+      ]
+    }
+  ]
+}

@@ -150,6 +150,6 @@ lean-beam save "Proofs.lean"
 
 If you are working inside the `lean-beam` repo itself, the concrete search patterns live in:
 
-- `BeamTest/LSP/Scenario/MctsProofSearchTest.lean`
-- `BeamTest/LSP/Scenario/SearchWorkloadReport.lean`
+- `tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean`
+- `tests/lean/BeamTest/LSP/Scenario/SearchWorkloadReport.lean`
 - `tests/scenario/handleSearchCancelDsl.scn`

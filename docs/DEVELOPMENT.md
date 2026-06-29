@@ -187,9 +187,9 @@ When adding an MCP-facing operation, use this order:
    sync/save barrier input, but it is not a general proof that every operation is semantically ready.
    Setup latency should be attributed to setup phases such as `lean_init_workspace`, not reported as
    a later Lean operation timeout.
-7. Add or update [BeamTest/Broker/McpProjectionTest.lean](../BeamTest/Broker/McpProjectionTest.lean)
+7. Add or update [tests/lean/BeamTest/Broker/McpProjectionTest.lean](../tests/lean/BeamTest/Broker/McpProjectionTest.lean)
    for operation-to-broker mapping and result normalization, then update
-   [BeamTest/Broker/McpProtocolTest.lean](../BeamTest/Broker/McpProtocolTest.lean) for generated
+   [tests/lean/BeamTest/Broker/McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean) for generated
    tool schema, lifecycle, root setup, and protocol error-shape expectations.
 8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
    focused MCP test executables, `git diff --check`, and `bash tests/test-beam-fast.sh`.
@@ -207,7 +207,7 @@ policy.
 
 When a CLI command exposes the same Lean operation, add or update its request helper in
 `Beam.Cli.LeanOperation` and keep request-shape parity coverage in
-[BeamTest/Broker/CliDaemonTest.lean](../BeamTest/Broker/CliDaemonTest.lean). CLI-only validation,
+[tests/lean/BeamTest/Broker/CliDaemonTest.lean](../tests/lean/BeamTest/Broker/CliDaemonTest.lean). CLI-only validation,
 such as preserving broker-side validation for omitted text arguments, should stay at this projection
 boundary and should not leak into the typed MCP inputs.
 

@@ -137,7 +137,7 @@ private def mkTmpDir (stem : String) : ScenarioM System.FilePath := do
   pure dir
 
 private def checkRunAtOneCommandOnly : ScenarioM Unit := do
-  let doc ← openDoc "BeamTest/Fixtures/Deps/DepA.lean"
+  let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
   syncDoc doc
   requireRunAtFailureMessage "runAt command sequence" doc { line := 8, character := 0 }
     "def runAtOneCommandA : Nat := 1\n\n#check runAtOneCommandA"
@@ -145,7 +145,7 @@ private def checkRunAtOneCommandOnly : ScenarioM Unit := do
   closeDoc doc
 
 private def checkRunAtTheoremProofFailure : ScenarioM Unit := do
-  let doc ← openDoc "BeamTest/Fixtures/Deps/DepA.lean"
+  let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
   syncDoc doc
   requireRunAtFailureMessage "runAt theorem proof failure" doc { line := 8, character := 0 }
     "theorem runAtImpossibleProbe : False := by\n  trivial"
@@ -462,7 +462,7 @@ private def checkComplexTodoRequest : ScenarioM Unit := do
   closeDoc doc
 
 private def checkDirectImportsAndSave : ScenarioM Unit := do
-  let doc ← openDoc "BeamTest/Fixtures/Deps/DepA.lean"
+  let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
 
   let importsReq ← sendDirectImports doc
   let imports : Beam.LSP.DirectImports.DirectImportsResult ← awaitResponseAs importsReq
@@ -486,7 +486,7 @@ private def checkDirectImportsAndSave : ScenarioM Unit := do
   }
   expectErrorContains staleReadinessVersionReq (Json.mkObj [("code", toJson "contentModified")])
 
-  let depAText ← IO.FS.readFile "BeamTest/Fixtures/Deps/DepA.lean"
+  let depAText ← IO.FS.readFile "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
   let staleTextHash := if hash depAText == 0 then 1 else 0
   let staleReadinessHashReq ← sendSaveReadiness doc {
     expectedVersionOverride? := some 1

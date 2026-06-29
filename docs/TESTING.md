@@ -8,6 +8,16 @@ The repository treats testing as three distinct surfaces:
 
 This split is organizational. It is also the supported top-level test layout.
 
+Importable Lean test code lives under [tests/lean/BeamTest](../tests/lean/BeamTest) and is exposed
+to Lake as the `BeamTest` library. The rest of [tests](../tests) contains shell and Python
+entrypoints, scenario scripts, interactive golden inputs, fixture projects, and shared test helper
+scripts.
+
+The LSP surface also has a lightweight coverage registry under
+[tests/lsp-coverage](../tests/lsp-coverage). The registry ties every method registered by
+[Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean) to concrete test pointers and required coverage
+tags such as isolation, stale-edit, cancellation, handle lifecycle, and mixed concurrency.
+
 ## Race-Test Discipline
 
 Race and concurrency regressions should wait for observable state, not for guessed wall-clock
@@ -32,18 +42,20 @@ fixture sentinel instead.
 Primary entrypoint:
 
 - [tests/test-lsp.sh](../tests/test-lsp.sh)
+- [tests/lsp-coverage/check.py](../tests/lsp-coverage/check.py) validates LSP coverage metadata
+  before the executable LSP tests run.
 
 Current LSP coverage includes:
 
-- interactive file-anchored regressions through [tests/interactive](../tests/interactive) and [BeamTest/LSP/TestRunner.lean](../BeamTest/LSP/TestRunner.lean)
-- multi-document and async scenario coverage through [tests/scenario](../tests/scenario) and [BeamTest/LSP/ScenarioRunner.lean](../BeamTest/LSP/ScenarioRunner.lean)
-- programmatic scenario API coverage in [BeamTest/LSP/Scenario/ApiTest.lean](../BeamTest/LSP/Scenario/ApiTest.lean)
-- shuffled concurrent workload coverage in [BeamTest/LSP/Scenario/StressTest.lean](../BeamTest/LSP/Scenario/StressTest.lean)
-- handle API, restart, lifecycle, and nested-failure coverage in [BeamTest/LSP/Handle](../BeamTest/LSP/Handle)
-- full registered LSP request coverage in [BeamTest/LSP/RequestSurfaceTest.lean](../BeamTest/LSP/RequestSurfaceTest.lean), including `$/lean/todo` and `$/lean/runAt` composition
-- search-style handle workflows in [BeamTest/LSP/Scenario/MctsProofSearchTest.lean](../BeamTest/LSP/Scenario/MctsProofSearchTest.lean)
-- parallel multi-sorry workflow coverage in [BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean](../BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean), which queries actionable todos with `$/lean/todo`, validates one `$/lean/runAt` request per returned item, and then mirrors those exact replacements in one atomic batched `didChange`
-- lightweight search-workload latency reporting in [BeamTest/LSP/Scenario/SearchWorkloadReport.lean](../BeamTest/LSP/Scenario/SearchWorkloadReport.lean) and [scripts/search-workload-report.sh](../scripts/search-workload-report.sh)
+- interactive file-anchored regressions through [tests/interactive](../tests/interactive) and [tests/lean/BeamTest/LSP/TestRunner.lean](../tests/lean/BeamTest/LSP/TestRunner.lean)
+- multi-document and async scenario coverage through [tests/scenario](../tests/scenario) and [tests/lean/BeamTest/LSP/ScenarioRunner.lean](../tests/lean/BeamTest/LSP/ScenarioRunner.lean)
+- programmatic scenario API coverage in [tests/lean/BeamTest/LSP/Scenario/ApiTest.lean](../tests/lean/BeamTest/LSP/Scenario/ApiTest.lean)
+- shuffled concurrent workload coverage in [tests/lean/BeamTest/LSP/Scenario/StressTest.lean](../tests/lean/BeamTest/LSP/Scenario/StressTest.lean)
+- handle API, restart, lifecycle, and nested-failure coverage in [tests/lean/BeamTest/LSP/Handle](../tests/lean/BeamTest/LSP/Handle)
+- full registered LSP request coverage in [tests/lean/BeamTest/LSP/RequestSurfaceTest.lean](../tests/lean/BeamTest/LSP/RequestSurfaceTest.lean), including `$/lean/todo` and `$/lean/runAt` composition
+- search-style handle workflows in [tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean](../tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean)
+- parallel multi-sorry workflow coverage in [tests/lean/BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean](../tests/lean/BeamTest/LSP/Scenario/ParallelGrindBatchTest.lean), which queries actionable todos with `$/lean/todo`, validates one `$/lean/runAt` request per returned item, and then mirrors those exact replacements in one atomic batched `didChange`
+- lightweight search-workload latency reporting in [tests/lean/BeamTest/LSP/Scenario/SearchWorkloadReport.lean](../tests/lean/BeamTest/LSP/Scenario/SearchWorkloadReport.lean) and [scripts/search-workload-report.sh](../scripts/search-workload-report.sh)
 
 Run the LSP surface when the change touches request semantics, proof-vs-command basis selection, positions, cancellation, handles, stale snapshots, per-request isolation, or any method in [Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean).
 
@@ -71,7 +83,7 @@ Current Beam coverage includes:
 - zero-build save replay and stale-save race coverage in [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
 - install flow, installed runtime layout, manifest metadata, `supported-toolchains`, `doctor`, and installed MCP wrapper coverage in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
 - MCP protocol, projection, stdio, HTTP bridge, self-check, and external conformance coverage
-- Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [BeamTest/Broker/RocqSmokeTest.lean](../BeamTest/Broker/RocqSmokeTest.lean)
+- Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [tests/lean/BeamTest/Broker/RocqSmokeTest.lean](../tests/lean/BeamTest/Broker/RocqSmokeTest.lean)
 
 Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `supported-toolchains`, save replay, save barriers, MCP, or Rocq integration.
 

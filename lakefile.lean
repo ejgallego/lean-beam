@@ -19,6 +19,7 @@ lean_lib Beam where
   defaultFacets := #[`shared]
 
 lean_lib BeamTest where
+  srcDir := "tests/lean"
 
 lean_exe "beam-lsp-test" where
   root := `BeamTest.LSP.TestRunner
