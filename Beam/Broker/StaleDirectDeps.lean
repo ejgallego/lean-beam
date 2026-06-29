@@ -15,8 +15,8 @@ namespace Beam.Broker
 Data used by the supported sync/readiness path to explain stale direct dependencies after a failed
 diagnostics barrier.
 
-This is intentionally separate from the stopgap `deps` workspace scanner so the real sync recovery
-path does not conceptually depend on the dependency-inspection surface.
+This is intentionally scoped to the sync/readiness recovery path rather than exposed as a standalone
+dependency-inspection surface.
 -/
 
 structure DirectImportsQueryResult where

@@ -630,7 +630,7 @@ private def runWorkerExitSmoke
   }
   expectErrCode staleAfterRestart "contentModified"
 
-private def runHandleAndDepsSmoke
+private def runHandleSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
   let branchPath := "tests/scenario/docs/BranchProof.lean"
@@ -683,16 +683,6 @@ private def runHandleAndDepsSmoke
     text? := some "exact trivial"
   }
   expectErrCode stale "invalidParams"
-  let deps ← expectOk <| ← runClient endpoint {
-    op := .deps
-    root? := some root.toString
-    path? := some "RunAtTest/Deps/DepB.lean"
-  }
-  expectModuleNames deps "imports" ["RunAtTest.Deps.DepC"]
-  expectModuleNames deps "importedBy" ["RunAtTest.Deps.DepA"]
-  expectModuleNames deps "importClosure" ["RunAtTest.Deps.DepC"]
-  expectModuleNames deps "importedByClosure" ["RunAtTest.Deps.DepA"]
-
 private def runSaveAndStatsSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
@@ -720,7 +710,6 @@ private def runSaveAndStatsSmoke
   expectOpCountAtLeast stats "lean" "goals" 2
   expectOpCountAtLeast stats "lean" "run_with" 3
   expectOpCountAtLeast stats "lean" "release" 1
-  expectOpCountAtLeast stats "lean" "deps" 1
   expectOpCountAtLeast stats "lean" "save_olean" 1
   expectBackendMetricAtLeast stats "lean" "cancelledCount" 1
   expectBackendMetricAtLeast stats "lean" "workerExitedCount" 1
@@ -750,7 +739,7 @@ def smokeMain : IO Unit := do
     runRequestAndGoalsSmoke endpoint root
     runCancelSmoke endpoint root
     runWorkerExitSmoke endpoint root
-    runHandleAndDepsSmoke endpoint root
+    runHandleSmoke endpoint root
     runSaveAndStatsSmoke endpoint root
 
     let shutdownResp ← runClient endpoint { op := .shutdown }

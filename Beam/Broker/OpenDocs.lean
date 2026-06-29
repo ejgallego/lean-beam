@@ -5,10 +5,10 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Beam.Broker.Deps
 import Beam.Broker.DocumentState
 import Beam.Broker.LakeSave
 import Beam.Broker.Protocol
+import Beam.Path
 
 open Lean
 open Lean.Lsp
@@ -27,17 +27,6 @@ def docSyncStatus (path : System.FilePath) (docState : DocState) : IO String := 
   else
     let text ← IO.FS.readFile path
     pure <| if hash text == docState.textHash then "saved" else "notSaved"
-
-private def docDepsJson? (root : System.FilePath) (path : System.FilePath) (uri : DocumentUri) :
-    IO (Option Json) := do
-  let some module := normalizeModuleForPath root path uri none
-    | pure none
-  try
-    let state ← mkDepsQueryState root
-    let imports ← requireDirectImports state module.name
-    pure <| some <| Json.arr <| imports.map (importJson root)
-  catch _ =>
-    pure none
 
 private def docSaveFields
     (root : System.FilePath)
@@ -74,20 +63,13 @@ def docJson
     (uri : DocumentUri)
     (docState : DocState) : IO Json := do
   let path? := System.Uri.fileUriToPath? uri
-  let relPath? := workspacePath? root uri
+  let relPath? := Beam.pathRelativeToRootFromUri? root uri
   let status ←
     match path? with
     | some path => docSyncStatus path docState
     | none => pure "unknown"
   let saved := status == "saved"
   let savedOlean := saved && docState.savedOleanVersion? == some docState.version
-  let depsFields ←
-    match backend, path? with
-    | .lean, some path =>
-        match ← docDepsJson? root path uri with
-        | some deps => pure [("deps", deps)]
-        | none => pure []
-    | _, _ => pure []
   let fileProgressFields :=
     match docState.fileProgress? with
     | some fileProgress => [("fileProgress", toJson fileProgress)]
@@ -105,7 +87,6 @@ def docJson
     | some relPath, _ => [("path", toJson relPath)]
     | none, some path => [("path", toJson path.toString)]
     | none, none => []) ++
-    depsFields ++
     saveFields ++
     fileProgressFields
 

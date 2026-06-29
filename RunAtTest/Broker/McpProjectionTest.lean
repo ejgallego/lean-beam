@@ -34,6 +34,32 @@ private def sampleBrokerHandle : Beam.Broker.Handle := {
   raw := toJson ({ value := "raw-handle" } : RunAt.Handle)
 }
 
+private def expectedLeanOperationSurface : Array Beam.Lean.Operation := #[
+  .runAt,
+  .runAtHandle,
+  .hover,
+  .goalsAfter,
+  .goalsPrev,
+  .todo,
+  .runWith,
+  .runWithLinear,
+  .release,
+  .update,
+  .sync,
+  .save,
+  .close
+]
+
+private def requireSameOperationSurface
+    (label : String)
+    (actual expected : Array Beam.Lean.Operation) : IO Unit := do
+  require s!"{label}: expected size {expected.size}, got {actual.size}"
+    (actual.size == expected.size)
+  for op in expected do
+    require s!"{label}: missing operation {repr op}" (actual.contains op)
+  for op in actual do
+    require s!"{label}: unexpected operation {repr op}" (expected.contains op)
+
 private def checkToolNames : IO Unit := do
   let initWorkspace ← expectOk "decode lean_init_workspace" <|
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_init_workspace")
@@ -61,6 +87,9 @@ private def checkToolNames : IO Unit := do
       pure ()
 
 private def checkToolDescriptors : IO Unit := do
+  requireSameOperationSurface "curated Lean operation surface"
+    Beam.Lean.Operation.all
+    expectedLeanOperationSurface
   require "tool descriptor count tracks tool name count"
     (Beam.Mcp.toolDescriptors.size == Beam.Mcp.toolNames.size)
   let mut seenToolKeys : Array String := #[]
@@ -206,9 +235,6 @@ private def checkBrokerRequestAdapters : IO Unit := do
   requireFieldAbsent "runWith input json" "root" (toJson runWithInput)
 
   let pathInput : Beam.Mcp.PathInput := { path := "Demo.lean" }
-  let depsReq ← expectOk "deps tool request" <|
-    Beam.Mcp.ToolName.leanDeps.toBrokerRequest root (toJson pathInput)
-  require "deps op" (depsReq.op == .deps)
   let updateReq ← expectOk "update tool request" <|
     Beam.Mcp.ToolName.leanUpdate.toBrokerRequest root (toJson pathInput)
   require "update op" (updateReq.op == .updateFile)

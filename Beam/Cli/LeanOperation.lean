@@ -104,9 +104,6 @@ def leanTodoRequest
     suggest?
   } : Beam.Lean.TodoInput).toBrokerRequest (rootText root)
 
-def leanDepsRequest (root : System.FilePath) (path : String) : Request :=
-  ({ path } : Beam.Lean.PathInput).toDepsBrokerRequest (rootText root)
-
 def leanCloseRequest (root : System.FilePath) (path : String) : Request :=
   ({ path } : Beam.Lean.PathInput).toCloseBrokerRequest (rootText root)
 

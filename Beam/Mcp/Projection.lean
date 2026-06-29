@@ -45,7 +45,6 @@ def ToolName.leanRunWithLinear : ToolName := .leanOperation .runWithLinear
 def ToolName.leanRelease : ToolName := .leanOperation .release
 def ToolName.leanUpdate : ToolName := .leanOperation .update
 def ToolName.leanSync : ToolName := .leanOperation .sync
-def ToolName.leanDeps : ToolName := .leanOperation .deps
 def ToolName.leanSave : ToolName := .leanOperation .save
 def ToolName.leanClose : ToolName := .leanOperation .close
 

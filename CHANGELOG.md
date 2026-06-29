@@ -16,7 +16,6 @@ Current milestone summary:
 - add a thin broker/client pair for local agent-driven `runAt` and optional Rocq goal workflows without speaking raw LSP directly
 - add minimal optional Rocq broker support through `coq-lsp` only, using `proof/goals` over full-text LSP sync
 - expose Rocq `proof/goals.command` through broker `goals.text` for intermediate-state probing of tactic prefixes such as `a` in `a; b`
-- add a Lean `deps` broker call for workspace dependency-cone planning
 - add `lean-save` / `lean-close-save` as a zero-build save path: serialize current worker artifacts directly and write the Lake module trace without shelling out to `lake build`
 - make `lean-sync` a real diagnostics barrier and return a compact Lean `fileProgress` summary for the synced version
 - add in-memory broker stats with per-backend/per-op counts and latency summaries

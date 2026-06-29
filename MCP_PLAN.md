@@ -1,4 +1,8 @@
-# MCP Plan
+# MCP Architecture Notes
+
+This file records the design direction for the experimental MCP surface. The authoritative current
+status and limitations live in [docs/STATUS.md](docs/STATUS.md); protocol details are enforced by
+the MCP projection and protocol tests.
 
 ## Goal
 
@@ -193,7 +197,6 @@ The current first Lean MCP surface is:
 - `lean_run_with_linear`
 - `lean_release`
 - `lean_sync`
-- `lean_deps`
 - `lean_save`
 - `lean_close`
 

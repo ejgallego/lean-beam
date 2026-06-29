@@ -130,9 +130,10 @@ private def checkToolsListShape : IO Unit := do
     ("lean_update", #["path"]),
     ("lean_sync", #["path"]),
     ("lean_save", #["path"]),
-    ("lean_deps", #["path"]),
     ("lean_close", #["path"])
   ]
+  require "tools/list should expose init workspace plus curated Lean tools"
+    (tools.size == schemaCases.size + 1)
   for (toolName, requiredFields) in schemaCases do
     let tool ← requireTool tools toolName
     let schema ← requireClosedInputSchema s!"{toolName} input schema" tool

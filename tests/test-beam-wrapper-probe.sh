@@ -13,7 +13,6 @@ cd "$(dirname "$0")/.."
 beam_wrapper_init
 
 project_root="$(beam_wrapper_prepare_project_root probe)"
-deps_root="$(beam_wrapper_prepare_project_root probe-deps)"
 
 (
   cd "$project_root"
@@ -352,46 +351,3 @@ if [ "$pid1" != "$pid1_repeat" ] || [ "$port1" != "$port1_repeat" ]; then
   echo "wrapper unexpectedly restarted the Beam daemon for the same project" >&2
   exit 1
 fi
-
-cat >"$deps_root/BrokenHeader.lean" <<'EOF'
-import SaveSmoke.
-EOF
-
-(
-  cd "$deps_root"
-  deps_out="$("$beam_script" deps SaveSmoke/A.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$deps_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected lean-beam deps to succeed despite unrelated broken files" >&2
-    printf '%s\n' "$deps_out" >&2
-    exit 1
-  fi
-  if ! printf '%s\n' "$deps_out" | grep -q '"name": "SaveSmoke.B"'; then
-    echo "expected lean-beam deps imports to include SaveSmoke.B" >&2
-    printf '%s\n' "$deps_out" >&2
-    exit 1
-  fi
-  if ! printf '%s\n' "$deps_out" | grep -q '"name": "SaveSmoke"'; then
-    echo "expected lean-beam deps importedBy to include SaveSmoke" >&2
-    printf '%s\n' "$deps_out" >&2
-    exit 1
-  fi
-
-  stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.active)" != "false" ]; then
-    echo "expected lean-beam deps not to start a live Lean session" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
-  session_starts="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.sessionStarts)"
-  if [ "${session_starts:-0}" -ne 0 ]; then
-    echo "expected lean-beam deps not to start any Lean sessions" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
-  deps_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.deps.count)"
-  if [ "${deps_count:-0}" -lt 1 ]; then
-    echo "expected lean-beam deps stats to record at least one deps request" >&2
-    printf '%s\n' "$stats_out" >&2
-    exit 1
-  fi
-)

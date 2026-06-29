@@ -47,7 +47,6 @@ Supported command families:
 - try one isolated speculative Lean snippet: `lean-beam run-at`
 - continue from one exact speculative state: `lean-beam run-at-handle`, `lean-beam run-with`,
   `lean-beam run-with-linear`, `lean-beam release`
-- inspect direct workspace dependencies: `lean-beam deps`
 - refresh or checkpoint one tracked workspace module: `lean-beam sync`, `lean-beam refresh`,
   `lean-beam save`, `lean-beam close-save`
 - run shell-oriented search loops over the same handle APIs: `lean-beam-search`
@@ -324,7 +323,6 @@ Use this when you are deciding between commands:
 - human after a real saved edit: `lean-beam sync`
 - human checkpointing one synced module: `lean-beam save` or `lean-beam close-save`
 - human diagnosing daemon or save-state trouble: `lean-beam open-files` and `lean-beam doctor`
-- human checking direct workspace dependencies: `lean-beam deps`
 - tooling that wants streamed diagnostics or progress: `beam-client request-stream ...`
 
 ## References

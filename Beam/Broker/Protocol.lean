@@ -28,7 +28,6 @@ inductive Op where
   | close
   | runAt
   | requestAt
-  | deps
   | saveOlean
   | goals
   | todo
@@ -48,7 +47,6 @@ def Op.key : Op → String
   | .close => "close"
   | .runAt => "run_at"
   | .requestAt => "request_at"
-  | .deps => "deps"
   | .saveOlean => "save_olean"
   | .goals => "goals"
   | .todo => "todo"
@@ -71,7 +69,6 @@ instance : FromJson Op where
     | .str "close" => .ok .close
     | .str "run_at" => .ok .runAt
     | .str "request_at" => .ok .requestAt
-    | .str "deps" => .ok .deps
     | .str "save_olean" => .ok .saveOlean
     | .str "goals" => .ok .goals
     | .str "todo" => .ok .todo

@@ -294,11 +294,11 @@ lean-beam reset-stats
 ```
 
 `lean-beam open-files` shows the files currently tracked by the Beam daemon for the current project,
-along with `saved` / `notSaved`, direct Lean deps when available, whether the current synced version
-has been checkpointed with `lean-beam save`, and Lean save preflight fields `saveEligible`,
-`saveReason`, and, when applicable, `saveModule`. For files the Beam daemon already knows about, the
-wrapper checks that status incrementally against the current on-disk text, and `open-files` also
-reports the last compact `fileProgress` observed for that tracked version.
+along with `saved` / `notSaved`, whether the current synced version has been checkpointed with
+`lean-beam save`, and Lean save preflight fields `saveEligible`, `saveReason`, and, when applicable,
+`saveModule`. For files the Beam daemon already knows about, the wrapper checks that status
+incrementally against the current on-disk text, and `open-files` also reports the last compact
+`fileProgress` observed for that tracked version.
 
 Stats are in-memory only and scoped to the current project Beam daemon.
 

@@ -62,7 +62,7 @@ Guidelines:
 Examples:
 
 - `fix: improve refresh and stale dependency recovery`
-- `refactor: move broker workspace deps scanner into its own module`
+- `fix: improve save readiness reporting`
 - `doc: split human-facing README from contributor workflow guidance`
 
 This repository does not yet enforce Lean's `changelog-*` label process, so adopt the message
