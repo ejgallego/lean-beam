@@ -91,7 +91,7 @@ Use [tests/lib/install-fixtures.sh](../tests/lib/install-fixtures.sh) for instal
 fixtures and [tests/lib/tmp-guards.sh](../tests/lib/tmp-guards.sh) for generic shell-test cleanup
 guards. New tests that remove temp paths should declare their expected `/tmp` prefix explicitly and
 use the guard helpers instead of raw `rm -rf`; the helpers also allow the nested
-`/tmp/runat-validate-*/tmp/...` layout used by [scripts/validate-defensive.sh](../scripts/validate-defensive.sh).
+`/tmp/beam-validate-*/tmp/...` layout used by [scripts/validate-defensive.sh](../scripts/validate-defensive.sh).
 
 For slow or offline validation, pre-seed the host elan cache before running installer tests. A
 typical setup is:

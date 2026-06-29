@@ -37,7 +37,7 @@ beam() {
 
 expect_owned_tmp_path() {
   case "$1" in
-    /tmp/runat-save-olean-*|/tmp/tmp.*|/tmp/runat-validate-*/tmp/runat-save-olean-*|/tmp/runat-validate-*/tmp/tmp.*)
+    /tmp/beam-save-olean-*|/tmp/tmp.*|/tmp/beam-validate-*/tmp/beam-save-olean-*|/tmp/beam-validate-*/tmp/tmp.*)
       ;;
     *)
       echo "refusing to touch unexpected path: $1" >&2
@@ -257,22 +257,22 @@ dump_save_sentinel_context() {
   dump_file_tail "save stderr" "$save_err"
 }
 
-tmp1="$(mktemp -d /tmp/runat-save-olean-build-XXXXXX)"
-tmp2="$(mktemp -d /tmp/runat-save-olean-broker-XXXXXX)"
-tmp3="$(mktemp -d /tmp/runat-save-olean-race-XXXXXX)"
-tmp4="$(mktemp -d /tmp/runat-save-olean-cancel-XXXXXX)"
-tmp5="$(mktemp -d /tmp/runat-save-olean-stale-XXXXXX)"
-tmp6="$(mktemp -d /tmp/runat-save-olean-stale-trace-XXXXXX)"
-tmp7="$(mktemp -d /tmp/runat-save-olean-unsupported-setup-XXXXXX)"
-race_sentinel="$(mktemp /tmp/runat-save-olean-race-sentinel-XXXXXX)"
-cancel_sentinel="$(mktemp /tmp/runat-save-olean-cancel-sentinel-XXXXXX)"
-log1="$(mktemp /tmp/runat-save-olean-build-log-XXXXXX)"
-log2="$(mktemp /tmp/runat-save-olean-broker-log-XXXXXX)"
-log3="$(mktemp /tmp/runat-save-olean-race-log-XXXXXX)"
-log4="$(mktemp /tmp/runat-save-olean-exact-log-XXXXXX)"
-log5="$(mktemp /tmp/runat-save-olean-downstream-log-XXXXXX)"
-race_save_out="$(mktemp /tmp/runat-save-olean-race-save-out-XXXXXX)"
-race_save_err="$(mktemp /tmp/runat-save-olean-race-save-err-XXXXXX)"
+tmp1="$(mktemp -d /tmp/beam-save-olean-build-XXXXXX)"
+tmp2="$(mktemp -d /tmp/beam-save-olean-broker-XXXXXX)"
+tmp3="$(mktemp -d /tmp/beam-save-olean-race-XXXXXX)"
+tmp4="$(mktemp -d /tmp/beam-save-olean-cancel-XXXXXX)"
+tmp5="$(mktemp -d /tmp/beam-save-olean-stale-XXXXXX)"
+tmp6="$(mktemp -d /tmp/beam-save-olean-stale-trace-XXXXXX)"
+tmp7="$(mktemp -d /tmp/beam-save-olean-unsupported-setup-XXXXXX)"
+race_sentinel="$(mktemp /tmp/beam-save-olean-race-sentinel-XXXXXX)"
+cancel_sentinel="$(mktemp /tmp/beam-save-olean-cancel-sentinel-XXXXXX)"
+log1="$(mktemp /tmp/beam-save-olean-build-log-XXXXXX)"
+log2="$(mktemp /tmp/beam-save-olean-broker-log-XXXXXX)"
+log3="$(mktemp /tmp/beam-save-olean-race-log-XXXXXX)"
+log4="$(mktemp /tmp/beam-save-olean-exact-log-XXXXXX)"
+log5="$(mktemp /tmp/beam-save-olean-downstream-log-XXXXXX)"
+race_save_out="$(mktemp /tmp/beam-save-olean-race-save-out-XXXXXX)"
+race_save_err="$(mktemp /tmp/beam-save-olean-race-save-err-XXXXXX)"
 save_race_broker_trace="${BEAM_SAVE_RACE_BROKER_TRACE:-1}"
 save_race_watchdog_ms="${BEAM_SAVE_RACE_WAIT_DIAGNOSTICS_WATCHDOG_MS:-10000}"
 
@@ -321,18 +321,18 @@ edit_b "$tmp2"
   cd "$tmp2"
   beam --root "$tmp2" shutdown > /dev/null 2>&1 || true
   save_json="$(beam --root "$tmp2" lean-close-save SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$save_json" python3 - <<'PY'
+  if [ "$(BEAM_JSON_PAYLOAD="$save_json" python3 - <<'PY'
 import json, os
-print(json.loads(os.environ["RUNAT_JSON_PAYLOAD"])["result"]["saved"]["version"])
+print(json.loads(os.environ["BEAM_JSON_PAYLOAD"])["result"]["saved"]["version"])
 PY
 )" != "1" ]; then
     echo "expected lean-close-save to report saved version 1" >&2
     printf '%s\n' "$save_json" >&2
     exit 1
   fi
-  if [ -z "$(RUNAT_JSON_PAYLOAD="$save_json" python3 - <<'PY'
+  if [ -z "$(BEAM_JSON_PAYLOAD="$save_json" python3 - <<'PY'
 import json, os
-print(json.loads(os.environ["RUNAT_JSON_PAYLOAD"])["result"]["saved"]["sourceHash"])
+print(json.loads(os.environ["BEAM_JSON_PAYLOAD"])["result"]["saved"]["sourceHash"])
 PY
 )" ]; then
     echo "expected lean-close-save to report a non-empty sourceHash" >&2
@@ -377,8 +377,8 @@ fi
 (
   cd "$tmp7"
   beam --root "$tmp7" shutdown > /dev/null 2>&1 || true
-  unsupported_save_out="$(mktemp /tmp/runat-save-olean-unsupported-save-out-XXXXXX)"
-  unsupported_save_err="$(mktemp /tmp/runat-save-olean-unsupported-save-err-XXXXXX)"
+  unsupported_save_out="$(mktemp /tmp/beam-save-olean-unsupported-save-out-XXXXXX)"
+  unsupported_save_err="$(mktemp /tmp/beam-save-olean-unsupported-save-err-XXXXXX)"
   if beam --root "$tmp7" lean-save SetupSensitive/NeedsBatch.lean \
       >"$unsupported_save_out" 2>"$unsupported_save_err"; then
     echo "expected lean-save to reject modules with unsupported Lake setup" >&2
@@ -451,8 +451,8 @@ edit_b_slow "$tmp4"
 (
   cd "$tmp4"
   beam --root "$tmp4" shutdown > /dev/null 2>&1 || true
-  close_out="$(mktemp /tmp/runat-close-save-cancel-out-XXXXXX)"
-  close_err="$(mktemp /tmp/runat-close-save-cancel-err-XXXXXX)"
+  close_out="$(mktemp /tmp/beam-close-save-cancel-out-XXXXXX)"
+  close_err="$(mktemp /tmp/beam-close-save-cancel-err-XXXXXX)"
   remove_owned_tmp_file "$cancel_sentinel"
   LEAN_BEAM_BROKER_TRACE="$save_race_broker_trace" \
     LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS="$save_race_watchdog_ms" \
@@ -503,8 +503,8 @@ edit_b_slow "$tmp4"
   beam --root "$tmp6" ensure lean > /dev/null
   beam --root "$tmp6" lean-sync SaveSmoke/A.lean > /dev/null
   edit_b "$tmp6"
-  save_out="$(mktemp /tmp/runat-stale-trace-save-out-XXXXXX)"
-  save_err="$(mktemp /tmp/runat-stale-trace-save-err-XXXXXX)"
+  save_out="$(mktemp /tmp/beam-stale-trace-save-out-XXXXXX)"
+  save_err="$(mktemp /tmp/beam-stale-trace-save-err-XXXXXX)"
   if beam --root "$tmp6" lean-save SaveSmoke/A.lean >"$save_out" 2>"$save_err"; then
     echo "expected lean-save to reject an importer whose Lake save trace is stale" >&2
     cat "$save_out" >&2
@@ -536,10 +536,10 @@ printf 'def bVal : Nat := "broken"\n' > "$tmp5/SaveSmoke/B.lean"
   cd "$tmp5"
   beam --root "$tmp5" shutdown > /dev/null 2>&1 || true
   beam --root "$tmp5" ensure lean > /dev/null
-  sync_out="$(mktemp /tmp/runat-stale-sync-out-XXXXXX)"
-  sync_err="$(mktemp /tmp/runat-stale-sync-err-XXXXXX)"
-  save_out="$(mktemp /tmp/runat-stale-save-out-XXXXXX)"
-  save_err="$(mktemp /tmp/runat-stale-save-err-XXXXXX)"
+  sync_out="$(mktemp /tmp/beam-stale-sync-out-XXXXXX)"
+  sync_err="$(mktemp /tmp/beam-stale-sync-err-XXXXXX)"
+  save_out="$(mktemp /tmp/beam-stale-save-out-XXXXXX)"
+  save_err="$(mktemp /tmp/beam-stale-save-err-XXXXXX)"
   BEAM_PROGRESS=1 BEAM_REQUEST_ID=concurrent-stale-sync \
     beam --root "$tmp5" lean-sync SaveSmoke/A.lean >"$sync_out" 2>"$sync_err" &
   sync_pid=$!

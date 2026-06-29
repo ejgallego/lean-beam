@@ -103,20 +103,20 @@ expect_sigint_cancelled() {
   local expected_client_request_id="$4"
   local payload
   payload="$(cat "$out_path")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$payload" read_json_text_field error.code)" != "requestCancelled" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$payload" read_json_text_field error.code)" != "requestCancelled" ]; then
     echo "expected $label to report requestCancelled" >&2
     printf '%s\n' "$payload" >&2
     cat "$err_path" >&2
     exit 1
   fi
   if [ -n "$expected_client_request_id" ]; then
-    if [ "$(RUNAT_JSON_PAYLOAD="$payload" read_json_text_field clientRequestId)" != "$expected_client_request_id" ]; then
+    if [ "$(BEAM_JSON_PAYLOAD="$payload" read_json_text_field clientRequestId)" != "$expected_client_request_id" ]; then
       echo "expected $label to preserve explicit clientRequestId" >&2
       printf '%s\n' "$payload" >&2
       cat "$err_path" >&2
       exit 1
     fi
-  elif [ -n "$(RUNAT_JSON_PAYLOAD="$payload" read_json_text_field clientRequestId)" ]; then
+  elif [ -n "$(BEAM_JSON_PAYLOAD="$payload" read_json_text_field clientRequestId)" ]; then
     echo "expected $label to hide generated clientRequestId" >&2
     printf '%s\n' "$payload" >&2
     cat "$err_path" >&2
@@ -193,7 +193,7 @@ fi
   expect_sigint_cancelled "anonymous wrapper SIGINT path" "$interrupt_anon_out" "$interrupt_anon_err" ""
 
   post_interrupt_hover="$("$beam_script" --root "$signal_root" lean-hover tests/scenario/docs/CommandA.lean "$command_version" 0 4)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$post_interrupt_hover" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$post_interrupt_hover" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper SIGINT cancellation to preserve the isolated Beam daemon session" >&2
     printf '%s\n' "$post_interrupt_hover" >&2
     exit 1
@@ -344,7 +344,7 @@ PY
   fi
 
   duplicate_json="$(cat "$duplicate_out")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$duplicate_json" read_json_text_field error.code)" != "invalidParams" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$duplicate_json" read_json_text_field error.code)" != "invalidParams" ]; then
     echo "expected duplicate active BEAM_REQUEST_ID wrapper request to report invalidParams" >&2
     printf '%s\n' "$duplicate_json" >&2
     cat "$duplicate_err" >&2
@@ -352,7 +352,7 @@ PY
     wait "$duplicate_slow_pid" 2>/dev/null || true
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$duplicate_json" read_json_text_field clientRequestId)" != "wrapper-duplicate-active" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$duplicate_json" read_json_text_field clientRequestId)" != "wrapper-duplicate-active" ]; then
     echo "expected duplicate active BEAM_REQUEST_ID wrapper response to echo clientRequestId" >&2
     printf '%s\n' "$duplicate_json" >&2
     cat "$duplicate_err" >&2
@@ -370,7 +370,7 @@ PY
   fi
 
   cancel_json="$("$beam_script" --root "$signal_root" cancel wrapper-duplicate-active)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$cancel_json" read_json_text_field result.cancelled)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$cancel_json" read_json_text_field result.cancelled)" != "true" ]; then
     echo "expected duplicate active BEAM_REQUEST_ID cancel to report cancelled=true" >&2
     printf '%s\n' "$cancel_json" >&2
     cat "$duplicate_slow_out" >&2
@@ -390,14 +390,14 @@ PY
   fi
 
   duplicate_slow_json="$(cat "$duplicate_slow_out")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$duplicate_slow_json" read_json_text_field error.code)" != "requestCancelled" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$duplicate_slow_json" read_json_text_field error.code)" != "requestCancelled" ]; then
     echo "expected cancelled duplicate active slow wrapper request to report requestCancelled" >&2
     printf '%s\n' "$duplicate_slow_json" >&2
     cat "$duplicate_slow_err" >&2
     exit 1
   fi
   stats_out="$("$beam_script" --root "$signal_root" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.invalidParamsCount)" -lt 1 ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.invalidParamsCount)" -lt 1 ]; then
     echo "expected duplicate active BEAM_REQUEST_ID wrapper conflict to increment invalidParamsCount" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
@@ -443,7 +443,7 @@ fi
   "$beam_script" ensure lean > /dev/null
   warm_version="$(beam_wrapper_update_version "busy-port SaveSmoke/B.lean" "$beam_script" lean-update SaveSmoke/B.lean)"
   warm_out="$("$beam_script" lean-run-at SaveSmoke/B.lean "$warm_version" 0 2 "#eval bVal")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$warm_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$warm_out" read_json_text_field ok)" != "true" ]; then
     echo "expected busy-port warmup probe to succeed before reuse check" >&2
     printf '%s\n' "$warm_out" >&2
     exit 1
@@ -474,18 +474,18 @@ sleep 1
   fi
   sed_in_place_portable 's/1/2/' SaveSmoke/B.lean
   sync_out="$("$beam_script" --port "$busy_port" lean-sync SaveSmoke/B.lean)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
     echo "expected lean-sync with a busy requested port to reuse the live Beam daemon" >&2
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$sync_out" read_json_text_field result.version)" != "2" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field result.version)" != "2" ]; then
     echo "expected busy-port lean-sync reuse path to report version 2" >&2
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
     echo "expected stats to keep working after busy-port lean-sync reuse" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1

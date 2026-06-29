@@ -165,7 +165,7 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         | some path => pure <| System.FilePath.mk path
         | none =>
             let roots ← installBundleCacheRoots
-            pure <| roots.headD (runAtStateDir home / installBundlesDirName)
+            pure <| roots.headD (beamStateDir home / installBundlesDirName)
       let _ ← ensureToolchainBundleIn cacheRoot home toolchain
       pure ()
   | "supported-toolchains" :: backend :: [] =>

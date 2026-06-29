@@ -48,26 +48,26 @@ fi
 
   cmd_err="$(beam_wrapper_mktemp_file progress)"
   cmd_out="$(BEAM_PROGRESS=1 "$beam_script" lean-run-at CommandA.lean "$command_version" 0 2 "#check answerA" 2>"$cmd_err")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$cmd_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-run-at to succeed" >&2
     printf '%s\n' "$cmd_out" >&2
     cat "$cmd_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field result.success)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$cmd_out" read_json_text_field result.success)" != "true" ]; then
     echo "expected wrapper lean-run-at payload success" >&2
     printf '%s\n' "$cmd_out" >&2
     cat "$cmd_err" >&2
     exit 1
   fi
-  run_at_progress_done="$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field fileProgress.done)"
+  run_at_progress_done="$(BEAM_JSON_PAYLOAD="$cmd_out" read_json_text_field fileProgress.done)"
   if [ "$run_at_progress_done" != "true" ] && [ "$run_at_progress_done" != "false" ]; then
     echo "expected wrapper lean-run-at to expose top-level fileProgress" >&2
     printf '%s\n' "$cmd_out" >&2
     cat "$cmd_err" >&2
     exit 1
   fi
-  if [ -n "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field clientRequestId)" ]; then
+  if [ -n "$(BEAM_JSON_PAYLOAD="$cmd_out" read_json_text_field clientRequestId)" ]; then
     echo "expected anonymous wrapper lean-run-at to hide generated clientRequestId" >&2
     printf '%s\n' "$cmd_out" >&2
     cat "$cmd_err" >&2
@@ -123,17 +123,17 @@ fi
   esac
 
   multiline_stdin_out="$(printf 'def stdinProbe : Nat :=\n  42' | "$beam_script" lean-run-at PositionEmptyLine.lean "$position_empty_version" 1 0 --stdin)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_stdin_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$multiline_stdin_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-run-at --stdin probe to succeed" >&2
     printf '%s\n' "$multiline_stdin_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_stdin_out" read_json_text_field result.success)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$multiline_stdin_out" read_json_text_field result.success)" != "true" ]; then
     echo "expected wrapper lean-run-at --stdin payload success" >&2
     printf '%s\n' "$multiline_stdin_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_stdin_out" read_json_array_len result.messages)" != "0" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$multiline_stdin_out" read_json_array_len result.messages)" != "0" ]; then
     echo "expected wrapper lean-run-at --stdin multiline declaration to produce no messages" >&2
     printf '%s\n' "$multiline_stdin_out" >&2
     exit 1
@@ -142,24 +142,24 @@ fi
   probe_text_file="multiline-probe.lean"
   printf 'def fileProbe : Nat :=\n  42' > "$probe_text_file"
   multiline_file_out="$("$beam_script" lean-run-at PositionEmptyLine.lean "$position_empty_version" 1 0 --text-file "$probe_text_file")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_file_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$multiline_file_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-run-at --text-file probe to succeed" >&2
     printf '%s\n' "$multiline_file_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_file_out" read_json_text_field result.success)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$multiline_file_out" read_json_text_field result.success)" != "true" ]; then
     echo "expected wrapper lean-run-at --text-file payload success" >&2
     printf '%s\n' "$multiline_file_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$multiline_file_out" read_json_array_len result.messages)" != "0" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$multiline_file_out" read_json_array_len result.messages)" != "0" ]; then
     echo "expected wrapper lean-run-at --text-file multiline declaration to produce no messages" >&2
     printf '%s\n' "$multiline_file_out" >&2
     exit 1
   fi
 
   delimiter_out="$("$beam_script" lean-run-at PositionEmptyLine.lean "$position_empty_version" 1 0 -- $'--stdin\n#check answer')"
-  if [ "$(RUNAT_JSON_PAYLOAD="$delimiter_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$delimiter_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-run-at -- delimiter path to treat leading --stdin as text" >&2
     printf '%s\n' "$delimiter_out" >&2
     exit 1
@@ -172,7 +172,7 @@ fi
 
   debug_text_err="$(beam_wrapper_mktemp_file debug-text)"
   debug_text_out="$(printf 'def debugProbe : Nat :=\n  42' | BEAM_DEBUG_TEXT=1 "$beam_script" lean-run-at PositionEmptyLine.lean "$position_empty_version" 1 0 --stdin 2>"$debug_text_err")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$debug_text_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$debug_text_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper debug-text probe to succeed" >&2
     printf '%s\n' "$debug_text_out" >&2
     cat "$debug_text_err" >&2
@@ -206,13 +206,13 @@ fi
 
   literal_newline_err="$(beam_wrapper_mktemp_file literal-newline)"
   literal_newline_out="$("$beam_script" lean-run-at PositionEmptyLine.lean "$position_empty_version" 1 0 'def _probe_tmp : Nat := 0\n' 2>"$literal_newline_err")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$literal_newline_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$literal_newline_out" read_json_text_field ok)" != "true" ]; then
     printf '%s\n' "expected wrapper literal-\\n probe to stay a payload failure, not a transport error" >&2
     printf '%s\n' "$literal_newline_out" >&2
     cat "$literal_newline_err" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$literal_newline_out" read_json_text_field result.success)" != "false" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$literal_newline_out" read_json_text_field result.success)" != "false" ]; then
     printf '%s\n' "expected wrapper literal-\\n probe to fail in the run-at payload" >&2
     printf '%s\n' "$literal_newline_out" >&2
     cat "$literal_newline_err" >&2
@@ -228,7 +228,7 @@ fi
     cat "$literal_newline_err" >&2
     exit 1
   fi
-  if [ -n "$(RUNAT_JSON_PAYLOAD="$literal_newline_out" read_json_text_field clientRequestId)" ]; then
+  if [ -n "$(BEAM_JSON_PAYLOAD="$literal_newline_out" read_json_text_field clientRequestId)" ]; then
     printf '%s\n' "expected wrapper literal-\\n probe to hide generated clientRequestId" >&2
     printf '%s\n' "$literal_newline_out" >&2
     cat "$literal_newline_err" >&2
@@ -241,7 +241,7 @@ fi
   fi
 
   blank_ok_out="$("$beam_script" lean-run-at PositionEmptyLine.lean "$position_empty_version" 1 0 "#check answer")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$blank_ok_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$blank_ok_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper blank-line probe at character 0 to succeed" >&2
     printf '%s\n' "$blank_ok_out" >&2
     exit 1
@@ -270,7 +270,7 @@ fi
   fi
 
   utf16_ok_out="$("$beam_script" lean-run-at PositionUtf16.lean "$position_utf16_version" 1 5 "#check Nat")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$utf16_ok_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$utf16_ok_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper UTF-16 boundary probe to succeed" >&2
     printf '%s\n' "$utf16_ok_out" >&2
     exit 1
@@ -294,12 +294,12 @@ fi
   fi
 
   stats_out="$("$beam_script" stats)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper stats to succeed" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
-  run_at_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.run_at.count)"
+  run_at_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.run_at.count)"
   if [ "${run_at_count:-0}" -lt 1 ]; then
     echo "expected wrapper stats to record at least one run_at request" >&2
     printf '%s\n' "$stats_out" >&2
@@ -307,7 +307,7 @@ fi
   fi
 
   hover_out="$("$beam_script" lean-hover CommandA.lean "$command_version" 0 4)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$hover_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$hover_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-hover probe to succeed" >&2
     printf '%s\n' "$hover_out" >&2
     exit 1
@@ -319,37 +319,37 @@ fi
   fi
 
   goals_prev_out="$("$beam_script" lean-goals-prev GoalSmoke.lean "$goal_version" 1 2)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_prev_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$goals_prev_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-goals-prev probe to succeed" >&2
     printf '%s\n' "$goals_prev_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_prev_out" read_json_text_field result.goals.0.target)" != "True" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$goals_prev_out" read_json_text_field result.goals.0.target)" != "True" ]; then
     echo "expected wrapper lean-goals-prev probe to expose the open True goal" >&2
     printf '%s\n' "$goals_prev_out" >&2
     exit 1
   fi
 
   goals_after_out="$("$beam_script" lean-goals-after GoalSmoke.lean "$goal_version" 1 2)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_after_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$goals_after_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-goals-after probe to succeed" >&2
     printf '%s\n' "$goals_after_out" >&2
     exit 1
   fi
-  if [ "$(RUNAT_JSON_PAYLOAD="$goals_after_out" read_json_array_len result.goals)" != "0" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$goals_after_out" read_json_array_len result.goals)" != "0" ]; then
     echo "expected wrapper lean-goals-after probe to expose no remaining goals" >&2
     printf '%s\n' "$goals_after_out" >&2
     exit 1
   fi
 
   stats_out="$("$beam_script" stats)"
-  request_at_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.request_at.count)"
+  request_at_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.request_at.count)"
   if [ "${request_at_count:-0}" -lt 1 ]; then
     echo "expected wrapper stats to record at least one request_at-backed hover request" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
-  goals_count="$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.goals.count)"
+  goals_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.goals.count)"
   if [ "${goals_count:-0}" -lt 2 ]; then
     echo "expected wrapper stats to record at least two goals requests" >&2
     printf '%s\n' "$stats_out" >&2
@@ -357,7 +357,7 @@ fi
   fi
 
   references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$beam_script" lean-request-at CommandA.lean "$command_version" 0 4 textDocument/references -)"
-  if [ "$(RUNAT_JSON_PAYLOAD="$references_out" read_json_text_field ok)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$references_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-request-at references probe from stdin json to succeed" >&2
     printf '%s\n' "$references_out" >&2
     exit 1

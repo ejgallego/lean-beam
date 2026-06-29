@@ -64,7 +64,7 @@ PY
 read_json_text_field() {
   python3 - "$1" <<'PY'
 import json, os, sys
-payload = json.loads(os.environ["RUNAT_JSON_PAYLOAD"])
+payload = json.loads(os.environ["BEAM_JSON_PAYLOAD"])
 path = sys.argv[1]
 if path == "ok" and "ok" not in payload:
     print("false" if payload.get("error") is not None else "true")
@@ -91,7 +91,7 @@ PY
 json_text_has_field() {
   python3 - "$1" <<'PY'
 import json, os, sys
-payload = json.loads(os.environ["RUNAT_JSON_PAYLOAD"])
+payload = json.loads(os.environ["BEAM_JSON_PAYLOAD"])
 value = payload
 try:
     for part in sys.argv[1].split("."):
@@ -117,7 +117,7 @@ sed_in_place_portable() {
 read_json_array_len() {
   python3 - "$1" <<'PY'
 import json, os, sys
-payload = json.loads(os.environ["RUNAT_JSON_PAYLOAD"])
+payload = json.loads(os.environ["BEAM_JSON_PAYLOAD"])
 value = payload
 for part in sys.argv[1].split("."):
     if isinstance(value, list):
@@ -131,25 +131,25 @@ PY
 json_text_field() {
   local payload="$1"
   local field="$2"
-  RUNAT_JSON_PAYLOAD="$payload" read_json_text_field "$field"
+  BEAM_JSON_PAYLOAD="$payload" read_json_text_field "$field"
 }
 
 json_array_len() {
   local payload="$1"
   local field="$2"
-  RUNAT_JSON_PAYLOAD="$payload" read_json_array_len "$field"
+  BEAM_JSON_PAYLOAD="$payload" read_json_array_len "$field"
 }
 
 json_file_text_field() {
   local payload_file="$1"
   local field="$2"
-  RUNAT_JSON_PAYLOAD="$(cat "$payload_file")" read_json_text_field "$field"
+  BEAM_JSON_PAYLOAD="$(cat "$payload_file")" read_json_text_field "$field"
 }
 
 json_file_array_len() {
   local payload_file="$1"
   local field="$2"
-  RUNAT_JSON_PAYLOAD="$(cat "$payload_file")" read_json_array_len "$field"
+  BEAM_JSON_PAYLOAD="$(cat "$payload_file")" read_json_array_len "$field"
 }
 
 beam_wrapper_command_version() {
@@ -249,7 +249,7 @@ assert_json_field_absent() {
   local payload="$2"
   local field="$3"
   shift 3
-  if RUNAT_JSON_PAYLOAD="$payload" json_text_has_field "$field"; then
+  if BEAM_JSON_PAYLOAD="$payload" json_text_has_field "$field"; then
     echo "expected $label to omit $field" >&2
     print_json_payload_assertion_context "$payload" "$@"
     exit 1
@@ -316,7 +316,7 @@ assert_json_completed_file_progress() {
   assert_json_field_absent "$label" "$payload" "$prefix.rangeStartLine" "$@"
   assert_json_field_absent "$label" "$payload" "$prefix.line" "$@"
   assert_json_field_absent "$label" "$payload" "$prefix.totalLines" "$@"
-  if RUNAT_JSON_PAYLOAD="$payload" json_text_has_field "$prefix.rangeEndLine"; then
+  if BEAM_JSON_PAYLOAD="$payload" json_text_has_field "$prefix.rangeEndLine"; then
     assert_json_field_int_ge "$label" "$payload" "$prefix.rangeEndLine" 1 "$@"
   fi
 }
@@ -348,7 +348,7 @@ assert_json_file_field_absent() {
   local payload_file="$2"
   local field="$3"
   shift 3
-  if RUNAT_JSON_PAYLOAD="$(cat "$payload_file")" json_text_has_field "$field"; then
+  if BEAM_JSON_PAYLOAD="$(cat "$payload_file")" json_text_has_field "$field"; then
     echo "expected $label to omit $field" >&2
     print_json_file_assertion_context "$payload_file" "$@"
     exit 1

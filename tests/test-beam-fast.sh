@@ -12,7 +12,19 @@ bash scripts/check-daemon-safety.sh
 bash scripts/check-task-priority.sh
 bash scripts/check-markdown-links.sh
 
-lake build \
+run_quiet_lake_build() {
+  local log
+  log="$(mktemp /tmp/beam-fast-build-log-XXXXXX)"
+  # Keep successful CI logs compact, but print the full Lake output when the build fails.
+  if ! lake build "$@" > "$log" 2>&1; then
+    cat "$log" >&2
+    rm -f "$log"
+    return 1
+  fi
+  rm -f "$log"
+}
+
+run_quiet_lake_build \
   Beam.LSP:shared \
   beam-cli \
   beam-daemon \
@@ -30,8 +42,7 @@ lake build \
   beam-daemon-startup-handshake-test \
   beam-cli-daemon-test \
   beam-mcp-projection-test \
-  beam-mcp-protocol-test \
-  > /dev/null
+  beam-mcp-protocol-test
 
 .lake/build/bin/beam-broker-protocol-test > /dev/null
 .lake/build/bin/beam-broker-pending-test > /dev/null

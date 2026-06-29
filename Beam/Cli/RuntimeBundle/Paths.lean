@@ -55,7 +55,7 @@ def ensureLeanBundleExists (paths : BundlePaths) : IO Unit := do
   ensureBundleExists paths
   ensurePathExists "Beam LSP plugin" paths.plugin
 
-def runAtStateDirName : String :=
+def beamStateDirName : String :=
   ".beam"
 
 def installBundlesDirName : String :=
@@ -64,11 +64,11 @@ def installBundlesDirName : String :=
 def runtimeBundlesDirName : String :=
   "bundles"
 
-def runAtStateDir (root : System.FilePath) : System.FilePath :=
-  root / runAtStateDirName
+def beamStateDir (root : System.FilePath) : System.FilePath :=
+  root / beamStateDirName
 
 def skillInstallBundleCacheRoot (agentHome : System.FilePath) : System.FilePath :=
-  agentHome / "skills" / "lean-beam" / runAtStateDirName / installBundlesDirName
+  agentHome / "skills" / "lean-beam" / beamStateDirName / installBundlesDirName
 
 def defaultEnvPath (name : String) (fallback : System.FilePath) : IO System.FilePath := do
   match ← IO.getEnv name with
@@ -95,7 +95,7 @@ def installBundleCacheRoots : IO (List System.FilePath) := do
 def runtimeBundleCacheRoot (root : System.FilePath) : IO System.FilePath := do
   match ← IO.getEnv "BEAM_BUNDLE_DIR" with
   | some path => pure (System.FilePath.mk path)
-  | none => pure (runAtStateDir root / runtimeBundlesDirName)
+  | none => pure (beamStateDir root / runtimeBundlesDirName)
 
 def supportedLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
   home / "supported-lean-toolchains"

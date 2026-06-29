@@ -469,7 +469,7 @@ private def checkRuntimeBundleHelpers : IO Unit := do
   require "bundle plugin path should live under workspace build lib"
     (paths.plugin.toString.startsWith (workspace / ".lake" / "build" / "lib").toString)
   require "state directory should remain the public .beam path"
-    (Beam.Cli.runAtStateDir (System.FilePath.mk "/tmp/project") == System.FilePath.mk "/tmp/project" / ".beam")
+    (Beam.Cli.beamStateDir (System.FilePath.mk "/tmp/project") == System.FilePath.mk "/tmp/project" / ".beam")
 
   let metadata := Beam.Cli.bundleMetadataJson
     "leanprover/lean4:v4.30.0"

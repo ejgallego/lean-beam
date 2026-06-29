@@ -12,16 +12,16 @@
 . tests/lib/tmp-guards.sh
 
 expect_owned_tmp_dir() {
-  beam_test_expect_owned_tmp_dir "$1" runat-install
+  beam_test_expect_owned_tmp_dir "$1" beam-install
 }
 
 expect_path_within_tmp_root() {
-  beam_test_expect_path_within_owned_tmp_dir "$1" "$tmp_root" runat-install
+  beam_test_expect_path_within_owned_tmp_dir "$1" "$tmp_root" beam-install
 }
 
 remove_tmp_tree() {
   local path="$1"
-  beam_test_remove_tmp_tree_within_owned_tmp_dir "$path" "$tmp_root" runat-install
+  beam_test_remove_tmp_tree_within_owned_tmp_dir "$path" "$tmp_root" beam-install
 }
 
 remove_tmp_file() {

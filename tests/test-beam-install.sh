@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 BEAM_TEST_SUITE="${BEAM_TEST_SUITE:-install}"
 BEAM_INSTALL_TEST_PRESEED_ELAN="${BEAM_INSTALL_TEST_PRESEED_ELAN:-auto}"
 
-tmp_root="$(mktemp -d /tmp/runat-install-XXXXXX)"
+tmp_root="$(mktemp -d /tmp/beam-install-XXXXXX)"
 host_elan_home="${ELAN_HOME:-}"
 if [ -z "$host_elan_home" ] && [ -d "$HOME/.elan" ]; then
   host_elan_home="$HOME/.elan"

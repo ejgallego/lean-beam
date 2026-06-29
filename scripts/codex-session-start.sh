@@ -15,7 +15,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   exit 1
 }
 
-TOOL_LOG="${RUNAT_CODEX_TOOL_LOG:-${REPO_ROOT}/.beam/tooling.log}"
+TOOL_LOG="${BEAM_CODEX_TOOL_LOG:-${REPO_ROOT}/.beam/tooling.log}"
 
 log_tool_use() {
   mkdir -p "$(dirname "${TOOL_LOG}")"
@@ -56,7 +56,7 @@ main() {
   branch="$(current_branch)"
   tracked_dirty="$(tracked_dirty_count)"
 
-  if [[ "${RUNAT_CODEX_ALLOW_PRIMARY_WORKTREE:-0}" != "1" && "${current}" == "${primary}" ]]; then
+  if [[ "${BEAM_CODEX_ALLOW_PRIMARY_WORKTREE:-0}" != "1" && "${current}" == "${primary}" ]]; then
     die "refusing to start a new Codex task from the primary checkout ${primary}; use ./scripts/codex-harness.sh session start <task-id> instead"
   fi
 
