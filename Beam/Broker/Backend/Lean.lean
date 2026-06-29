@@ -33,7 +33,7 @@ def command (config : BrokerConfig) : IO (String × Array String × Array (Strin
   pure (
     cmd,
     #["--server"] ++ lakeEnv.moreServerArgs ++
-      #[s!"--plugin={plugin}", "-DstderrAsMessages=false", "-Dexperimental.module=true"],
+      #[s!"--plugin={plugin}", "-Dexperimental.module=true"],
     lakeEnv.env)
 
 def initializeParams (root : System.FilePath) : Json :=
