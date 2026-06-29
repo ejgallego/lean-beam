@@ -9,7 +9,6 @@ import Lean
 -- socket API because it is available across the supported toolchain range.
 import Std.Internal.UV.TCP
 import Std.Net.Addr
-import Beam.Broker.UnixNative
 
 open Lean
 
@@ -20,23 +19,19 @@ open Std.Internal.UV
 
 inductive Endpoint where
   | tcp (port : UInt16)
-  | unix (path : System.FilePath)
   deriving Repr, BEq
 
 inductive Connection where
   | tcp (client : TCP.Socket)
-  | unix (fd : UInt32)
 
 inductive Listener where
   | tcp (server : TCP.Socket)
-  | unix (fd : UInt32) (path : System.FilePath)
 
 def localhost (port : UInt16) : SocketAddress :=
   SocketAddressV4.mk (.ofParts 127 0 0 1) port
 
 def endpointDescription : Endpoint → String
   | .tcp port => s!"tcp://127.0.0.1:{port.toNat}"
-  | .unix path => s!"unix://{path}"
 
 private def waitTcpPromise (promise : IO.Promise (Except IO.Error α)) (closedMessage : String) :
     IO α := do
@@ -52,9 +47,6 @@ def connect (endpoint : Endpoint) : IO Connection := do
       let promise ← TCP.Socket.connect client addr
       waitTcpPromise promise "Beam daemon connection failed before TCP connect completed"
       pure <| .tcp client
-  | .unix path =>
-      let fd ← UnixNative.connect path.toString
-      pure <| .unix fd
 
 def bindAndListen (endpoint : Endpoint) (backlog : UInt32 := 16) : IO Listener := do
   match endpoint with
@@ -63,19 +55,12 @@ def bindAndListen (endpoint : Endpoint) (backlog : UInt32 := 16) : IO Listener :
       TCP.Socket.bind server (localhost port)
       TCP.Socket.listen server backlog
       pure <| .tcp server
-  | .unix path =>
-      if let some parent := path.parent then
-        IO.FS.createDirAll parent
-      let fd ← UnixNative.listen path.toString
-      pure <| .unix fd path
 
 def accept (listener : Listener) : IO Connection := do
   match listener with
   | .tcp server =>
       let promise ← TCP.Socket.accept server
       pure <| .tcp (← waitTcpPromise promise "Beam daemon listener closed before TCP accept completed")
-  | .unix fd _ =>
-      pure <| .unix (← UnixNative.accept fd)
 
 def closeConnection (conn : Connection) : IO Unit := do
   match conn with
@@ -85,26 +70,11 @@ def closeConnection (conn : Connection) : IO Unit := do
         waitTcpPromise promise "Beam daemon connection closed before TCP shutdown completed"
       catch _ =>
         pure ()
-  | .unix fd =>
-      try
-        UnixNative.close fd
-      catch _ =>
-        pure ()
 
 def closeListener (listener : Listener) : IO Unit := do
   match listener with
   | .tcp _ =>
       pure ()
-  | .unix fd path =>
-      try
-        UnixNative.close fd
-      catch _ =>
-        pure ()
-      try
-        if ← path.pathExists then
-          IO.FS.removeFile path
-      catch _ =>
-        pure ()
 
 private def sendMsgTcp (client : TCP.Socket) (msg : String) : IO Unit := do
   let bytes := msg.toUTF8
@@ -138,11 +108,9 @@ private def recvMsgTcp (client : TCP.Socket) : IO String := do
 def sendMsg (conn : Connection) (msg : String) : IO Unit := do
   match conn with
   | .tcp client => sendMsgTcp client msg
-  | .unix fd => UnixNative.sendMsg fd msg
 
 def recvMsg (conn : Connection) : IO String := do
   match conn with
   | .tcp client => recvMsgTcp client
-  | .unix fd => UnixNative.recvMsg fd
 
 end Beam.Broker.Transport

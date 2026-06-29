@@ -54,14 +54,6 @@ fi
 source_checkout="$tmp_root/source-checkout"
 beam_lsp_plugin_shared_lib="$(beam_shared_lib_name beam_Beam_LSP)"
 
-assert_no_skill_socket_guidance() {
-  local skill_doc="$1"
-  if grep -E -- '--socket|Unix domain socket|unix domain socket' "$skill_doc" > /dev/null; then
-    echo "unexpected socket guidance in installed skill: $skill_doc" >&2
-    exit 1
-  fi
-}
-
 assert_doctor_contains() {
   local label="$1"
   local output="$2"
@@ -642,7 +634,6 @@ for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-beam/SKILL.md"
   assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
   assert_not_exists "$skills_home/skills/rocq-beam"
-  assert_no_skill_socket_guidance "$skills_home/skills/lean-beam/SKILL.md"
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
@@ -654,8 +645,6 @@ for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
   assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
   assert_file "$skills_home/skills/rocq-beam/SKILL.md"
   assert_file "$skills_home/skills/rocq-beam/.lean-beam-skill"
-  assert_no_skill_socket_guidance "$skills_home/skills/lean-beam/SKILL.md"
-  assert_no_skill_socket_guidance "$skills_home/skills/rocq-beam/SKILL.md"
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"

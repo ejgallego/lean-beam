@@ -129,7 +129,6 @@ def killLeanServerForEndpoint
   let port ←
     match endpoint with
     | .tcp port => pure port
-    | .unix _ => throw <| IO.userError "worker-death helper only supports tcp endpoints"
   let procs ← listProcesses
   let brokerPid ← requireUniquePid "broker daemon" <| procs.filter fun proc =>
     proc.cmd.contains "beam-daemon" &&
@@ -152,7 +151,6 @@ def spawnLeanBrokerWithPlugin
   let port ←
     match endpoint with
     | .tcp port => pure port
-    | .unix _ => throw <| IO.userError "test Lean broker helpers only support tcp endpoints"
   IO.Process.spawn {
     toStdioConfig := nullBrokerStdio
     cmd := (← daemonExe).toString
@@ -178,7 +176,6 @@ def spawnRocqBroker
   let port ←
     match endpoint with
     | .tcp port => pure port
-    | .unix _ => throw <| IO.userError "test Rocq broker helpers only support tcp endpoints"
   IO.Process.spawn {
     toStdioConfig := nullBrokerStdio
     cmd := (← daemonExe).toString

@@ -110,7 +110,6 @@ runtime_payload_spec=(
   "copy|rootFiles|supported-lean-toolchains|supported-lean-toolchains"
   "generated|rootFiles|custom-lean-toolchains|custom-lean-toolchains"
   "copy|sourceDirs|Beam|Beam"
-  "copy|sourceDirs|ffi|ffi"
   "copy|runtimePaths|.lake/build/bin/beam-cli|libexec/beam-cli"
   "copy|runtimePaths|.lake/build/bin/beam-daemon|libexec/beam-daemon"
   "copy|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"

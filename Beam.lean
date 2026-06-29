@@ -12,7 +12,6 @@ import Beam.Broker.Protocol
 import Beam.Broker.StaleDirectDeps
 import Beam.Broker.SyncSaveSupport
 import Beam.Broker.Transport
-import Beam.Broker.UnixNative
 import Beam.Lean.Operation
 import Beam.Lean.Workspace
 import Beam.Mcp.Protocol

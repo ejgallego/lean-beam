@@ -18,7 +18,6 @@ open Beam.Broker
 structure CliOptions where
   explicitRoot? : Option System.FilePath := none
   requestedPort? : Option UInt16 := none
-  requestedSocket? : Option System.FilePath := none
   args : List String := []
 
 structure ParsedTextArg where
@@ -39,7 +38,7 @@ def hasSubstring (text needle : String) : Bool :=
   | _ => true
 
 def textArgUsage (cmdHead : String) : String :=
-  s!"usage: beam [--root PATH] [--socket PATH | --port N] {cmdHead} [--stdin | --text-file <path> | -- <text...> | <text...>]"
+  s!"usage: beam [--root PATH] [--port N] {cmdHead} [--stdin | --text-file <path> | -- <text...> | <text...>]"
 
 def textArgReadsStdin (args : List String) : Bool :=
   match args with
@@ -76,7 +75,7 @@ def parseJsonArg (label arg : String) : IO Json := do
   parseJsonText label raw
 
 def handleArgUsage (cmdHead : String) : String :=
-  s!"usage: beam [--root PATH] [--socket PATH | --port N] {cmdHead} <handle-json|-|--handle-file <path>>"
+  s!"usage: beam [--root PATH] [--port N] {cmdHead} <handle-json|-|--handle-file <path>>"
 
 def handleArgReadsStdin (args : List String) : Bool :=
   match args with
@@ -124,25 +123,25 @@ def parseLeanSyncArgs (args : List String) : IO Bool := do
   match args with
   | [] => pure false
   | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-sync <path> [+full]"
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-sync <path> [+full]"
 
 def parseLeanRefreshArgs (args : List String) : IO Bool := do
   match args with
   | [] => pure false
   | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-refresh <path> [+full]"
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-refresh <path> [+full]"
 
 def parseLeanSaveArgs (args : List String) : IO Bool := do
   match args with
   | [] => pure false
   | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-save <path> [+full]"
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-save <path> [+full]"
 
 def parseLeanCloseSaveArgs (args : List String) : IO Bool := do
   match args with
   | [] => pure false
   | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--socket PATH | --port N] lean-close-save <path> [+full]"
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-close-save <path> [+full]"
 
 private def parseTodoKindArg (value : String) : IO Beam.LSP.Todo.TodoKind := do
   match fromJson? (α := Beam.LSP.Todo.TodoKind) (Json.str value) with
@@ -159,7 +158,7 @@ private def parseTodoSuggestArg (value : String) : IO Beam.LSP.Todo.TodoSuggestM
       throw <| IO.userError s!"invalid todo suggest mode '{value}' (expected one of: {allowed}): {err}"
 
 def leanTodoUsage : String :=
-  "usage: beam [--root PATH] [--socket PATH | --port N] lean-todo <path> <version> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]"
+  "usage: beam [--root PATH] [--port N] lean-todo <path> <version> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]"
 
 def parseLeanTodoArgs (args : List String) :
     IO (Option (Array Beam.LSP.Todo.TodoKind) × Option Beam.LSP.Todo.TodoSuggestMode) := do
@@ -203,8 +202,6 @@ partial def parseCliOptions (opts : CliOptions) : List String → IO CliOptions
   | "--port" :: port :: rest => do
       let port ← IO.ofExcept <| parsePortText "port" port
       parseCliOptions { opts with requestedPort? := some port } rest
-  | "--socket" :: socketPath :: rest =>
-      parseCliOptions { opts with requestedSocket? := some (System.FilePath.mk socketPath) } rest
   | arg :: rest =>
       parseCliOptions { opts with args := opts.args ++ [arg] } rest
 

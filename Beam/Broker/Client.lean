@@ -29,8 +29,6 @@ def parsePortText (name value : String) : Except String UInt16 := do
 
 def parseEndpointOption (args : List String) : Except String (Endpoint × List String) := do
   match args with
-  | "--socket" :: path :: rest =>
-      pure (.unix (System.FilePath.mk path), rest)
   | "--port" :: port :: rest =>
       pure (.tcp (← parsePortText "port" port), rest)
   | _ =>

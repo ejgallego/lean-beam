@@ -11,24 +11,24 @@ usage() {
 usage:
   lean-beam --version
   lean-beam version
-  lean-beam [--root PATH] [--socket PATH | --port N] ensure [lean|rocq] [--hold]
-  lean-beam [--root PATH] [--socket PATH | --port N] run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
-  lean-beam [--root PATH] [--socket PATH | --port N] run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
-  lean-beam [--root PATH] [--socket PATH | --port N] hover <path> <version> <line> <character>
-  lean-beam [--root PATH] [--socket PATH | --port N] goals-after <path> <version> <line> <character>
-  lean-beam [--root PATH] [--socket PATH | --port N] goals-prev <path> <version> <line> <character>
-  lean-beam [--root PATH] [--socket PATH | --port N] todo <path> <version> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]
-  lean-beam [--root PATH] [--socket PATH | --port N] run-with <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
-  lean-beam [--root PATH] [--socket PATH | --port N] run-with-linear <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
-  lean-beam [--root PATH] [--socket PATH | --port N] release <path> <handle-json|-|--handle-file <path>>
-  lean-beam [--root PATH] [--socket PATH | --port N] update <path>
-  lean-beam [--root PATH] [--socket PATH | --port N] sync <path> [+full]
-  lean-beam [--root PATH] [--socket PATH | --port N] refresh <path> [+full]
-  lean-beam [--root PATH] [--socket PATH | --port N] save <path> [+full]
-  lean-beam [--root PATH] [--socket PATH | --port N] close <path>
-  lean-beam [--root PATH] [--socket PATH | --port N] close-save <path> [+full]
-  lean-beam [--root PATH] [--socket PATH | --port N] rocq-goals-after <path> <line> <character> [text...]
-  lean-beam [--root PATH] [--socket PATH | --port N] rocq-goals-prev <path> <line> <character> [text...]
+  lean-beam [--root PATH] [--port N] ensure [lean|rocq] [--hold]
+  lean-beam [--root PATH] [--port N] run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
+  lean-beam [--root PATH] [--port N] run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
+  lean-beam [--root PATH] [--port N] hover <path> <version> <line> <character>
+  lean-beam [--root PATH] [--port N] goals-after <path> <version> <line> <character>
+  lean-beam [--root PATH] [--port N] goals-prev <path> <version> <line> <character>
+  lean-beam [--root PATH] [--port N] todo <path> <version> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]
+  lean-beam [--root PATH] [--port N] run-with <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
+  lean-beam [--root PATH] [--port N] run-with-linear <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
+  lean-beam [--root PATH] [--port N] release <path> <handle-json|-|--handle-file <path>>
+  lean-beam [--root PATH] [--port N] update <path>
+  lean-beam [--root PATH] [--port N] sync <path> [+full]
+  lean-beam [--root PATH] [--port N] refresh <path> [+full]
+  lean-beam [--root PATH] [--port N] save <path> [+full]
+  lean-beam [--root PATH] [--port N] close <path>
+  lean-beam [--root PATH] [--port N] close-save <path> [+full]
+  lean-beam [--root PATH] [--port N] rocq-goals-after <path> <line> <character> [text...]
+  lean-beam [--root PATH] [--port N] rocq-goals-prev <path> <line> <character> [text...]
   lean-beam supported-toolchains [lean]
   lean-beam [--root PATH] doctor [lean|rocq]
   lean-beam [--root PATH] open-files
@@ -114,7 +114,7 @@ prefix=()
 cmd=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --root|--port|--socket)
+    --root|--port)
       [ "$#" -ge 2 ] || break
       prefix+=("$1" "$2")
       shift 2

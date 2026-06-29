@@ -11,18 +11,6 @@ open System
 
 package "beam" where
 
-def beamUnixOTarget (pkg : Package) : FetchM (Job FilePath) := do
-  let oFile := pkg.buildDir / "ffi" / "beam_unix.o"
-  let srcTarget ← inputTextFile <| pkg.dir / "ffi" / "beam_unix.c"
-  buildFileAfterDep oFile srcTarget fun srcFile => do
-    let flags := #["-I", (← getLeanIncludeDir).toString, "-fPIC"]
-    compileO oFile srcFile flags
-
-extern_lib beam_unix (pkg) := do
-  let name := nameToStaticLib "beam_unix"
-  let ffiO ← beamUnixOTarget pkg
-  buildStaticLib (pkg.staticLibDir / name) #[ffiO]
-
 lean_lib Beam.LSP where
   globs := #[.andSubmodules `Beam.LSP]
   defaultFacets := #[`shared]

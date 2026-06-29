@@ -1817,8 +1817,6 @@ private def parsePortArg (value : String) : Except String UInt16 := do
 
 private partial def parseCliOptions (opts : CliOptions) : List String → Except String CliOptions
   | [] => pure opts
-  | "--socket" :: socketPath :: rest =>
-      parseCliOptions { opts with endpoint := .unix (System.FilePath.mk socketPath) } rest
   | "--port" :: port :: rest => do
       let port ← parsePortArg port
       parseCliOptions { opts with endpoint := .tcp port } rest

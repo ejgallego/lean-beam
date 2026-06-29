@@ -24,7 +24,7 @@ def bundleRootFiles : List String :=
     "supported-lean-toolchains", "custom-lean-toolchains"]
 
 def bundleSourceDirs : List String :=
-  ["Beam", "ffi"]
+  ["Beam"]
 
 def bundleSourceHashInputLabels : List String :=
   bundleRootFiles ++ bundleSourceDirs.map (· ++ "/**")

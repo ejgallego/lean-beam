@@ -162,12 +162,10 @@ private def selectPort (opts : CliOptions) : IO UInt16 := do
         pure 37654
 
 private def selectEndpoint (opts : CliOptions) : IO Transport.Endpoint := do
-  match opts.requestedSocket? with
-  | some socketPath => pure <| .unix socketPath
-  | none => pure <| .tcp (← selectPort opts)
+  pure <| .tcp (← selectPort opts)
 
 private def usesAutomaticTcpEndpoint (opts : CliOptions) : Bool :=
-  opts.requestedSocket?.isNone && opts.requestedPort?.isNone
+  opts.requestedPort?.isNone
 
 private partial def selectUnoccupiedEndpoint
     (desired : DesiredConfig)
@@ -236,8 +234,6 @@ private def startDaemon (desired : DesiredConfig) (endpoint : Transport.Endpoint
   match endpoint with
   | .tcp port =>
       args := args ++ ["--port", toString port.toNat]
-  | .unix socket =>
-      args := args ++ ["--socket", socket.toString]
   if let some leanCmd := desired.leanCmd? then
     args := args ++ ["--lean-cmd", leanCmd]
   if let some plugin := desired.plugin? then
@@ -283,17 +279,14 @@ private partial def waitForDaemon
 
 private def registryEntryFor (desired : DesiredConfig) (pid : Nat) (endpoint : Transport.Endpoint) (opts : CliOptions) :
     IO RegistryEntry := do
-  let (transport, port?, socket?) :=
+  let port? :=
     match endpoint with
-    | .tcp port => ("tcp", some port.toNat, none)
-    | .unix path => ("unix", none, some path.toString)
+    | .tcp port => some port.toNat
   pure {
     daemonId := s!"{desired.configHash.take 12}-{pid}"
     pid
     pidNamespace? := ← currentPidNamespace?
-    transport
     port?
-    socket?
     root := desired.root.toString
     configHash := desired.configHash
     leanCmd? := desired.leanCmd?
@@ -420,9 +413,7 @@ def ensureProjectDaemon (home root : System.FilePath) (backend : Backend) (opts 
     writeRegistry root entry
     if let some live := live? then
       unless live.pid == entry.pid &&
-          live.transport == entry.transport &&
-          live.port? == entry.port? &&
-          live.socket? == entry.socket? do
+          live.port? == entry.port? do
         stopDaemonEntry live
     pure { endpoint, startedNew := true }
 
