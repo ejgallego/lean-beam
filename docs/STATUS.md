@@ -116,6 +116,9 @@ wrapper stderr format should be treated as human-facing.
 Lean position/range operations are version-bound across the broker, MCP, and wrapper surfaces:
 clients must first update or sync the file and pass the returned document version. `update` is the
 cheap version-producing step; `sync` is for clients that also need diagnostics/readiness.
+Broker-detected stale-version failures use `contentModified` with
+`error.data.reason = "documentVersionMismatch"` and include the currently accepted document version
+when available.
 
 Beam broker responses require an explicit top-level `ok` boolean, giving projection layers an
 unambiguous success/error discriminator.
@@ -253,6 +256,9 @@ Near-term work is mostly about hardening and simplifying:
 - publish a smoother distribution path, likely GitHub-backed install for Codex and plugin marketplace packaging for Claude
 - improve stale-dependency handling, especially by moving stale dependency metadata into Lean's
   native stale-dependency signal instead of broker-side reconstruction
+- upstream structured JSON-RPC error data for Lean request failures, so plugin-level
+  `contentModified` errors can carry machine-readable recovery fields such as
+  `documentVersionMismatch` without requiring broker-side preflight rejection
 - add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
   structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result

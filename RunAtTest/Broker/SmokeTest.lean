@@ -38,6 +38,27 @@ private def updateVersion
   let result ← requireUpdateFileResult s!"update version for {path}" (← expectOk resp)
   pure result.version
 
+private def expectVersionMismatchData
+    (label : String)
+    (resp : Beam.Broker.Response)
+    (expectedVersion acceptedVersion : Nat) : IO Unit := do
+  let some err := resp.error?
+    | throw <| IO.userError s!"{label}: expected error response, got {(toJson resp).compress}"
+  let some data := err.data?
+    | throw <| IO.userError s!"{label}: expected error.data, got {(toJson resp).compress}"
+  let reason ← IO.ofExcept <| data.getObjValAs? String "reason"
+  if reason != "documentVersionMismatch" then
+    throw <| IO.userError s!"{label}: expected documentVersionMismatch data, got {data.compress}"
+  let expected ← IO.ofExcept <| data.getObjValAs? Nat "expectedVersion"
+  if expected != expectedVersion then
+    throw <| IO.userError s!"{label}: expected expectedVersion={expectedVersion}, got {data.compress}"
+  let accepted ← IO.ofExcept <| data.getObjValAs? Nat "acceptedVersion"
+  if accepted != acceptedVersion then
+    throw <| IO.userError s!"{label}: expected acceptedVersion={acceptedVersion}, got {data.compress}"
+  let current ← IO.ofExcept <| data.getObjValAs? Nat "currentVersion"
+  if current != acceptedVersion then
+    throw <| IO.userError s!"{label}: expected currentVersion={acceptedVersion}, got {data.compress}"
+
 private def runUpdateSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
@@ -110,6 +131,7 @@ private def runUpdateSmoke
     text? := some "#check Nat"
   }
   expectErrCode staleRunAtResp "contentModified"
+  expectVersionMismatchData "stale run_at" staleRunAtResp first.version changed.version
 
 private def runSyncSmoke
     (endpoint : Beam.Broker.Endpoint)

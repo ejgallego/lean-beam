@@ -78,6 +78,39 @@ fi
     exit 1
   fi
 
+  stale_command_version="$command_version"
+  printf '\n-- wrapper stale-version probe\n' >> CommandA.lean
+  command_version="$(beam_wrapper_update_version CommandA-changed "$beam_script" lean-update CommandA.lean)"
+  stale_version_out="$(beam_wrapper_mktemp_file stale-version-out)"
+  stale_version_err="$(beam_wrapper_mktemp_file stale-version-err)"
+  if "$beam_script" lean-run-at CommandA.lean "$stale_command_version" 0 2 "#check answerA" \
+      >"$stale_version_out" 2>"$stale_version_err"; then
+    echo "expected wrapper lean-run-at with a stale version to fail" >&2
+    cat "$stale_version_out" >&2
+    cat "$stale_version_err" >&2
+    exit 1
+  fi
+  assert_json_file_field_equals "stale wrapper lean-run-at" "$stale_version_out" \
+    error.code contentModified "$stale_version_err"
+  assert_json_file_field_equals "stale wrapper lean-run-at" "$stale_version_out" \
+    error.data.reason documentVersionMismatch "$stale_version_err"
+  assert_json_file_field_equals "stale wrapper lean-run-at" "$stale_version_out" \
+    error.data.expectedVersion "$stale_command_version" "$stale_version_err"
+  assert_json_file_field_equals "stale wrapper lean-run-at" "$stale_version_out" \
+    error.data.acceptedVersion "$command_version" "$stale_version_err"
+  assert_json_file_field_equals "stale wrapper lean-run-at" "$stale_version_out" \
+    error.data.currentVersion "$command_version" "$stale_version_err"
+  stale_version_uri="$(json_file_text_field "$stale_version_out" error.data.uri)"
+  case "$stale_version_uri" in
+    */CommandA.lean)
+      ;;
+    *)
+      echo "expected stale wrapper lean-run-at to report a CommandA.lean uri, got ${stale_version_uri:-<empty>}" >&2
+      print_json_file_assertion_context "$stale_version_out" "$stale_version_err"
+      exit 1
+      ;;
+  esac
+
   multiline_stdin_out="$(printf 'def stdinProbe : Nat :=\n  42' | "$beam_script" lean-run-at PositionEmptyLine.lean "$position_empty_version" 1 0 --stdin)"
   if [ "$(RUNAT_JSON_PAYLOAD="$multiline_stdin_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper lean-run-at --stdin probe to succeed" >&2

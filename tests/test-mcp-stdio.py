@@ -629,6 +629,33 @@ def expect_tool_error_code(response, code):
     return structured
 
 
+def require_version_mismatch_data(error, expected_version, accepted_version, label, *, expected_uri_suffix=None):
+    data = error.get("data")
+    require(isinstance(data, dict), f"{label}: tool error missing data: {error}")
+    require(
+        data.get("reason") == "documentVersionMismatch",
+        f"{label}: expected documentVersionMismatch data, got {error}",
+    )
+    require(
+        data.get("expectedVersion") == expected_version,
+        f"{label}: expected expectedVersion={expected_version}, got {error}",
+    )
+    require(
+        data.get("acceptedVersion") == accepted_version,
+        f"{label}: expected acceptedVersion={accepted_version}, got {error}",
+    )
+    require(
+        data.get("currentVersion") == accepted_version,
+        f"{label}: expected currentVersion={accepted_version}, got {error}",
+    )
+    if expected_uri_suffix is not None:
+        uri = data.get("uri")
+        require(
+            isinstance(uri, str) and uri.endswith(expected_uri_suffix),
+            f"{label}: expected uri ending in {expected_uri_suffix!r}, got {error}",
+        )
+
+
 def require_roots_requests(client, expected, label):
     require(
         client.roots_request_count == expected,
@@ -761,6 +788,37 @@ def run_iteration(client, suffix):
     require(isinstance(version, int), f"update did not return a document version: {update}")
     changed = update.get("changed")
     require(isinstance(changed, bool), f"update did not return changed flag: {update}")
+
+    command_update = client.call_tool("lean_update", {"path": "CommandA.lean"})
+    command_version = command_update.get("version")
+    require(isinstance(command_version, int), f"CommandA update did not return a version: {command_update}")
+    command_path = client.project_root / "CommandA.lean"
+    command_text = command_path.read_text(encoding="utf-8")
+    command_path.write_text(f"{command_text}\n-- mcp stale-version {suffix}\n", encoding="utf-8")
+    command_changed = client.call_tool("lean_update", {"path": "CommandA.lean"})
+    accepted_version = command_changed.get("version")
+    require(isinstance(accepted_version, int), f"CommandA changed update did not return a version: {command_changed}")
+    stale_response = client.request(
+        "tools/call",
+        {
+            "name": "lean_run_at",
+            "arguments": {
+                "path": "CommandA.lean",
+                "version": command_version,
+                "line": 0,
+                "character": 2,
+                "text": "#check answerA",
+            },
+        },
+    )
+    stale_error = expect_tool_error_code(stale_response, "contentModified")
+    require_version_mismatch_data(
+        stale_error,
+        command_version,
+        accepted_version,
+        "stale MCP lean_run_at",
+        expected_uri_suffix="/CommandA.lean",
+    )
 
     probe = client.call_tool(
         "lean_run_at",

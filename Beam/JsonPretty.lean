@@ -22,6 +22,9 @@ private def jsonFieldPriority : String -> Nat
   | "ok" => 0
   | "result" => 1
   | "error" => 2
+  | "reason" => 3
+  | "expectedVersion" => 4
+  | "acceptedVersion" => 5
   | "version" => 10
   | "changed" => 11
   | "saveReady" => 12

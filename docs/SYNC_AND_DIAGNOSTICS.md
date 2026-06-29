@@ -23,6 +23,30 @@ version from `lean-beam update`, broker `update_file`, or MCP `lean_update`. `le
 broker `sync_file`, and MCP `lean_sync` also return the current version when the caller needs the
 diagnostics/readiness barrier.
 
+When the broker rejects a position- or range-bound request because the supplied version is stale,
+the failure uses `contentModified` and includes `error.data.reason = "documentVersionMismatch"`.
+The same payload reports `expectedVersion`, the currently accepted `acceptedVersion`, and
+`currentVersion` when the broker can name the current tracked document version.
+
+Example stale-version response:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "contentModified",
+    "message": "document version mismatch for file:///workspace/Foo.lean: expected document version 1, got 2",
+    "data": {
+      "reason": "documentVersionMismatch",
+      "expectedVersion": 1,
+      "acceptedVersion": 2,
+      "currentVersion": 2,
+      "uri": "file:///workspace/Foo.lean"
+    }
+  }
+}
+```
+
 `lean-beam save` is `sync` plus a zero-build checkpoint for the synced Lake module. `lean-beam
 close-save` is `save` plus closing the tracked file afterward. Both commands return the sync verdict
 they established before checkpointing: `save` under `result.sync`, and `close-save` under

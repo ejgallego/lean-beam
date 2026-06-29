@@ -81,6 +81,23 @@ def BrokerFailure.toResponse (failure : BrokerFailure) : Response :=
 def reqError (code : String) (message : String := "") (data? : Option Json := none) : Response :=
   Response.error code message data?
 
+def documentVersionMismatchErrorData
+    (expectedVersion acceptedVersion : Nat)
+    (currentVersion? : Option Nat := none)
+    (uri? : Option String := none) : Json :=
+  Json.mkObj <|
+    [
+      ("reason", toJson "documentVersionMismatch"),
+      ("expectedVersion", toJson expectedVersion),
+      ("acceptedVersion", toJson acceptedVersion)
+    ] ++
+    (match currentVersion? with
+    | some currentVersion => [("currentVersion", toJson currentVersion)]
+    | none => []) ++
+    (match uri? with
+    | some uri => [("uri", toJson uri)]
+    | none => [])
+
 def errorCodeName : JsonRpc.ErrorCode → String
   | .parseError => "parseError"
   | .invalidRequest => "invalidRequest"
