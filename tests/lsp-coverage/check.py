@@ -70,6 +70,20 @@ def require_method_definition(entry: dict[str, object]) -> None:
         fail(f"method definition does not define {method!r}: {definition}")
 
 
+def require_unique_strings(label: str, value: object) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        fail(f"{label} must be an array of strings")
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for item in value:
+        if item in seen and item not in duplicates:
+            duplicates.append(item)
+        seen.add(item)
+    if duplicates:
+        fail(f"{label} has duplicate entries: {', '.join(duplicates)}")
+    return value
+
+
 def main() -> int:
     methods_doc = load_json(METHODS_PATH)
     cases_doc = load_json(CASES_PATH)
@@ -84,10 +98,11 @@ def main() -> int:
         if not isinstance(raw, dict):
             fail(f"method entry must be an object: {raw}")
         method = raw.get("method")
+        family = raw.get("family")
         symbol = raw.get("registrySymbol")
-        required = raw.get("requiredCoverage")
-        if not isinstance(method, str) or not isinstance(symbol, str) or not isinstance(required, list):
-            fail(f"method entry needs method, registrySymbol, and requiredCoverage: {raw}")
+        if not isinstance(method, str) or not isinstance(family, str) or not family or not isinstance(symbol, str):
+            fail(f"method entry needs method, family, and registrySymbol: {raw}")
+        required = require_unique_strings(f"{method}: requiredCoverage", raw.get("requiredCoverage"))
         if method in methods:
             fail(f"duplicate method entry: {method}")
         if symbol not in plugin_text:
@@ -111,12 +126,17 @@ def main() -> int:
         seen_case_ids.add(case_id)
         if method not in methods:
             fail(f"{case_id}: unknown method {method!r}")
-        if not isinstance(coverage, list) or not all(isinstance(item, str) for item in coverage):
-            fail(f"{case_id}: coverage must be an array of strings")
+        coverage_tags = require_unique_strings(f"{case_id}: coverage", coverage)
+        if not coverage_tags:
+            fail(f"{case_id}: coverage must not be empty")
+        method_tags = set(methods[method]["requiredCoverage"])
+        unknown_tags = sorted(set(coverage_tags) - method_tags)
+        if unknown_tags:
+            fail(f"{case_id}: coverage tag not declared for {method}: {', '.join(unknown_tags)}")
         if not isinstance(pointer, str):
             fail(f"{case_id}: pointer must be a string")
         require_pointer(pointer)
-        covered[method].update(coverage)
+        covered[method].update(coverage_tags)
 
     missing_messages: list[str] = []
     for method, entry in methods.items():
