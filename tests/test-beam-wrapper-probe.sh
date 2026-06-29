@@ -67,6 +67,12 @@ fi
     cat "$cmd_err" >&2
     exit 1
   fi
+  if [ -n "$(RUNAT_JSON_PAYLOAD="$cmd_out" read_json_text_field clientRequestId)" ]; then
+    echo "expected anonymous wrapper lean-run-at to hide generated clientRequestId" >&2
+    printf '%s\n' "$cmd_out" >&2
+    cat "$cmd_err" >&2
+    exit 1
+  fi
   if ! grep -q 'waiting for a ready Lean snapshot' "$cmd_err"; then
     echo "expected wrapper lean-run-at progress stderr output" >&2
     cat "$cmd_err" >&2
@@ -74,6 +80,11 @@ fi
   fi
   if ! grep -q 'lean-run-at complete' "$cmd_err"; then
     echo "expected wrapper lean-run-at completion stderr output" >&2
+    cat "$cmd_err" >&2
+    exit 1
+  fi
+  if grep -q 'beam\[' "$cmd_err" || grep -q 'beam-wrapper-' "$cmd_err"; then
+    echo "expected anonymous wrapper progress stderr not to leak the generated clientRequestId" >&2
     cat "$cmd_err" >&2
     exit 1
   fi
@@ -214,6 +225,17 @@ fi
   fi
   if ! grep -q 'probe failed inside Lean; the request completed and returned result.success=false' "$literal_newline_err"; then
     printf '%s\n' "expected wrapper literal-\\n probe to distinguish a probe failure from a request failure" >&2
+    cat "$literal_newline_err" >&2
+    exit 1
+  fi
+  if [ -n "$(RUNAT_JSON_PAYLOAD="$literal_newline_out" read_json_text_field clientRequestId)" ]; then
+    printf '%s\n' "expected wrapper literal-\\n probe to hide generated clientRequestId" >&2
+    printf '%s\n' "$literal_newline_out" >&2
+    cat "$literal_newline_err" >&2
+    exit 1
+  fi
+  if grep -q 'beam\[' "$literal_newline_err" || grep -q 'beam-wrapper-' "$literal_newline_err"; then
+    printf '%s\n' "expected wrapper literal-\\n stderr not to leak the generated clientRequestId" >&2
     cat "$literal_newline_err" >&2
     exit 1
   fi

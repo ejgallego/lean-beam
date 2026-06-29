@@ -17,6 +17,128 @@ other_root="$(beam_wrapper_prepare_project_root runtime-other)"
 signal_root="$(beam_wrapper_prepare_project_root_with_scenario_docs runtime-signal)"
 busy_port_root="$(beam_wrapper_prepare_project_root runtime-busy-port)"
 
+run_sigint_probe() {
+  local project_root="$1"
+  local version="$2"
+  local out_path="$3"
+  local err_path="$4"
+  local progress_enabled="$5"
+  local request_id="$6"
+  local wait_mode="$7"
+  python3 - "$beam_script" "$project_root" "$version" "$out_path" "$err_path" "$progress_enabled" "$request_id" "$wait_mode" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+beam_script, project_root, version, out_path, err_path, progress_enabled, request_id, wait_mode = sys.argv[1:]
+env = os.environ.copy()
+if progress_enabled == "1":
+    env["BEAM_PROGRESS"] = "1"
+else:
+    env.pop("BEAM_PROGRESS", None)
+if request_id:
+    env["BEAM_REQUEST_ID"] = request_id
+else:
+    env.pop("BEAM_REQUEST_ID", None)
+
+def wait_for_stderr(needle, timeout=15.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with open(err_path, "r", encoding="utf-8", errors="replace") as err_file:
+                if needle in err_file.read():
+                    return
+        except FileNotFoundError:
+            pass
+        if proc.poll() is not None:
+            break
+        time.sleep(0.05)
+    raise TimeoutError(f"timed out waiting for stderr marker: {needle}")
+
+with open(out_path, "wb") as out, open(err_path, "wb") as err:
+    proc = subprocess.Popen(
+        [
+            beam_script,
+            "--root",
+            project_root,
+            "lean-run-at",
+            "tests/scenario/docs/SlowPoll.lean",
+            version,
+            "25",
+            "2",
+            "poll_sleep_cmd",
+        ],
+        stdout=out,
+        stderr=err,
+        env=env,
+    )
+    if wait_mode == "stderr":
+        wait_for_stderr("running lean-run-at")
+    elif wait_mode == "sleep":
+        time.sleep(1.0)
+    else:
+        raise ValueError(f"unknown wait mode: {wait_mode}")
+
+    if proc.poll() is not None:
+        rc = "early-exit"
+    else:
+        proc.send_signal(signal.SIGINT)
+        try:
+            rc = proc.wait(timeout=30.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            rc = "timeout"
+
+print(rc)
+PY
+}
+
+expect_sigint_cancelled() {
+  local label="$1"
+  local out_path="$2"
+  local err_path="$3"
+  local expected_client_request_id="$4"
+  local payload
+  payload="$(cat "$out_path")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$payload" read_json_text_field error.code)" != "requestCancelled" ]; then
+    echo "expected $label to report requestCancelled" >&2
+    printf '%s\n' "$payload" >&2
+    cat "$err_path" >&2
+    exit 1
+  fi
+  if [ -n "$expected_client_request_id" ]; then
+    if [ "$(RUNAT_JSON_PAYLOAD="$payload" read_json_text_field clientRequestId)" != "$expected_client_request_id" ]; then
+      echo "expected $label to preserve explicit clientRequestId" >&2
+      printf '%s\n' "$payload" >&2
+      cat "$err_path" >&2
+      exit 1
+    fi
+  elif [ -n "$(RUNAT_JSON_PAYLOAD="$payload" read_json_text_field clientRequestId)" ]; then
+    echo "expected $label to hide generated clientRequestId" >&2
+    printf '%s\n' "$payload" >&2
+    cat "$err_path" >&2
+    exit 1
+  elif grep -q 'beam\[' "$err_path"; then
+    echo "expected $label stderr not to include a clientRequestId annotation" >&2
+    cat "$err_path" >&2
+    exit 1
+  fi
+  if grep -q 'beam-wrapper-' "$out_path" "$err_path"; then
+    echo "expected $label not to leak the generated cancellation id" >&2
+    cat "$out_path" >&2
+    cat "$err_path" >&2
+    exit 1
+  fi
+  if ! grep -q 'requesting broker cancellation' "$err_path"; then
+    echo "expected $label to log broker cancellation on stderr" >&2
+    cat "$err_path" >&2
+    exit 1
+  fi
+}
+
 (
   cd "$primary_root"
   "$beam_script" ensure lean > /dev/null
@@ -40,48 +162,8 @@ fi
 
   interrupt_out="$(beam_wrapper_mktemp_file interrupt-out)"
   interrupt_err="$(beam_wrapper_mktemp_file interrupt-err)"
-  interrupt_status="$(python3 - "$beam_script" "$signal_root" "$slow_version" "$interrupt_out" "$interrupt_err" <<'PY'
-import os
-import signal
-import subprocess
-import sys
-import time
-
-beam_script, project_root, version, out_path, err_path = sys.argv[1:]
-env = os.environ.copy()
-env["BEAM_PROGRESS"] = "1"
-env["BEAM_REQUEST_ID"] = "wrapper-sigint"
-
-with open(out_path, "wb") as out, open(err_path, "wb") as err:
-    proc = subprocess.Popen(
-        [
-            beam_script,
-            "--root",
-            project_root,
-            "lean-run-at",
-            "tests/scenario/docs/SlowPoll.lean",
-            version,
-            "25",
-            "2",
-            "poll_sleep_cmd",
-        ],
-        stdout=out,
-        stderr=err,
-        env=env,
-    )
-    time.sleep(1.0)
-    proc.send_signal(signal.SIGINT)
-    try:
-        rc = proc.wait(timeout=30.0)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-        rc = "timeout"
-
-print(rc)
-PY
-)"
-  if [ "$interrupt_status" = "timeout" ]; then
+  interrupt_status="$(run_sigint_probe "$signal_root" "$slow_version" "$interrupt_out" "$interrupt_err" 1 wrapper-sigint stderr)"
+  if [ "$interrupt_status" = "timeout" ] || [ "$interrupt_status" = "early-exit" ]; then
     cat "$interrupt_out" >&2
     cat "$interrupt_err" >&2
     exit 1
@@ -92,25 +174,143 @@ PY
     cat "$interrupt_err" >&2
     exit 1
   fi
+  expect_sigint_cancelled "wrapper SIGINT path" "$interrupt_out" "$interrupt_err" wrapper-sigint
 
-  interrupt_json="$(cat "$interrupt_out")"
-  if [ "$(RUNAT_JSON_PAYLOAD="$interrupt_json" read_json_text_field error.code)" != "requestCancelled" ]; then
-    echo "expected wrapper SIGINT path to report requestCancelled" >&2
-    printf '%s\n' "$interrupt_json" >&2
-    cat "$interrupt_err" >&2
+  interrupt_anon_out="$(beam_wrapper_mktemp_file interrupt-anon-out)"
+  interrupt_anon_err="$(beam_wrapper_mktemp_file interrupt-anon-err)"
+  interrupt_anon_status="$(run_sigint_probe "$signal_root" "$slow_version" "$interrupt_anon_out" "$interrupt_anon_err" 1 "" stderr)"
+  if [ "$interrupt_anon_status" = "timeout" ] || [ "$interrupt_anon_status" = "early-exit" ]; then
+    cat "$interrupt_anon_out" >&2
+    cat "$interrupt_anon_err" >&2
     exit 1
   fi
-  if ! grep -q 'requesting broker cancellation' "$interrupt_err"; then
-    echo "expected wrapper SIGINT path to log broker cancellation on stderr" >&2
-    cat "$interrupt_err" >&2
+  if [ "$interrupt_anon_status" = "0" ]; then
+    echo "expected anonymous wrapper lean-run-at SIGINT path to exit non-zero after broker cancellation" >&2
+    cat "$interrupt_anon_out" >&2
+    cat "$interrupt_anon_err" >&2
     exit 1
   fi
+  expect_sigint_cancelled "anonymous wrapper SIGINT path" "$interrupt_anon_out" "$interrupt_anon_err" ""
+
   post_interrupt_hover="$("$beam_script" --root "$signal_root" lean-hover tests/scenario/docs/CommandA.lean "$command_version" 0 4)"
   if [ "$(RUNAT_JSON_PAYLOAD="$post_interrupt_hover" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper SIGINT cancellation to preserve the isolated Beam daemon session" >&2
     printf '%s\n' "$post_interrupt_hover" >&2
     exit 1
   fi
+
+  interrupt_quiet_out="$(beam_wrapper_mktemp_file interrupt-quiet-out)"
+  interrupt_quiet_err="$(beam_wrapper_mktemp_file interrupt-quiet-err)"
+  interrupt_quiet_status="$(python3 - "$beam_script" "$signal_root" "$slow_version" "$command_version" "$interrupt_quiet_out" "$interrupt_quiet_err" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+beam_script, project_root, slow_version, command_version, out_path, err_path = sys.argv[1:]
+env = os.environ.copy()
+env.pop("BEAM_PROGRESS", None)
+env["BEAM_REQUEST_ID"] = "wrapper-sigint-quiet"
+
+with open(out_path, "wb") as out, open(err_path, "wb") as err:
+    proc = subprocess.Popen(
+        [
+            beam_script,
+            "--root",
+            project_root,
+            "lean-run-at",
+            "tests/scenario/docs/SlowPoll.lean",
+            slow_version,
+            "25",
+            "2",
+            "poll_sleep_cmd",
+        ],
+        stdout=out,
+        stderr=err,
+        env=env,
+    )
+    duplicate_env = os.environ.copy()
+    duplicate_env.pop("BEAM_PROGRESS", None)
+    duplicate_env["BEAM_REQUEST_ID"] = "wrapper-sigint-quiet"
+    deadline = time.monotonic() + 20.0
+    active = False
+    duplicate_text = ""
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            break
+        duplicate = subprocess.run(
+            [
+                beam_script,
+                "--root",
+                project_root,
+                "lean-hover",
+                "tests/scenario/docs/CommandA.lean",
+                command_version,
+                "0",
+                "4",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=duplicate_env,
+            timeout=10.0,
+        )
+        duplicate_text = (
+            duplicate.stdout.decode("utf-8", errors="replace")
+            + duplicate.stderr.decode("utf-8", errors="replace")
+        )
+        if duplicate.returncode != 0 and "already active" in duplicate_text:
+            active = True
+            break
+        time.sleep(0.1)
+    if not active:
+        proc.kill()
+        proc.wait()
+        with open(err_path, "ab") as err_file:
+            err_file.write(b"\nmissing active-request marker before SIGINT\n")
+            err_file.write(duplicate_text.encode("utf-8", errors="replace"))
+        rc = "active-timeout"
+    else:
+        proc.send_signal(signal.SIGINT)
+        try:
+            rc = proc.wait(timeout=30.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            rc = "timeout"
+
+print(rc)
+PY
+)"
+  if [ "$interrupt_quiet_status" = "timeout" ] || [ "$interrupt_quiet_status" = "active-timeout" ]; then
+    cat "$interrupt_quiet_out" >&2
+    cat "$interrupt_quiet_err" >&2
+    exit 1
+  fi
+  if [ "$interrupt_quiet_status" = "0" ]; then
+    echo "expected non-progress wrapper lean-run-at SIGINT path to exit non-zero after broker cancellation" >&2
+    cat "$interrupt_quiet_out" >&2
+    cat "$interrupt_quiet_err" >&2
+    exit 1
+  fi
+
+  expect_sigint_cancelled "non-progress wrapper SIGINT path" "$interrupt_quiet_out" "$interrupt_quiet_err" wrapper-sigint-quiet
+
+  interrupt_quiet_anon_out="$(beam_wrapper_mktemp_file interrupt-quiet-anon-out)"
+  interrupt_quiet_anon_err="$(beam_wrapper_mktemp_file interrupt-quiet-anon-err)"
+  interrupt_quiet_anon_status="$(run_sigint_probe "$signal_root" "$slow_version" "$interrupt_quiet_anon_out" "$interrupt_quiet_anon_err" 0 "" sleep)"
+  if [ "$interrupt_quiet_anon_status" = "timeout" ] || [ "$interrupt_quiet_anon_status" = "early-exit" ]; then
+    cat "$interrupt_quiet_anon_out" >&2
+    cat "$interrupt_quiet_anon_err" >&2
+    exit 1
+  fi
+  if [ "$interrupt_quiet_anon_status" = "0" ]; then
+    echo "expected anonymous non-progress wrapper lean-run-at SIGINT path to exit non-zero after broker cancellation" >&2
+    cat "$interrupt_quiet_anon_out" >&2
+    cat "$interrupt_quiet_anon_err" >&2
+    exit 1
+  fi
+  expect_sigint_cancelled "anonymous non-progress wrapper SIGINT path" "$interrupt_quiet_anon_out" "$interrupt_quiet_anon_err" ""
 
   "$beam_script" --root "$signal_root" shutdown > /dev/null 2>&1 || true
 )

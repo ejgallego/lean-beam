@@ -122,13 +122,16 @@ def runAtPayloadSummary? (action noun : String) (resp : Response) : Option Strin
   | none =>
       none
 
-def maybeEmitLiteralBackslashNewlineHint (req : Request) (resp : Response) : IO Unit := do
+def maybeEmitLiteralBackslashNewlineHint
+    (clientRequestId? : Option String)
+    (req : Request)
+    (resp : Response) : IO Unit := do
   match req.op with
   | .runAt | .runWith =>
       match req.text?, decodeRunAtResult? resp with
       | some text, some result =>
           if !result.success && hasSubstring text "\\n" && !text.contains '\n' then
-            IO.eprintln <| annotateRunatMessage req.clientRequestId?
+            IO.eprintln <| annotateRunatMessage clientRequestId?
               "beam: hint: the probe text contains the literal characters '\\n'; if you meant a real newline, use --stdin or --text-file."
           else
             pure ()

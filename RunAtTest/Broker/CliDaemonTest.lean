@@ -166,6 +166,35 @@ private def checkSyncWaitSpecs : IO Unit := do
     "saveReady=false (documentErrors, errorCount=1)"
     ((Beam.Cli.syncWaitSpec "Demo.lean").completeMsg notReadyResp)
 
+private def checkCancelAcknowledgementDecoding : IO Unit := do
+  let acknowledged : Beam.Broker.Response := {
+    ok := true
+    result? := some <| Json.mkObj [("cancelled", toJson true)]
+  }
+  require "cancel acknowledgement should decode true"
+    (Beam.Cli.decodeCancelAcknowledged? acknowledged == some true)
+
+  let notAcknowledged : Beam.Broker.Response := {
+    ok := true
+    result? := some <| Json.mkObj [("cancelled", toJson false)]
+  }
+  require "cancel acknowledgement should decode false"
+    (Beam.Cli.decodeCancelAcknowledged? notAcknowledged == some false)
+
+  let missing : Beam.Broker.Response := {
+    ok := true
+    result? := some <| Json.mkObj [("other", toJson true)]
+  }
+  require "missing cancel acknowledgement should decode none"
+    (Beam.Cli.decodeCancelAcknowledged? missing).isNone
+
+  let failed : Beam.Broker.Response := {
+    ok := false
+    error? := some { code := "invalidParams", message := "bad cancel" }
+  }
+  require "failed cancel response should decode none"
+    (Beam.Cli.decodeCancelAcknowledged? failed).isNone
+
 private def checkLeanOperationRequests : IO Unit := do
   let root := System.FilePath.mk "/repo"
   let rootText := root.toString
@@ -514,6 +543,7 @@ def main : IO Unit := do
   checkMcpOperationSurface
   checkCliRecoveryHints
   checkSyncWaitSpecs
+  checkCancelAcknowledgementDecoding
   checkLeanOperationRequests
   checkStartupRetryPolicy
   checkPathRelativeToRoot
