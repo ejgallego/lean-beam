@@ -23,7 +23,6 @@ lake build \
   beam-broker-pending-test \
   beam-broker-document-state-test \
   beam-broker-open-docs-test \
-  beam-broker-deps-test \
   beam-daemon-smoke-test \
   beam-daemon-save-stream-test \
   beam-daemon-request-stream-test \
@@ -38,7 +37,6 @@ lake build \
 .lake/build/bin/beam-broker-pending-test > /dev/null
 .lake/build/bin/beam-broker-document-state-test > /dev/null
 .lake/build/bin/beam-broker-open-docs-test > /dev/null
-.lake/build/bin/beam-broker-deps-test > /dev/null
 .lake/build/bin/beam-cli-daemon-test > /dev/null
 .lake/build/bin/beam-mcp-projection-test > /dev/null
 .lake/build/bin/beam-mcp-protocol-test > /dev/null

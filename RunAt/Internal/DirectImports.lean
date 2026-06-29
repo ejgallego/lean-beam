@@ -14,8 +14,8 @@
  Internal broker-only request for parsing the current document header and returning its direct imports
  from the current tracked text snapshot.
 
- This supports broker-side stale dependency hints and the broker `deps` operation. It is not part of
- the supported public `runAt` API.
+ This supports broker-side stale dependency hints. It is not part of the supported public `runAt`
+ API.
  -/
  def directImportsMethod : String := "$/lean/runAt/directImports"
 

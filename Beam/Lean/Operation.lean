@@ -29,7 +29,6 @@ inductive Operation where
   | release
   | update
   | sync
-  | deps
   | save
   | close
   deriving BEq, Repr
@@ -46,7 +45,6 @@ def Operation.all : Array Operation := #[
   .release,
   .update,
   .sync,
-  .deps,
   .save,
   .close
 ]
@@ -63,7 +61,6 @@ def Operation.key : Operation → String
   | .release => "release"
   | .update => "update"
   | .sync => "sync"
-  | .deps => "deps"
   | .save => "save"
   | .close => "close"
 
@@ -82,7 +79,6 @@ def Operation.description : Operation → String
   | .release => "Release a stored Lean follow-up handle."
   | .update => "Open or update a Lean file in the broker and return its document version without waiting for diagnostics."
   | .sync => "Synchronize a Lean file with the broker and wait for diagnostics."
-  | .deps => "Refresh direct Lean dependency state for a file."
   | .save => "Synchronize a Lean file and save zero-build artifacts when possible."
   | .close => "Close a Lean file in the broker session."
 
@@ -174,7 +170,7 @@ def Operation.inputSchema : Operation → Json
       inputObject [pathField, syncFullDiagnosticsField, includeDiagnosticsField] #["path"]
   | .save =>
       inputObject [pathField, saveFullDiagnosticsField] #["path"]
-  | .deps | .close =>
+  | .close =>
       inputObject [pathField] #["path"]
 
 def Operation.expectsRunAtResult : Operation → Bool
@@ -365,13 +361,6 @@ def ReleaseInput.toBrokerRequest (input : ReleaseInput) (root : String) : Beam.B
   handle? := some input.handle
 }
 
-def PathInput.toDepsBrokerRequest (input : PathInput) (root : String) : Beam.Broker.Request := {
-  op := .deps
-  backend := .lean
-  root? := some root
-  path? := some input.path
-}
-
 def PathInput.toCloseBrokerRequest (input : PathInput) (root : String) : Beam.Broker.Request := {
   op := .close
   backend := .lean
@@ -430,8 +419,6 @@ def Operation.toBrokerRequest
       pure <| (← fromJson? (α := PathInput) input).toUpdateBrokerRequest root
   | .sync =>
       pure <| (← fromJson? (α := SyncInput) input).toSyncBrokerRequest root
-  | .deps =>
-      pure <| (← fromJson? (α := PathInput) input).toDepsBrokerRequest root
   | .save =>
       pure <| (← fromJson? (α := SyncInput) input).toSaveBrokerRequest root
   | .close =>

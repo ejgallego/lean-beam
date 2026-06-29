@@ -23,7 +23,6 @@ import Beam.Broker.Protocol
 import Beam.Broker.RequestArgs
 import Beam.Broker.Transport
 import Beam.Broker.Lean
-import Beam.Broker.Deps
 import Beam.Broker.LakeSave
 import Beam.Broker.Readiness
 import Beam.Broker.SyncSummary
@@ -718,9 +717,7 @@ private def ensureSyncBarrierComplete
     }
 
 private def trackedPathLabel (root : System.FilePath) (uri : DocumentUri) : String :=
-  match workspacePath? root uri with
-  | some path => path
-  | none => uri
+  Beam.pathRelativeToRootOrUri root uri
 
 private def applyVersionMarkResult
     (session : Session)
@@ -779,26 +776,6 @@ private def updateSession (session : Session) : M Unit := do
   modify fun state =>
     let backendState := getBackendState state session.backend
     setBackendState state session.backend { backendState with session? := some session }
-
-private def handleDepsOp (req : Request) : M (Response × Bool) := do
-  let path ←
-    match req.pathArg with
-    | .ok path => pure path
-    | .error resp => return (resp, false)
-  let root := (← get).config.root
-  let resolvedPath ← resolvePath root path
-  let uri := sessionUri resolvedPath
-  try
-    let some module := normalizeModuleForPath root resolvedPath uri none
-      | return (reqError "invalidParams" s!"no Lean module available for {uri}", false)
-    let state ← mkDepsQueryState root
-    let imports ← requireDirectImports state module.name
-    let importedBy ← directImportedBy state module.name
-    let importClosure ← collectImportClosure state module.name
-    let importedByClosure ← collectImportedByClosure state module.name
-    pure (Response.success (depsPayload root module imports importedBy importClosure importedByClosure), false)
-  catch e =>
-    pure (reqError "internalError" e.toString, false)
 
 private def currentSession? (backend : Backend) : M (Option Session) := do
   let state ← get
@@ -1724,7 +1701,6 @@ private def handleRequestIO
           | .close => runHandler <| handleCloseOp server req cancelRef? emitProgress? emitDiagnostic?
           | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress?
           | .requestAt => runHandler <| handleRequestAtOp server req cancelRef? emitProgress?
-          | .deps => server.withState <| handleDepsOp req
           | .saveOlean => runHandler <| handleSaveOleanOp server req cancelRef? emitProgress? emitDiagnostic?
           | .goals => runHandler <| handleGoalsOp server req cancelRef? emitProgress?
           | .todo => runHandler <| handleTodoOp server req cancelRef? emitProgress?

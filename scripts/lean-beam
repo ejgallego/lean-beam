@@ -178,10 +178,6 @@ case "$cmd" in
     mapped=("lean-update")
     display_cmd="$cmd"
     ;;
-  deps)
-    mapped=("deps")
-    display_cmd="$cmd"
-    ;;
   sync)
     mapped=("lean-sync")
     display_cmd="$cmd"

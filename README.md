@@ -117,7 +117,6 @@ lean-beam ensure --hold
 lean-beam hover "Foo.lean" 10 2
 lean-beam goals-prev "Foo.lean" 10 2
 lean-beam run-at "Foo.lean" 10 2 "exact trivial"
-lean-beam deps "Foo.lean"
 lean-beam sync "MyPkg/Sub/Module.lean"
 lean-beam refresh "MyPkg/Sub/Module.lean"
 lean-beam save "MyPkg/Sub/Module.lean"
@@ -139,8 +138,6 @@ Read those commands like this:
 - `lean-beam run-at` tries speculative Lean text without editing the file
 - `lean-beam ensure --hold` is for PID-isolated command runners that need one foreground process
   to keep a newly-started daemon alive across separate wrapper calls
-- `lean-beam deps` reports the broker's direct workspace dependency view for a path; it is a
-  scanner-backed triage helper, not an authoritative Lake build-graph query
 - `lean-beam sync` is the explicit on-disk edit barrier after a real saved edit
 - `lean-beam refresh` is `lean-beam close` plus `lean-beam sync`
 - `lean-beam save` checkpoints one synced workspace module; it does not validate downstream importers

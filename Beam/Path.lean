@@ -53,6 +53,22 @@ def pathRelativeToRootOrSelf (root path : System.FilePath) : String :=
   (pathRelativeToRoot? root path).getD path.toString
 
 /--
+Return a file URI relative to `root` when it resolves to a path under `root`.
+-/
+def pathRelativeToRootFromUri? (root : System.FilePath) (uri : Lean.Lsp.DocumentUri) :
+    Option String := do
+  let path ← System.Uri.fileUriToPath? uri
+  pathRelativeToRoot? root path
+
+/--
+Return a file URI relative to `root` when possible, otherwise return the original URI spelling.
+-/
+def pathRelativeToRootOrUri (root : System.FilePath) (uri : Lean.Lsp.DocumentUri) : String :=
+  match System.Uri.fileUriToPath? uri with
+  | some path => (pathRelativeToRoot? root path).getD uri
+  | none => uri
+
+/--
 Convert a workspace-relative Lean source path such as `Foo/Bar.lean` to its module name.
 -/
 def leanModuleNameFromRelPath? (relPath : String) : Option String := do

@@ -5,7 +5,6 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Broker.Protocol
-import Beam.Path
 import RunAt.Lib.NativeLib
 import RunAtTest.Broker.TestUtil
 import Lean
@@ -35,17 +34,6 @@ def pluginPath : IO System.FilePath := do
   let root ← repoRoot
   ensurePluginSharedBuilt root
   IO.FS.realPath <| RunAt.Lib.pluginSharedLibPath (root / ".lake" / "build" / "lib")
-
-def expectModuleNames (payload : Json) (field : String) (expected : List String) : IO Unit := do
-  let arr ← IO.ofExcept <| payload.getObjVal? field
-  let .arr arr := arr
-    | throw <| IO.userError s!"expected array for {field}, got {arr.compress}"
-  let names ← arr.mapM fun item => do
-    let moduleJson ← IO.ofExcept <| item.getObjVal? "module"
-    IO.ofExcept <| moduleJson.getObjValAs? String "name"
-  for want in expected do
-    unless names.contains want do
-      throw <| IO.userError s!"expected {field} to contain {want}, got {names}"
 
 def expectStringContains (label haystack needle : String) : IO Unit := do
   unless haystack.contains needle do

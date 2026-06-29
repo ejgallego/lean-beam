@@ -230,9 +230,6 @@ private def checkLeanOperationRequests : IO Unit := do
     (({ path, handle := sampleBrokerHandle } : Beam.Lean.ReleaseInput).toBrokerRequest rootText)
 
   let pathInput : Beam.Lean.PathInput := { path }
-  requireRequestJson "deps request should share the Lean operation adapter"
-    (Beam.Cli.leanDepsRequest root path)
-    (pathInput.toDepsBrokerRequest rootText)
   requireRequestJson "update request should share the Lean operation adapter"
     (Beam.Cli.leanUpdateRequest root path)
     (pathInput.toUpdateBrokerRequest rootText)

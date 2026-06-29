@@ -8,9 +8,6 @@ broker-side conveniences for debugging and exploration.
 `lean-beam request-at` is an unstable broker escape hatch for expert debugging. It does not widen the
 base `runAt` contract.
 
-This page documents expert-only commands. Supported wrapper commands such as `lean-beam deps` live in
-the normal workflow docs rather than here.
-
 ## `lean-beam request-at`
 
 `lean-beam request-at` forwards a small whitelisted set of standard Lean LSP requests against an

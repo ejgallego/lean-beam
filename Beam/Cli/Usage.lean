@@ -12,7 +12,6 @@ def usage : String :=
   String.intercalate "\n" [
     "usage:",
     "  beam [--root PATH] [--socket PATH | --port N] ensure [lean|rocq] [--hold]",
-    "  beam [--root PATH] cancel <request-id>",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-hover <path> <version> <line> <character>",
@@ -22,7 +21,6 @@ def usage : String :=
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-with <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-run-with-linear <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-release <path> <handle-json|-|--handle-file <path>>",
-    "  beam [--root PATH] [--socket PATH | --port N] deps <path>",
     "  beam [--root PATH] [--socket PATH | --port N] lean-update <path>",
     "  beam [--root PATH] [--socket PATH | --port N] lean-sync <path> [+full]",
     "  beam [--root PATH] [--socket PATH | --port N] lean-refresh <path> [+full]",

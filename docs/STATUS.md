@@ -36,8 +36,8 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
   `lean_init_workspace` runtime setup, and a real `lean_sync` tool call
 - explicit Lean `lean-beam sync` Beam-daemon barrier with diagnostics wait and compact `fileProgress` reporting
 - `lean-beam open-files` Beam-daemon introspection for tracked documents, including `saved` / `notSaved`,
-  direct Lean deps when available, whether the current synced version has been checkpointed with
-  `lean-beam save`, and Lean save preflight fields `saveEligible` / `saveReason` / `saveModule`;
+  whether the current synced version has been checkpointed with `lean-beam save`, and Lean save
+  preflight fields `saveEligible` / `saveReason` / `saveModule`;
   already-known tracked files are checked incrementally against the on-disk text and carry the last
   observed compact `fileProgress`
 - compact Lean Beam-daemon `fileProgress` reporting on other slow Lean wrapper calls when matching
