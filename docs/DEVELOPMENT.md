@@ -411,11 +411,11 @@ When support for `v4.28.0` is eventually dropped, re-check and likely simplify t
   `v4.28.0` lacks the newer generic `ComputeHash [Hashable α]` instance that makes plain
   `addPureTrace mod.name` and `addPureTrace mod.pkg.id?` work upstream in newer Lean versions.
 
-## Lean 4.30 And 4.31 Compatibility Shims
+## Lean 4.30 Through 4.32 Compatibility Shims
 
-Current validated support spans Lean `v4.29.0` through `v4.31.0`, which requires local
-compatibility code. When the support window no longer crosses these API boundaries, re-check and
-likely simplify these spots:
+Beyond the Lean `v4.28.0` shims above, current validated support spans Lean `v4.29.0` through
+`v4.32.0-rc1`, which requires local compatibility code. When the support window no longer crosses
+these API boundaries, re-check and likely simplify these spots:
 
 - `Beam/LSP/Save.lean`: `emitCForSavedModule` selects between the older `Lean.IR.emitC` API and
   the newer `Lean.Compiler.LCNF.emitC` API.

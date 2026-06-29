@@ -93,6 +93,7 @@ lean-beam supported-toolchains
 The current repo allowlist is:
 
 ```text
+leanprover/lean4:v4.32.0-rc1
 leanprover/lean4:v4.31.0
 leanprover/lean4:v4.30.0
 leanprover/lean4:v4.29.0
