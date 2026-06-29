@@ -2,11 +2,11 @@
 
 These commands are expert-only and explicitly unstable.
 
-They do not extend the base Lean plugin `runAt` surface. They live in the local Beam daemon as
+They do not extend the base `$/lean/runAt` surface. They live in the local Beam daemon as
 broker-side conveniences for debugging and exploration.
 
 `lean-beam request-at` is an unstable broker escape hatch for expert debugging. It does not widen the
-base `runAt` contract.
+base `$/lean/runAt` contract.
 
 ## `lean-beam request-at`
 
@@ -58,7 +58,7 @@ printf '%s\n' '{"context":{"includeDeclaration":true}}' | \
 
 ## Stability
 
-This is intentionally not part of the base `runAt` API contract yet.
+This is intentionally not part of the base `$/lean/runAt` API contract yet.
 
 Current limits:
 

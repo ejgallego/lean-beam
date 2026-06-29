@@ -70,7 +70,7 @@ parse_args() {
 
 expect_owned_validation_root() {
   case "$1" in
-    /tmp/runat-validate-*)
+    /tmp/beam-validate-*)
       ;;
     *)
       die "refusing to touch unexpected validation root: $1"
@@ -87,7 +87,7 @@ write_guard_wrapper() {
 set -euo pipefail
 
 real_bin="$real_bin"
-validation_root="\${RUNAT_VALIDATION_ROOT:?missing RUNAT_VALIDATION_ROOT}"
+validation_root="\${BEAM_VALIDATION_ROOT:?missing BEAM_VALIDATION_ROOT}"
 
 resolve_operand() {
   python3 - "\$1" <<'PY'
@@ -125,7 +125,7 @@ rewrite_tmp_template() {
     "\$validation_root"|"\$validation_root"/*)
       printf '%s\n' "\$1"
       ;;
-    /tmp/runat-*|/tmp/beam-*|/tmp/tmp.*)
+    /tmp/beam-*|/tmp/tmp.*)
       printf '%s/%s\n' "\$validation_root/tmp" "\$(basename "\$1")"
       ;;
     *)
@@ -329,7 +329,7 @@ run_step() {
   )
 }
 
-validation_root="$("$system_mktemp" -d /tmp/runat-validate-XXXXXX)"
+validation_root="$("$system_mktemp" -d /tmp/beam-validate-XXXXXX)"
 expect_owned_validation_root "$validation_root"
 clone_root="$validation_root/clone"
 guard_bin="$validation_root/bin"
@@ -367,7 +367,7 @@ export HOME="$fake_home"
 export CODEX_HOME="$fake_codex_home"
 export CLAUDE_HOME="$fake_claude_home"
 export TMPDIR="$fake_tmpdir"
-export RUNAT_VALIDATION_ROOT="$validation_root"
+export BEAM_VALIDATION_ROOT="$validation_root"
 export PATH="$guard_bin:$PATH"
 
 log "cloning checkout into $clone_root"

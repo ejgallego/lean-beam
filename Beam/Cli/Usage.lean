@@ -69,7 +69,7 @@ def usage : String :=
 def printExperimentalInfo (home : System.FilePath) : IO Unit := do
   let doc := home / "docs" / "experimental.md"
   IO.println s!"Experimental expert commands live in {doc}"
-  IO.println "This is an unstable broker escape hatch, not part of the stable runAt contract."
+  IO.println "This is an unstable broker escape hatch, not part of the base $/lean/runAt contract."
   IO.println "Current experimental entry point: lean-beam request-at"
 
 end Beam.Cli

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository hosts the alpha `runAt` Lean plugin and its local broker tooling.
+This repository hosts the alpha Beam Lean plugin, wrapper, and local broker tooling.
 
 Treat the repo as public but still experimental: prefer conservative, well-tested changes over
 feature sprawl.

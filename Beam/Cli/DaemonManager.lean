@@ -24,7 +24,7 @@ def controlDir (root : System.FilePath) : IO System.FilePath := do
       let tag := toString (hash root.toString)
       pure (System.FilePath.mk dir / tag)
   | none =>
-      pure (runAtStateDir root)
+      pure (beamStateDir root)
 
 private def defaultProjectControlLockTimeoutMs : Nat :=
   60000

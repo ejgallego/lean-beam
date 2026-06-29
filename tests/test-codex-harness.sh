@@ -13,13 +13,13 @@ primary_root="$(git worktree list --porcelain | awk '/^worktree / { print $2; ex
 # shellcheck source=tests/lib/tmp-guards.sh
 . tests/lib/tmp-guards.sh
 
-tmp_root="$(mktemp -d /tmp/runat-codex-harness-XXXXXX)"
+tmp_root="$(mktemp -d /tmp/beam-codex-harness-XXXXXX)"
 
 override_root_parent="$repo_root/.codex-worktrees/test-codex-harness-$$"
-export RUNAT_CODEX_WORKTREE_ROOT="$override_root_parent/worktrees"
+export BEAM_CODEX_WORKTREE_ROOT="$override_root_parent/worktrees"
 task_id="test-codex-harness-$$"
 task_slug="${task_id}"
-worktree_path="$RUNAT_CODEX_WORKTREE_ROOT/$task_slug"
+worktree_path="$BEAM_CODEX_WORKTREE_ROOT/$task_slug"
 default_home="$tmp_root/default-home"
 default_root="$repo_root/.codex-worktrees/lean-beam"
 default_task_id="test-codex-harness-default-$$"
@@ -27,12 +27,12 @@ default_task_slug="${default_task_id}"
 default_worktree_path="$default_root/$default_task_slug"
 
 expect_owned_tmp_dir() {
-  beam_test_expect_owned_tmp_dir "$1" runat-codex-harness
+  beam_test_expect_owned_tmp_dir "$1" beam-codex-harness
 }
 
 remove_owned_tmp_tree() {
   local path="$1"
-  beam_test_remove_owned_tmp_tree "$path" runat-codex-harness
+  beam_test_remove_owned_tmp_tree "$path" beam-codex-harness
 }
 
 remove_owned_repo_tree() {
@@ -81,9 +81,9 @@ if [ ! -d "$worktree_path/.git" ] && [ ! -f "$worktree_path/.git" ]; then
 fi
 
 mkdir -p "$default_home"
-default_session_out="$(env -u RUNAT_CODEX_WORKTREE_ROOT HOME="$default_home" ./scripts/codex-harness.sh session start "$default_task_id")"
+default_session_out="$(env -u BEAM_CODEX_WORKTREE_ROOT HOME="$default_home" ./scripts/codex-harness.sh session start "$default_task_id")"
 if ! printf '%s\n' "$default_session_out" | grep -q "$default_worktree_path"; then
-  echo "expected session start without RUNAT_CODEX_WORKTREE_ROOT to use the repo-local default" >&2
+  echo "expected session start without BEAM_CODEX_WORKTREE_ROOT to use the repo-local default" >&2
   printf '%s\n' "$default_session_out" >&2
   exit 1
 fi
@@ -116,24 +116,24 @@ if ! grep -q 'use ./scripts/codex-harness.sh session start <task-id> instead' "$
 fi
 
 unsafe_root_err="$tmp_root/unsafe-root.err"
-if RUNAT_CODEX_WORKTREE_ROOT="/" ./scripts/codex-harness.sh worktree add "unsafe-root-$$" >"$tmp_root/unsafe-root.out" 2>"$unsafe_root_err"; then
-  echo "expected harness to reject / as RUNAT_CODEX_WORKTREE_ROOT" >&2
+if BEAM_CODEX_WORKTREE_ROOT="/" ./scripts/codex-harness.sh worktree add "unsafe-root-$$" >"$tmp_root/unsafe-root.out" 2>"$unsafe_root_err"; then
+  echo "expected harness to reject / as BEAM_CODEX_WORKTREE_ROOT" >&2
   exit 1
 fi
 
-if ! grep -q 'RUNAT_CODEX_WORKTREE_ROOT must not be /' "$unsafe_root_err"; then
+if ! grep -q 'BEAM_CODEX_WORKTREE_ROOT must not be /' "$unsafe_root_err"; then
   echo "expected unsafe worktree root refusal to mention / explicitly" >&2
   cat "$unsafe_root_err" >&2
   exit 1
 fi
 
 outside_root_err="$tmp_root/outside-root.err"
-if RUNAT_CODEX_WORKTREE_ROOT="$tmp_root/outside-repo" ./scripts/codex-harness.sh worktree add "outside-root-$$" >"$tmp_root/outside-root.out" 2>"$outside_root_err"; then
-  echo "expected harness to reject RUNAT_CODEX_WORKTREE_ROOT outside the repo" >&2
+if BEAM_CODEX_WORKTREE_ROOT="$tmp_root/outside-repo" ./scripts/codex-harness.sh worktree add "outside-root-$$" >"$tmp_root/outside-root.out" 2>"$outside_root_err"; then
+  echo "expected harness to reject BEAM_CODEX_WORKTREE_ROOT outside the repo" >&2
   exit 1
 fi
 
-if ! grep -q 'RUNAT_CODEX_WORKTREE_ROOT must be inside the repo root' "$outside_root_err"; then
+if ! grep -q 'BEAM_CODEX_WORKTREE_ROOT must be inside the repo root' "$outside_root_err"; then
   echo "expected outside worktree root refusal to mention the repo-root requirement" >&2
   cat "$outside_root_err" >&2
   exit 1

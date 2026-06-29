@@ -17,7 +17,7 @@ trap cleanup EXIT
 
 if ! bash scripts/validate-defensive.sh -- bash -c '
   case "$HOME" in
-    /tmp/runat-validate-*/home)
+    /tmp/beam-validate-*/home)
       ;;
     *)
       echo "unexpected HOME inside defensive validation: $HOME" >&2
@@ -26,7 +26,7 @@ if ! bash scripts/validate-defensive.sh -- bash -c '
   esac
 
   case "$CODEX_HOME" in
-    /tmp/runat-validate-*/codex)
+    /tmp/beam-validate-*/codex)
       ;;
     *)
       echo "unexpected CODEX_HOME inside defensive validation: $CODEX_HOME" >&2
@@ -35,7 +35,7 @@ if ! bash scripts/validate-defensive.sh -- bash -c '
   esac
 
   case "$CLAUDE_HOME" in
-    /tmp/runat-validate-*/claude)
+    /tmp/beam-validate-*/claude)
       ;;
     *)
       echo "unexpected CLAUDE_HOME inside defensive validation: $CLAUDE_HOME" >&2
@@ -44,7 +44,7 @@ if ! bash scripts/validate-defensive.sh -- bash -c '
   esac
 
   case "$TMPDIR" in
-    /tmp/runat-validate-*/tmp)
+    /tmp/beam-validate-*/tmp)
       ;;
     *)
       echo "unexpected TMPDIR inside defensive validation: $TMPDIR" >&2
@@ -55,9 +55,9 @@ if ! bash scripts/validate-defensive.sh -- bash -c '
   mkdir -p "$HOME/allowed-dir"
   rm -rf "$HOME/allowed-dir"
 
-  rewritten_tmp="$(mktemp -d /tmp/runat-rewrite-XXXXXX)"
+  rewritten_tmp="$(mktemp -d /tmp/beam-rewrite-XXXXXX)"
   case "$rewritten_tmp" in
-    /tmp/runat-validate-*/tmp/runat-rewrite-*)
+    /tmp/beam-validate-*/tmp/beam-rewrite-*)
       ;;
     *)
       echo "expected mktemp template rewrite into validation root, got $rewritten_tmp" >&2

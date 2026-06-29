@@ -13,7 +13,7 @@ beam_test_tmp_prefix_matches() {
   local prefix
   for prefix in "$@"; do
     case "$path" in
-      /tmp/"$prefix"-*|/tmp/runat-validate-*/tmp/"$prefix"-*)
+      /tmp/"$prefix"-*|/tmp/beam-validate-*/tmp/"$prefix"-*)
         return 0
         ;;
     esac

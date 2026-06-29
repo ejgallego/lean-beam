@@ -23,7 +23,7 @@ partial def climbParents (path : System.FilePath) (count : Nat) : System.FilePat
   | 0 => path
   | n + 1 => climbParents (path.parent.getD path) n
 
-def runAtHome : IO System.FilePath := do
+def beamHome : IO System.FilePath := do
   match ← IO.getEnv "BEAM_HOME" with
   | some root =>
       Beam.resolveExistingPath <| System.FilePath.mk root

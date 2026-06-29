@@ -16,7 +16,7 @@ default_worktree_root() {
   printf '%s\n' "${REPO_ROOT}/.codex-worktrees/lean-beam"
 }
 
-WORKTREE_ROOT="${RUNAT_CODEX_WORKTREE_ROOT:-$(default_worktree_root)}"
+WORKTREE_ROOT="${BEAM_CODEX_WORKTREE_ROOT:-$(default_worktree_root)}"
 
 die() {
   echo "error: $*" >&2
@@ -32,15 +32,15 @@ Usage:
   ./scripts/codex-harness.sh worktree drop <task-id>
 
 Environment:
-  RUNAT_CODEX_WORKTREE_ROOT
-  RUNAT_CODEX_ALLOW_PRIMARY_WORKTREE=1   Allow session-start in the primary checkout
+  BEAM_CODEX_WORKTREE_ROOT
+  BEAM_CODEX_ALLOW_PRIMARY_WORKTREE=1   Allow session-start in the primary checkout
 
 Note:
-  This is maintainer workflow tooling for this repo. It is not part of the public runAt CLI
+  This is maintainer workflow tooling for this repo. It is not part of the public Beam CLI
   and its output is not a compatibility surface.
   By default, worktrees live under .codex-worktrees/lean-beam inside this repo.
-  RUNAT_CODEX_WORKTREE_ROOT must also point inside this repo when set explicitly.
-  Destructive cleanup must stay scoped to harness-owned worktrees under RUNAT_CODEX_WORKTREE_ROOT.
+  BEAM_CODEX_WORKTREE_ROOT must also point inside this repo when set explicitly.
+  Destructive cleanup must stay scoped to harness-owned worktrees under BEAM_CODEX_WORKTREE_ROOT.
   Do not use broad rm/rm -rf against repo-local or user-local state from normal maintainer flows.
 EOF
 }
@@ -71,24 +71,24 @@ realpath_of() {
 
 ensure_safe_worktree_root() {
   local resolved_root resolved_repo resolved_primary
-  [[ -n "${WORKTREE_ROOT}" ]] || die "RUNAT_CODEX_WORKTREE_ROOT must not be empty"
+  [[ -n "${WORKTREE_ROOT}" ]] || die "BEAM_CODEX_WORKTREE_ROOT must not be empty"
   case "${WORKTREE_ROOT}" in
     /*)
       ;;
     *)
-      die "RUNAT_CODEX_WORKTREE_ROOT must be an absolute path: ${WORKTREE_ROOT}"
+      die "BEAM_CODEX_WORKTREE_ROOT must be an absolute path: ${WORKTREE_ROOT}"
       ;;
   esac
   resolved_root="$(realpath_of "${WORKTREE_ROOT}")"
   resolved_repo="$(realpath_of "${REPO_ROOT}")"
   resolved_primary="$(realpath_of "$(primary_root)")"
-  [[ "${resolved_root}" != "/" ]] || die "RUNAT_CODEX_WORKTREE_ROOT must not be /"
+  [[ "${resolved_root}" != "/" ]] || die "BEAM_CODEX_WORKTREE_ROOT must not be /"
   [[ "${resolved_root}" != "${resolved_repo}" ]] || die \
-    "RUNAT_CODEX_WORKTREE_ROOT must not be the repo root: ${resolved_root}"
+    "BEAM_CODEX_WORKTREE_ROOT must not be the repo root: ${resolved_root}"
   [[ "${resolved_root}" != "${resolved_primary}" ]] || die \
-    "RUNAT_CODEX_WORKTREE_ROOT must not be the primary worktree: ${resolved_root}"
+    "BEAM_CODEX_WORKTREE_ROOT must not be the primary worktree: ${resolved_root}"
   python3 - "$resolved_repo" "$resolved_root" <<'PY' >/dev/null || \
-    die "RUNAT_CODEX_WORKTREE_ROOT must be inside the repo root: ${resolved_root}"
+    die "BEAM_CODEX_WORKTREE_ROOT must be inside the repo root: ${resolved_root}"
 import os, sys
 repo, root = sys.argv[1:]
 if os.path.commonpath([repo, root]) != repo:
