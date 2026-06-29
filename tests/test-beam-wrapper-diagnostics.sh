@@ -13,6 +13,7 @@ cd "$(dirname "$0")/.."
 beam_wrapper_init
 
 broken_root="$(beam_wrapper_prepare_project_root diagnostics-broken)"
+guard_msgs_io_stderr_root="$(beam_wrapper_prepare_project_root diagnostics-guard-msgs-io-stderr)"
 warn_root="$(beam_wrapper_prepare_project_root diagnostics-warn)"
 warn_full_root="$(beam_wrapper_prepare_project_root diagnostics-warn-full)"
 stale_root="$(beam_wrapper_prepare_project_root diagnostics-stale)"
@@ -173,6 +174,49 @@ expect_sync_summary_version_matches() {
   if [ "$(RUNAT_JSON_PAYLOAD="$stats_out" read_json_text_field result.sessions.lean.openDocCount)" != "0" ]; then
     echo "expected final lean-close to leave zero open Beam daemon documents" >&2
     printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+)
+
+(
+  cd "$guard_msgs_io_stderr_root"
+
+  cat > SaveSmoke/B.lean <<'EOF'
+/--
+info: stderr from IO.eprintln
+---
+info: true
+-/
+#guard_msgs in
+#eval do
+  IO.eprintln "stderr from IO.eprintln"
+  pure true
+EOF
+
+  guard_sync_json="$(beam_wrapper_mktemp_file guard-msgs-io-stderr-sync-json)"
+  guard_sync_err="$(beam_wrapper_mktemp_file guard-msgs-io-stderr-sync-err)"
+  "$beam_script" lean-sync SaveSmoke/B.lean +full >"$guard_sync_json" 2>"$guard_sync_err"
+  guard_sync="$(cat "$guard_sync_json")"
+  if [ "$(RUNAT_JSON_PAYLOAD="$guard_sync" read_json_text_field ok)" != "true" ]; then
+    echo "expected IO.eprintln guard_msgs lean-sync to succeed" >&2
+    printf '%s\n' "$guard_sync" >&2
+    cat "$guard_sync_err" >&2
+    exit 1
+  fi
+  assert_json_completed_file_progress "IO.eprintln guard_msgs lean-sync" "$guard_sync" fileProgress \
+    "$guard_sync_err"
+  expect_sync_summary_version_matches "$guard_sync" result "IO.eprintln guard_msgs lean-sync" \
+    "$guard_sync_err"
+  expect_json_text_eq "$guard_sync" result.syncSummary.readiness.current.saveReady true \
+    "IO.eprintln guard_msgs lean-sync readiness summary" "$guard_sync_err"
+  expect_json_text_eq "$guard_sync" result.syncSummary.readiness.current.errorCount 0 \
+    "IO.eprintln guard_msgs lean-sync readiness summary" "$guard_sync_err"
+  expect_json_text_eq "$guard_sync" result.syncSummary.diagnostics.current.total 0 \
+    "IO.eprintln guard_msgs lean-sync diagnostics summary" "$guard_sync_err"
+  if grep -Fq "Docstring on \`#guard_msgs\` does not match generated message" "$guard_sync_err"; then
+    echo "expected IO.eprintln guard_msgs sync to accept stderr output as a generated message" >&2
+    printf '%s\n' "$guard_sync" >&2
+    cat "$guard_sync_err" >&2
     exit 1
   fi
 )
