@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Beam.Lean.Operation
 import Beam.JsonSchema
 import Beam.Mcp.Json
+import Beam.Version
 import Beam.Workspace
 import RunAt.Protocol
 
@@ -21,12 +22,14 @@ This is intentionally smaller than the broker and LSP surfaces. In particular, r
 such as `$/lean/runAt` are not accepted here.
 -/
 inductive ToolName where
+  | beamVersion
   | leanInitWorkspace
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
 
 /-- MCP tool categories after projecting the shared Beam operation surface. -/
 inductive ToolKind where
+  | serverInfo
   | workspaceInit
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -49,6 +52,7 @@ def ToolName.leanSave : ToolName := .leanOperation .save
 def ToolName.leanClose : ToolName := .leanOperation .close
 
 def ToolName.leanOperation? : ToolName → Option Beam.Lean.Operation
+  | .beamVersion => none
   | .leanInitWorkspace => none
   | .leanOperation operation => some operation
 
@@ -59,17 +63,19 @@ def ToolName.leanOperationTools : Array ToolName :=
   Beam.Lean.Operation.all.map ToolName.ofLeanOperation
 
 def ToolName.all : Array ToolName :=
-  #[.leanInitWorkspace] ++ ToolName.leanOperationTools
+  #[.beamVersion, .leanInitWorkspace] ++ ToolName.leanOperationTools
 
 def ToolName.key (tool : ToolName) : String :=
-  match tool.leanOperation? with
-  | some operation => leanOperationToolKey operation
-  | none => "lean_init_workspace"
+  match tool with
+  | .beamVersion => "beam_version"
+  | .leanInitWorkspace => "lean_init_workspace"
+  | .leanOperation operation => leanOperationToolKey operation
 
 def ToolName.kind (tool : ToolName) : ToolKind :=
-  match tool.leanOperation? with
-  | some operation => .leanOperation operation
-  | none => .workspaceInit
+  match tool with
+  | .beamVersion => .serverInfo
+  | .leanInitWorkspace => .workspaceInit
+  | .leanOperation operation => .leanOperation operation
 
 def ToolName.fromKey? (key : String) : Option ToolName :=
   ToolName.all.find? (fun tool => tool.key == key)
@@ -88,6 +94,7 @@ instance : FromJson ToolName where
 def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
   match tool.kind with
   | .leanOperation operation => operation.expectsRunAtResult
+  | .serverInfo => false
   | .workspaceInit => false
 
 def ToolName.toBrokerRequest
@@ -96,7 +103,15 @@ def ToolName.toBrokerRequest
     (input : Json) : Except String Beam.Broker.Request :=
   match tool.kind with
   | .leanOperation operation => operation.toBrokerRequest root input
+  | .serverInfo => throw s!"{tool.key} reports MCP server identity and does not map to a broker request"
   | .workspaceInit => throw s!"{tool.key} initializes MCP server state and does not map to a broker request"
+
+def beamVersionDescription : String :=
+  "Return the running Lean Beam MCP server identity for bug reports and refresh checks."
+
+open Beam.JsonSchema in
+def emptyInputSchema : Json :=
+  inputObject [] #[]
 
 def initWorkspaceDescription : String :=
   "Initialize, verify, or explicitly reset the Lean workspace root for MCP clients that cannot advertise roots/list."
@@ -129,13 +144,20 @@ def leanOperationToolNames : Array ToolName :=
   ToolName.leanOperationTools
 
 def capabilityNames : Array String :=
-  leanOperationToolNames.map (·.key)
+  #[ToolName.beamVersion.key] ++ leanOperationToolNames.map (·.key)
 
 def withCapabilities (json : Json) : Json :=
   json.setObjVal! "capabilities" (toJson capabilityNames)
 
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
   match tool.kind with
+  | .serverInfo =>
+      {
+        name := tool
+        kind := .serverInfo
+        description := beamVersionDescription
+        inputSchema := emptyInputSchema
+      }
   | .leanOperation op =>
       {
         name := tool

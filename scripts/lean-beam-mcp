@@ -11,6 +11,7 @@ usage() {
 usage:
   lean-beam-mcp [--root PATH]
   lean-beam-mcp [--root PATH] --self-check <lean-file>
+  lean-beam-mcp --version
 
 Runs the experimental Lean Beam MCP stdio server.
 
@@ -20,6 +21,9 @@ MCP client's roots/list support.
 
 --self-check starts a child MCP server, calls lean_init_workspace for --root, and
 then calls lean_sync on <lean-file>.
+
+--version prints the MCP server version, protocol revision, and resolved runtime
+paths.
 EOF
 }
 
@@ -51,6 +55,20 @@ else
   beam_home="$(cd -P "$script_dir/.." && pwd)"
 fi
 
+case "${1:-}" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+esac
+
+show_version=0
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    show_version=1
+  fi
+done
+
 beam_cli=""
 mcp_bin=""
 if [ "$beam_home_explicit" -eq 1 ]; then
@@ -77,11 +95,6 @@ else
   fi
 fi
 
-if [ -z "$beam_cli" ] || [ ! -x "$beam_cli" ]; then
-  echo "missing beam-cli executable under $beam_home" >&2
-  exit 1
-fi
-
 if [ -z "$mcp_bin" ] || [ ! -x "$mcp_bin" ]; then
   echo "missing lean-beam-mcp executable under $beam_home" >&2
   exit 1
@@ -99,12 +112,19 @@ if [ -z "${BEAM_INSTALL_BUNDLE_DIR:-}" ]; then
   esac
 fi
 export BEAM_HOME="$beam_home"
+export BEAM_WRAPPER_PATH="$script_path"
 
-case "${1:-}" in
-  -h|--help|help)
-    usage
-    exit 0
-    ;;
-esac
+if [ "$show_version" -eq 1 ]; then
+  if [ -n "$beam_cli" ] && [ -x "$beam_cli" ]; then
+    exec "$mcp_bin" --beam-cli "$beam_cli" --version
+  else
+    exec "$mcp_bin" --version
+  fi
+fi
+
+if [ -z "$beam_cli" ] || [ ! -x "$beam_cli" ]; then
+  echo "missing beam-cli executable under $beam_home" >&2
+  exit 1
+fi
 
 exec "$mcp_bin" --beam-cli "$beam_cli" "$@"

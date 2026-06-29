@@ -9,6 +9,8 @@ set -euo pipefail
 usage() {
   cat <<'EOF' >&2
 usage:
+  lean-beam --version
+  lean-beam version
   lean-beam [--root PATH] [--socket PATH | --port N] ensure [lean|rocq] [--hold]
   lean-beam [--root PATH] [--socket PATH | --port N] run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--socket PATH | --port N] run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
@@ -44,6 +46,7 @@ notes:
   - for handle-based commands, use `--handle-file <path>` when you do not want to inline handle json
   - use `ensure --hold` when a PID-isolated command runner needs one foreground process to keep a newly-started daemon alive
   - set `BEAM_DEBUG_TEXT=1` to print the exact escaped text and UTF-8 bytes sent for text-carrying Lean probes
+  - use `lean-beam --version` for bug reports and installed runtime identity checks
 EOF
 }
 
@@ -236,6 +239,16 @@ if [ -n "$display_cmd" ]; then
 else
   unset BEAM_WRAPPER_COMMAND
 fi
+case "$cmd" in
+  version|--version)
+    export BEAM_WRAPPER_PATH="$script_path"
+    export BEAM_PUBLIC_COMMAND="lean-beam"
+    ;;
+  *)
+    unset BEAM_WRAPPER_PATH
+    unset BEAM_PUBLIC_COMMAND
+    ;;
+esac
 
 if [ -n "${prefix[*]-}" ]; then
   if [ -n "${rest[*]-}" ]; then

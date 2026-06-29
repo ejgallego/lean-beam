@@ -26,6 +26,14 @@ The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `~/.l
 the self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), and installs
 the bundled Lean skill only for the agent flags you request.
 
+Use `lean-beam --version` for CLI bug reports and installed runtime identity checks. Use
+`lean-beam-mcp --version` to verify which installed MCP server wrapper, server binary, runtime
+payload hash, manifest, and source commit a client command resolves. Source checkout runs also
+report git commit/branch/dirty state when available. From a live MCP session, call `beam_version`
+to report the running server process identity as structured content.
+`lean_init_workspace` with `mode: "reset"` restarts the Lean runtime inside the current MCP server
+process; it does not prove the MCP server binary itself was refreshed.
+
 Restart Codex or Claude Code after installation.
 
 For authoritative install locations, MCP registration, toolchain options, and slow/offline setup,

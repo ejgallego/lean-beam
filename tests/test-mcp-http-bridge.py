@@ -240,6 +240,7 @@ def main():
                 timeout=args.timeout,
             )).get("tools")
             names = {tool.get("name") for tool in tools}
+            require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
 

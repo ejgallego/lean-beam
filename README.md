@@ -65,8 +65,9 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 `mode: "reset"` to explicitly switch roots and invalidate handles; see
 [docs/STATUS.md](docs/STATUS.md#mcp-workspace-initialization).
 Successful `lean_init_workspace` results include a `capabilities` array with the projected MCP tool
-names, including `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`, `lean_goals_prev`, and
-`lean_goals_after`.
+names, including `beam_version`, `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`,
+`lean_goals_prev`, and `lean_goals_after`. Use `beam_version` for live MCP server identity, source
+commit/branch/dirty data, and bug reports.
 
 MCP clients can opt into live operation progress for `tools/call` requests by including
 `params._meta.progressToken` as a string or integer. The field-level progress, diagnostic, and

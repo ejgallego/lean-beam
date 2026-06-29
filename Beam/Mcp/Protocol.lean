@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Mcp.Json
 import Beam.Mcp.Projection
+import Beam.Version
 
 open Lean
 
@@ -18,13 +19,13 @@ MCP protocol revision advertised by `lean-beam-mcp`.
 This is the only revision currently implemented and tested by the repository.
 -/
 def protocolVersion : String :=
-  "2025-11-25"
+  Beam.Version.mcpProtocolVersion
 
 def serverName : String :=
-  "lean-beam-mcp"
+  Beam.Version.mcpServerName
 
 def serverVersion : String :=
-  "0.1.0-alpha"
+  Beam.Version.projectVersion
 
 structure RpcError where
   code : Int

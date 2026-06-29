@@ -507,6 +507,27 @@ installed_version_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.
 installed_payload_id="$(basename "$installed_version_root")"
 assert_file "$installed_runtime_root/manifest.json"
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
+installed_lean_beam_version="$("$installed_lean_beam" --version)"
+assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "lean-beam 0.1.0-alpha"
+assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "wrapper: $installed_version_root/bin/lean-beam"
+assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "beam home: $installed_version_root"
+assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "beam cli: $installed_version_root/libexec/beam-cli"
+assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "runtime payload: $installed_payload_id"
+assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "manifest: $installed_version_root/manifest.json"
+if [ -n "$expected_source_commit" ]; then
+  assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "source commit: $expected_source_commit"
+fi
+installed_mcp_version="$("$installed_mcp" --version)"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "lean-beam-mcp 0.1.0-alpha"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "mcp protocol: 2025-11-25"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "wrapper: $installed_version_root/bin/lean-beam-mcp"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "server binary: $installed_version_root/libexec/lean-beam-mcp"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "beam cli: $installed_version_root/libexec/beam-cli"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "runtime payload: $installed_payload_id"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "manifest: $installed_version_root/manifest.json"
+if [ -n "$expected_source_commit" ]; then
+  assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "source commit: $expected_source_commit"
+fi
 
 assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"

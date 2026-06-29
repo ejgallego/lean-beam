@@ -18,3 +18,4 @@ import Beam.Lean.Workspace
 import Beam.Mcp.Protocol
 import Beam.Mcp.Projection
 import Beam.Mcp.Server
+import Beam.Version
