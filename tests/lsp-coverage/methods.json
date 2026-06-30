@@ -46,6 +46,7 @@
         "isolation",
         "proof-state",
         "invalid-position",
+        "stale-version",
         "standard-lsp-interference"
       ]
     },
@@ -58,6 +59,7 @@
         "isolation",
         "proof-state",
         "invalid-position",
+        "stale-version",
         "standard-lsp-interference"
       ]
     },
