@@ -107,6 +107,7 @@
       "definition": "Beam/LSP/DirectImports.lean#method",
       "requiredCoverage": [
         "isolation",
+        "stale-version",
         "standard-lsp-interference"
       ]
     }

@@ -78,6 +78,10 @@ structure SaveReadinessSpec where
   expectedTextHashOverride? : Option UInt64 := none
   deriving Inhabited, Repr, ToJson
 
+structure DirectImportsSpec where
+  version? : Option Nat := none
+  deriving Inhabited, Repr, ToJson
+
 instance : FromJson ChangeSpec where
   fromJson? j := do
     let line ← j.getObjValAs? Nat "line"
@@ -491,10 +495,13 @@ def sendSaveReadiness (doc : DocHandle) (spec : SaveReadinessSpec := {}) : Scena
   let requestID ← sendRequest Beam.LSP.Save.saveReadinessMethod (toJson params)
   registerRequest requestID (toJson params)
 
-def sendDirectImports (doc : DocHandle) : ScenarioM ReqHandle := do
+def sendDirectImports (doc : DocHandle) (spec : DirectImportsSpec := {}) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : Beam.LSP.DirectImports.DirectImportsParams := {
-    textDocument := { uri := docState.uri, version? := some (docState.versionNo - 1) }
+    textDocument := {
+      uri := docState.uri
+      version? := some (spec.version?.getD (docState.versionNo - 1))
+    }
   }
   let requestID ← sendRequest Beam.LSP.DirectImports.method (toJson params)
   registerRequest requestID (toJson params)
