@@ -78,7 +78,8 @@
       "requiredCoverage": [
         "isolation",
         "stale-version",
-        "stale-hash"
+        "stale-hash",
+        "standard-lsp-interference"
       ]
     },
     {
@@ -90,7 +91,8 @@
         "isolation",
         "stale-version",
         "stale-hash",
-        "document-errors"
+        "document-errors",
+        "standard-lsp-interference"
       ]
     },
     {

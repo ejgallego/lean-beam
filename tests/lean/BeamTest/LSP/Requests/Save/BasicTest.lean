@@ -5,10 +5,12 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.LSP.Save
+import BeamTest.LSP.Requests.Interference
 import BeamTest.LSP.Requests.Support
 
 open Lean
 open BeamTest.LSP.Scenario
+open BeamTest.LSP.Requests.Interference
 open BeamTest.LSP.Requests.Support
 
 namespace BeamTest.LSP.Requests.Save.BasicTest
@@ -98,6 +100,44 @@ def checkSaveArtifactsAndReadiness : ScenarioM Unit := do
 
   closeDoc doc
 
+def checkSaveRequestsWithStandardLspInterference : ScenarioM Unit := do
+  let saveDoc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+
+  let depAText ← IO.FS.readFile "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+  let outDir ← mkTmpDir "beam-save-lsp-interference"
+
+  let readinessReq ← sendSaveReadiness saveDoc
+  let saveReq ← sendSaveArtifacts saveDoc {
+    expectedVersionOverride? := some 1
+    expectedTextHashOverride? := some (hash depAText)
+    oleanFile := (outDir / "DepA.olean").toString
+    ileanFile := (outDir / "DepA.ilean").toString
+    cFile := (outDir / "DepA.c").toString
+  }
+
+  syncWhitespacePrefixEdit editDoc
+
+  let readiness : Beam.LSP.Save.SaveReadinessResult ← awaitResponseAs readinessReq
+  if !readiness.saveReady then
+    throw <| IO.userError
+      s!"saveReadiness with LSP interference: expected saveReady = true, got {(toJson readiness).compress}"
+  if readiness.saveReadyReason != "ok" then
+    throw <| IO.userError
+      s!"saveReadiness with LSP interference: expected reason = ok, got {readiness.saveReadyReason}"
+
+  let saved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs saveReq
+  if !saved.written then
+    throw <| IO.userError "saveArtifacts with LSP interference: expected written = true"
+  if saved.version != 1 then
+    throw <| IO.userError s!"saveArtifacts with LSP interference: expected version 1, got {saved.version}"
+  expectFileExists "saveArtifacts with LSP interference olean" (outDir / "DepA.olean")
+  expectFileExists "saveArtifacts with LSP interference ilean" (outDir / "DepA.ilean")
+  expectFileExists "saveArtifacts with LSP interference c" (outDir / "DepA.c")
+
+  closeDoc saveDoc
+  closeDoc editDoc
+
 def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/ReportedOnlyError.lean"
   syncDoc doc
@@ -115,6 +155,7 @@ def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkSaveArtifactsAndReadiness
+  checkSaveRequestsWithStandardLspInterference
   checkReportedOnlyErrorReadiness
 
 end BeamTest.LSP.Requests.Save.BasicTest

@@ -121,10 +121,22 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
     },
     {
+      "id": "saveArtifacts.standard-lsp-interference",
+      "method": "$/beam/saveArtifacts",
+      "coverage": ["standard-lsp-interference"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveRequestsWithStandardLspInterference"
+    },
+    {
       "id": "saveReadiness.basic-and-stale",
       "method": "$/beam/saveReadiness",
       "coverage": ["isolation", "stale-version", "stale-hash", "document-errors"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
+    },
+    {
+      "id": "saveReadiness.standard-lsp-interference",
+      "method": "$/beam/saveReadiness",
+      "coverage": ["standard-lsp-interference"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveRequestsWithStandardLspInterference"
     },
     {
       "id": "directImports.basic",
