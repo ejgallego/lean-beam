@@ -25,40 +25,53 @@ run_case() {
   trap - RETURN
 }
 
+run_quiet() {
+  local output
+  output="$(mktemp)"
+  if "$@" > "$output" 2>&1; then
+    rm -f "$output"
+  else
+    local status="$?"
+    cat "$output"
+    rm -f "$output"
+    return "$status"
+  fi
+}
+
 run_scenario_case() {
   local name="$1"
   echo "scenario: $name"
-  lake env lean --run tests/lean/BeamTest/LSP/ScenarioRunner.lean "tests/scenario/${name}.scn" > /dev/null
+  run_quiet lake env lean --run tests/lean/BeamTest/LSP/ScenarioRunner.lean "tests/scenario/${name}.scn"
 }
 
 run_scenario_api_case() {
   echo "scenario-api"
-  lake env lean --run tests/lean/BeamTest/LSP/Scenario/ApiTest.lean > /dev/null
+  run_quiet lake env lean --run tests/lean/BeamTest/LSP/Scenario/ApiTest.lean
 }
 
 run_scenario_stress_case() {
   echo "scenario-stress"
-  lake env lean --run tests/lean/BeamTest/LSP/Scenario/StressTest.lean > /dev/null
+  run_quiet lake env lean --run tests/lean/BeamTest/LSP/Scenario/StressTest.lean
 }
 
 run_handle_api_case() {
   echo "handle-api"
-  lake env lean --run tests/lean/BeamTest/LSP/Handle/ApiTest.lean > /dev/null
+  run_quiet lake exe beam-lsp-handle-api-test
 }
 
 run_handle_restart_case() {
   echo "handle-restart"
-  lake env lean --run tests/lean/BeamTest/LSP/Handle/RestartTest.lean > /dev/null
+  run_quiet lake exe beam-lsp-handle-restart-test
 }
 
 run_handle_lifecycle_case() {
   echo "handle-lifecycle"
-  lake env lean --run tests/lean/BeamTest/LSP/Handle/LifecycleTest.lean > /dev/null
+  run_quiet lake exe beam-lsp-handle-lifecycle-test
 }
 
 run_mcts_proof_search_case() {
   echo "mcts-proof-search"
-  lake env lean --run tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean > /dev/null
+  run_quiet lake env lean --run tests/lean/BeamTest/LSP/Scenario/MctsProofSearchTest.lean
 }
 
 run_parallel_grind_batch_case() {
@@ -121,12 +134,12 @@ PY
 
 run_nested_handle_failure_case() {
   echo "nested-handle-failure"
-  lake env lean --run tests/lean/BeamTest/LSP/Handle/NestedHandleFailureTest.lean > /dev/null
+  run_quiet lake exe beam-lsp-nested-handle-failure-test
 }
 
 run_request_surface_case() {
   echo "request-surface"
-  lake exe beam-lsp-request-surface-test > /dev/null
+  run_quiet lake exe beam-lsp-request-surface-test
 }
 
 run_case asyncEditAwait

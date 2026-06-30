@@ -61,6 +61,24 @@
       "pointer": "tests/scenario/handleLinearDsl.scn"
     },
     {
+      "id": "runWith.failed-successor-no-handle",
+      "method": "$/lean/runWith",
+      "coverage": ["failed-successor-no-handle"],
+      "pointer": "tests/lean/BeamTest/LSP/Handle/Api.lean#checkRunWithFailureDoesNotStoreHandle"
+    },
+    {
+      "id": "runWith.document-edit-invalidation",
+      "method": "$/lean/runWith",
+      "coverage": ["document-edit-invalidation"],
+      "pointer": "tests/lean/BeamTest/LSP/Handle/Lifecycle.lean#checkEditPruning"
+    },
+    {
+      "id": "runWith.document-close-invalidation",
+      "method": "$/lean/runWith",
+      "coverage": ["document-close-invalidation"],
+      "pointer": "tests/lean/BeamTest/LSP/Handle/Lifecycle.lean#checkClosePruning"
+    },
+    {
       "id": "releaseHandle.release-and-reject",
       "method": "$/lean/releaseHandle",
       "coverage": ["handle-release", "released-handle-rejected"],

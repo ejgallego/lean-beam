@@ -4,6 +4,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import BeamTest.LSP.Handle.Api
+import BeamTest.LSP.Handle.Lifecycle
 import BeamTest.LSP.Requests.DirectImports.BasicTest
 import BeamTest.LSP.Requests.Goals.BasicTest
 import BeamTest.LSP.Requests.RunAt.BasicTest
@@ -18,6 +20,8 @@ def main : IO Unit := BeamTest.LSP.Scenario.run do
   BeamTest.LSP.Requests.Todo.BasicTest.run
   BeamTest.LSP.Requests.DirectImports.BasicTest.run
   BeamTest.LSP.Requests.Save.BasicTest.run
+  BeamTest.LSP.Handle.Api.run
+  BeamTest.LSP.Handle.Lifecycle.run
 
 end BeamTest.LSP.RequestSurfaceTest
 
