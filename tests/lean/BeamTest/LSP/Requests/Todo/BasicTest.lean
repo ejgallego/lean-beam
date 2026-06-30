@@ -117,6 +117,21 @@ def checkTodoRequest : ScenarioM Unit := do
 
   closeDoc doc
 
+def checkTodoStaleVersion : ScenarioM Unit := do
+  let doc ← openDoc BeamTest.Fixtures.TodoFixture.repoPath
+  syncDoc doc
+
+  let staleReq ← sendTodo doc {
+    version? := some 0
+    startLine := BeamTest.Fixtures.TodoFixture.startLine
+    startCharacter := BeamTest.Fixtures.TodoFixture.startCharacter
+    endLine := BeamTest.Fixtures.TodoFixture.endLine
+    endCharacter := BeamTest.Fixtures.TodoFixture.endCharacter
+  }
+  expectContentModified staleReq
+
+  closeDoc doc
+
 def checkTodoRequestWithStandardLspInterference : ScenarioM Unit := do
   let todoDoc ← openDoc BeamTest.Fixtures.TodoFixture.repoPath
   let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
@@ -332,6 +347,7 @@ def checkComplexTodoRequest : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkTodoRequest
+  checkTodoStaleVersion
   checkTodoRequestWithStandardLspInterference
   checkTodoCodeActions
   checkComplexTodoRequest
