@@ -5,10 +5,12 @@ Author: Emilio J. Gallego Arias
 -/
 
 import BeamTest.Fixtures.TodoFixture
+import BeamTest.LSP.Requests.Interference
 import BeamTest.LSP.Requests.Support
 
 open Lean
 open BeamTest.LSP.Scenario
+open BeamTest.LSP.Requests.Interference
 open BeamTest.LSP.Requests.Support
 
 namespace BeamTest.LSP.Requests.Todo.BasicTest
@@ -114,6 +116,36 @@ def checkTodoRequest : ScenarioM Unit := do
       s!"todo/runAt starter composition: expected normal runAt result, got {starterOutcome.errorCode?.getD "unknown"}: {starterOutcome.errorMessage}"
 
   closeDoc doc
+
+def checkTodoRequestWithStandardLspInterference : ScenarioM Unit := do
+  let todoDoc ← openDoc BeamTest.Fixtures.TodoFixture.repoPath
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+  syncDoc todoDoc
+
+  let todoReq ← sendTodo todoDoc {
+    startLine := BeamTest.Fixtures.TodoFixture.startLine
+    startCharacter := BeamTest.Fixtures.TodoFixture.startCharacter
+    endLine := BeamTest.Fixtures.TodoFixture.endLine
+    endCharacter := BeamTest.Fixtures.TodoFixture.endCharacter
+    suggest? := some .basic
+  }
+
+  syncWhitespacePrefixEdit editDoc
+
+  let todos : Beam.LSP.Todo.TodoResult ← awaitResponseAs todoReq
+  requireTodoKindCount "todo with LSP interference sorries" .sorry 1 todos
+  requireTodoKindCount "todo with LSP interference incomplete proofs" .incompleteProof 1 todos
+  let incomplete ← requireTodoKind "todo with LSP interference incomplete proof" .incompleteProof todos
+  if incomplete.runAtText? != some "exact ?_" then
+    throw <| IO.userError
+      s!"todo with LSP interference: expected incomplete proof runAtText, got {(toJson incomplete).compress}"
+  let some proofState := incomplete.proofState?
+    | throw <| IO.userError
+        s!"todo with LSP interference: expected proofState, got {(toJson incomplete).compress}"
+  requireSingleGoalTarget "todo with LSP interference incomplete proof" "True" proofState
+
+  closeDoc todoDoc
+  closeDoc editDoc
 
 def checkTodoCodeActions : ScenarioM Unit := do
   let doc ← openDoc BeamTest.Fixtures.TodoFixture.codeActionRepoPath
@@ -300,6 +332,7 @@ def checkComplexTodoRequest : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkTodoRequest
+  checkTodoRequestWithStandardLspInterference
   checkTodoCodeActions
   checkComplexTodoRequest
   checkTodoInteractiveOnlyDiagnostic
