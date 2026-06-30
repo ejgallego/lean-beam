@@ -91,6 +91,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
     },
     {
+      "id": "goalsAfter.invalid-position",
+      "method": "$/lean/goalsAfter",
+      "coverage": ["invalid-position"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsInvalidPosition"
+    },
+    {
       "id": "goalsAfter.standard-lsp-interference",
       "method": "$/lean/goalsAfter",
       "coverage": ["standard-lsp-interference"],
@@ -101,6 +107,12 @@
       "method": "$/lean/goalsPrev",
       "coverage": ["isolation", "proof-state"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
+    },
+    {
+      "id": "goalsPrev.invalid-position",
+      "method": "$/lean/goalsPrev",
+      "coverage": ["invalid-position"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsInvalidPosition"
     },
     {
       "id": "goalsPrev.standard-lsp-interference",

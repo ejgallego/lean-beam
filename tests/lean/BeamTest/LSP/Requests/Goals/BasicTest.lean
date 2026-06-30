@@ -14,6 +14,9 @@ open BeamTest.LSP.Requests.Interference
 
 namespace BeamTest.LSP.Requests.Goals.BasicTest
 
+private def invalidParamsJson : Json :=
+  Json.mkObj [("code", toJson "invalidParams")]
+
 def checkGoalsRequests : ScenarioM Unit := do
   let doc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
 
@@ -27,6 +30,17 @@ def checkGoalsRequests : ScenarioM Unit := do
   let goalsAfter : Beam.LSP.Lib.ProofState ← awaitResponseAs goalsAfterReq
   if goalsAfter.goals.size != 0 then
     throw <| IO.userError s!"goals after: expected solved proof state, got {goalsAfter.goals.size} goals"
+
+  closeDoc doc
+
+def checkGoalsInvalidPosition : ScenarioM Unit := do
+  let doc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
+
+  let goalsPrevReq ← sendGoals doc { line := 99, character := 0, useAfter := false }
+  let goalsAfterReq ← sendGoals doc { line := 99, character := 0, useAfter := true }
+
+  expectErrorContains goalsPrevReq invalidParamsJson
+  expectErrorContains goalsAfterReq invalidParamsJson
 
   closeDoc doc
 
@@ -54,6 +68,7 @@ def checkGoalsRequestsWithStandardLspInterference : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkGoalsRequests
+  checkGoalsInvalidPosition
   checkGoalsRequestsWithStandardLspInterference
 
 end BeamTest.LSP.Requests.Goals.BasicTest

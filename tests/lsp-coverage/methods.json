@@ -45,6 +45,7 @@
       "requiredCoverage": [
         "isolation",
         "proof-state",
+        "invalid-position",
         "standard-lsp-interference"
       ]
     },
@@ -56,6 +57,7 @@
       "requiredCoverage": [
         "isolation",
         "proof-state",
+        "invalid-position",
         "standard-lsp-interference"
       ]
     },
