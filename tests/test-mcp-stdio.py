@@ -729,7 +729,7 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
     )
     capabilities = structured.get("capabilities")
     require(isinstance(capabilities, list), f"init workspace missing capabilities: {structured}")
-    for capability in ["beam_version", "lean_update", "lean_sync", "lean_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
+    for capability in ["beam_version", "beam_stats", "lean_update", "lean_sync", "lean_refresh", "lean_save", "lean_close_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
         require(capability in capabilities, f"init workspace capabilities missing {capability}: {structured}")
     require("$/lean/runAt" not in capabilities, f"init workspace exposed raw LSP capability: {structured}")
     require(
@@ -926,6 +926,10 @@ def run_iteration(client, suffix):
     require(goals_after.get("goals") == [], f"goals-after should return no goals: {goals_after}")
 
     client.call_tool("lean_close", {"path": "PositionEmptyLine.lean"})
+    refreshed = client.call_tool("lean_refresh", {"path": "PositionEmptyLine.lean"})
+    require(isinstance(refreshed.get("version"), int), f"lean_refresh did not return a version: {refreshed}")
+    require("syncSummary" in refreshed, f"lean_refresh did not return syncSummary: {refreshed}")
+    client.call_tool("lean_close", {"path": "PositionEmptyLine.lean"})
     client.call_tool("lean_close", {"path": "GoalSmoke.lean"})
 
 
@@ -978,9 +982,12 @@ def run_cycle(
             tools = expect_result(client.request("tools/list")).get("tools")
             names = {tool.get("name") for tool in tools}
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
+            require("beam_stats" in names, f"tools/list missing beam_stats: {tools}")
             require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
+            require("lean_refresh" in names, f"tools/list missing lean_refresh: {tools}")
+            require("lean_close_save" in names, f"tools/list missing lean_close_save: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
             require("lean_request_at" not in names, f"tools/list exposed raw request escape hatch: {tools}")
 

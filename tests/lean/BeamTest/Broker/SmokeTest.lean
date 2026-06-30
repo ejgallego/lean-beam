@@ -173,6 +173,25 @@ private def runSyncSmoke
   let syncTopAgain := ← requireFileProgress "unchanged sync_file" syncRespAgain
   if !syncTopAgain.done then
     throw <| IO.userError s!"expected unchanged sync_file fileProgress.done = true, got {(toJson syncTopAgain).compress}"
+  let refreshRequestId := some "smoke-refresh"
+  let (refreshResp, refreshEvents) ← runClientWithProgress endpoint {
+    op := .refreshFile
+    clientRequestId? := refreshRequestId
+    root? := some root.toString
+    path? := some "tests/scenario/docs/CommandA.lean"
+  }
+  let refreshRes ← requireSyncFileResult "refresh_file" (← expectOk refreshResp)
+  if refreshRes.version != 1 then
+    throw <| IO.userError s!"expected refresh_file to reopen version 1, got {refreshRes.version}"
+  let refreshTop := ← requireFileProgress "refresh_file" refreshResp
+  expectClientRequestId "refresh_file response" refreshResp.clientRequestId? refreshRequestId
+  if !refreshTop.done then
+    throw <| IO.userError s!"expected top-level refresh_file fileProgress.done = true, got {(toJson refreshTop).compress}"
+  let some refreshLast := refreshEvents.back?
+    | throw <| IO.userError "expected refresh_file to stream fileProgress events"
+  expectClientRequestId "refresh_file progress" refreshLast.clientRequestId? refreshRequestId
+  if !refreshLast.progress.done then
+    throw <| IO.userError s!"expected final streamed refresh_file progress to be done, got {(toJson refreshLast.progress).compress}"
 
 private def runErrorOnlySyncSmoke
     (endpoint : Beam.Broker.Endpoint)
@@ -726,6 +745,7 @@ private def runSaveAndStatsSmoke
 
   let stats ← expectOk <| ← runClient endpoint { op := .stats }
   expectOpCountAtLeast stats "lean" "sync_file" 1
+  expectOpCountAtLeast stats "lean" "refresh_file" 1
   expectOpCountAtLeast stats "lean" "update_file" 1
   expectOpCountAtLeast stats "lean" "run_at" 3
   expectOpCountAtLeast stats "lean" "request_at" 5

@@ -117,6 +117,13 @@ def leanSyncRequest
   ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toSyncBrokerRequest
     (rootText root)
 
+def leanRefreshRequest
+    (root : System.FilePath)
+    (path : String)
+    (fullDiagnostics : Bool) : Request :=
+  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toRefreshBrokerRequest
+    (rootText root)
+
 def leanSaveRequest
     (root : System.FilePath)
     (path : String)
@@ -128,10 +135,7 @@ def leanCloseSaveRequest
     (root : System.FilePath)
     (path : String)
     (fullDiagnostics : Bool) : Request :=
-  {
-    leanCloseRequest root path with
-    saveArtifacts? := some true
-    fullDiagnostics? := some fullDiagnostics
-  }
+  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toCloseSaveBrokerRequest
+    (rootText root)
 
 end Beam.Cli

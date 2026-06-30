@@ -109,10 +109,13 @@ private def checkToolsListShape : IO Unit := do
     (modeDescription.contains "invalidates handles")
   require "MCP capability names should include central Lean tools"
     (Beam.Mcp.capabilityNames.contains "beam_version" &&
+      Beam.Mcp.capabilityNames.contains "beam_stats" &&
       Beam.Mcp.capabilityNames.contains "lean_run_at" &&
       Beam.Mcp.capabilityNames.contains "lean_update" &&
       Beam.Mcp.capabilityNames.contains "lean_sync" &&
+      Beam.Mcp.capabilityNames.contains "lean_refresh" &&
       Beam.Mcp.capabilityNames.contains "lean_save" &&
+      Beam.Mcp.capabilityNames.contains "lean_close_save" &&
       Beam.Mcp.capabilityNames.contains "lean_goals_prev" &&
       Beam.Mcp.capabilityNames.contains "lean_goals_after")
   require "MCP capability names should not expose raw LSP methods"
@@ -120,6 +123,7 @@ private def checkToolsListShape : IO Unit := do
 
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
+    ("beam_stats", #[]),
     ("lean_run_at", #["path", "version", "line", "character", "text"]),
     ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
     ("lean_hover", #["path", "version", "line", "character"]),
@@ -131,7 +135,9 @@ private def checkToolsListShape : IO Unit := do
     ("lean_release", #["path", "handle"]),
     ("lean_update", #["path"]),
     ("lean_sync", #["path"]),
+    ("lean_refresh", #["path"]),
     ("lean_save", #["path"]),
+    ("lean_close_save", #["path"]),
     ("lean_close", #["path"])
   ]
   require "tools/list should expose init workspace plus curated Lean tools"
@@ -144,10 +150,18 @@ private def checkToolsListShape : IO Unit := do
   let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
   let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
   requireFieldPresent "lean_sync input schema" "include_diagnostics" syncProperties
+  let refreshTool ← requireTool tools "lean_refresh"
+  let refreshSchema ← requireClosedInputSchema "lean_refresh input schema" refreshTool
+  let refreshProperties ← requireObjVal "lean_refresh input schema" "properties" refreshSchema
+  requireFieldPresent "lean_refresh input schema" "include_diagnostics" refreshProperties
   let saveTool ← requireTool tools "lean_save"
   let saveSchema ← requireClosedInputSchema "lean_save input schema" saveTool
   let saveProperties ← requireObjVal "lean_save input schema" "properties" saveSchema
   requireFieldAbsent "lean_save input schema" "include_diagnostics" saveProperties
+  let closeSaveTool ← requireTool tools "lean_close_save"
+  let closeSaveSchema ← requireClosedInputSchema "lean_close_save input schema" closeSaveTool
+  let closeSaveProperties ← requireObjVal "lean_close_save input schema" "properties" closeSaveSchema
+  requireFieldAbsent "lean_close_save input schema" "include_diagnostics" closeSaveProperties
 
   let rawExposed := tools.any fun tool =>
     (tool.getObjValAs? String "name").toOption == some Beam.LSP.RunAt.method ||
@@ -750,6 +764,49 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let suppressedStructured ← requireObjVal "suppressed lean_sync result" "structuredContent" suppressedResult
     requireFieldAbsent "suppressed lean_sync result" "diagnostics" suppressedStructured
     expectNoDiagnosticLogs "warning-only after error log level" (← notificationsRef.get)
+
+    let statsResp ← handleRpcRequestWithNotifications state opts stdin notifications "beam stats" 40
+      "tools/call" <| some <| toolCallParams "beam_stats"
+    let statsResult ← requireObjVal "beam stats response" "result" statsResp
+    requireJsonBool "beam stats result" "isError" false statsResult
+    let statsStructured ← requireObjVal "beam stats result" "structuredContent" statsResult
+    requireJsonString "beam stats structured" "root" root.toString statsStructured
+    requireJsonString "beam stats structured" "active_root" root.toString statsStructured
+    discard <| requireObjVal "beam stats structured" "sessions" statsStructured
+    let byBackend ← requireObjVal "beam stats structured" "byBackend" statsStructured
+    let leanMetrics ← requireObjVal "beam stats byBackend" "lean" byBackend
+    let ops ← requireObjVal "beam stats lean metrics" "ops" leanMetrics
+    let syncStats ← requireObjVal "beam stats lean ops" "sync_file" ops
+    let syncCount ← IO.ofExcept <| syncStats.getObjValAs? Nat "count"
+    require "beam stats should include prior sync_file calls" (syncCount >= 1)
+
+    let refreshResp ← handleRpcRequestWithNotifications state opts stdin notifications "lean refresh" 41
+      "tools/call" <| some <| toolCallParams "lean_refresh" <|
+        Json.mkObj [
+          ("path", toJson "SaveSmoke/B.lean"),
+          ("include_diagnostics", toJson true)
+        ]
+    let refreshResult ← requireObjVal "lean_refresh response" "result" refreshResp
+    requireJsonBool "lean_refresh result" "isError" false refreshResult
+    let refreshStructured ← requireObjVal "lean_refresh result" "structuredContent" refreshResult
+    discard <| IO.ofExcept <| refreshStructured.getObjValAs? Nat "version"
+    discard <| requireObjVal "lean_refresh structured result" "syncSummary" refreshStructured
+    discard <| requireObjVal "lean_refresh structured result" "diagnostics" refreshStructured
+    requireJsonString "lean_refresh structured result" "active_root" root.toString refreshStructured
+
+    let closeSaveResp ← handleRpcRequestWithNotifications state opts stdin notifications "lean close-save" 42
+      "tools/call" <| some <| toolCallParams "lean_close_save" <|
+        Json.mkObj [
+          ("path", toJson "SaveSmoke/B.lean")
+        ]
+    let closeSaveResult ← requireObjVal "lean_close_save response" "result" closeSaveResp
+    requireJsonBool "lean_close_save result" "isError" false closeSaveResult
+    let closeSaveStructured ← requireObjVal "lean_close_save result" "structuredContent" closeSaveResult
+    requireJsonBool "lean_close_save structured result" "closed" true closeSaveStructured
+    let saved ← requireObjVal "lean_close_save structured result" "saved" closeSaveStructured
+    discard <| IO.ofExcept <| saved.getObjValAs? Nat "version"
+    discard <| requireObjVal "lean_close_save saved result" "sync" saved
+    requireJsonString "lean_close_save structured result" "active_root" root.toString closeSaveStructured
 
     notificationsRef.set #[]
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"

@@ -30,7 +30,9 @@ inductive Operation where
   | release
   | update
   | sync
+  | refresh
   | save
+  | closeSave
   | close
   deriving BEq, Repr
 
@@ -46,7 +48,9 @@ def Operation.all : Array Operation := #[
   .release,
   .update,
   .sync,
+  .refresh,
   .save,
+  .closeSave,
   .close
 ]
 
@@ -62,7 +66,9 @@ def Operation.key : Operation → String
   | .release => "release"
   | .update => "update"
   | .sync => "sync"
+  | .refresh => "refresh"
   | .save => "save"
+  | .closeSave => "close_save"
   | .close => "close"
 
 instance : ToJson Operation where
@@ -80,7 +86,9 @@ def Operation.description : Operation → String
   | .release => "Release a stored Lean follow-up handle."
   | .update => "Open or update a Lean file in the broker and return its document version without waiting for diagnostics."
   | .sync => "Synchronize a Lean file with the broker and wait for diagnostics."
+  | .refresh => "Close a Lean file in the broker if tracked, then synchronize it again with fresh diagnostics."
   | .save => "Synchronize a Lean file and save zero-build artifacts when possible."
+  | .closeSave => "Synchronize a Lean file, save zero-build artifacts when possible, and close the file."
   | .close => "Close a Lean file in the broker session."
 
 private def pathField : String × Json :=
@@ -167,9 +175,11 @@ def Operation.inputSchema : Operation → Json
       inputObject [pathField, releaseHandleField] #["path", "handle"]
   | .update =>
       inputObject [pathField] #["path"]
-  | .sync =>
+  | .sync | .refresh =>
       inputObject [pathField, syncFullDiagnosticsField, includeDiagnosticsField] #["path"]
   | .save =>
+      inputObject [pathField, saveFullDiagnosticsField] #["path"]
+  | .closeSave =>
       inputObject [pathField, saveFullDiagnosticsField] #["path"]
   | .close =>
       inputObject [pathField] #["path"]
@@ -385,11 +395,29 @@ def SyncInput.toSyncBrokerRequest (input : SyncInput) (root : String) : Beam.Bro
   includeDiagnostics? := input.includeDiagnostics?
 }
 
+def SyncInput.toRefreshBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
+  op := .refreshFile
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  fullDiagnostics? := input.fullDiagnostics?
+  includeDiagnostics? := input.includeDiagnostics?
+}
+
 def SyncInput.toSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
   op := .saveOlean
   backend := .lean
   root? := some root
   path? := some input.path
+  fullDiagnostics? := input.fullDiagnostics?
+}
+
+def SyncInput.toCloseSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
+  op := .close
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  saveArtifacts? := some true
   fullDiagnostics? := input.fullDiagnostics?
 }
 
@@ -420,8 +448,12 @@ def Operation.toBrokerRequest
       pure <| (← fromJson? (α := PathInput) input).toUpdateBrokerRequest root
   | .sync =>
       pure <| (← fromJson? (α := SyncInput) input).toSyncBrokerRequest root
+  | .refresh =>
+      pure <| (← fromJson? (α := SyncInput) input).toRefreshBrokerRequest root
   | .save =>
       pure <| (← fromJson? (α := SyncInput) input).toSaveBrokerRequest root
+  | .closeSave =>
+      pure <| (← fromJson? (α := SyncInput) input).toCloseSaveBrokerRequest root
   | .close =>
       pure <| (← fromJson? (α := PathInput) input).toCloseBrokerRequest root
 
