@@ -808,6 +808,11 @@ remove_tmp_tree "$source_checkout"
 
 project_root="$tmp_root/external-project"
 rsync -a tests/save_olean_project/ "$project_root"/
+project_toolchain="$(awk 'NR==1 {print $1}' "$project_root/lean-toolchain")"
+if [ -z "$project_toolchain" ]; then
+  echo "missing Lean toolchain in external install smoke project" >&2
+  exit 1
+fi
 
 supported_out="$("$installed_lean_beam" supported-toolchains)"
 if ! printf '%s\n' "$supported_out" | grep -qx "$toolchain"; then
@@ -829,7 +834,7 @@ assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle source: install
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle ready: true'
 
 mcp_config_json="$(BEAM_HOME="$installed_runtime_root" "$installed_runtime_root/libexec/beam-cli" --root "$project_root" mcp-config)"
-MCP_CONFIG_JSON="$mcp_config_json" EXPECTED_TOOLCHAIN="$toolchain" python3 - <<'PY'
+MCP_CONFIG_JSON="$mcp_config_json" EXPECTED_TOOLCHAIN="$project_toolchain" python3 - <<'PY'
 import json
 import os
 import sys
