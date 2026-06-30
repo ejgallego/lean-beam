@@ -143,6 +143,12 @@
       "method": "$/beam/directImports",
       "coverage": ["isolation"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/DirectImports/BasicTest.lean#checkDirectImports"
+    },
+    {
+      "id": "directImports.standard-lsp-interference",
+      "method": "$/beam/directImports",
+      "coverage": ["standard-lsp-interference"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/DirectImports/BasicTest.lean#checkDirectImportsWithStandardLspInterference"
     }
   ]
 }
