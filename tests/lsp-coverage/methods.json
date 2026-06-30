@@ -21,7 +21,10 @@
       "requiredCoverage": [
         "handle-continuation",
         "handle-invalidation",
-        "linear-handle"
+        "linear-handle",
+        "failed-successor-no-handle",
+        "document-edit-invalidation",
+        "document-close-invalidation"
       ]
     },
     {
