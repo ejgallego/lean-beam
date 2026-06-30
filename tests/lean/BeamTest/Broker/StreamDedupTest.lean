@@ -18,18 +18,24 @@ private def jsonPos (line character : Nat) : Json :=
     ("character", toJson character)
   ]
 
-private def jsonRange (line character endCharacter : Nat) : Json :=
+private def jsonRangeFull (line character endLine endCharacter : Nat) : Json :=
   Json.mkObj [
     ("start", jsonPos line character),
-    ("end", jsonPos line endCharacter)
+    ("end", jsonPos endLine endCharacter)
   ]
 
-private def jsonDiagnostic (line character endCharacter severity : Nat) (message : String) : Json :=
+private def jsonRange (line character endCharacter : Nat) : Json :=
+  jsonRangeFull line character line endCharacter
+
+private def jsonDiagnosticWithRange (range : Json) (severity : Nat) (message : String) : Json :=
   Json.mkObj [
-    ("range", jsonRange line character endCharacter),
+    ("range", range),
     ("severity", toJson severity),
     ("message", toJson message)
   ]
+
+private def jsonDiagnostic (line character endCharacter severity : Nat) (message : String) : Json :=
+  jsonDiagnosticWithRange (jsonRange line character endCharacter) severity message
 
 private def jsonPublishDiagnostics
     (uri : String)
@@ -54,7 +60,26 @@ private def jsonResponse (id : Nat) (result : Json := Json.mkObj []) : Json :=
 
 private def lspFrame (json : Json) : String :=
   let body := json.compress
-  s!"Content-Length: {body.length}\r\n\r\n{body}"
+  s!"Content-Length: {body.toUTF8.size}\r\n\r\n{body}"
+
+private def oneRequestTranscriptPython : String :=
+  String.intercalate "\n" [
+    "import re, sys, time",
+    "header = b''",
+    "while not header.endswith(b'\\r\\n\\r\\n'):",
+    "    chunk = sys.stdin.buffer.read(1)",
+    "    if not chunk:",
+    "        break",
+    "    header += chunk",
+    "match = re.search(br'Content-Length:\\s*(\\d+)', header, re.IGNORECASE)",
+    "if match:",
+    "    sys.stdin.buffer.read(int(match.group(1)))",
+    "with open(sys.argv[1], 'rb') as transcript:",
+    "    sys.stdout.buffer.write(transcript.read())",
+    "sys.stdout.buffer.flush()",
+    "time.sleep(1)",
+    ""
+  ]
 
 private def writeTranscript (messages : Array Json) : IO System.FilePath := do
   let path := System.FilePath.mk s!"/tmp/beam-daemon-transcript-{← IO.monoNanosNow}.txt"
@@ -84,6 +109,113 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
   }
   let _ ← IO.asTask (prio := Task.Priority.dedicated) <| Beam.Broker.sessionReaderLoop session
   pure session
+
+private def fakeOneRequestProcess (root transcript : System.FilePath) :
+    IO (IO.Process.Child Beam.Broker.brokerStdio) := do
+  IO.Process.spawn {
+    toStdioConfig := Beam.Broker.brokerStdio
+    cmd := "python3"
+    args := #["-c", oneRequestTranscriptPython, transcript.toString]
+    cwd := root.toString
+  }
+
+private def fakeSessionWithSyncedDoc
+    (root path transcript : System.FilePath)
+    (version : Nat := 1) : IO Beam.Broker.Session := do
+  let proc ← fakeOneRequestProcess root transcript
+  let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID Beam.Broker.PendingRequest)
+  let incompleteBarrierDiagnostics ←
+    IO.mkRef ({} : Std.TreeMap Lean.Lsp.DocumentUri (Array Lean.Lsp.Diagnostic))
+  let text ← IO.FS.readFile path
+  let textMTime ← Lake.getFileMTime path
+  let uri := Beam.Broker.sessionUri path
+  let docs := ({} : Std.TreeMap String Beam.Broker.DocState).insert uri {
+    version
+    textHash := hash text
+    textTraceHash := Lake.Hash.ofText text
+    textMTime
+    syncSnapshotSeq := 1
+  }
+  let session : Beam.Broker.Session := {
+    backend := .lean
+    root
+    epoch := 1
+    sessionToken := "fake-run-at-session"
+    proc
+    stdin := IO.FS.Stream.ofHandle proc.stdin
+    stdout := IO.FS.Stream.ofHandle proc.stdout
+    pending
+    incompleteBarrierDiagnostics
+    docs
+  }
+  let _ ← IO.asTask (prio := Task.Priority.dedicated) <| Beam.Broker.sessionReaderLoop session
+  pure session
+
+private def fakeServerWithLeanSession
+    (root : System.FilePath)
+    (session : Beam.Broker.Session) : IO Beam.Broker.ServerRuntime := do
+  pure {
+    state := ← Std.Mutex.new {
+      config := { root }
+      lean := { nextEpoch := 1, session? := some session }
+    }
+    endpoint := .tcp 0
+    stop := ← IO.mkRef false
+    activeRequests := ← Beam.Broker.ActiveRequestRegistry.create
+  }
+
+def checkRunAtStreamsSetupDiagnostics : IO Unit := do
+  let rootBase := System.FilePath.mk s!"/tmp/beam-daemon-run-at-stream-{← IO.monoNanosNow}"
+  IO.FS.createDirAll rootBase
+  let root ← IO.FS.realPath rootBase
+  let path := root / "Tracked.lean"
+  IO.FS.writeFile path "def tracked : Nat := 1\n"
+  let uri := Beam.Broker.sessionUri path
+  let setupProgress := jsonDiagnosticWithRange (jsonRangeFull 0 0 1 0) 3
+    "✔ [1/2] Built Tracked (1s)\n"
+  let ordinaryError := jsonDiagnostic 2 0 6 1 "regular file error"
+  let transcript ← writeTranscript #[
+    jsonPublishDiagnostics uri 1 #[setupProgress, ordinaryError],
+    jsonResponse 1 (Json.mkObj [("success", toJson true)])
+  ]
+  let session ← fakeSessionWithSyncedDoc root path transcript
+  let server ← fakeServerWithLeanSession root session
+  let streamedRef ← IO.mkRef #[]
+  try
+    let (resp, _) ← server.dispatchRequest {
+      op := .runAt
+      root? := some root.toString
+      path? := some "Tracked.lean"
+      version? := some 1
+      line? := some 0
+      character? := some 2
+      text? := some "#check tracked"
+    } (emitDiagnostic? := some fun diagnostic =>
+      streamedRef.modify fun seen => seen.push diagnostic)
+    if !resp.ok then
+      throw <| IO.userError s!"expected run_at success, got {(toJson resp).compress}"
+    let streamed ← streamedRef.get
+    unless streamed.map (·.message) == #["✔ [1/2] Built Tracked (1s)\n"] do
+      throw <| IO.userError
+        s!"expected run_at to stream default setup-file progress only, got {(toJson streamed).compress}"
+    unless streamed.all (fun diagnostic =>
+        diagnostic.path == "Tracked.lean" && diagnostic.severity? == some .information) do
+      throw <| IO.userError
+        s!"expected run_at setup diagnostics to stay informational and relative, got {(toJson streamed).compress}"
+  finally
+    try
+      session.proc.kill
+    catch _ =>
+      pure ()
+    discard <| session.proc.tryWait
+    try
+      IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+    try
+      IO.FS.removeFile transcript
+    catch _ =>
+      pure ()
 
 def check : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/beam-daemon-dedup-{← IO.monoNanosNow}"
@@ -132,5 +264,6 @@ def check : IO Unit := do
     discard <| session.proc.tryWait
 
 #eval check
+#eval checkRunAtStreamsSetupDiagnostics
 
 end BeamTest.Broker.StreamDedupTest

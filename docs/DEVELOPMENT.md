@@ -393,7 +393,8 @@ support lands, prefer deleting the workaround over preserving compatibility bran
 
 - Lean file-worker `lake setup-file` progress is currently exposed as ordinary information
   diagnostics with a synthetic file-start range. Beam recognizes Lake build-monitor text such as
-  `✔ [1/2] Built ...` so MCP/wrapper clients can see cold Lake setup activity during long syncs.
+  `✔ [1/2] Built ...` so MCP/wrapper clients can see cold Lake setup activity during long syncs
+  and `runAt` probes.
   This is deliberately brittle. A typed Lean API or LSP notification for setup/build progress,
   including the module/target caption and completion/failure status, would let Beam stop matching
   diagnostic strings.

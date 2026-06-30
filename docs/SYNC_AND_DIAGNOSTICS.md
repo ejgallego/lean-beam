@@ -85,9 +85,11 @@ verdict.
 MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
 `include_diagnostics: true` to replay diagnostics in the final structured result. By default replay
 and streaming use an error-only diagnostic filter. Beam also forwards best-effort Lake
-`setup-file` build status lines during a pending sync, because cold Lean/Lake setup can otherwise
-look like a silent hang. `full_diagnostics: true` widens streamed and replayed diagnostic output to
-warnings, information, and hints.
+`setup-file` build status lines during a pending sync or `runAt` probe, because cold Lean/Lake setup
+can otherwise look like a silent hang. `runAt` does not stream ordinary file diagnostics by default;
+from this diagnostic side channel it forwards only those setup-file status lines. For synced-file
+requests, `full_diagnostics: true` widens streamed and replayed diagnostic output to warnings,
+information, and hints.
 
 `full_diagnostics` is an output severity/detail filter, not a request for a partial diagnostic
 state. `syncSummary.diagnostics.current` still summarizes the complete current diagnostic state.
