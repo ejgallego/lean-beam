@@ -19,6 +19,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 METHODS_PATH = ROOT / "tests" / "lsp-coverage" / "methods.json"
 CASES_PATH = ROOT / "tests" / "lsp-coverage" / "cases.json"
 PLUGIN_PATH = ROOT / "Beam" / "LSP" / "Plugin.lean"
+REGISTER_HANDLER_RE = re.compile(
+    r"\bregisterLspRequestHandler\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)"
+)
 
 
 def fail(message: str) -> None:
@@ -84,6 +87,21 @@ def require_unique_strings(label: str, value: object) -> list[str]:
     return value
 
 
+def registered_lsp_method_symbols(plugin_text: str) -> list[str]:
+    symbols = REGISTER_HANDLER_RE.findall(plugin_text)
+    if not symbols:
+        fail(f"{PLUGIN_PATH}: no registerLspRequestHandler calls found")
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for symbol in symbols:
+        if symbol in seen and symbol not in duplicates:
+            duplicates.append(symbol)
+        seen.add(symbol)
+    if duplicates:
+        fail(f"{PLUGIN_PATH}: duplicate registered LSP handler symbols: {', '.join(duplicates)}")
+    return symbols
+
+
 def main() -> int:
     methods_doc = load_json(METHODS_PATH)
     cases_doc = load_json(CASES_PATH)
@@ -93,7 +111,10 @@ def main() -> int:
         fail(f"{CASES_PATH}: expected object with cases array")
 
     plugin_text = PLUGIN_PATH.read_text(encoding="utf-8")
+    registered_symbols = registered_lsp_method_symbols(plugin_text)
+    registered_symbol_set = set(registered_symbols)
     methods: dict[str, dict[str, object]] = {}
+    method_symbols: dict[str, str] = {}
     for raw in methods_doc["methods"]:
         if not isinstance(raw, dict):
             fail(f"method entry must be an object: {raw}")
@@ -105,10 +126,23 @@ def main() -> int:
         required = require_unique_strings(f"{method}: requiredCoverage", raw.get("requiredCoverage"))
         if method in methods:
             fail(f"duplicate method entry: {method}")
-        if symbol not in plugin_text:
-            fail(f"registered method symbol is not used by Beam/LSP/Plugin.lean: {symbol}")
+        if symbol in method_symbols:
+            fail(f"duplicate registrySymbol {symbol}: {method_symbols[symbol]} and {method}")
+        if symbol not in registered_symbol_set:
+            fail(f"registered method symbol is not registered by Beam/LSP/Plugin.lean: {symbol}")
         require_method_definition(raw)
         methods[method] = raw
+        method_symbols[symbol] = method
+
+    missing_registry_entries = [
+        symbol for symbol in registered_symbols
+        if symbol not in method_symbols
+    ]
+    if missing_registry_entries:
+        fail(
+            "registered LSP methods missing from tests/lsp-coverage/methods.json: "
+            + ", ".join(missing_registry_entries)
+        )
 
     seen_case_ids: set[str] = set()
     covered: dict[str, set[str]] = defaultdict(set)
