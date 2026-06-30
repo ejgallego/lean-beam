@@ -1433,11 +1433,19 @@ private def handleCloseOp
       | none =>
           pure (Response.success (Json.mkObj [("closed", toJson true)]), false)
 
+private def runAtSetupProgressEmitter?
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit)) :
+    Option (StreamDiagnostic → IO Unit) :=
+  emitDiagnostic?.map fun emitDiagnostic => fun diagnostic => do
+    if isLakeSetupFileProgressStreamDiagnostic diagnostic then
+      emitDiagnostic diagnostic
+
 private def handleRunAtOp
     (server : ServerRuntime)
     (req : Request)
     (cancelRef? : Option (IO.Ref Bool) := none)
-    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     HandlerM (Response × Bool) := do
   let args ← requestArg req.runAtArgs
   liftResponseIO <| ensureRequestNotCancelled cancelRef?
@@ -1457,6 +1465,7 @@ private def handleRunAtOp
       (expectedVersion? := some args.version)
       (clientRequestId? := req.clientRequestId?)
       (emitProgress? := emitProgress?)
+      (emitDiagnostic? := runAtSetupProgressEmitter? emitDiagnostic?)
   let pending ← awaitSyncedDocumentRequest server req started cancelRef?
   pure (
     responseWithFileProgress
@@ -1705,7 +1714,7 @@ private def handleRequestIO
           | .updateFile => runHandler <| handleUpdateFileOp server req cancelRef?
           | .syncFile => runHandler <| handleSyncFileOp server req cancelRef? emitProgress? emitDiagnostic?
           | .close => runHandler <| handleCloseOp server req cancelRef? emitProgress? emitDiagnostic?
-          | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress?
+          | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress? emitDiagnostic?
           | .requestAt => runHandler <| handleRequestAtOp server req cancelRef? emitProgress?
           | .saveOlean => runHandler <| handleSaveOleanOp server req cancelRef? emitProgress? emitDiagnostic?
           | .goals => runHandler <| handleGoalsOp server req cancelRef? emitProgress?

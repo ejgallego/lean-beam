@@ -59,6 +59,14 @@ def isLakeSetupFileProgressDiagnostic (diagnostic : Diagnostic) : Bool :=
   | _ =>
       false
 
+def isLakeSetupFileProgressStreamDiagnostic (diagnostic : StreamDiagnostic) : Bool :=
+  match diagnostic.severity? with
+  | some .information =>
+      isFileWorkerSetupProgressRange diagnostic.range &&
+        isLakeBuildMonitorLine diagnostic.message
+  | _ =>
+      false
+
 def effectiveSyncDiagnosticSeverity (diagnostic : Diagnostic) :
     Option DiagnosticSeverity :=
   if isIncompleteBarrierDiagnostic diagnostic then
