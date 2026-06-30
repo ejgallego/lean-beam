@@ -67,7 +67,7 @@ Run the LSP surface when the change touches request semantics, proof-vs-command 
 
 Default Beam entrypoints:
 
-- [tests/test-beam-fast.sh](../tests/test-beam-fast.sh): fast broker stream, barrier, request-contract, MCP projection, and MCP smoke coverage
+- [tests/test-beam-fast.sh](../tests/test-beam-fast.sh): fast broker stream, barrier, request-contract, MCP projection, MCP smoke, and toolchain CI-matrix guard coverage
 - [tests/test-beam-slow.sh](../tests/test-beam-slow.sh): wrapper, MCP stdio stress, sandbox-wrapper, and save-replay coverage
 - [tests/test-beam-install.sh](../tests/test-beam-install.sh): installer and installed-runtime layout
 - [tests/test-beam.sh](../tests/test-beam.sh): aggregate default Beam surface
@@ -80,7 +80,7 @@ Additional Beam lanes:
 
 Current Beam coverage includes:
 
-- fast Beam daemon smoke, request-stream, save-stream, startup-handshake, tracked-diagnostic dedup, and protocol tests through [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
+- fast Beam daemon smoke, request-stream, save-stream, startup-handshake, tracked-diagnostic dedup, protocol tests, and supported-toolchain CI matrix consistency through [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)

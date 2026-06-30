@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 bash scripts/check-daemon-safety.sh
 bash scripts/check-task-priority.sh
 bash scripts/check-markdown-links.sh
+bash scripts/check-toolchain-ci-matrix.sh
 
 run_quiet_lake_build() {
   local log
