@@ -1392,6 +1392,30 @@ private def handleSyncFileOp
     syncSummary fileProgress? replyDiagnostics?,
     false)
 
+private def closeTrackedFileIfOpen
+    (server : ServerRuntime)
+    (req : Request)
+    (path : System.FilePath) : HandlerM Unit :=
+  liftHandlerIO <| server.withState do
+    match ← currentSession? req.backend with
+    | some session =>
+        let session ← closeFile session path
+        updateSession session
+    | none =>
+        pure ()
+
+private def handleRefreshFileOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
+    HandlerM (Response × Bool) := do
+  let path ← requestArg req.pathArg
+  liftResponseIO <| ensureRequestNotCancelled cancelRef?
+  closeTrackedFileIfOpen server req path
+  handleSyncFileOp server req cancelRef? emitProgress? emitDiagnostic?
+
 private def handleUpdateFileOp
     (server : ServerRuntime)
     (req : Request)
@@ -1713,6 +1737,7 @@ private def handleRequestIO
               pure (Response.success (Json.mkObj [("cancelled", toJson cancelled)]), false)
           | .updateFile => runHandler <| handleUpdateFileOp server req cancelRef?
           | .syncFile => runHandler <| handleSyncFileOp server req cancelRef? emitProgress? emitDiagnostic?
+          | .refreshFile => runHandler <| handleRefreshFileOp server req cancelRef? emitProgress? emitDiagnostic?
           | .close => runHandler <| handleCloseOp server req cancelRef? emitProgress? emitDiagnostic?
           | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress? emitDiagnostic?
           | .requestAt => runHandler <| handleRequestAtOp server req cancelRef? emitProgress?

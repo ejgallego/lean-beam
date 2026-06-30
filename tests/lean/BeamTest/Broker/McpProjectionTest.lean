@@ -46,7 +46,9 @@ private def expectedLeanOperationSurface : Array Beam.Lean.Operation := #[
   .release,
   .update,
   .sync,
+  .refresh,
   .save,
+  .closeSave,
   .close
 ]
 
@@ -65,6 +67,10 @@ private def checkToolNames : IO Unit := do
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_version")
   require "decode beam_version: wrong tool" (decodedBeamVersion == .beamVersion)
 
+  let decodedBeamStats ← expectOk "decode beam_stats" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_stats")
+  require "decode beam_stats: wrong tool" (decodedBeamStats == .beamStats)
+
   let initWorkspace ← expectOk "decode lean_init_workspace" <|
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_init_workspace")
   require "decode lean_init_workspace: wrong tool" (initWorkspace == .leanInitWorkspace)
@@ -77,6 +83,13 @@ private def checkToolNames : IO Unit := do
 
   let todo ← expectOk "decode lean_todo" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_todo")
   require "decode lean_todo: wrong tool" (todo == .leanTodo)
+
+  let refresh ← expectOk "decode lean_refresh" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_refresh")
+  require "decode lean_refresh: wrong tool" (refresh == .leanRefresh)
+
+  let closeSave ← expectOk "decode lean_close_save" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_close_save")
+  require "decode lean_close_save: wrong tool" (closeSave == .leanCloseSave)
 
   match fromJson? (α := Beam.Mcp.ToolName) (Json.str Beam.LSP.RunAt.method) with
   | .ok tool =>
@@ -105,8 +118,8 @@ private def checkToolDescriptors : IO Unit := do
     require s!"generated tool key should decode back to {repr tool}" (decoded == tool)
   require "Lean operation tool names track shared operation surface"
     (Beam.Mcp.leanOperationToolNames.size == Beam.Lean.Operation.all.size)
-  require "tool names are version, init workspace, plus shared Lean operations"
-    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 2)
+  require "tool names are server tools, init workspace, plus shared Lean operations"
+    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 3)
   for op in Beam.Lean.Operation.all do
     let projectedTool := Beam.Mcp.ToolName.ofLeanOperation op
     require s!"Lean operation {repr op} should round-trip through MCP projection"
@@ -123,10 +136,17 @@ private def checkToolDescriptors : IO Unit := do
   require "beam version descriptor is exposed as server info tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .beamVersion && desc.kind == .serverInfo))
+  require "beam stats descriptor is exposed as server debug tool"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .beamStats && desc.kind == .serverDebug))
   let some versionDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamVersion)
     | throw <| IO.userError "beam version descriptor is missing"
   let versionSchemaProperties ← requireObjVal "beam version schema" "properties" versionDesc.inputSchema
   require "beam version schema should have no input properties" (versionSchemaProperties == Json.mkObj [])
+  let some statsDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamStats)
+    | throw <| IO.userError "beam stats descriptor is missing"
+  let statsSchemaProperties ← requireObjVal "beam stats schema" "properties" statsDesc.inputSchema
+  require "beam stats schema should have no input properties" (statsSchemaProperties == Json.mkObj [])
   let some initDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanInitWorkspace)
     | throw <| IO.userError "init workspace descriptor is missing"
   let schemaProperties ← requireObjVal "init workspace schema" "properties" initDesc.inputSchema
@@ -149,6 +169,17 @@ private def checkBrokerRequestAdapters : IO Unit := do
       throw <| IO.userError s!"beam version produced broker request unexpectedly: {repr req.op}"
   | .error err =>
       require "beam version broker adapter error names server identity behavior" (err.contains "server identity")
+
+  let statsReq ← expectOk "beam stats tool request" <|
+    Beam.Mcp.ToolName.beamStats.toBrokerRequest root (Json.mkObj [])
+  require "beam stats op" (statsReq.op == .stats)
+  require "beam stats root" (statsReq.root? == some root)
+
+  match Beam.Mcp.ToolName.beamStats.toBrokerRequest root (Json.mkObj [("path", toJson "Demo.lean")]) with
+  | .ok req =>
+      throw <| IO.userError s!"beam stats accepted input fields unexpectedly: {repr req.op}"
+  | .error err =>
+      require "beam stats broker adapter rejects input fields" (err.contains "accepts no input fields")
 
   match Beam.Mcp.ToolName.leanInitWorkspace.toBrokerRequest root (toJson ({ root := root } : Beam.Mcp.InitWorkspaceInput)) with
   | .ok req =>
@@ -269,11 +300,22 @@ private def checkBrokerRequestAdapters : IO Unit := do
   require "sync op" (syncReq.op == .syncFile)
   require "sync full diagnostics" (syncReq.fullDiagnostics? == some true)
   require "sync include diagnostics" (syncReq.includeDiagnostics? == some true)
+  let refreshReq ← expectOk "refresh tool request" <|
+    Beam.Mcp.ToolName.leanRefresh.toBrokerRequest root (toJson syncInput)
+  require "refresh op" (refreshReq.op == .refreshFile)
+  require "refresh full diagnostics" (refreshReq.fullDiagnostics? == some true)
+  require "refresh include diagnostics" (refreshReq.includeDiagnostics? == some true)
   let saveReq ← expectOk "save tool request" <|
     Beam.Mcp.ToolName.leanSave.toBrokerRequest root (toJson syncInput)
   require "save op" (saveReq.op == .saveOlean)
   require "save full diagnostics" (saveReq.fullDiagnostics? == some true)
   require "save should not request reply diagnostics" saveReq.includeDiagnostics?.isNone
+  let closeSaveReq ← expectOk "close-save tool request" <|
+    Beam.Mcp.ToolName.leanCloseSave.toBrokerRequest root (toJson syncInput)
+  require "close-save op" (closeSaveReq.op == .close)
+  require "close-save requests artifact save" (closeSaveReq.saveArtifacts? == some true)
+  require "close-save full diagnostics" (closeSaveReq.fullDiagnostics? == some true)
+  require "close-save should not request reply diagnostics" closeSaveReq.includeDiagnostics?.isNone
   let syncJson := toJson syncInput
   requireJsonBool "sync input json" "full_diagnostics" true syncJson
   requireJsonBool "sync input json" "include_diagnostics" true syncJson

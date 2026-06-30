@@ -112,8 +112,9 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 [STATUS.md](STATUS.md#mcp-workspace-initialization).
 
 Successful `lean_init_workspace` results include a `capabilities` array with projected MCP tool
-names, including `beam_version`, `lean_run_at`, `lean_update`, `lean_sync`, `lean_save`,
-`lean_hover`, `lean_goals_prev`, and `lean_goals_after`.
+names, including `beam_version`, `beam_stats`, `lean_run_at`, `lean_update`, `lean_sync`,
+`lean_refresh`, `lean_save`, `lean_close_save`, `lean_hover`, `lean_goals_prev`, and
+`lean_goals_after`.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_goals_prev`, `lean_goals_after`, and `lean_todo`; those

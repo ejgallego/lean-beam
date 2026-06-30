@@ -24,6 +24,7 @@ such as `$/lean/runAt` are not accepted here.
 -/
 inductive ToolName where
   | beamVersion
+  | beamStats
   | leanInitWorkspace
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -31,6 +32,7 @@ inductive ToolName where
 /-- MCP tool categories after projecting the shared Beam operation surface. -/
 inductive ToolKind where
   | serverInfo
+  | serverDebug
   | workspaceInit
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -49,11 +51,14 @@ def ToolName.leanRunWithLinear : ToolName := .leanOperation .runWithLinear
 def ToolName.leanRelease : ToolName := .leanOperation .release
 def ToolName.leanUpdate : ToolName := .leanOperation .update
 def ToolName.leanSync : ToolName := .leanOperation .sync
+def ToolName.leanRefresh : ToolName := .leanOperation .refresh
 def ToolName.leanSave : ToolName := .leanOperation .save
+def ToolName.leanCloseSave : ToolName := .leanOperation .closeSave
 def ToolName.leanClose : ToolName := .leanOperation .close
 
 def ToolName.leanOperation? : ToolName → Option Beam.Lean.Operation
   | .beamVersion => none
+  | .beamStats => none
   | .leanInitWorkspace => none
   | .leanOperation operation => some operation
 
@@ -64,17 +69,19 @@ def ToolName.leanOperationTools : Array ToolName :=
   Beam.Lean.Operation.all.map ToolName.ofLeanOperation
 
 def ToolName.all : Array ToolName :=
-  #[.beamVersion, .leanInitWorkspace] ++ ToolName.leanOperationTools
+  #[.beamVersion, .beamStats, .leanInitWorkspace] ++ ToolName.leanOperationTools
 
 def ToolName.key (tool : ToolName) : String :=
   match tool with
   | .beamVersion => "beam_version"
+  | .beamStats => "beam_stats"
   | .leanInitWorkspace => "lean_init_workspace"
   | .leanOperation operation => leanOperationToolKey operation
 
 def ToolName.kind (tool : ToolName) : ToolKind :=
   match tool with
   | .beamVersion => .serverInfo
+  | .beamStats => .serverDebug
   | .leanInitWorkspace => .workspaceInit
   | .leanOperation operation => .leanOperation operation
 
@@ -96,7 +103,17 @@ def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
   match tool.kind with
   | .leanOperation operation => operation.expectsRunAtResult
   | .serverInfo => false
+  | .serverDebug => false
   | .workspaceInit => false
+
+private def requireEmptyInput (label : String) : Json → Except String Unit
+  | Json.obj fields =>
+      let hasField := fields.foldl (init := false) fun _ _ _ => true
+      if hasField then
+        throw s!"{label} accepts no input fields"
+      else
+        pure ()
+  | other => throw s!"{label} input must be an object, got {other.compress}"
 
 def ToolName.toBrokerRequest
     (tool : ToolName)
@@ -105,10 +122,16 @@ def ToolName.toBrokerRequest
   match tool.kind with
   | .leanOperation operation => operation.toBrokerRequest root input
   | .serverInfo => throw s!"{tool.key} reports MCP server identity and does not map to a broker request"
+  | .serverDebug => do
+      requireEmptyInput tool.key input
+      pure { op := .stats, root? := some root }
   | .workspaceInit => throw s!"{tool.key} initializes MCP server state and does not map to a broker request"
 
 def beamVersionDescription : String :=
   "Return the running Lean Beam MCP server identity for bug reports and refresh checks."
+
+def beamStatsDescription : String :=
+  "Return debug Beam broker runtime statistics for the active MCP workspace."
 
 open Beam.JsonSchema in
 def emptyInputSchema : Json :=
@@ -145,7 +168,7 @@ def leanOperationToolNames : Array ToolName :=
   ToolName.leanOperationTools
 
 def capabilityNames : Array String :=
-  #[ToolName.beamVersion.key] ++ leanOperationToolNames.map (·.key)
+  #[ToolName.beamVersion.key, ToolName.beamStats.key] ++ leanOperationToolNames.map (·.key)
 
 def withCapabilities (json : Json) : Json :=
   json.setObjVal! "capabilities" (toJson capabilityNames)
@@ -157,6 +180,13 @@ def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
         name := tool
         kind := .serverInfo
         description := beamVersionDescription
+        inputSchema := emptyInputSchema
+      }
+  | .serverDebug =>
+      {
+        name := tool
+        kind := .serverDebug
+        description := beamStatsDescription
         inputSchema := emptyInputSchema
       }
   | .leanOperation op =>
@@ -328,7 +358,7 @@ private def normalizeResult? (tool : ToolName) : Option Json → Except ToolErro
       else if tool == .leanTodo then do
         let normalized ← normalizeTodoResult result
         pure <| some normalized
-      else if tool == .leanSync then do
+      else if tool == .leanSync || tool == .leanRefresh then do
         let normalized ← normalizeSyncResult result
         pure <| some normalized
       else

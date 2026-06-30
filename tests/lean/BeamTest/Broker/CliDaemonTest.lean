@@ -56,6 +56,7 @@ private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
     match desc.kind with
     | .leanOperation op => acc.push op
     | .serverInfo => acc
+    | .serverDebug => acc
     | .workspaceInit => acc
 
 private def requireSameOperationSurface
@@ -271,9 +272,15 @@ private def checkLeanOperationRequests : IO Unit := do
   requireRequestJson "sync request should share the Lean operation adapter"
     (Beam.Cli.leanSyncRequest root path true)
     (syncInput.toSyncBrokerRequest rootText)
+  requireRequestJson "refresh request should share the Lean operation adapter"
+    (Beam.Cli.leanRefreshRequest root path true)
+    (syncInput.toRefreshBrokerRequest rootText)
   requireRequestJson "save request should share the Lean operation adapter"
     (Beam.Cli.leanSaveRequest root path true)
     (syncInput.toSaveBrokerRequest rootText)
+  requireRequestJson "close-save request should share the Lean operation adapter"
+    (Beam.Cli.leanCloseSaveRequest root path true)
+    (syncInput.toCloseSaveBrokerRequest rootText)
 
   let closeSave := Beam.Cli.leanCloseSaveRequest root path true
   require "close-save should use close broker op" (closeSave.op == .close)

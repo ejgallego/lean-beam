@@ -296,9 +296,8 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let fullDiagnostics ← parseLeanRefreshArgs extra
       let action ← wrapperDisplayAction "lean-refresh"
       withWrapperLease root daemon.startedNew do
-        callBrokerQuiet root daemon.endpoint <| leanCloseRequest root path
         callBrokerWithProgress root daemon.endpoint
-          (leanSyncRequest root path fullDiagnostics)
+          (leanRefreshRequest root path fullDiagnostics)
           (refreshWaitSpec path action)
   | "lean-close" :: path :: [] =>
       let root ← projectRoot opts .lean

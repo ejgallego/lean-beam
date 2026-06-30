@@ -25,6 +25,7 @@ inductive Op where
   | cancel
   | updateFile
   | syncFile
+  | refreshFile
   | close
   | runAt
   | requestAt
@@ -44,6 +45,7 @@ def Op.key : Op → String
   | .cancel => "cancel"
   | .updateFile => "update_file"
   | .syncFile => "sync_file"
+  | .refreshFile => "refresh_file"
   | .close => "close"
   | .runAt => "run_at"
   | .requestAt => "request_at"
@@ -66,6 +68,7 @@ instance : FromJson Op where
     | .str "cancel" => .ok .cancel
     | .str "update_file" => .ok .updateFile
     | .str "sync_file" => .ok .syncFile
+    | .str "refresh_file" => .ok .refreshFile
     | .str "close" => .ok .close
     | .str "run_at" => .ok .runAt
     | .str "request_at" => .ok .requestAt
