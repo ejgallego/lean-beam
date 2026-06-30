@@ -36,9 +36,25 @@ def checkRunAtTheoremTacticFailure : ScenarioM Unit := do
     "runAt custom tactic failure"
   closeDoc doc
 
+def checkRunAtStaleEditConcurrentRequest : ScenarioM Unit := do
+  let staleDoc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+  let survivorDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+
+  let staleReq ← sendRunAt staleDoc { line := 1, character := 2, text := "exact trivial" }
+  let survivorReq ← sendRunAt survivorDoc { line := 1, character := 2, text := "exact trivial" }
+
+  invalidateWithWhitespacePrefixEdit staleDoc
+
+  expectContentModified staleReq
+  discard <| requireRunAtResponseSuccess "runAt concurrent request after stale edit" survivorReq
+
+  closeDoc staleDoc
+  closeDoc survivorDoc
+
 def run : ScenarioM Unit := do
   checkRunAtOneCommandOnly
   checkRunAtTheoremProofFailure
   checkRunAtTheoremTacticFailure
+  checkRunAtStaleEditConcurrentRequest
 
 end BeamTest.LSP.Requests.RunAt.BasicTest

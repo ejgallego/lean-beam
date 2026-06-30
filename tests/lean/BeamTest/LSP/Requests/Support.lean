@@ -11,6 +11,9 @@ open BeamTest.LSP.Scenario
 
 namespace BeamTest.LSP.Requests.Support
 
+def contentModifiedJson : Json :=
+  Json.mkObj [("code", toJson "contentModified")]
+
 def expectFileExists (label : String) (path : System.FilePath) : ScenarioM Unit := do
   unless ← path.pathExists do
     throw <| IO.userError s!"{label}: expected file {path} to exist"
@@ -99,6 +102,14 @@ def requireRunAtSuccess
     throw <| IO.userError s!"{label}: expected runAt success, got {(toJson result).compress}"
   pure result
 
+def requireRunAtResponseSuccess
+    (label : String)
+    (req : ReqHandle) : ScenarioM Beam.LSP.RunAt.Result := do
+  let result : Beam.LSP.RunAt.Result ← awaitResponseAs req
+  unless result.success do
+    throw <| IO.userError s!"{label}: expected runAt success, got {(toJson result).compress}"
+  pure result
+
 def requireRunAtSolvesProof
     (label : String)
     (doc : DocHandle)
@@ -132,5 +143,12 @@ def mkTmpDir (stem : String) : ScenarioM System.FilePath := do
   let dir := System.FilePath.mk s!"/tmp/{stem}-{← IO.monoNanosNow}"
   IO.FS.createDirAll dir
   pure dir
+
+def expectContentModified (req : ReqHandle) : ScenarioM Unit :=
+  expectErrorContains req contentModifiedJson
+
+def invalidateWithWhitespacePrefixEdit (doc : DocHandle) : ScenarioM Unit := do
+  changeDoc doc { line := 0, character := 0, delete := "", insert := " " }
+  syncDoc doc
 
 end BeamTest.LSP.Requests.Support
