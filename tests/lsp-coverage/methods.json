@@ -41,7 +41,8 @@
       "definition": "Beam/LSP/Goals.lean#afterMethod",
       "requiredCoverage": [
         "isolation",
-        "proof-state"
+        "proof-state",
+        "standard-lsp-interference"
       ]
     },
     {
@@ -51,7 +52,8 @@
       "definition": "Beam/LSP/Goals.lean#prevMethod",
       "requiredCoverage": [
         "isolation",
-        "proof-state"
+        "proof-state",
+        "standard-lsp-interference"
       ]
     },
     {

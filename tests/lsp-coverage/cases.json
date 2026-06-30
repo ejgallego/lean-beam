@@ -73,10 +73,22 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
     },
     {
+      "id": "goalsAfter.standard-lsp-interference",
+      "method": "$/lean/goalsAfter",
+      "coverage": ["standard-lsp-interference"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequestsWithStandardLspInterference"
+    },
+    {
       "id": "goalsPrev.basic",
       "method": "$/lean/goalsPrev",
       "coverage": ["isolation", "proof-state"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
+    },
+    {
+      "id": "goalsPrev.standard-lsp-interference",
+      "method": "$/lean/goalsPrev",
+      "coverage": ["standard-lsp-interference"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequestsWithStandardLspInterference"
     },
     {
       "id": "todo.basic-kinds-and-composition",
