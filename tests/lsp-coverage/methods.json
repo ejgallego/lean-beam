@@ -101,7 +101,8 @@
       "registrySymbol": "DirectImports.method",
       "definition": "Beam/LSP/DirectImports.lean#method",
       "requiredCoverage": [
-        "isolation"
+        "isolation",
+        "standard-lsp-interference"
       ]
     }
   ]
