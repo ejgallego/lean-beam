@@ -11,6 +11,7 @@ import BeamTest.LSP.Requests.Support
 open Lean
 open BeamTest.LSP.Scenario
 open BeamTest.LSP.Requests.Interference
+open BeamTest.LSP.Requests.Support
 
 namespace BeamTest.LSP.Requests.DirectImports.BasicTest
 
@@ -23,6 +24,14 @@ def checkDirectImports : ScenarioM Unit := do
     throw <| IO.userError s!"directImports: expected version 1, got {imports.version}"
   if imports.imports != #["BeamTest.Fixtures.Deps.DepB"] then
     throw <| IO.userError s!"directImports: unexpected imports {(toJson imports.imports).compress}"
+
+  closeDoc doc
+
+def checkDirectImportsStaleVersion : ScenarioM Unit := do
+  let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+
+  let staleReq ← sendDirectImports doc { version? := some 0 }
+  expectContentModified staleReq
 
   closeDoc doc
 
@@ -45,6 +54,7 @@ def checkDirectImportsWithStandardLspInterference : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkDirectImports
+  checkDirectImportsStaleVersion
   checkDirectImportsWithStandardLspInterference
 
 end BeamTest.LSP.Requests.DirectImports.BasicTest
