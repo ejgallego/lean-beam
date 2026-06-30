@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import BeamTest.LSP.Requests.Interference
 import BeamTest.LSP.Scenario
 
 open Lean
@@ -148,7 +149,6 @@ def expectContentModified (req : ReqHandle) : ScenarioM Unit :=
   expectErrorContains req contentModifiedJson
 
 def invalidateWithWhitespacePrefixEdit (doc : DocHandle) : ScenarioM Unit := do
-  changeDoc doc { line := 0, character := 0, delete := "", insert := " " }
-  syncDoc doc
+  BeamTest.LSP.Requests.Interference.syncWhitespacePrefixEdit doc
 
 end BeamTest.LSP.Requests.Support
