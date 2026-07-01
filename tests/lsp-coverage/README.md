@@ -31,6 +31,6 @@ Prefer pointers that identify the smallest artifact responsible for the behavior
 
 Add a tag to `methods.json` only when a missing case for that tag would make the method look
 under-tested. Incidental behavior may still be asserted in executable tests without becoming a
-required registry tag. Common robustness tags include `invalid-position`, `stale-version`,
-`stale-edit`, `stale-hash`, `cancellation`, `mixed-concurrency`, and
+required registry tag. Common robustness tags include `invalid-position`, `invalid-range`,
+`stale-version`, `stale-edit`, `stale-hash`, `cancellation`, `mixed-concurrency`, and
 `standard-lsp-interference`.

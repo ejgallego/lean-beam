@@ -71,6 +71,7 @@
       "requiredCoverage": [
         "isolation",
         "stale-version",
+        "invalid-range",
         "kind-filter",
         "runAt-composition",
         "diagnostics",

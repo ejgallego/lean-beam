@@ -145,6 +145,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoStaleVersion"
     },
     {
+      "id": "todo.invalid-range",
+      "method": "$/lean/todo",
+      "coverage": ["invalid-range"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoInvalidRange"
+    },
+    {
       "id": "todo.diagnostics",
       "method": "$/lean/todo",
       "coverage": ["diagnostics"],
