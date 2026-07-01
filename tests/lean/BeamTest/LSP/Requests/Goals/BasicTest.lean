@@ -44,6 +44,17 @@ def checkGoalsInvalidPosition : ScenarioM Unit := do
 
   closeDoc doc
 
+def checkGoalsStaleVersion : ScenarioM Unit := do
+  let doc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
+
+  let goalsPrevReq ← sendGoals doc { version? := some 0, line := 1, character := 2, useAfter := false }
+  let goalsAfterReq ← sendGoals doc { version? := some 0, line := 1, character := 2, useAfter := true }
+
+  expectContentModified goalsPrevReq
+  expectContentModified goalsAfterReq
+
+  closeDoc doc
+
 def checkGoalsRequestsWithStandardLspInterference : ScenarioM Unit := do
   let goalsDoc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
   let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
@@ -69,6 +80,7 @@ def checkGoalsRequestsWithStandardLspInterference : ScenarioM Unit := do
 def run : ScenarioM Unit := do
   checkGoalsRequests
   checkGoalsInvalidPosition
+  checkGoalsStaleVersion
   checkGoalsRequestsWithStandardLspInterference
 
 end BeamTest.LSP.Requests.Goals.BasicTest
