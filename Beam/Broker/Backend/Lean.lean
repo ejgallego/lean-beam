@@ -91,8 +91,8 @@ def directImportsMethod : String :=
 
 def goalsMethod (mode? : Option GoalMode := none) : String :=
   match mode?.getD .after with
+  | .before => Beam.LSP.Goals.prevMethod
   | .after => Beam.LSP.Goals.afterMethod
-  | .prev => Beam.LSP.Goals.prevMethod
 
 def todoMethod : String :=
   Beam.LSP.Todo.method

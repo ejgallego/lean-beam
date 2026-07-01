@@ -315,8 +315,9 @@ private def checkBrokerRequestAdapters : IO Unit := do
   let goalsBeforeReq ← expectOk "goals before tool request" <|
     Beam.Mcp.ToolName.leanGoals.toBrokerRequest root (toJson goalsBeforeInput)
   require "goals before op" (goalsBeforeReq.op == .goals)
-  require "goals before mode" (goalsBeforeReq.mode? == some .prev)
+  require "goals before mode" (goalsBeforeReq.mode? == some .before)
   requireJsonString "goals before input json" "mode" "before" (toJson goalsBeforeInput)
+  requireJsonString "goals before broker request json" "mode" "before" (toJson goalsBeforeReq)
 
   let goalsAfterInput : Beam.Mcp.GoalsInput := {
     path := "Demo.lean"
@@ -329,6 +330,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     Beam.Mcp.ToolName.leanGoals.toBrokerRequest root (toJson goalsAfterInput)
   require "goals after op" (goalsAfterReq.op == .goals)
   require "goals after mode" (goalsAfterReq.mode? == some .after)
+  requireJsonString "goals after broker request json" "mode" "after" (toJson goalsAfterReq)
 
   let todoInput : Beam.Mcp.TodoInput := {
     path := "Demo.lean"

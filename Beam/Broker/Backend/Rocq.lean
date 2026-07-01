@@ -50,4 +50,9 @@ def saveReadinessMethod : Except String String :=
 def goalsMethod : String :=
   "proof/goals"
 
+def goalModeValue (mode? : Option GoalMode) : String :=
+  match mode?.getD .after with
+  | .before => "Prev"
+  | .after => "After"
+
 end Beam.Broker.Backend.Rocq

@@ -523,7 +523,7 @@ private def runRequestAndGoalsSmoke
     version? := some proofVersion
     line? := some 1
     character? := some 2
-    mode? := some .prev
+    mode? := some .before
   }
   let goalsPrev ← expectOk goalsPrevResp
   discard <| requireFileProgress "goals prev" goalsPrevResp

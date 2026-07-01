@@ -109,7 +109,7 @@ def main : IO Unit := do
       version? := some semiVersion
       line? := some 2
       character? := some 3
-      mode? := some .prev
+      mode? := some .before
       text? := some "split."
       compact? := some false
     }
@@ -149,7 +149,7 @@ def main : IO Unit := do
       version? := some doneVersion
       line? := some 3
       character? := some 0
-      mode? := some .prev
+      mode? := some .before
       text? := some "exact I."
       compact? := some false
     }

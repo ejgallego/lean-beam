@@ -111,22 +111,22 @@ instance : FromJson Backend where
     | j => .error s!"expected backend 'lean' or 'rocq', got {j.compress}"
 
 inductive GoalMode where
+  | before
   | after
-  | prev
   deriving Inhabited, BEq, Repr
 
 def GoalMode.key : GoalMode → String
-  | .after => "After"
-  | .prev => "Prev"
+  | .before => "before"
+  | .after => "after"
 
 instance : ToJson GoalMode where
   toJson mode := toJson mode.key
 
 instance : FromJson GoalMode where
   fromJson?
-    | .str "After" => .ok .after
-    | .str "Prev" => .ok .prev
-    | j => .error s!"expected goal mode 'After' or 'Prev', got {j.compress}"
+    | .str "before" => .ok .before
+    | .str "after" => .ok .after
+    | j => .error s!"expected goal mode 'before' or 'after', got {j.compress}"
 
 inductive GoalPpFormat where
   | box
