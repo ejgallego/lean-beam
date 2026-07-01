@@ -17,9 +17,9 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
 - agent-oriented `$/lean/todo` range inspection for actionable items such as sorries, holes,
   diagnostics, code actions, and incomplete proofs, exposed through the broker, `lean-beam todo`,
   and MCP `lean_todo`
-- small Lean semantic navigation wrappers for hover, definition, references, document symbols,
-  workspace symbols, and mode-based goal inspection, exposed through the broker, `lean-beam`, and
-  MCP
+- small Lean semantic navigation wrappers for hover, signature help, definition, references,
+  document symbols, workspace symbols, and mode-based goal inspection, exposed through the broker,
+  `lean-beam`, and MCP
 - local Beam daemon/client pair for Lean workflows
 - optional Rocq Beam goal probes through `coq-lsp`, documented separately in
   [docs/ROCQ.md](ROCQ.md)

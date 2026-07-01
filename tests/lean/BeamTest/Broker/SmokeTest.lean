@@ -466,6 +466,20 @@ private def runRequestAndGoalsSmoke
   let hoverValue ← IO.ofExcept <| hoverContents.getObjValAs? String "value"
   expectStringContains "hover markdown" hoverValue "answerA : Nat"
 
+  let signaturePath := "tests/scenario/docs/SignatureHelp.lean"
+  let signatureVersion ← updateVersion endpoint root signaturePath
+  let signatureHelpResp ← runClient endpoint {
+    op := .signatureHelp
+    root? := some root.toString
+    path? := some signaturePath
+    version? := some signatureVersion
+    line? := some 4
+    character? := some 12
+  }
+  let signatureHelp ← expectOk signatureHelpResp
+  discard <| requireFileProgress "signature help" signatureHelpResp
+  expectStringContains "signature help result" signatureHelp.compress "x y : Nat"
+
   let definitionResp ← runClient endpoint {
     op := .definition
     root? := some root.toString

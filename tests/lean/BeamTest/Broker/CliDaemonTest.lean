@@ -152,6 +152,12 @@ private def checkSyncWaitSpecs : IO Unit := do
   requireSubstring "definition start message should use public wrapper label"
     "beam: running definition on Demo.lean:1:2"
     publicDefinitionSpec.startMsg
+  let publicSignatureHelpSpec := Beam.Cli.leanSignatureHelpWaitSpec "Demo.lean" 1 2 "signature-help"
+  require "signature-help wait action should accept public wrapper label"
+    (publicSignatureHelpSpec.action == "signature-help")
+  requireSubstring "signature-help start message should use public wrapper label"
+    "beam: running signature-help on Demo.lean:1:2"
+    publicSignatureHelpSpec.startMsg
   let publicDocumentSymbolsSpec := Beam.Cli.leanDocumentSymbolsWaitSpec "Demo.lean" "document-symbols"
   require "document-symbols wait action should accept public wrapper label"
     (publicDocumentSymbolsSpec.action == "document-symbols")
@@ -247,6 +253,9 @@ private def checkLeanOperationRequests : IO Unit := do
   requireRequestJson "hover request should share the Lean operation adapter"
     (Beam.Cli.leanHoverRequest root path 13 7 3)
     (positionInput.toHoverBrokerRequest rootText)
+  requireRequestJson "signature-help request should share the Lean operation adapter"
+    (Beam.Cli.leanSignatureHelpRequest root path 13 7 3)
+    (positionInput.toSignatureHelpBrokerRequest rootText)
   requireRequestJson "definition request should share the Lean operation adapter"
     (Beam.Cli.leanDefinitionRequest root path 13 7 3)
     (positionInput.toDefinitionBrokerRequest rootText)

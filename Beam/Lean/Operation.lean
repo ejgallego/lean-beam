@@ -22,6 +22,7 @@ inductive Operation where
   | runAt
   | runAtHandle
   | hover
+  | signatureHelp
   | definition
   | references
   | documentSymbols
@@ -43,6 +44,7 @@ def Operation.all : Array Operation := #[
   .runAt,
   .runAtHandle,
   .hover,
+  .signatureHelp,
   .definition,
   .references,
   .documentSymbols,
@@ -64,6 +66,7 @@ def Operation.key : Operation → String
   | .runAt => "run_at"
   | .runAtHandle => "run_at_handle"
   | .hover => "hover"
+  | .signatureHelp => "signature_help"
   | .definition => "definition"
   | .references => "references"
   | .documentSymbols => "document_symbols"
@@ -87,6 +90,7 @@ def Operation.description : Operation → String
   | .runAt => "Run one Lean command or tactic block at a file position without storing follow-up state."
   | .runAtHandle => "Run one Lean command or tactic block at a file position and store a follow-up handle."
   | .hover => "Inspect Lean hover information at a file position."
+  | .signatureHelp => "Inspect Lean signature help at a file position."
   | .definition => "Find Lean definitions for the symbol at a file position."
   | .references => "Find Lean references for the symbol at a file position."
   | .documentSymbols => "List Lean document symbols for one synced file."
@@ -190,7 +194,7 @@ open Beam.JsonSchema in
 def Operation.inputSchema : Operation → Json
   | .runAt | .runAtHandle =>
       inputObject (positionFields ++ [runAtTextField]) #["path", "version", "line", "character", "text"]
-  | .hover | .definition =>
+  | .hover | .signatureHelp | .definition =>
       inputObject positionFields #["path", "version", "line", "character"]
   | .references =>
       inputObject (positionFields ++ [includeDeclarationField]) #["path", "version", "line", "character"]
@@ -426,6 +430,17 @@ def PositionInput.toHoverBrokerRequest (input : PositionInput) (root : String) :
   character? := some input.character
 }
 
+def PositionInput.toSignatureHelpBrokerRequest (input : PositionInput) (root : String) :
+    Beam.Broker.Request := {
+  op := .signatureHelp
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  version? := some input.version
+  line? := some input.line
+  character? := some input.character
+}
+
 def PositionInput.toDefinitionBrokerRequest (input : PositionInput) (root : String) : Beam.Broker.Request := {
   op := .definition
   backend := .lean
@@ -585,6 +600,8 @@ def Operation.toBrokerRequest
       pure <| (← fromJson? (α := RunAtInput) input).toBrokerRequest root (storeHandle := true)
   | .hover =>
       pure <| (← fromJson? (α := PositionInput) input).toHoverBrokerRequest root
+  | .signatureHelp =>
+      pure <| (← fromJson? (α := PositionInput) input).toSignatureHelpBrokerRequest root
   | .definition =>
       pure <| (← fromJson? (α := PositionInput) input).toDefinitionBrokerRequest root
   | .references =>

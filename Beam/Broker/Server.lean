@@ -1539,6 +1539,16 @@ private def handleHoverOp
   handlePositionLspOp server req args.toPositionArgs args.method
     (cancelRef? := cancelRef?) (emitProgress? := emitProgress?)
 
+private def handleSignatureHelpOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    HandlerM (Response × Bool) := do
+  let args ← requestArg req.signatureHelpArgs
+  handlePositionLspOp server req args.toPositionArgs args.method
+    (cancelRef? := cancelRef?) (emitProgress? := emitProgress?)
+
 private def handleDefinitionOp
     (server : ServerRuntime)
     (req : Request)
@@ -1821,6 +1831,7 @@ private def handleRequestIO
           | .close => runHandler <| handleCloseOp server req cancelRef? emitProgress? emitDiagnostic?
           | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress? emitDiagnostic?
           | .hover => runHandler <| handleHoverOp server req cancelRef? emitProgress?
+          | .signatureHelp => runHandler <| handleSignatureHelpOp server req cancelRef? emitProgress?
           | .definition => runHandler <| handleDefinitionOp server req cancelRef? emitProgress?
           | .references => runHandler <| handleReferencesOp server req cancelRef? emitProgress?
           | .documentSymbols => runHandler <| handleDocumentSymbolsOp server req cancelRef? emitProgress?

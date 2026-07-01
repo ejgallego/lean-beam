@@ -62,6 +62,9 @@ def runAtMethod : String :=
 def hoverMethod : String :=
   "textDocument/hover"
 
+def signatureHelpMethod : String :=
+  "textDocument/signatureHelp"
+
 def definitionMethod : String :=
   "textDocument/definition"
 

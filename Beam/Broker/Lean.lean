@@ -34,6 +34,11 @@ def hoverMethod (backend : Backend) : Except String String :=
   | .lean => .ok Backend.Lean.hoverMethod
   | .rocq => .error "rocq backend does not support hover queries"
 
+def signatureHelpMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok Backend.Lean.signatureHelpMethod
+  | .rocq => .error "rocq backend does not support signature help queries"
+
 def definitionMethod (backend : Backend) : Except String String :=
   match backend with
   | .lean => .ok Backend.Lean.definitionMethod

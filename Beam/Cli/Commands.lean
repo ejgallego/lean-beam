@@ -198,6 +198,17 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         callBrokerWithProgress root daemon.endpoint
           (leanHoverRequest root path version line character)
           (leanHoverWaitSpec path line character action)
+  | "lean-signature-help" :: path :: versionText :: line :: character :: [] =>
+      let root ← projectRoot opts .lean
+      let daemon ← ensureProjectDaemon home root .lean opts
+      let version ← parseNatArg "version" versionText
+      let line ← parseNatArg "line" line
+      let character ← parseNatArg "character" character
+      let action ← wrapperDisplayAction "lean-signature-help"
+      withWrapperLease root daemon.startedNew do
+        callBrokerWithProgress root daemon.endpoint
+          (leanSignatureHelpRequest root path version line character)
+          (leanSignatureHelpWaitSpec path line character action)
   | "lean-definition" :: path :: versionText :: line :: character :: [] =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts

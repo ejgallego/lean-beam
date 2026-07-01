@@ -38,6 +38,7 @@ private def expectedLeanOperationSurface : Array Beam.Lean.Operation := #[
   .runAt,
   .runAtHandle,
   .hover,
+  .signatureHelp,
   .definition,
   .references,
   .documentSymbols,
@@ -83,6 +84,10 @@ private def checkToolNames : IO Unit := do
 
   let hover ← expectOk "decode lean_hover" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_hover")
   require "decode lean_hover: wrong tool" (hover == .leanHover)
+
+  let signatureHelp ← expectOk "decode lean_signature_help" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_signature_help")
+  require "decode lean_signature_help: wrong tool" (signatureHelp == .leanSignatureHelp)
 
   let definition ← expectOk "decode lean_definition" <|
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_definition")
@@ -178,6 +183,9 @@ private def checkToolDescriptors : IO Unit := do
   require "hover descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanHover && desc.kind == .leanOperation .hover))
+  require "signature-help descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanSignatureHelp && desc.kind == .leanOperation .signatureHelp))
   require "definition descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanDefinition && desc.kind == .leanOperation .definition))
@@ -259,6 +267,12 @@ private def checkBrokerRequestAdapters : IO Unit := do
     Beam.Mcp.ToolName.leanHover.toBrokerRequest root (toJson positionInput)
   require "hover op" (hoverReq.op == .hover)
   require "hover version" (hoverReq.version? == some 13)
+
+  let signatureHelpReq ← expectOk "signature-help tool request" <|
+    Beam.Mcp.ToolName.leanSignatureHelp.toBrokerRequest root (toJson positionInput)
+  require "signature-help op" (signatureHelpReq.op == .signatureHelp)
+  require "signature-help backend" (signatureHelpReq.backend == .lean)
+  require "signature-help version" (signatureHelpReq.version? == some 13)
 
   let definitionReq ← expectOk "definition tool request" <|
     Beam.Mcp.ToolName.leanDefinition.toBrokerRequest root (toJson positionInput)

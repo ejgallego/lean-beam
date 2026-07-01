@@ -72,6 +72,14 @@ def leanHoverRequest
     (line character : Nat) : Request :=
   ({ path, version, line, character } : Beam.Lean.PositionInput).toHoverBrokerRequest (rootText root)
 
+def leanSignatureHelpRequest
+    (root : System.FilePath)
+    (path : String)
+    (version : Nat)
+    (line character : Nat) : Request :=
+  ({ path, version, line, character } : Beam.Lean.PositionInput).toSignatureHelpBrokerRequest
+    (rootText root)
+
 def leanDefinitionRequest
     (root : System.FilePath)
     (path : String)
