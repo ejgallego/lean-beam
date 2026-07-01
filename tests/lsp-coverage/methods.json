@@ -70,6 +70,7 @@
       "definition": "Beam/LSP/Todo.lean#method",
       "requiredCoverage": [
         "isolation",
+        "stale-version",
         "kind-filter",
         "runAt-composition",
         "diagnostics",

@@ -139,6 +139,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoRequest"
     },
     {
+      "id": "todo.stale-version",
+      "method": "$/lean/todo",
+      "coverage": ["stale-version"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoStaleVersion"
+    },
+    {
       "id": "todo.diagnostics",
       "method": "$/lean/todo",
       "coverage": ["diagnostics"],
