@@ -15,6 +15,9 @@ open BeamTest.LSP.Requests.Support
 
 namespace BeamTest.LSP.Requests.Todo.BasicTest
 
+private def invalidParamsJson : Json :=
+  Json.mkObj [("code", toJson "invalidParams")]
+
 def checkTodoRequest : ScenarioM Unit := do
   let doc ← openDoc BeamTest.Fixtures.TodoFixture.repoPath
   syncDoc doc
@@ -65,17 +68,6 @@ def checkTodoRequest : ScenarioM Unit := do
     | throw <| IO.userError s!"todo point incomplete proof: expected proofState, got {(toJson pointIncomplete).compress}"
   requireSingleGoalTarget "todo point incomplete proof" "True" pointProofState
 
-  let reversedReq ← sendTodo doc {
-    startLine := BeamTest.Fixtures.TodoFixture.endLine
-    startCharacter := BeamTest.Fixtures.TodoFixture.endCharacter
-    endLine := BeamTest.Fixtures.TodoFixture.startLine
-    endCharacter := BeamTest.Fixtures.TodoFixture.startCharacter
-  }
-  let reversedOutcome ← awaitReq reversedReq
-  if reversedOutcome.errorCode? != some "invalidParams" then
-    throw <| IO.userError
-      s!"todo reversed range: expected invalidParams, got {reversedOutcome.errorCode?.getD "normal response"}: {reversedOutcome.errorMessage}"
-
   let skippedSorryReq ← sendTodo doc {
     startLine := BeamTest.Fixtures.TodoFixture.startLine
     startCharacter := BeamTest.Fixtures.TodoFixture.startCharacter
@@ -114,6 +106,20 @@ def checkTodoRequest : ScenarioM Unit := do
   if starterOutcome.result?.isNone then
     throw <| IO.userError
       s!"todo/runAt starter composition: expected normal runAt result, got {starterOutcome.errorCode?.getD "unknown"}: {starterOutcome.errorMessage}"
+
+  closeDoc doc
+
+def checkTodoInvalidRange : ScenarioM Unit := do
+  let doc ← openDoc BeamTest.Fixtures.TodoFixture.repoPath
+  syncDoc doc
+
+  let reversedReq ← sendTodo doc {
+    startLine := BeamTest.Fixtures.TodoFixture.endLine
+    startCharacter := BeamTest.Fixtures.TodoFixture.endCharacter
+    endLine := BeamTest.Fixtures.TodoFixture.startLine
+    endCharacter := BeamTest.Fixtures.TodoFixture.startCharacter
+  }
+  expectErrorContains reversedReq invalidParamsJson
 
   closeDoc doc
 
@@ -347,6 +353,7 @@ def checkComplexTodoRequest : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkTodoRequest
+  checkTodoInvalidRange
   checkTodoStaleVersion
   checkTodoRequestWithStandardLspInterference
   checkTodoCodeActions
