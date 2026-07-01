@@ -94,49 +94,49 @@
       "id": "goalsAfter.basic",
       "method": "$/lean/goalsAfter",
       "coverage": ["isolation", "proof-state"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsAfter"
     },
     {
       "id": "goalsAfter.invalid-position",
       "method": "$/lean/goalsAfter",
       "coverage": ["invalid-position"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsInvalidPosition"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsAfterInvalidPosition"
     },
     {
       "id": "goalsAfter.stale-version",
       "method": "$/lean/goalsAfter",
       "coverage": ["stale-version"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsStaleVersion"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsAfterStaleVersion"
     },
     {
       "id": "goalsAfter.standard-lsp-interference",
       "method": "$/lean/goalsAfter",
       "coverage": ["standard-lsp-interference"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequestsWithStandardLspInterference"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsAfterWithStandardLspInterference"
     },
     {
       "id": "goalsPrev.basic",
       "method": "$/lean/goalsPrev",
       "coverage": ["isolation", "proof-state"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequests"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsPrev"
     },
     {
       "id": "goalsPrev.invalid-position",
       "method": "$/lean/goalsPrev",
       "coverage": ["invalid-position"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsInvalidPosition"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsPrevInvalidPosition"
     },
     {
       "id": "goalsPrev.stale-version",
       "method": "$/lean/goalsPrev",
       "coverage": ["stale-version"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsStaleVersion"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsPrevStaleVersion"
     },
     {
       "id": "goalsPrev.standard-lsp-interference",
       "method": "$/lean/goalsPrev",
       "coverage": ["standard-lsp-interference"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsRequestsWithStandardLspInterference"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsPrevWithStandardLspInterference"
     },
     {
       "id": "todo.basic-kinds-and-composition",
