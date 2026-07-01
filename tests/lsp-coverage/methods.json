@@ -8,6 +8,7 @@
       "requiredCoverage": [
         "isolation",
         "invalid-position",
+        "stale-version",
         "stale-edit",
         "cancellation",
         "mixed-concurrency"

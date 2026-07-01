@@ -25,6 +25,12 @@
       "pointer": "tests/scenario/changePending.scn"
     },
     {
+      "id": "runAt.stale-version",
+      "method": "$/lean/runAt",
+      "coverage": ["stale-version"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtStaleVersion"
+    },
+    {
       "id": "runAt.stale-edit-with-concurrent-request",
       "method": "$/lean/runAt",
       "coverage": ["stale-edit", "mixed-concurrency"],
