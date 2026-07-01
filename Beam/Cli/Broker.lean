@@ -327,7 +327,7 @@ def leanGoalsWaitSpec
   let action :=
     action?.getD <|
       match mode with
-      | .after | .prev => "lean-goals"
+      | .before | .after => "lean-goals"
   {
     action := action
     startMsg := s!"beam: running {action} on {pos} and waiting for a ready Lean snapshot"

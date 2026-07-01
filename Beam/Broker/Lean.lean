@@ -89,9 +89,6 @@ def todoMethod (backend : Backend) : Except String String :=
   | .lean => .ok Backend.Lean.todoMethod
   | .rocq => .error "rocq backend does not support todo queries"
 
-def goalModeValue (mode? : Option GoalMode) : String :=
-  Backend.Shared.goalModeValue mode?
-
 def goalPpFormatValue (ppFormat? : Option GoalPpFormat) : String :=
   Backend.Shared.goalPpFormatValue ppFormat?
 

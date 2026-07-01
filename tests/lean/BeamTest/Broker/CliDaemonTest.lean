@@ -158,7 +158,7 @@ private def checkSyncWaitSpecs : IO Unit := do
   requireSubstring "document-symbols complete message should use public wrapper label"
     "beam: document-symbols complete for Demo.lean"
     (publicDocumentSymbolsSpec.completeMsg okResp)
-  let publicGoalsSpec := Beam.Cli.leanGoalsWaitSpec "Demo.lean" 1 2 .prev (some "goals")
+  let publicGoalsSpec := Beam.Cli.leanGoalsWaitSpec "Demo.lean" 1 2 .before (some "goals")
   require "goals wait action should accept public wrapper label"
     (publicGoalsSpec.action == "goals")
   requireSubstring "goals start message should use public wrapper label"
@@ -274,8 +274,8 @@ private def checkLeanOperationRequests : IO Unit := do
     (Beam.Cli.leanWorkspaceSymbolsRequest root "Demo")
     (workspaceSymbolsInput.toBrokerRequest rootText)
   requireRequestJson "goals request should share the Lean operation adapter"
-    (Beam.Cli.leanGoalsRequest root path 13 7 3 .prev)
-    (positionInput.toGoalsBrokerRequest rootText .prev)
+    (Beam.Cli.leanGoalsRequest root path 13 7 3 .before)
+    (positionInput.toGoalsBrokerRequest rootText .before)
 
   let runWithInput : Beam.Lean.RunWithInput := {
     path

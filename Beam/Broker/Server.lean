@@ -1639,7 +1639,7 @@ private def handleGoalsOp
               [
                 ("textDocument", toJson ({ uri := uri, version? := some docState.version : VersionedTextDocumentIdentifier })),
                 ("position", toJson position),
-                ("mode", toJson (goalModeValue req.mode?)),
+                ("mode", toJson (Backend.Rocq.goalModeValue req.mode?)),
                 ("compact", toJson (req.compact?.getD false)),
                 ("pp_format", toJson (goalPpFormatValue req.ppFormat?))
               ] ++

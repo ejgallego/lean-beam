@@ -298,7 +298,7 @@ def GoalsMode.key : GoalsMode → String
   | .after => "after"
 
 def GoalsMode.toBrokerMode : GoalsMode → Beam.Broker.GoalMode
-  | .before => .prev
+  | .before => .before
   | .after => .after
 
 instance : ToJson GoalsMode where

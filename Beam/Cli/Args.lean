@@ -150,7 +150,7 @@ def leanGoalsUsage : String :=
 
 def parseLeanGoalsModeArg (mode : String) : IO GoalMode := do
   match mode with
-  | "before" => pure .prev
+  | "before" => pure .before
   | "after" => pure .after
   | _ => throw <| IO.userError leanGoalsUsage
 
