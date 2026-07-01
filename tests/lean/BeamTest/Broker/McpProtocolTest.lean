@@ -698,6 +698,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
   let state ← Beam.Mcp.Server.ProtocolState.create (some root)
   try
     copySaveProjectFixture root
+    let expectedRoot ← Beam.resolveExistingPath root
     let stdin ← IO.getStdin
     let opts ← mcpOptionsWithPlugin
     let notificationsRef ← IO.mkRef #[]
@@ -770,8 +771,8 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let statsResult ← requireObjVal "beam stats response" "result" statsResp
     requireJsonBool "beam stats result" "isError" false statsResult
     let statsStructured ← requireObjVal "beam stats result" "structuredContent" statsResult
-    requireJsonString "beam stats structured" "root" root.toString statsStructured
-    requireJsonString "beam stats structured" "active_root" root.toString statsStructured
+    requireJsonString "beam stats structured" "root" expectedRoot.toString statsStructured
+    requireJsonString "beam stats structured" "active_root" expectedRoot.toString statsStructured
     discard <| requireObjVal "beam stats structured" "sessions" statsStructured
     let byBackend ← requireObjVal "beam stats structured" "byBackend" statsStructured
     let leanMetrics ← requireObjVal "beam stats byBackend" "lean" byBackend
@@ -792,7 +793,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     discard <| IO.ofExcept <| refreshStructured.getObjValAs? Nat "version"
     discard <| requireObjVal "lean_refresh structured result" "syncSummary" refreshStructured
     discard <| requireObjVal "lean_refresh structured result" "diagnostics" refreshStructured
-    requireJsonString "lean_refresh structured result" "active_root" root.toString refreshStructured
+    requireJsonString "lean_refresh structured result" "active_root" expectedRoot.toString refreshStructured
 
     let closeSaveResp ← handleRpcRequestWithNotifications state opts stdin notifications "lean close-save" 42
       "tools/call" <| some <| toolCallParams "lean_close_save" <|
@@ -806,7 +807,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let saved ← requireObjVal "lean_close_save structured result" "saved" closeSaveStructured
     discard <| IO.ofExcept <| saved.getObjValAs? Nat "version"
     discard <| requireObjVal "lean_close_save saved result" "sync" saved
-    requireJsonString "lean_close_save structured result" "active_root" root.toString closeSaveStructured
+    requireJsonString "lean_close_save structured result" "active_root" expectedRoot.toString closeSaveStructured
 
     notificationsRef.set #[]
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
