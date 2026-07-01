@@ -14,3 +14,23 @@ This directory contains metadata for the LSP surface tested by `tests/test-lsp.s
 
 Keep this registry as metadata only. Executable behavior should remain in the Lean, scenario, and
 interactive test harnesses.
+
+## Pointer Guidance
+
+Prefer pointers that identify the smallest artifact responsible for the behavior:
+
+- use request-family Lean helpers under `tests/lean/BeamTest/LSP/Requests` for method-local
+  behavior, including stale versions, invalid positions, standard LSP interference, and
+  request-specific response shape checks
+- use `tests/scenario` files when the behavior depends on the upstream scenario runner DSL,
+  pending-request choreography, cancellation, or multi-step edit timing
+- use `tests/interactive` files when the behavior is a file-anchored golden test for position
+  selection, proof-vs-command basis selection, or historical interactive input shape
+- use handle tests under `tests/lean/BeamTest/LSP/Handle` when the behavior depends on stored
+  follow-up handles rather than the base `runAt` request
+
+Add a tag to `methods.json` only when a missing case for that tag would make the method look
+under-tested. Incidental behavior may still be asserted in executable tests without becoming a
+required registry tag. Common robustness tags include `invalid-position`, `stale-version`,
+`stale-edit`, `stale-hash`, `cancellation`, `mixed-concurrency`, and
+`standard-lsp-interference`.
