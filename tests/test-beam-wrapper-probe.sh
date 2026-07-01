@@ -306,46 +306,114 @@ fi
     exit 1
   fi
 
-  hover_out="$("$beam_script" lean-hover CommandA.lean "$command_version" 0 4)"
+  hover_out="$("$beam_script" hover CommandA.lean "$command_version" 0 4)"
   if [ "$(BEAM_JSON_PAYLOAD="$hover_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper lean-hover probe to succeed" >&2
+    echo "expected wrapper hover probe to succeed" >&2
     printf '%s\n' "$hover_out" >&2
     exit 1
   fi
   if ! printf '%s\n' "$hover_out" | grep -q 'answerA : Nat'; then
-    echo "expected wrapper lean-hover probe to expose answerA type information" >&2
+    echo "expected wrapper hover probe to expose answerA type information" >&2
     printf '%s\n' "$hover_out" >&2
     exit 1
   fi
 
-  goals_prev_out="$("$beam_script" lean-goals-prev GoalSmoke.lean "$goal_version" 1 2)"
+  definition_out="$("$beam_script" definition CommandA.lean "$command_version" 0 4)"
+  if [ "$(BEAM_JSON_PAYLOAD="$definition_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper definition probe to succeed" >&2
+    printf '%s\n' "$definition_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$definition_out" | grep -q 'CommandA.lean'; then
+    echo "expected wrapper definition probe to point at CommandA.lean" >&2
+    printf '%s\n' "$definition_out" >&2
+    exit 1
+  fi
+
+  references_nav_out="$("$beam_script" references CommandA.lean "$command_version" 0 4)"
+  if [ "$(BEAM_JSON_PAYLOAD="$references_nav_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper references probe to succeed" >&2
+    printf '%s\n' "$references_nav_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$references_nav_out" | grep -q 'CommandA.lean'; then
+    echo "expected wrapper references probe to include CommandA.lean" >&2
+    printf '%s\n' "$references_nav_out" >&2
+    exit 1
+  fi
+
+  document_symbols_out="$("$beam_script" document-symbols CommandA.lean "$command_version")"
+  if [ "$(BEAM_JSON_PAYLOAD="$document_symbols_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper document-symbols probe to succeed" >&2
+    printf '%s\n' "$document_symbols_out" >&2
+    exit 1
+  fi
+  if [ "$(BEAM_JSON_PAYLOAD="$document_symbols_out" read_json_text_field result.0.name)" != "answerA" ]; then
+    echo "expected wrapper document-symbols probe to list answerA" >&2
+    printf '%s\n' "$document_symbols_out" >&2
+    exit 1
+  fi
+
+  workspace_symbols_out="$("$beam_script" workspace-symbols answerA)"
+  if [ "$(BEAM_JSON_PAYLOAD="$workspace_symbols_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper workspace-symbols probe to succeed" >&2
+    printf '%s\n' "$workspace_symbols_out" >&2
+    exit 1
+  fi
+  BEAM_JSON_PAYLOAD="$workspace_symbols_out" read_json_array_len result > /dev/null
+
+  goals_prev_out="$("$beam_script" goals before GoalSmoke.lean "$goal_version" 1 2)"
   if [ "$(BEAM_JSON_PAYLOAD="$goals_prev_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper lean-goals-prev probe to succeed" >&2
+    echo "expected wrapper goals before probe to succeed" >&2
     printf '%s\n' "$goals_prev_out" >&2
     exit 1
   fi
   if [ "$(BEAM_JSON_PAYLOAD="$goals_prev_out" read_json_text_field result.goals.0.target)" != "True" ]; then
-    echo "expected wrapper lean-goals-prev probe to expose the open True goal" >&2
+    echo "expected wrapper goals before probe to expose the open True goal" >&2
     printf '%s\n' "$goals_prev_out" >&2
     exit 1
   fi
 
-  goals_after_out="$("$beam_script" lean-goals-after GoalSmoke.lean "$goal_version" 1 2)"
+  goals_after_out="$("$beam_script" goals after GoalSmoke.lean "$goal_version" 1 2)"
   if [ "$(BEAM_JSON_PAYLOAD="$goals_after_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper lean-goals-after probe to succeed" >&2
+    echo "expected wrapper goals after probe to succeed" >&2
     printf '%s\n' "$goals_after_out" >&2
     exit 1
   fi
   if [ "$(BEAM_JSON_PAYLOAD="$goals_after_out" read_json_array_len result.goals)" != "0" ]; then
-    echo "expected wrapper lean-goals-after probe to expose no remaining goals" >&2
+    echo "expected wrapper goals after probe to expose no remaining goals" >&2
     printf '%s\n' "$goals_after_out" >&2
     exit 1
   fi
 
   stats_out="$("$beam_script" stats)"
-  request_at_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.request_at.count)"
-  if [ "${request_at_count:-0}" -lt 1 ]; then
-    echo "expected wrapper stats to record at least one request_at-backed hover request" >&2
+  hover_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.hover.count)"
+  if [ "${hover_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one hover request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  definition_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.definition.count)"
+  if [ "${definition_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one definition request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  references_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.references.count)"
+  if [ "${references_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one references request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  document_symbols_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.document_symbols.count)"
+  if [ "${document_symbols_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one document_symbols request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  workspace_symbols_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.workspace_symbols.count)"
+  if [ "${workspace_symbols_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one workspace_symbols request" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi
@@ -356,48 +424,6 @@ fi
     exit 1
   fi
 
-  references_out="$(printf '%s\n' '{"context":{"includeDeclaration":true}}' | "$beam_script" lean-request-at CommandA.lean "$command_version" 0 4 textDocument/references -)"
-  if [ "$(BEAM_JSON_PAYLOAD="$references_out" read_json_text_field ok)" != "true" ]; then
-    echo "expected wrapper lean-request-at references probe from stdin json to succeed" >&2
-    printf '%s\n' "$references_out" >&2
-    exit 1
-  fi
-
-  unsupported_err="$(beam_wrapper_mktemp_file request-at-unsupported)"
-  if "$beam_script" lean-request-at CommandA.lean "$command_version" 0 4 textDocument/completion '{}' >"$unsupported_err" 2>&1; then
-    echo "expected wrapper lean-request-at to reject unsupported methods" >&2
-    cat "$unsupported_err" >&2
-    exit 1
-  fi
-  if ! grep -q "does not support 'textDocument/completion'" "$unsupported_err"; then
-    echo "expected unsupported request_at method error message" >&2
-    cat "$unsupported_err" >&2
-    exit 1
-  fi
-
-  params_doc_err="$(beam_wrapper_mktemp_file request-at-textDocument)"
-  if "$beam_script" lean-request-at CommandA.lean "$command_version" 0 4 textDocument/hover '{"textDocument":{"uri":"file:///tmp/nope.lean"}}' >"$params_doc_err" 2>&1; then
-    echo "expected wrapper lean-request-at to reject user-supplied textDocument" >&2
-    cat "$params_doc_err" >&2
-    exit 1
-  fi
-  if ! grep -q "'params' must not include 'textDocument'" "$params_doc_err"; then
-    echo "expected request_at textDocument override rejection message" >&2
-    cat "$params_doc_err" >&2
-    exit 1
-  fi
-
-  params_pos_err="$(beam_wrapper_mktemp_file request-at-position)"
-  if "$beam_script" lean-request-at CommandA.lean "$command_version" 0 4 textDocument/hover '{"position":{"line":99,"character":0}}' >"$params_pos_err" 2>&1; then
-    echo "expected wrapper lean-request-at to reject user-supplied position" >&2
-    cat "$params_pos_err" >&2
-    exit 1
-  fi
-  if ! grep -q "'params' must not include 'position'" "$params_pos_err"; then
-    echo "expected request_at position override rejection message" >&2
-    cat "$params_pos_err" >&2
-    exit 1
-  fi
 )
 
 pid1_repeat="$(read_json_field "$registry_path" pid)"

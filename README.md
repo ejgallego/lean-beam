@@ -66,8 +66,9 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 [docs/STATUS.md](docs/STATUS.md#mcp-workspace-initialization).
 Successful `lean_init_workspace` results include a `capabilities` array with the projected MCP tool
 names, including `beam_version`, `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`,
-`lean_goals_prev`, and `lean_goals_after`. Use `beam_version` for live MCP server identity, source
-commit/branch/dirty data, and bug reports.
+`lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`,
+and `lean_goals`. Use `beam_version` for live MCP server identity, source commit/branch/dirty data,
+and bug reports.
 
 MCP clients can opt into live operation progress for `tools/call` requests by including
 `params._meta.progressToken` as a string or integer. The field-level progress, diagnostic, and
@@ -116,9 +117,14 @@ Common Lean commands:
 ```bash
 lean-beam ensure
 lean-beam ensure --hold
-lean-beam hover "Foo.lean" 10 2
-lean-beam goals-prev "Foo.lean" 10 2
-lean-beam run-at "Foo.lean" 10 2 "exact trivial"
+version="<version-from-lean-beam-update>"
+lean-beam hover "Foo.lean" "$version" 10 2
+lean-beam definition "Foo.lean" "$version" 10 2
+lean-beam references "Foo.lean" "$version" 10 2
+lean-beam document-symbols "Foo.lean" "$version"
+lean-beam workspace-symbols "Foo.bar"
+lean-beam goals before "Foo.lean" "$version" 10 2
+lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
 lean-beam sync "MyPkg/Sub/Module.lean"
 lean-beam refresh "MyPkg/Sub/Module.lean"
 lean-beam save "MyPkg/Sub/Module.lean"
@@ -130,8 +136,11 @@ Common MCP tool names:
 | --- | --- |
 | `lean-beam run-at` | `mcp__lean_beam.lean_run_at` |
 | `lean-beam hover` | `mcp__lean_beam.lean_hover` |
-| `lean-beam goals-prev` | `mcp__lean_beam.lean_goals_prev` |
-| `lean-beam goals-after` | `mcp__lean_beam.lean_goals_after` |
+| `lean-beam definition` | `mcp__lean_beam.lean_definition` |
+| `lean-beam references` | `mcp__lean_beam.lean_references` |
+| `lean-beam document-symbols` | `mcp__lean_beam.lean_document_symbols` |
+| `lean-beam workspace-symbols` | `mcp__lean_beam.lean_workspace_symbols` |
+| `lean-beam goals before|after` | `mcp__lean_beam.lean_goals` |
 | `lean-beam sync` | `mcp__lean_beam.lean_sync` |
 | `lean-beam save` | `mcp__lean_beam.lean_save` |
 
@@ -246,7 +255,6 @@ More detail on test coverage and gaps lives in [docs/TESTING.md](docs/TESTING.md
 - [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): AI-first maintainer workflow and harness guidance
 - [docs/TESTING.md](docs/TESTING.md): testing surfaces, coverage, and gaps
-- [docs/experimental.md](docs/experimental.md): unstable experimental surfaces
 - [AGENTS.md](AGENTS.md): repo-specific agent instructions
 
 ## License

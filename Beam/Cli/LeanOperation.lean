@@ -72,19 +72,46 @@ def leanHoverRequest
     (line character : Nat) : Request :=
   ({ path, version, line, character } : Beam.Lean.PositionInput).toHoverBrokerRequest (rootText root)
 
-def leanGoalsAfterRequest
+def leanDefinitionRequest
     (root : System.FilePath)
     (path : String)
     (version : Nat)
     (line character : Nat) : Request :=
-  ({ path, version, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .after
+  ({ path, version, line, character } : Beam.Lean.PositionInput).toDefinitionBrokerRequest
+    (rootText root)
 
-def leanGoalsPrevRequest
+def leanReferencesRequest
     (root : System.FilePath)
     (path : String)
     (version : Nat)
-    (line character : Nat) : Request :=
-  ({ path, version, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) .prev
+    (line character : Nat)
+    (includeDeclaration : Bool := true) : Request :=
+  ({
+    path
+    version
+    line
+    character
+    includeDeclaration? := some includeDeclaration
+  } : Beam.Lean.ReferencesInput).toBrokerRequest (rootText root)
+
+def leanDocumentSymbolsRequest
+    (root : System.FilePath)
+    (path : String)
+    (version : Nat) : Request :=
+  ({ path, version } : Beam.Lean.DocumentSymbolsInput).toBrokerRequest (rootText root)
+
+def leanWorkspaceSymbolsRequest
+    (root : System.FilePath)
+    (query : String) : Request :=
+  ({ query } : Beam.Lean.WorkspaceSymbolsInput).toBrokerRequest (rootText root)
+
+def leanGoalsRequest
+    (root : System.FilePath)
+    (path : String)
+    (version : Nat)
+    (line character : Nat)
+    (mode : GoalMode) : Request :=
+  ({ path, version, line, character } : Beam.Lean.PositionInput).toGoalsBrokerRequest (rootText root) mode
 
 def leanTodoRequest
     (root : System.FilePath)

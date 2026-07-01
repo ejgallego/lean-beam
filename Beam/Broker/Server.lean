@@ -1497,21 +1497,83 @@ private def handleRunAtOp
       pending.progress?,
     false)
 
-private def handleRequestAtOp
+private def positionLspParams
+    (args : PositionArgs)
+    (uri : DocumentUri)
+    (extraFields : List (String × Json) := []) : Json :=
+  Json.mkObj <|
+    [
+      ("textDocument", toJson ({ uri := uri, version? := some args.version : VersionedTextDocumentIdentifier })),
+      ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
+    ] ++ extraFields
+
+private def handlePositionLspOp
+    (server : ServerRuntime)
+    (req : Request)
+    (args : PositionArgs)
+    (method : String)
+    (extraFields : List (String × Json) := [])
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    HandlerM (Response × Bool) := do
+  liftResponseIO <| ensureRequestNotCancelled cancelRef?
+  let snapshot ← liftHandlerIO <| readRequestSyncSnapshot server req args.path
+  let started ← liftResponseIO <| server.withState do
+    let session ← ensureSession req.backend
+    startSyncedDocumentRequest session snapshot method
+      (fun uri _ => positionLspParams args uri extraFields)
+      (trackedLeanDocumentVersion req.backend)
+      (expectedVersion? := some args.version)
+      (clientRequestId? := req.clientRequestId?)
+      (emitProgress? := emitProgress?)
+  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+  pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
+
+private def handleHoverOp
     (server : ServerRuntime)
     (req : Request)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
-  let args ← requestArg req.requestAtArgs
+  let args ← requestArg req.hoverArgs
+  handlePositionLspOp server req args.toPositionArgs args.method
+    (cancelRef? := cancelRef?) (emitProgress? := emitProgress?)
+
+private def handleDefinitionOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    HandlerM (Response × Bool) := do
+  let args ← requestArg req.definitionArgs
+  handlePositionLspOp server req args.toPositionArgs args.method
+    (cancelRef? := cancelRef?) (emitProgress? := emitProgress?)
+
+private def handleReferencesOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    HandlerM (Response × Bool) := do
+  let args ← requestArg req.referencesArgs
+  handlePositionLspOp server req args.toPositionArgs args.method
+    [("context", Json.mkObj [("includeDeclaration", toJson args.includeDeclaration)])]
+    (cancelRef? := cancelRef?) (emitProgress? := emitProgress?)
+
+private def handleDocumentSymbolsOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    HandlerM (Response × Bool) := do
+  let args ← requestArg req.documentSymbolsArgs
   liftResponseIO <| ensureRequestNotCancelled cancelRef?
   let snapshot ← liftHandlerIO <| readRequestSyncSnapshot server req args.path
   let started ← liftResponseIO <| server.withState do
     let session ← ensureSession req.backend
     startSyncedDocumentRequest session snapshot args.method
-      (fun uri _ => Json.mergeObj args.extraParams <| Json.mkObj [
-        ("textDocument", toJson ({ uri := uri, version? := some args.version : VersionedTextDocumentIdentifier })),
-        ("position", toJson ({ line := args.line, character := args.character : Lsp.Position }))
+      (fun uri _ => Json.mkObj [
+        ("textDocument", toJson ({ uri := uri : TextDocumentIdentifier }))
       ])
       (trackedLeanDocumentVersion req.backend)
       (expectedVersion? := some args.version)
@@ -1519,6 +1581,24 @@ private def handleRequestAtOp
       (emitProgress? := emitProgress?)
   let pending ← awaitSyncedDocumentRequest server req started cancelRef?
   pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
+
+private def handleWorkspaceSymbolsOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none) :
+    HandlerM (Response × Bool) := do
+  let args ← requestArg req.workspaceSymbolsArgs
+  liftResponseIO <| ensureRequestNotCancelled cancelRef?
+  let (session, promise) ← liftHandlerIO <| server.withState do
+    let session ← ensureSession req.backend
+    let params := toJson ({ query := args.query : WorkspaceSymbolParams })
+    let (session, promise) ← startRequestJsonTrackedDetailed session args.method params
+      (clientRequestId? := req.clientRequestId?)
+    updateSession session
+    pure (session, promise)
+  liftHandlerIO <| propagatePendingCancellation session req.clientRequestId? cancelRef?
+  let pending ← awaitPending promise
+  pure (Response.success pending.result, false)
 
 private def handleSaveOleanOp
     (server : ServerRuntime)
@@ -1740,7 +1820,11 @@ private def handleRequestIO
           | .refreshFile => runHandler <| handleRefreshFileOp server req cancelRef? emitProgress? emitDiagnostic?
           | .close => runHandler <| handleCloseOp server req cancelRef? emitProgress? emitDiagnostic?
           | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress? emitDiagnostic?
-          | .requestAt => runHandler <| handleRequestAtOp server req cancelRef? emitProgress?
+          | .hover => runHandler <| handleHoverOp server req cancelRef? emitProgress?
+          | .definition => runHandler <| handleDefinitionOp server req cancelRef? emitProgress?
+          | .references => runHandler <| handleReferencesOp server req cancelRef? emitProgress?
+          | .documentSymbols => runHandler <| handleDocumentSymbolsOp server req cancelRef? emitProgress?
+          | .workspaceSymbols => runHandler <| handleWorkspaceSymbolsOp server req cancelRef?
           | .saveOlean => runHandler <| handleSaveOleanOp server req cancelRef? emitProgress? emitDiagnostic?
           | .goals => runHandler <| handleGoalsOp server req cancelRef? emitProgress?
           | .todo => runHandler <| handleTodoOp server req cancelRef? emitProgress?

@@ -38,8 +38,11 @@ private def expectedLeanOperationSurface : Array Beam.Lean.Operation := #[
   .runAt,
   .runAtHandle,
   .hover,
-  .goalsAfter,
-  .goalsPrev,
+  .definition,
+  .references,
+  .documentSymbols,
+  .workspaceSymbols,
+  .goals,
   .todo,
   .runWith,
   .runWithLinear,
@@ -80,6 +83,26 @@ private def checkToolNames : IO Unit := do
 
   let hover ← expectOk "decode lean_hover" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_hover")
   require "decode lean_hover: wrong tool" (hover == .leanHover)
+
+  let definition ← expectOk "decode lean_definition" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_definition")
+  require "decode lean_definition: wrong tool" (definition == .leanDefinition)
+
+  let references ← expectOk "decode lean_references" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_references")
+  require "decode lean_references: wrong tool" (references == .leanReferences)
+
+  let documentSymbols ← expectOk "decode lean_document_symbols" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_document_symbols")
+  require "decode lean_document_symbols: wrong tool" (documentSymbols == .leanDocumentSymbols)
+
+  let workspaceSymbols ← expectOk "decode lean_workspace_symbols" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_workspace_symbols")
+  require "decode lean_workspace_symbols: wrong tool" (workspaceSymbols == .leanWorkspaceSymbols)
+
+  let goals ← expectOk "decode lean_goals" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_goals")
+  require "decode lean_goals: wrong tool" (goals == .leanGoals)
 
   let todo ← expectOk "decode lean_todo" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_todo")
   require "decode lean_todo: wrong tool" (todo == .leanTodo)
@@ -155,9 +178,21 @@ private def checkToolDescriptors : IO Unit := do
   require "hover descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanHover && desc.kind == .leanOperation .hover))
-  require "goals-after descriptor is exposed"
+  require "definition descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanGoalsAfter && desc.kind == .leanOperation .goalsAfter))
+      desc.name == .leanDefinition && desc.kind == .leanOperation .definition))
+  require "references descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanReferences && desc.kind == .leanOperation .references))
+  require "document-symbols descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanDocumentSymbols && desc.kind == .leanOperation .documentSymbols))
+  require "workspace-symbols descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanWorkspaceSymbols && desc.kind == .leanOperation .workspaceSymbols))
+  require "goals descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanGoals && desc.kind == .leanOperation .goals))
   require "todo descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanTodo && desc.kind == .leanOperation .todo))
@@ -208,8 +243,6 @@ private def checkBrokerRequestAdapters : IO Unit := do
   require "runAt character" (runAtReq.character? == some 2)
   require "runAt text" (runAtReq.text? == some "exact h")
   require "runAt does not store by default" runAtReq.storeHandle?.isNone
-  require "runAt hides raw LSP method" runAtReq.method?.isNone
-  require "runAt hides raw LSP params" runAtReq.params?.isNone
   requireFieldAbsent "runAt input json" "root" (toJson runAtInput)
 
   let runAtHandleReq ← expectOk "runAt handle tool request" <|
@@ -224,20 +257,78 @@ private def checkBrokerRequestAdapters : IO Unit := do
   }
   let hoverReq ← expectOk "hover tool request" <|
     Beam.Mcp.ToolName.leanHover.toBrokerRequest root (toJson positionInput)
-  require "hover uses requestAt broker op" (hoverReq.op == .requestAt)
+  require "hover op" (hoverReq.op == .hover)
   require "hover version" (hoverReq.version? == some 13)
-  require "hover injects hover method" (hoverReq.method? == some "textDocument/hover")
-  require "hover hides raw params" hoverReq.params?.isNone
 
-  let goalsAfterReq ← expectOk "goals-after tool request" <|
-    Beam.Mcp.ToolName.leanGoalsAfter.toBrokerRequest root (toJson positionInput)
-  require "goals-after op" (goalsAfterReq.op == .goals)
-  require "goals-after mode" (goalsAfterReq.mode? == some .after)
+  let definitionReq ← expectOk "definition tool request" <|
+    Beam.Mcp.ToolName.leanDefinition.toBrokerRequest root (toJson positionInput)
+  require "definition op" (definitionReq.op == .definition)
+  require "definition backend" (definitionReq.backend == .lean)
+  require "definition version" (definitionReq.version? == some 13)
 
-  let goalsPrevReq ← expectOk "goals-prev tool request" <|
-    Beam.Mcp.ToolName.leanGoalsPrev.toBrokerRequest root (toJson positionInput)
-  require "goals-prev op" (goalsPrevReq.op == .goals)
-  require "goals-prev mode" (goalsPrevReq.mode? == some .prev)
+  let referencesInput : Beam.Mcp.ReferencesInput := {
+    path := "Demo.lean"
+    version := 13
+    line := 7
+    character := 3
+    includeDeclaration? := some false
+  }
+  let referencesReq ← expectOk "references tool request" <|
+    Beam.Mcp.ToolName.leanReferences.toBrokerRequest root (toJson referencesInput)
+  require "references op" (referencesReq.op == .references)
+  require "references version" (referencesReq.version? == some 13)
+  require "references include declaration" (referencesReq.includeDeclaration? == some false)
+  let referencesJson := toJson referencesInput
+  requireJsonBool "references input json" "include_declaration" false referencesJson
+  requireFieldAbsent "references input json" "includeDeclaration" referencesJson
+  let decodedReferences ← expectOk "decode references input" <|
+    fromJson? (α := Beam.Mcp.ReferencesInput) referencesJson
+  require "decoded references include declaration" (decodedReferences.includeDeclaration? == some false)
+
+  let documentSymbolsInput : Beam.Mcp.DocumentSymbolsInput := {
+    path := "Demo.lean"
+    version := 13
+  }
+  let documentSymbolsReq ← expectOk "document-symbols tool request" <|
+    Beam.Mcp.ToolName.leanDocumentSymbols.toBrokerRequest root (toJson documentSymbolsInput)
+  require "document-symbols op" (documentSymbolsReq.op == .documentSymbols)
+  require "document-symbols path" (documentSymbolsReq.path? == some "Demo.lean")
+  require "document-symbols version" (documentSymbolsReq.version? == some 13)
+
+  let workspaceSymbolsInput : Beam.Mcp.WorkspaceSymbolsInput := {
+    query := "Demo"
+  }
+  let workspaceSymbolsReq ← expectOk "workspace-symbols tool request" <|
+    Beam.Mcp.ToolName.leanWorkspaceSymbols.toBrokerRequest root (toJson workspaceSymbolsInput)
+  require "workspace-symbols op" (workspaceSymbolsReq.op == .workspaceSymbols)
+  require "workspace-symbols root" (workspaceSymbolsReq.root? == some root)
+  require "workspace-symbols query" (workspaceSymbolsReq.query? == some "Demo")
+  require "workspace-symbols has no path" workspaceSymbolsReq.path?.isNone
+
+  let goalsBeforeInput : Beam.Mcp.GoalsInput := {
+    path := "Demo.lean"
+    version := 13
+    line := 7
+    character := 3
+    mode := .before
+  }
+  let goalsBeforeReq ← expectOk "goals before tool request" <|
+    Beam.Mcp.ToolName.leanGoals.toBrokerRequest root (toJson goalsBeforeInput)
+  require "goals before op" (goalsBeforeReq.op == .goals)
+  require "goals before mode" (goalsBeforeReq.mode? == some .prev)
+  requireJsonString "goals before input json" "mode" "before" (toJson goalsBeforeInput)
+
+  let goalsAfterInput : Beam.Mcp.GoalsInput := {
+    path := "Demo.lean"
+    version := 13
+    line := 7
+    character := 3
+    mode := .after
+  }
+  let goalsAfterReq ← expectOk "goals after tool request" <|
+    Beam.Mcp.ToolName.leanGoals.toBrokerRequest root (toJson goalsAfterInput)
+  require "goals after op" (goalsAfterReq.op == .goals)
+  require "goals after mode" (goalsAfterReq.mode? == some .after)
 
   let todoInput : Beam.Mcp.TodoInput := {
     path := "Demo.lean"
@@ -260,8 +351,6 @@ private def checkBrokerRequestAdapters : IO Unit := do
   require "todo end character" (todoReq.endCharacter? == some 3)
   require "todo kinds" (todoReq.kinds? == some #[.sorry, .incompleteProof])
   require "todo suggest" (todoReq.suggest? == some .basic)
-  require "todo hides raw LSP method" todoReq.method?.isNone
-  require "todo hides raw LSP params" todoReq.params?.isNone
   let todoJson := toJson todoInput
   requireJsonString "todo input json" "path" "Demo.lean" todoJson
   requireFieldAbsent "todo input json" "startLine" todoJson
@@ -278,8 +367,6 @@ private def checkBrokerRequestAdapters : IO Unit := do
   require "runWith stores successor handle" (runWithReq.storeHandle? == some true)
   require "runWith linear flag" (runWithReq.linear? == some true)
   require "runWith handle present" runWithReq.handle?.isSome
-  require "runWith hides raw LSP method" runWithReq.method?.isNone
-  require "runWith hides raw LSP params" runWithReq.params?.isNone
   requireFieldAbsent "runWith input json" "root" (toJson runWithInput)
 
   let pathInput : Beam.Mcp.PathInput := { path := "Demo.lean" }

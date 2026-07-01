@@ -48,7 +48,9 @@ Supported command families:
 
 - bootstrap the Lean backend: `lean-beam ensure`
 - keep a sandboxed daemon owner alive across separate commands: `lean-beam ensure --hold`
-- inspect existing code or proof state: `lean-beam hover`, `lean-beam goals-prev`, `lean-beam goals-after`
+- inspect existing code, navigation data, or proof state: `lean-beam hover`, `lean-beam definition`,
+  `lean-beam references`, `lean-beam document-symbols`, `lean-beam workspace-symbols`,
+  `lean-beam goals before`, `lean-beam goals after`
 - inspect actionable Lean items in a range: `lean-beam todo`
 - inspect file or daemon state: `lean-beam open-files`, `lean-beam doctor`, `lean-beam stats`,
   `lean-beam reset-stats`
@@ -61,8 +63,10 @@ Supported command families:
 
 What to treat as the normal agent workflow surface:
 
-- default workflow commands: `lean-beam hover`, `lean-beam goals-prev`, `lean-beam goals-after`,
-  `lean-beam todo`, `lean-beam run-at`, `lean-beam sync`, `lean-beam refresh`
+- default workflow commands: `lean-beam hover`, `lean-beam definition`, `lean-beam references`,
+  `lean-beam document-symbols`, `lean-beam workspace-symbols`, `lean-beam goals`,
+  `lean-beam todo`, `lean-beam run-at`, `lean-beam sync`,
+  `lean-beam refresh`
 - operational commands: `lean-beam open-files`, `lean-beam doctor`,
   `lean-beam stats`, `lean-beam reset-stats`, `lean-beam save`, `lean-beam close-save`
 - alpha support APIs: `lean-beam run-at-handle`, `lean-beam run-with`, `lean-beam run-with-linear`,
@@ -100,7 +104,8 @@ module environment.
 This changes the right agent behavior:
 
 - prefer many small `run-at` probes at the source position over one large scratch experiment
-- use `goals-prev`, `goals-after`, and `hover` instead of reconstructing proof state elsewhere
+- use `goals before`, `goals after`, `hover`, `definition`, `references`, and symbol queries instead
+  of reconstructing semantic state elsewhere
 - do not batch unrelated questions just to amortize Lean startup
 - after a real source edit, run `lean-beam update <file>` before later probes; run
   `lean-beam sync <file>` when you need diagnostics/readiness
@@ -112,18 +117,24 @@ This changes the right agent behavior:
 Prefer the smallest command that matches the actual task:
 
 - use `lean-beam hover` when you want semantic information about existing code at one position
-- use `lean-beam goals-prev` or `lean-beam goals-after` when you want existing proof state at one tactic
-  position
+- use `lean-beam definition` or `lean-beam references` when you want navigation targets for an
+  existing symbol
+- use `lean-beam document-symbols` for file-local symbol outlines and `lean-beam workspace-symbols`
+  for workspace-wide symbol search
+- use `lean-beam goals before` or `lean-beam goals after` when you want existing proof state at one
+  tactic position
 - use `lean-beam todo` when you want actionable items in a saved file range, such as sorries, holes,
   diagnostics, code actions, or incomplete proofs
 - use `lean-beam run-at` when you want to try one speculative Lean snippet without editing the file
-- before `lean-beam run-at`, `lean-beam run-at-handle`, `lean-beam hover`, `lean-beam goals-*`, or
-  `lean-beam todo`, call `lean-beam update <file>` and pass the returned `version`
+- before `lean-beam run-at`, `lean-beam run-at-handle`, `lean-beam hover`, `lean-beam definition`,
+  `lean-beam references`, `lean-beam document-symbols`, `lean-beam goals`, or `lean-beam todo`,
+  call `lean-beam update <file>` and pass the returned `version`; `lean-beam workspace-symbols`
+  takes only a query
 - if a versioned request fails with `contentModified` and
   `error.data.reason = "documentVersionMismatch"`, use `error.data.acceptedVersion` for the next
   retry or run `lean-beam update` / `lean-beam sync` again; do not guess a version
-- for `lean-beam run-at`, `lean-beam hover`, `lean-beam goals-*`, and `lean-beam todo`, treat line and
-  character arguments as Lean/LSP
+- for `lean-beam run-at`, `lean-beam hover`, `lean-beam definition`, `lean-beam references`,
+  `lean-beam goals`, and `lean-beam todo`, treat line and character arguments as Lean/LSP
   coordinates: line `0` is the first line, character `0` is the first UTF-16 code unit, and on a
   truly empty line only character `0` is valid
 - use `lean-beam run-at-handle` and then `lean-beam run-with` or `lean-beam run-with-linear` only when exact
@@ -268,7 +279,11 @@ lean-beam ensure --hold
 # inspect existing code or proof state
 version="<version-from-lean-beam-sync>"
 lean-beam hover "Foo.lean" "$version" 10 2
-lean-beam goals-prev "Foo.lean" "$version" 10 2
+lean-beam definition "Foo.lean" "$version" 10 2
+lean-beam references "Foo.lean" "$version" 10 2
+lean-beam document-symbols "Foo.lean" "$version"
+lean-beam workspace-symbols "Foo.bar"
+lean-beam goals before "Foo.lean" "$version" 10 2
 
 # try speculative Lean text without editing the file
 lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
@@ -329,7 +344,9 @@ Surface rule:
 Use this when you are deciding between commands:
 
 - human checking existing code: `lean-beam hover`
-- human checking existing proof state: `lean-beam goals-prev` / `lean-beam goals-after`
+- human following code navigation: `lean-beam definition` / `lean-beam references`
+- human listing symbols: `lean-beam document-symbols` / `lean-beam workspace-symbols`
+- human checking existing proof state: `lean-beam goals before` / `lean-beam goals after`
 - human trying speculative Lean text: `lean-beam run-at`
 - human after a real saved edit: `lean-beam sync`
 - human checkpointing one synced module: `lean-beam save` or `lean-beam close-save`

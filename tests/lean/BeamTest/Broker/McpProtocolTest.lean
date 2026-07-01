@@ -116,8 +116,11 @@ private def checkToolsListShape : IO Unit := do
       Beam.Mcp.capabilityNames.contains "lean_refresh" &&
       Beam.Mcp.capabilityNames.contains "lean_save" &&
       Beam.Mcp.capabilityNames.contains "lean_close_save" &&
-      Beam.Mcp.capabilityNames.contains "lean_goals_prev" &&
-      Beam.Mcp.capabilityNames.contains "lean_goals_after")
+      Beam.Mcp.capabilityNames.contains "lean_definition" &&
+      Beam.Mcp.capabilityNames.contains "lean_references" &&
+      Beam.Mcp.capabilityNames.contains "lean_document_symbols" &&
+      Beam.Mcp.capabilityNames.contains "lean_workspace_symbols" &&
+      Beam.Mcp.capabilityNames.contains "lean_goals")
   require "MCP capability names should not expose raw LSP methods"
     (!Beam.Mcp.capabilityNames.contains Beam.LSP.RunAt.method)
 
@@ -127,8 +130,11 @@ private def checkToolsListShape : IO Unit := do
     ("lean_run_at", #["path", "version", "line", "character", "text"]),
     ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
     ("lean_hover", #["path", "version", "line", "character"]),
-    ("lean_goals_after", #["path", "version", "line", "character"]),
-    ("lean_goals_prev", #["path", "version", "line", "character"]),
+    ("lean_definition", #["path", "version", "line", "character"]),
+    ("lean_references", #["path", "version", "line", "character"]),
+    ("lean_document_symbols", #["path", "version"]),
+    ("lean_workspace_symbols", #["query"]),
+    ("lean_goals", #["path", "version", "line", "character", "mode"]),
     ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character"]),
     ("lean_run_with", #["path", "handle", "text"]),
     ("lean_run_with_linear", #["path", "handle", "text"]),
@@ -150,6 +156,10 @@ private def checkToolsListShape : IO Unit := do
   let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
   let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
   requireFieldPresent "lean_sync input schema" "include_diagnostics" syncProperties
+  let referencesTool ← requireTool tools "lean_references"
+  let referencesSchema ← requireClosedInputSchema "lean_references input schema" referencesTool
+  let referencesProperties ← requireObjVal "lean_references input schema" "properties" referencesSchema
+  requireFieldPresent "lean_references input schema" "include_declaration" referencesProperties
   let refreshTool ← requireTool tools "lean_refresh"
   let refreshSchema ← requireClosedInputSchema "lean_refresh input schema" refreshTool
   let refreshProperties ← requireObjVal "lean_refresh input schema" "properties" refreshSchema

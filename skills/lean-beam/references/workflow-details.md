@@ -57,11 +57,20 @@ Inspect Lean type/term information at a specific position:
 lean-beam hover "Foo.lean" <version-from-update> 10 2
 ```
 
+Follow semantic navigation and symbol information:
+
+```bash
+lean-beam definition "Foo.lean" <version-from-update> 10 2
+lean-beam references "Foo.lean" <version-from-update> 10 2
+lean-beam document-symbols "Foo.lean" <version-from-update>
+lean-beam workspace-symbols "Foo.bar"
+```
+
 Inspect Lean proof goals at an existing tactic position:
 
 ```bash
-lean-beam goals-prev "Foo.lean" <version-from-update> 10 2
-lean-beam goals-after "Foo.lean" <version-from-update> 10 2
+lean-beam goals before "Foo.lean" <version-from-update> 10 2
+lean-beam goals after "Foo.lean" <version-from-update> 10 2
 ```
 
 These commands return structured goals in `result.goals`. A solved state uses
@@ -97,9 +106,12 @@ What is not a valid checkpoint target:
 
 - `lean-beam run-at` does not edit `Foo.lean`
 - `lean-beam hover` is the normal read-only semantic inspection command for an existing position
-- `lean-beam goals-prev` and `lean-beam goals-after` are the normal read-only proof-state
+- `lean-beam definition`, `lean-beam references`, and `lean-beam document-symbols` are normal
+  read-only semantic navigation commands against a specific document version
+- `lean-beam workspace-symbols` is a read-only workspace query and does not take a document version
+- `lean-beam goals before` and `lean-beam goals after` are the normal read-only proof-state
   inspection commands for an existing tactic position
-- `lean-beam goals-prev` / `lean-beam goals-after` return `result.goals`, not speculative execution output,
+- `lean-beam goals before` / `lean-beam goals after` return `result.goals`, not speculative execution output,
   and do not accept speculative text
 - `beam` only sees the on-disk file, not unsaved editor buffers
 - actual source edits happen through the normal file-edit workflow
@@ -204,7 +216,7 @@ Interpretation:
   `lean-beam refresh` the stale target before relying on downstream probes
 - after `lean-beam run-at`, top-level `fileProgress` may exist with `done = false`; that is normal
   because the request only waited for its own target snapshot
-- use `lean-beam hover` for semantic inspection and `lean-beam goals-prev` / `lean-beam goals-after` for
+- use `lean-beam hover` for semantic inspection and `lean-beam goals before` / `lean-beam goals after` for
   existing proof state; use `lean-beam run-at` only when you need speculative execution
 - if you need a real ready/fresh boundary after edits, use `lean-beam sync`, not a successful probe
 
@@ -236,8 +248,9 @@ useful for context-free syntax checks, but they are the wrong default for questi
 depends on the real module, imports, options, notation, instances, or proof state.
 
 Beam is designed for the opposite loop. Once the per-root daemon and target document are warm,
-`run-at`, `hover`, and `goals-*` are cheap local questions against the saved source snapshot. The
-intended agent style is therefore small, source-position probes, not large detached experiments.
+`run-at`, `hover`, `definition`, `references`, `document-symbols`, and `goals` are cheap local
+questions against the saved source snapshot. The intended agent style is therefore small,
+source-position probes, not large detached experiments.
 
 Write the on-disk document as `prefix ++ E ++ suffix`.
 

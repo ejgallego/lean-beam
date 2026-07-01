@@ -456,20 +456,6 @@ private def checkRequestArgsBoundary : IO Unit := do
     "rocq backend does not support run_at yet"
     runAtRocqUnsupported.runAtArgs
 
-  let requestAtBadPositionParam : Request := {
-    op := .requestAt
-    path? := some "Demo.lean"
-    version? := some 7
-    line? := some 1
-    character? := some 2
-    method? := some "textDocument/hover"
-    params? := some <| Json.mkObj [("position", Json.null)]
-  }
-  expectRequestArgError
-    "request_at args position override"
-    "'params' must not include 'position'; request_at injects it from <line>/<character>"
-    requestAtBadPositionParam.requestAtArgs
-
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode

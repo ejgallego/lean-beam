@@ -22,8 +22,11 @@ inductive Operation where
   | runAt
   | runAtHandle
   | hover
-  | goalsAfter
-  | goalsPrev
+  | definition
+  | references
+  | documentSymbols
+  | workspaceSymbols
+  | goals
   | todo
   | runWith
   | runWithLinear
@@ -40,8 +43,11 @@ def Operation.all : Array Operation := #[
   .runAt,
   .runAtHandle,
   .hover,
-  .goalsAfter,
-  .goalsPrev,
+  .definition,
+  .references,
+  .documentSymbols,
+  .workspaceSymbols,
+  .goals,
   .todo,
   .runWith,
   .runWithLinear,
@@ -58,8 +64,11 @@ def Operation.key : Operation → String
   | .runAt => "run_at"
   | .runAtHandle => "run_at_handle"
   | .hover => "hover"
-  | .goalsAfter => "goals_after"
-  | .goalsPrev => "goals_prev"
+  | .definition => "definition"
+  | .references => "references"
+  | .documentSymbols => "document_symbols"
+  | .workspaceSymbols => "workspace_symbols"
+  | .goals => "goals"
   | .todo => "todo"
   | .runWith => "run_with"
   | .runWithLinear => "run_with_linear"
@@ -78,8 +87,11 @@ def Operation.description : Operation → String
   | .runAt => "Run one Lean command or tactic block at a file position without storing follow-up state."
   | .runAtHandle => "Run one Lean command or tactic block at a file position and store a follow-up handle."
   | .hover => "Inspect Lean hover information at a file position."
-  | .goalsAfter => "Inspect Lean goals after a file position."
-  | .goalsPrev => "Inspect Lean goals before a file position."
+  | .definition => "Find Lean definitions for the symbol at a file position."
+  | .references => "Find Lean references for the symbol at a file position."
+  | .documentSymbols => "List Lean document symbols for one synced file."
+  | .workspaceSymbols => "Search Lean workspace symbols by query string."
+  | .goals => "Inspect Lean goals before or after a file position."
   | .todo => "Inspect agent-actionable Lean todo items in a file range."
   | .runWith => "Run one Lean continuation command or tactic block from a stored handle without consuming the parent handle."
   | .runWithLinear => "Run one Lean continuation command or tactic block from a stored handle and consume that handle on success or failure."
@@ -135,6 +147,17 @@ private def suggestField : String × Json :=
   ("suggest", Beam.JsonSchema.enumString "Suggestion mode for optional run_at_text hints."
     Beam.LSP.Todo.TodoSuggestMode.allKeys)
 
+private def includeDeclarationField : String × Json :=
+  ("include_declaration", Beam.JsonSchema.bool
+    "When true, include the declaration location in reference results. Defaults to true.")
+
+private def workspaceSymbolQueryField : String × Json :=
+  ("query", Beam.JsonSchema.string "Workspace symbol search query.")
+
+private def goalsModeField : String × Json :=
+  ("mode", Beam.JsonSchema.enumString "Whether to inspect goals before or after the file position."
+    #["before", "after"])
+
 private def syncFullDiagnosticsField : String × Json :=
   ("full_diagnostics", Beam.JsonSchema.bool
     "When true, include warnings, information, and hints in streamed or replayed diagnostics; false keeps diagnostic output error-only except for cold Lake setup status while summaries remain complete.")
@@ -160,12 +183,23 @@ private def rangeFields : List (String × Json) :=
     rangeEndCharacterField
   ]
 
+private def documentFields : List (String × Json) :=
+  [pathField, versionField]
+
 open Beam.JsonSchema in
 def Operation.inputSchema : Operation → Json
   | .runAt | .runAtHandle =>
       inputObject (positionFields ++ [runAtTextField]) #["path", "version", "line", "character", "text"]
-  | .hover | .goalsAfter | .goalsPrev =>
+  | .hover | .definition =>
       inputObject positionFields #["path", "version", "line", "character"]
+  | .references =>
+      inputObject (positionFields ++ [includeDeclarationField]) #["path", "version", "line", "character"]
+  | .documentSymbols =>
+      inputObject documentFields #["path", "version"]
+  | .workspaceSymbols =>
+      inputObject [workspaceSymbolQueryField] #["query"]
+  | .goals =>
+      inputObject (positionFields ++ [goalsModeField]) #["path", "version", "line", "character", "mode"]
   | .todo =>
       inputObject (rangeFields ++ [kindsField, suggestField])
         #["path", "version", "start_line", "start_character", "end_line", "end_character"]
@@ -213,6 +247,77 @@ private def optionalField? [FromJson α] (j : Json) (field : String) : Except St
       | .error err => throw s!"invalid '{field}': {err}"
   | .error _ =>
       pure none
+
+/-- Input for Lean reference queries. -/
+structure ReferencesInput where
+  path : String
+  version : Nat
+  line : Nat
+  character : Nat
+  includeDeclaration? : Option Bool := none
+
+instance : ToJson ReferencesInput where
+  toJson input :=
+    Json.mkObj <|
+      [ ("path", toJson input.path)
+      , ("version", toJson input.version)
+      , ("line", toJson input.line)
+      , ("character", toJson input.character)
+      ] ++
+      match input.includeDeclaration? with
+      | some includeDeclaration => [("include_declaration", toJson includeDeclaration)]
+      | none => []
+
+instance : FromJson ReferencesInput where
+  fromJson? j := do
+    let path ← j.getObjValAs? String "path"
+    let version ← j.getObjValAs? Nat "version"
+    let line ← j.getObjValAs? Nat "line"
+    let character ← j.getObjValAs? Nat "character"
+    let includeDeclaration? ← optionalField? (α := Bool) j "include_declaration"
+    pure { path, version, line, character, includeDeclaration? }
+
+/-- Input for file-scoped Lean document symbol queries. -/
+structure DocumentSymbolsInput where
+  path : String
+  version : Nat
+  deriving FromJson, ToJson
+
+/-- Input for workspace-wide Lean symbol queries. -/
+structure WorkspaceSymbolsInput where
+  query : String
+  deriving FromJson, ToJson
+
+inductive GoalsMode where
+  | before
+  | after
+  deriving BEq, Repr
+
+def GoalsMode.key : GoalsMode → String
+  | .before => "before"
+  | .after => "after"
+
+def GoalsMode.toBrokerMode : GoalsMode → Beam.Broker.GoalMode
+  | .before => .prev
+  | .after => .after
+
+instance : ToJson GoalsMode where
+  toJson mode := toJson mode.key
+
+instance : FromJson GoalsMode where
+  fromJson?
+    | .str "before" => .ok .before
+    | .str "after" => .ok .after
+    | j => .error s!"expected goals mode 'before' or 'after', got {j.compress}"
+
+/-- Input for read-only Lean goal inspection at a file position. -/
+structure GoalsInput where
+  path : String
+  version : Nat
+  line : Nat
+  character : Nat
+  mode : GoalsMode
+  deriving FromJson, ToJson
 
 /-- Input for range-based Lean todo inspection operations. -/
 structure TodoInput where
@@ -312,14 +417,51 @@ def RunAtInput.toBrokerRequest
 }
 
 def PositionInput.toHoverBrokerRequest (input : PositionInput) (root : String) : Beam.Broker.Request := {
-  op := .requestAt
+  op := .hover
   backend := .lean
   root? := some root
   path? := some input.path
   version? := some input.version
   line? := some input.line
   character? := some input.character
-  method? := some "textDocument/hover"
+}
+
+def PositionInput.toDefinitionBrokerRequest (input : PositionInput) (root : String) : Beam.Broker.Request := {
+  op := .definition
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  version? := some input.version
+  line? := some input.line
+  character? := some input.character
+}
+
+def ReferencesInput.toBrokerRequest (input : ReferencesInput) (root : String) : Beam.Broker.Request := {
+  op := .references
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  version? := some input.version
+  line? := some input.line
+  character? := some input.character
+  includeDeclaration? := input.includeDeclaration?
+}
+
+def DocumentSymbolsInput.toBrokerRequest (input : DocumentSymbolsInput) (root : String) :
+    Beam.Broker.Request := {
+  op := .documentSymbols
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  version? := some input.version
+}
+
+def WorkspaceSymbolsInput.toBrokerRequest (input : WorkspaceSymbolsInput) (root : String) :
+    Beam.Broker.Request := {
+  op := .workspaceSymbols
+  backend := .lean
+  root? := some root
+  query? := some input.query
 }
 
 def PositionInput.toGoalsBrokerRequest
@@ -334,6 +476,17 @@ def PositionInput.toGoalsBrokerRequest
   line? := some input.line
   character? := some input.character
   mode? := some mode
+}
+
+def GoalsInput.toBrokerRequest (input : GoalsInput) (root : String) : Beam.Broker.Request := {
+  op := .goals
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  version? := some input.version
+  line? := some input.line
+  character? := some input.character
+  mode? := some input.mode.toBrokerMode
 }
 
 def TodoInput.toBrokerRequest (input : TodoInput) (root : String) : Beam.Broker.Request := {
@@ -432,10 +585,16 @@ def Operation.toBrokerRequest
       pure <| (← fromJson? (α := RunAtInput) input).toBrokerRequest root (storeHandle := true)
   | .hover =>
       pure <| (← fromJson? (α := PositionInput) input).toHoverBrokerRequest root
-  | .goalsAfter =>
-      pure <| (← fromJson? (α := PositionInput) input).toGoalsBrokerRequest root .after
-  | .goalsPrev =>
-      pure <| (← fromJson? (α := PositionInput) input).toGoalsBrokerRequest root .prev
+  | .definition =>
+      pure <| (← fromJson? (α := PositionInput) input).toDefinitionBrokerRequest root
+  | .references =>
+      pure <| (← fromJson? (α := ReferencesInput) input).toBrokerRequest root
+  | .documentSymbols =>
+      pure <| (← fromJson? (α := DocumentSymbolsInput) input).toBrokerRequest root
+  | .workspaceSymbols =>
+      pure <| (← fromJson? (α := WorkspaceSymbolsInput) input).toBrokerRequest root
+  | .goals =>
+      pure <| (← fromJson? (α := GoalsInput) input).toBrokerRequest root
   | .todo =>
       pure <| (← fromJson? (α := TodoInput) input).toBrokerRequest root
   | .runWith =>

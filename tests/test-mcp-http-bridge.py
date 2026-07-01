@@ -296,6 +296,11 @@ def main():
             names = {tool.get("name") for tool in tools}
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
+            require("lean_definition" in names, f"tools/list missing lean_definition: {tools}")
+            require("lean_references" in names, f"tools/list missing lean_references: {tools}")
+            require("lean_document_symbols" in names, f"tools/list missing lean_document_symbols: {tools}")
+            require("lean_workspace_symbols" in names, f"tools/list missing lean_workspace_symbols: {tools}")
+            require("lean_goals" in names, f"tools/list missing lean_goals: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
 
             expect_rpc_error(

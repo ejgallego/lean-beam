@@ -146,6 +146,24 @@ private def checkSyncWaitSpecs : IO Unit := do
   requireSubstring "todo complete message should use public wrapper label"
     "beam: todo complete for Demo.lean:1:0-2:3"
     (publicTodoSpec.completeMsg okResp)
+  let publicDefinitionSpec := Beam.Cli.leanDefinitionWaitSpec "Demo.lean" 1 2 "definition"
+  require "definition wait action should accept public wrapper label"
+    (publicDefinitionSpec.action == "definition")
+  requireSubstring "definition start message should use public wrapper label"
+    "beam: running definition on Demo.lean:1:2"
+    publicDefinitionSpec.startMsg
+  let publicDocumentSymbolsSpec := Beam.Cli.leanDocumentSymbolsWaitSpec "Demo.lean" "document-symbols"
+  require "document-symbols wait action should accept public wrapper label"
+    (publicDocumentSymbolsSpec.action == "document-symbols")
+  requireSubstring "document-symbols complete message should use public wrapper label"
+    "beam: document-symbols complete for Demo.lean"
+    (publicDocumentSymbolsSpec.completeMsg okResp)
+  let publicGoalsSpec := Beam.Cli.leanGoalsWaitSpec "Demo.lean" 1 2 .prev (some "goals")
+  require "goals wait action should accept public wrapper label"
+    (publicGoalsSpec.action == "goals")
+  requireSubstring "goals start message should use public wrapper label"
+    "beam: running goals on Demo.lean:1:2"
+    publicGoalsSpec.startMsg
 
   let notReadyResp : Beam.Broker.Response := {
     ok := true
@@ -229,11 +247,34 @@ private def checkLeanOperationRequests : IO Unit := do
   requireRequestJson "hover request should share the Lean operation adapter"
     (Beam.Cli.leanHoverRequest root path 13 7 3)
     (positionInput.toHoverBrokerRequest rootText)
-  requireRequestJson "goals-after request should share the Lean operation adapter"
-    (Beam.Cli.leanGoalsAfterRequest root path 13 7 3)
-    (positionInput.toGoalsBrokerRequest rootText .after)
-  requireRequestJson "goals-prev request should share the Lean operation adapter"
-    (Beam.Cli.leanGoalsPrevRequest root path 13 7 3)
+  requireRequestJson "definition request should share the Lean operation adapter"
+    (Beam.Cli.leanDefinitionRequest root path 13 7 3)
+    (positionInput.toDefinitionBrokerRequest rootText)
+  let referencesInput : Beam.Lean.ReferencesInput := {
+    path
+    version := 13
+    line := 7
+    character := 3
+    includeDeclaration? := some false
+  }
+  requireRequestJson "references request should share the Lean operation adapter"
+    (Beam.Cli.leanReferencesRequest root path 13 7 3 false)
+    (referencesInput.toBrokerRequest rootText)
+  let documentSymbolsInput : Beam.Lean.DocumentSymbolsInput := {
+    path
+    version := 13
+  }
+  requireRequestJson "document-symbols request should share the Lean operation adapter"
+    (Beam.Cli.leanDocumentSymbolsRequest root path 13)
+    (documentSymbolsInput.toBrokerRequest rootText)
+  let workspaceSymbolsInput : Beam.Lean.WorkspaceSymbolsInput := {
+    query := "Demo"
+  }
+  requireRequestJson "workspace-symbols request should share the Lean operation adapter"
+    (Beam.Cli.leanWorkspaceSymbolsRequest root "Demo")
+    (workspaceSymbolsInput.toBrokerRequest rootText)
+  requireRequestJson "goals request should share the Lean operation adapter"
+    (Beam.Cli.leanGoalsRequest root path 13 7 3 .prev)
     (positionInput.toGoalsBrokerRequest rootText .prev)
 
   let runWithInput : Beam.Lean.RunWithInput := {

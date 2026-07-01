@@ -17,6 +17,9 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
 - agent-oriented `$/lean/todo` range inspection for actionable items such as sorries, holes,
   diagnostics, code actions, and incomplete proofs, exposed through the broker, `lean-beam todo`,
   and MCP `lean_todo`
+- small Lean semantic navigation wrappers for hover, definition, references, document symbols,
+  workspace symbols, and mode-based goal inspection, exposed through the broker, `lean-beam`, and
+  MCP
 - local Beam daemon/client pair for Lean workflows
 - optional Rocq Beam goal probes through `coq-lsp`, documented separately in
   [docs/ROCQ.md](ROCQ.md)
@@ -116,9 +119,11 @@ diagnostics, save-readiness, and sync contract lives in
 preferred machine-readable surface is the JSON stream exposed by `beam-client request-stream`; the
 wrapper stderr format should be treated as human-facing.
 
-Lean position/range operations are version-bound across the broker, MCP, and wrapper surfaces:
-clients must first update or sync the file and pass the returned document version. `update` is the
-cheap version-producing step; `sync` is for clients that also need diagnostics/readiness.
+Lean position/range/document operations are version-bound across the broker, MCP, and wrapper
+surfaces: clients must first update or sync the file and pass the returned document version.
+`update` is the cheap version-producing step; `sync` is for clients that also need
+diagnostics/readiness. Workspace symbol queries are workspace-scoped and do not take a file
+version.
 Broker-detected stale-version failures use `contentModified` with
 `error.data.reason = "documentVersionMismatch"` and include the currently accepted document version
 when available.

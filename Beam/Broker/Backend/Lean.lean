@@ -59,12 +59,20 @@ def initializeParams (root : System.FilePath) : Json :=
 def runAtMethod : String :=
   Beam.LSP.RunAt.method
 
-def requestAtMethod (method : String) : Except String String :=
-  match method with
-  | "textDocument/definition"
-  | "textDocument/hover"
-  | "textDocument/references" => .ok method
-  | _ => .error s!"lean backend experimental request_at does not support '{method}'"
+def hoverMethod : String :=
+  "textDocument/hover"
+
+def definitionMethod : String :=
+  "textDocument/definition"
+
+def referencesMethod : String :=
+  "textDocument/references"
+
+def documentSymbolsMethod : String :=
+  "textDocument/documentSymbol"
+
+def workspaceSymbolsMethod : String :=
+  "workspace/symbol"
 
 def runWithMethod : String :=
   Beam.LSP.RunAt.runWithMethod

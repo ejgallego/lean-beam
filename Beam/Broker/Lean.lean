@@ -29,10 +29,30 @@ def runAtMethod (backend : Backend) : Except String String :=
   | .lean => .ok Backend.Lean.runAtMethod
   | .rocq => Backend.Rocq.runAtMethod
 
-def requestAtMethod (backend : Backend) (method : String) : Except String String :=
+def hoverMethod (backend : Backend) : Except String String :=
   match backend with
-  | .lean => Backend.Lean.requestAtMethod method
-  | .rocq => Backend.Rocq.requestAtMethod
+  | .lean => .ok Backend.Lean.hoverMethod
+  | .rocq => .error "rocq backend does not support hover queries"
+
+def definitionMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok Backend.Lean.definitionMethod
+  | .rocq => .error "rocq backend does not support definition queries"
+
+def referencesMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok Backend.Lean.referencesMethod
+  | .rocq => .error "rocq backend does not support reference queries"
+
+def documentSymbolsMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok Backend.Lean.documentSymbolsMethod
+  | .rocq => .error "rocq backend does not support document symbol queries"
+
+def workspaceSymbolsMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok Backend.Lean.workspaceSymbolsMethod
+  | .rocq => .error "rocq backend does not support workspace symbol queries"
 
 def runWithMethod (backend : Backend) : Except String String :=
   match backend with

@@ -410,14 +410,13 @@ private def runConcurrentSmoke
   IO.sleep 200
   let hoverStartedAt ← IO.monoNanosNow
   let (hoverResp, hoverEvents) ← runClientWithProgress endpoint {
-    op := .requestAt
+    op := .hover
     clientRequestId? := concurrentHoverId
     root? := some root.toString
     path? := some hoverPath
     version? := some hoverVersion
     line? := some 0
     character? := some 4
-    method? := some "textDocument/hover"
   }
   let _hoverLatencyMs := ((← IO.monoNanosNow) - hoverStartedAt) / 1000000
   let hoverPayload ← expectOk hoverResp
@@ -453,20 +452,69 @@ private def runRequestAndGoalsSmoke
   let cmdRes ← expectOk cmdResp
   let .ok true := cmdRes.getObjValAs? Bool "success" | throw <| IO.userError "run_at did not succeed"
 
-  let requestAtHoverResp ← runClient endpoint {
-    op := .requestAt
+  let hoverResp ← runClient endpoint {
+    op := .hover
     root? := some root.toString
     path? := some commandPath
     version? := some commandVersion
     line? := some 0
     character? := some 4
-    method? := some "textDocument/hover"
   }
-  let requestAtHover ← expectOk requestAtHoverResp
-  discard <| requireFileProgress "request_at hover" requestAtHoverResp
-  let hoverContents ← IO.ofExcept <| requestAtHover.getObjVal? "contents"
+  let hover ← expectOk hoverResp
+  discard <| requireFileProgress "hover" hoverResp
+  let hoverContents ← IO.ofExcept <| hover.getObjVal? "contents"
   let hoverValue ← IO.ofExcept <| hoverContents.getObjValAs? String "value"
-  expectStringContains "request_at hover markdown" hoverValue "answerA : Nat"
+  expectStringContains "hover markdown" hoverValue "answerA : Nat"
+
+  let definitionResp ← runClient endpoint {
+    op := .definition
+    root? := some root.toString
+    path? := some commandPath
+    version? := some commandVersion
+    line? := some 0
+    character? := some 4
+  }
+  let definition ← expectOk definitionResp
+  discard <| requireFileProgress "definition" definitionResp
+  expectStringContains "definition result" definition.compress "CommandA.lean"
+
+  let referencesResp ← runClient endpoint {
+    op := .references
+    root? := some root.toString
+    path? := some commandPath
+    version? := some commandVersion
+    line? := some 0
+    character? := some 4
+    includeDeclaration? := some true
+  }
+  let references ← expectOk referencesResp
+  discard <| requireFileProgress "references" referencesResp
+  expectStringContains "references result" references.compress "CommandA.lean"
+
+  let documentSymbolsResp ← runClient endpoint {
+    op := .documentSymbols
+    root? := some root.toString
+    path? := some commandPath
+    version? := some commandVersion
+  }
+  let documentSymbols ← expectOk documentSymbolsResp
+  discard <| requireFileProgress "document symbols" documentSymbolsResp
+  let .arr documentSymbols := documentSymbols
+    | throw <| IO.userError s!"expected document_symbols result array, got {documentSymbols.compress}"
+  unless documentSymbols.any (fun sym =>
+      (sym.getObjValAs? String "name").toOption == some "answerA") do
+    throw <| IO.userError
+      s!"expected document_symbols to include answerA, got {(Json.arr documentSymbols).compress}"
+
+  let workspaceSymbolsResp ← runClient endpoint {
+    op := .workspaceSymbols
+    root? := some root.toString
+    query? := some "runAtMethod"
+  }
+  let workspaceSymbols ← expectOk workspaceSymbolsResp
+  match workspaceSymbols with
+  | .arr _ => pure ()
+  | _ => throw <| IO.userError s!"expected workspace_symbols result array, got {workspaceSymbols.compress}"
 
   let goalsPrevResp ← runClient endpoint {
     op := .goals
@@ -502,66 +550,6 @@ private def runRequestAndGoalsSmoke
   if afterGoals != Json.arr #[] then
     throw <| IO.userError s!"expected no goals after trivial, got {afterGoals.compress}"
 
-  let requestAtRefsResp ← runClient endpoint {
-    op := .requestAt
-    root? := some root.toString
-    path? := some commandPath
-    version? := some commandVersion
-    line? := some 0
-    character? := some 4
-    method? := some "textDocument/references"
-    params? := some <| Json.mkObj [
-      ("context", Json.mkObj [("includeDeclaration", toJson true)])
-    ]
-  }
-  discard <| expectOk requestAtRefsResp
-
-  let requestAtUnsupported ← runClient endpoint {
-    op := .requestAt
-    root? := some root.toString
-    path? := some commandPath
-    version? := some commandVersion
-    line? := some 0
-    character? := some 4
-    method? := some "textDocument/completion"
-    params? := some <| Json.mkObj []
-  }
-  expectErrCode requestAtUnsupported "invalidParams"
-  let unsupportedMsg ← requireErrorMessage "request_at unsupported" requestAtUnsupported
-  expectStringContains "request_at unsupported error" unsupportedMsg "does not support 'textDocument/completion'"
-
-  let requestAtBadTextDocument ← runClient endpoint {
-    op := .requestAt
-    root? := some root.toString
-    path? := some commandPath
-    version? := some commandVersion
-    line? := some 0
-    character? := some 4
-    method? := some "textDocument/hover"
-    params? := some <| Json.mkObj [
-      ("textDocument", Json.mkObj [("uri", toJson ("file:///tmp/nope.lean" : String))])
-    ]
-  }
-  expectErrCode requestAtBadTextDocument "invalidParams"
-  let badTextDocumentMsg ← requireErrorMessage "request_at textDocument override" requestAtBadTextDocument
-  expectStringContains "request_at textDocument override error" badTextDocumentMsg "'params' must not include 'textDocument'"
-
-  let requestAtBadPosition ← runClient endpoint {
-    op := .requestAt
-    root? := some root.toString
-    path? := some commandPath
-    version? := some commandVersion
-    line? := some 0
-    character? := some 4
-    method? := some "textDocument/hover"
-    params? := some <| Json.mkObj [
-      ("position", Json.mkObj [("line", toJson (99 : Nat)), ("character", toJson (0 : Nat))])
-    ]
-  }
-  expectErrCode requestAtBadPosition "invalidParams"
-  let badPositionMsg ← requireErrorMessage "request_at position override" requestAtBadPosition
-  expectStringContains "request_at position override error" badPositionMsg "'params' must not include 'position'"
-
 private def runCancelSmoke
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath) : IO Unit := do
@@ -595,13 +583,12 @@ private def runCancelSmoke
   let commandPath := "tests/scenario/docs/CommandA.lean"
   let commandVersion ← updateVersion endpoint root commandPath
   let postCancelHoverResp ← runClient endpoint {
-    op := .requestAt
+    op := .hover
     root? := some root.toString
     path? := some commandPath
     version? := some commandVersion
     line? := some 0
     character? := some 4
-    method? := some "textDocument/hover"
   }
   let postCancelHover ← expectOk postCancelHoverResp
   let postCancelHoverContents ← IO.ofExcept <| postCancelHover.getObjVal? "contents"
@@ -649,13 +636,12 @@ private def runWorkerExitSmoke
   let commandPath := "tests/scenario/docs/CommandA.lean"
   let commandVersion ← updateVersion endpoint root commandPath
   let restartHoverResp ← runClient endpoint {
-    op := .requestAt
+    op := .hover
     root? := some root.toString
     path? := some commandPath
     version? := some commandVersion
     line? := some 0
     character? := some 4
-    method? := some "textDocument/hover"
   }
   let restartHover ← expectOk restartHoverResp
   let restartHoverContents ← IO.ofExcept <| restartHover.getObjVal? "contents"
@@ -748,7 +734,7 @@ private def runSaveAndStatsSmoke
   expectOpCountAtLeast stats "lean" "refresh_file" 1
   expectOpCountAtLeast stats "lean" "update_file" 1
   expectOpCountAtLeast stats "lean" "run_at" 3
-  expectOpCountAtLeast stats "lean" "request_at" 5
+  expectOpCountAtLeast stats "lean" "hover" 4
   expectOpCountAtLeast stats "lean" "goals" 2
   expectOpCountAtLeast stats "lean" "run_with" 3
   expectOpCountAtLeast stats "lean" "release" 1

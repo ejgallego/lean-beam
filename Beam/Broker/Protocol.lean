@@ -28,7 +28,11 @@ inductive Op where
   | refreshFile
   | close
   | runAt
-  | requestAt
+  | hover
+  | definition
+  | references
+  | documentSymbols
+  | workspaceSymbols
   | saveOlean
   | goals
   | todo
@@ -48,7 +52,11 @@ def Op.key : Op → String
   | .refreshFile => "refresh_file"
   | .close => "close"
   | .runAt => "run_at"
-  | .requestAt => "request_at"
+  | .hover => "hover"
+  | .definition => "definition"
+  | .references => "references"
+  | .documentSymbols => "document_symbols"
+  | .workspaceSymbols => "workspace_symbols"
   | .saveOlean => "save_olean"
   | .goals => "goals"
   | .todo => "todo"
@@ -71,7 +79,11 @@ instance : FromJson Op where
     | .str "refresh_file" => .ok .refreshFile
     | .str "close" => .ok .close
     | .str "run_at" => .ok .runAt
-    | .str "request_at" => .ok .requestAt
+    | .str "hover" => .ok .hover
+    | .str "definition" => .ok .definition
+    | .str "references" => .ok .references
+    | .str "document_symbols" => .ok .documentSymbols
+    | .str "workspace_symbols" => .ok .workspaceSymbols
     | .str "save_olean" => .ok .saveOlean
     | .str "goals" => .ok .goals
     | .str "todo" => .ok .todo
@@ -156,9 +168,9 @@ structure Request where
   character? : Option Nat := none
   endLine? : Option Nat := none
   endCharacter? : Option Nat := none
-  method? : Option String := none
-  params? : Option Json := none
   text? : Option String := none
+  query? : Option String := none
+  includeDeclaration? : Option Bool := none
   kinds? : Option (Array Beam.LSP.Todo.TodoKind) := none
   suggest? : Option Beam.LSP.Todo.TodoSuggestMode := none
   storeHandle? : Option Bool := none
@@ -197,9 +209,9 @@ instance : FromJson Request where
     let character? ← optionalField? (α := Nat) j "character"
     let endLine? ← optionalField? (α := Nat) j "endLine"
     let endCharacter? ← optionalField? (α := Nat) j "endCharacter"
-    let method? ← optionalField? (α := String) j "method"
-    let params? ← optionalField? (α := Json) j "params"
     let text? ← optionalField? (α := String) j "text"
+    let query? ← optionalField? (α := String) j "query"
+    let includeDeclaration? ← optionalField? (α := Bool) j "includeDeclaration"
     let kinds? ← optionalField? (α := Array Beam.LSP.Todo.TodoKind) j "kinds"
     let suggest? ← optionalField? (α := Beam.LSP.Todo.TodoSuggestMode) j "suggest"
     let storeHandle? ← optionalField? (α := Bool) j "storeHandle"
@@ -214,7 +226,7 @@ instance : FromJson Request where
     pure {
       op, backend, clientRequestId?, cancelRequestId?,
       root?, path?, version?, line?, character?, endLine?, endCharacter?,
-      method?, params?, text?, kinds?, suggest?, storeHandle?,
+      text?, query?, includeDeclaration?, kinds?, suggest?, storeHandle?,
       linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
       saveArtifacts?, handle?
     }
@@ -614,6 +626,11 @@ def Request.requireText (req : Request) : Except String String := do
     | throw "missing 'text'"
   pure text
 
+def Request.requireQuery (req : Request) : Except String String := do
+  let some query := req.query?
+    | throw "missing 'query'"
+  pure query
+
 def Request.requireLine (req : Request) : Except String Nat := do
   let some line := req.line?
     | throw "missing 'line'"
@@ -634,28 +651,10 @@ def Request.requireEndCharacter (req : Request) : Except String Nat := do
     | throw "missing 'endCharacter'"
   pure character
 
-def Request.requireMethod (req : Request) : Except String String := do
-  let some method := req.method?
-    | throw "missing 'method'"
-  pure method
-
 def Request.requireCancelRequestId (req : Request) : Except String String := do
   let some cancelRequestId := req.cancelRequestId?
     | throw "missing 'cancelRequestId'"
   pure cancelRequestId
-
-def Request.requireParamsObject (req : Request) : Except String Json := do
-  match req.params? with
-  | none => pure <| Json.mkObj []
-  | some .null => pure <| Json.mkObj []
-  | some params@(.obj _) =>
-      if (params.getObjVal? "textDocument").isOk then
-        throw "'params' must not include 'textDocument'; request_at injects it from <path>"
-      if (params.getObjVal? "position").isOk then
-        throw "'params' must not include 'position'; request_at injects it from <line>/<character>"
-      pure params
-  | some _ =>
-      throw "'params' must be a JSON object or null"
 
 def Request.requireHandle (req : Request) : Except String Handle := do
   let some handle := req.handle?

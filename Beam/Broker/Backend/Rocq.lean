@@ -35,9 +35,6 @@ def initializeParams (root : System.FilePath) : Json :=
 def runAtMethod : Except String String :=
   .error "rocq backend does not support run_at yet"
 
-def requestAtMethod : Except String String :=
-  .error "rocq backend does not support request_at yet"
-
 def runWithMethod : Except String String :=
   .error "rocq backend does not support run_with yet"
 

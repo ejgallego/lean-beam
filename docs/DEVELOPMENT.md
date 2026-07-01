@@ -168,8 +168,8 @@ When adding an MCP-facing operation, use this order:
 2. If the operation should be an MCP tool, make sure `Beam.Mcp.Projection` projects it from
    the shared Lean operation surface. Normal Lean MCP tool names derive from the operation key with
    the `lean_` prefix; `lean_init_workspace` is the MCP-only setup exception, and `beam_version` is
-   the MCP server-identity utility for bug reports. Do not add raw LSP method names or expert/raw
-   escape hatches such as `lean-request-at`.
+   the MCP server-identity utility for bug reports. Do not add raw LSP method names or generic
+   request-forwarding escape hatches.
 3. If the operation also belongs on the CLI, add or update the request helper in
    [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Keep CLI-specific validation,
    such as omitted-text validation, at the CLI projection boundary.
