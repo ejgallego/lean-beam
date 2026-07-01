@@ -36,6 +36,20 @@ def checkRunAtTheoremTacticFailure : ScenarioM Unit := do
     "runAt custom tactic failure"
   closeDoc doc
 
+def checkRunAtStaleVersion : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+  syncDoc doc
+
+  let staleReq ← sendRunAt doc {
+    version? := some 0
+    line := 1
+    character := 2
+    text := "exact trivial"
+  }
+  expectContentModified staleReq
+
+  closeDoc doc
+
 def checkRunAtStaleEditConcurrentRequest : ScenarioM Unit := do
   let staleDoc ← openDoc "tests/scenario/docs/SimpleProof.lean"
   let survivorDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
@@ -55,6 +69,7 @@ def run : ScenarioM Unit := do
   checkRunAtOneCommandOnly
   checkRunAtTheoremProofFailure
   checkRunAtTheoremTacticFailure
+  checkRunAtStaleVersion
   checkRunAtStaleEditConcurrentRequest
 
 end BeamTest.LSP.Requests.RunAt.BasicTest
