@@ -54,23 +54,69 @@ def Request.runAtArgs (req : Request) : Except Response RunAtArgs := do
     method
   }
 
-structure RequestAtArgs extends PositionArgs where
+structure HoverArgs extends PositionArgs where
   method : String
-  extraParams : Lean.Json
 
-def Request.requestAtArgs (req : Request) : Except Response RequestAtArgs := do
+def Request.hoverArgs (req : Request) : Except Response HoverArgs := do
   let position ← req.positionArgs
-  let requestedMethod ← asInvalidParams req.requireMethod
-  let method ← asInvalidParams (requestAtMethod req.backend requestedMethod)
-  let extraParams ← asInvalidParams req.requireParamsObject
+  let method ← asInvalidParams (hoverMethod req.backend)
   pure {
     path := position.path
     version := position.version
     line := position.line
     character := position.character
     method
-    extraParams
   }
+
+structure DefinitionArgs extends PositionArgs where
+  method : String
+
+def Request.definitionArgs (req : Request) : Except Response DefinitionArgs := do
+  let position ← req.positionArgs
+  let method ← asInvalidParams (definitionMethod req.backend)
+  pure {
+    path := position.path
+    version := position.version
+    line := position.line
+    character := position.character
+    method
+  }
+
+structure ReferencesArgs extends PositionArgs where
+  method : String
+  includeDeclaration : Bool
+
+def Request.referencesArgs (req : Request) : Except Response ReferencesArgs := do
+  let position ← req.positionArgs
+  let method ← asInvalidParams (referencesMethod req.backend)
+  pure {
+    path := position.path
+    version := position.version
+    line := position.line
+    character := position.character
+    method
+    includeDeclaration := req.includeDeclaration?.getD true
+  }
+
+structure DocumentSymbolsArgs where
+  path : System.FilePath
+  version : Nat
+  method : String
+
+def Request.documentSymbolsArgs (req : Request) : Except Response DocumentSymbolsArgs := do
+  let path ← asInvalidParams req.requirePath
+  let version ← asInvalidParams req.requireVersion
+  let method ← asInvalidParams (documentSymbolsMethod req.backend)
+  pure { path, version, method }
+
+structure WorkspaceSymbolsArgs where
+  query : String
+  method : String
+
+def Request.workspaceSymbolsArgs (req : Request) : Except Response WorkspaceSymbolsArgs := do
+  let query ← asInvalidParams req.requireQuery
+  let method ← asInvalidParams (workspaceSymbolsMethod req.backend)
+  pure { query, method }
 
 structure GoalsArgs extends PositionArgs where
   method : String

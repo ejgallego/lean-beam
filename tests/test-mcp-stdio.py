@@ -729,7 +729,22 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
     )
     capabilities = structured.get("capabilities")
     require(isinstance(capabilities, list), f"init workspace missing capabilities: {structured}")
-    for capability in ["beam_version", "beam_stats", "lean_update", "lean_sync", "lean_refresh", "lean_save", "lean_close_save", "lean_run_at", "lean_hover", "lean_goals_prev", "lean_goals_after"]:
+    for capability in [
+        "beam_version",
+        "beam_stats",
+        "lean_update",
+        "lean_sync",
+        "lean_refresh",
+        "lean_save",
+        "lean_close_save",
+        "lean_run_at",
+        "lean_hover",
+        "lean_definition",
+        "lean_references",
+        "lean_document_symbols",
+        "lean_workspace_symbols",
+        "lean_goals",
+    ]:
         require(capability in capabilities, f"init workspace capabilities missing {capability}: {structured}")
     require("$/lean/runAt" not in capabilities, f"init workspace exposed raw LSP capability: {structured}")
     require(
@@ -912,18 +927,18 @@ def run_iteration(client, suffix):
     goal_version = goal_update.get("version")
     require(isinstance(goal_version, int), f"GoalSmoke update did not return a version: {goal_update}")
     goals_prev = client.call_tool(
-        "lean_goals_prev",
-        {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2},
+        "lean_goals",
+        {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2, "mode": "before"},
     )
     prev_goals = goals_prev.get("goals")
-    require(isinstance(prev_goals, list) and prev_goals, f"goals-prev returned no goals: {goals_prev}")
-    require(prev_goals[0].get("target") == "True", f"goals-prev returned unexpected goal: {goals_prev}")
+    require(isinstance(prev_goals, list) and prev_goals, f"goals before returned no goals: {goals_prev}")
+    require(prev_goals[0].get("target") == "True", f"goals before returned unexpected goal: {goals_prev}")
 
     goals_after = client.call_tool(
-        "lean_goals_after",
-        {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2},
+        "lean_goals",
+        {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2, "mode": "after"},
     )
-    require(goals_after.get("goals") == [], f"goals-after should return no goals: {goals_after}")
+    require(goals_after.get("goals") == [], f"goals after should return no goals: {goals_after}")
 
     client.call_tool("lean_close", {"path": "PositionEmptyLine.lean"})
     refreshed = client.call_tool("lean_refresh", {"path": "PositionEmptyLine.lean"})
@@ -986,6 +1001,11 @@ def run_cycle(
             require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
+            require("lean_definition" in names, f"tools/list missing lean_definition: {tools}")
+            require("lean_references" in names, f"tools/list missing lean_references: {tools}")
+            require("lean_document_symbols" in names, f"tools/list missing lean_document_symbols: {tools}")
+            require("lean_workspace_symbols" in names, f"tools/list missing lean_workspace_symbols: {tools}")
+            require("lean_goals" in names, f"tools/list missing lean_goals: {tools}")
             require("lean_refresh" in names, f"tools/list missing lean_refresh: {tools}")
             require("lean_close_save" in names, f"tools/list missing lean_close_save: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")

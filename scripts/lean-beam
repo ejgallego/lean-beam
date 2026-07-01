@@ -15,8 +15,11 @@ usage:
   lean-beam [--root PATH] [--port N] run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--port N] run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--port N] hover <path> <version> <line> <character>
-  lean-beam [--root PATH] [--port N] goals-after <path> <version> <line> <character>
-  lean-beam [--root PATH] [--port N] goals-prev <path> <version> <line> <character>
+  lean-beam [--root PATH] [--port N] definition <path> <version> <line> <character>
+  lean-beam [--root PATH] [--port N] references <path> <version> <line> <character> [--include-declaration|--exclude-declaration]
+  lean-beam [--root PATH] [--port N] document-symbols <path> <version>
+  lean-beam [--root PATH] [--port N] workspace-symbols <query...>
+  lean-beam [--root PATH] [--port N] goals before|after <path> <version> <line> <character>
   lean-beam [--root PATH] [--port N] todo <path> <version> <startLine> <startCharacter> <endLine> <endCharacter> [--kind <kind> ...] [--suggest none|basic]
   lean-beam [--root PATH] [--port N] run-with <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--port N] run-with-linear <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
@@ -153,12 +156,24 @@ case "$cmd" in
     mapped=("lean-hover")
     display_cmd="$cmd"
     ;;
-  goals-after)
-    mapped=("lean-goals-after")
+  definition)
+    mapped=("lean-definition")
     display_cmd="$cmd"
     ;;
-  goals-prev)
-    mapped=("lean-goals-prev")
+  references)
+    mapped=("lean-references")
+    display_cmd="$cmd"
+    ;;
+  document-symbols)
+    mapped=("lean-document-symbols")
+    display_cmd="$cmd"
+    ;;
+  workspace-symbols)
+    mapped=("lean-workspace-symbols")
+    display_cmd="$cmd"
+    ;;
+  goals)
+    mapped=("lean-goals")
     display_cmd="$cmd"
     ;;
   todo)
@@ -199,10 +214,6 @@ case "$cmd" in
     ;;
   close-save)
     mapped=("lean-close-save")
-    display_cmd="$cmd"
-    ;;
-  request-at)
-    mapped=("lean-request-at")
     display_cmd="$cmd"
     ;;
   ensure)

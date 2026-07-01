@@ -66,14 +66,6 @@ def parseJsonText (label text : String) : IO Json := do
   | .ok json => pure json
   | .error err => throw <| IO.userError s!"invalid {label}: {err}"
 
-def parseJsonArg (label arg : String) : IO Json := do
-  let raw ←
-    if arg == "-" then
-      (← IO.getStdin).readToEnd
-    else
-      pure arg
-  parseJsonText label raw
-
 def handleArgUsage (cmdHead : String) : String :=
   s!"usage: beam [--root PATH] [--port N] {cmdHead} <handle-json|-|--handle-file <path>>"
 
@@ -142,6 +134,25 @@ def parseLeanCloseSaveArgs (args : List String) : IO Bool := do
   | [] => pure false
   | ["+full"] => pure true
   | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-close-save <path> [+full]"
+
+def leanReferencesUsage : String :=
+  "usage: beam [--root PATH] [--port N] lean-references <path> <version> <line> <character> [--include-declaration|--exclude-declaration]"
+
+def parseLeanReferencesArgs (args : List String) : IO Bool := do
+  match args with
+  | [] => pure true
+  | ["--include-declaration"] => pure true
+  | ["--exclude-declaration"] => pure false
+  | _ => throw <| IO.userError leanReferencesUsage
+
+def leanGoalsUsage : String :=
+  "usage: beam [--root PATH] [--port N] lean-goals before|after <path> <version> <line> <character>"
+
+def parseLeanGoalsModeArg (mode : String) : IO GoalMode := do
+  match mode with
+  | "before" => pure .prev
+  | "after" => pure .after
+  | _ => throw <| IO.userError leanGoalsUsage
 
 private def parseTodoKindArg (value : String) : IO Beam.LSP.Todo.TodoKind := do
   match fromJson? (α := Beam.LSP.Todo.TodoKind) (Json.str value) with

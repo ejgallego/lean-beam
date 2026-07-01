@@ -263,6 +263,61 @@ def leanHoverWaitSpec (path : String) (line character : Nat) (action : String :=
     failureBoundary := "before hover data was available"
   }
 
+private def leanPositionNavigationWaitSpec
+    (path : String)
+    (line character : Nat)
+    (action progressLabel noun : String) : BrokerWaitSpec :=
+  let pos := s!"{path}:{line}:{character}"
+  {
+    action := action
+    startMsg := s!"beam: running {action} on {pos} and waiting for a ready Lean snapshot"
+    progressMsg := fun progress => s!"beam: {progressLabel} progress for {pos}{syncFileProgressSuffix (some progress)}"
+    stillWaitingMsg := fun seconds =>
+      s!"beam: still waiting for {action} on {pos} ({seconds}s)"
+    completeMsg := fun resp =>
+      s!"beam: {action} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
+    failureBoundary := s!"before {noun} data was available"
+  }
+
+def leanDefinitionWaitSpec
+    (path : String)
+    (line character : Nat)
+    (action : String := "lean-definition") : BrokerWaitSpec :=
+  leanPositionNavigationWaitSpec path line character action "definition" "definition"
+
+def leanReferencesWaitSpec
+    (path : String)
+    (line character : Nat)
+    (action : String := "lean-references") : BrokerWaitSpec :=
+  leanPositionNavigationWaitSpec path line character action "references" "reference"
+
+def leanDocumentSymbolsWaitSpec
+    (path : String)
+    (action : String := "lean-document-symbols") : BrokerWaitSpec :=
+  {
+    action := action
+    startMsg := s!"beam: querying {action} for {path} and waiting for a ready Lean snapshot"
+    progressMsg := fun progress => s!"beam: document-symbol progress for {path}{syncFileProgressSuffix (some progress)}"
+    stillWaitingMsg := fun seconds =>
+      s!"beam: still waiting for {action} on {path} ({seconds}s)"
+    completeMsg := fun resp =>
+      s!"beam: {action} complete for {path}{syncFileProgressSuffix (responseFileProgress? resp)}"
+    failureBoundary := "before document symbols were available"
+  }
+
+def leanWorkspaceSymbolsWaitSpec
+    (query : String)
+    (action : String := "lean-workspace-symbols") : BrokerWaitSpec :=
+  {
+    action := action
+    startMsg := s!"beam: querying {action} for {query}"
+    progressMsg := fun _ => s!"beam: workspace-symbol progress for query {query}"
+    stillWaitingMsg := fun seconds =>
+      s!"beam: still waiting for {action} query {query} ({seconds}s)"
+    completeMsg := fun _ => s!"beam: {action} complete for query {query}"
+    failureBoundary := "before workspace symbols were available"
+  }
+
 def leanGoalsWaitSpec
     (path : String)
     (line character : Nat)
@@ -272,8 +327,7 @@ def leanGoalsWaitSpec
   let action :=
     action?.getD <|
       match mode with
-      | .after => "lean-goals-after"
-      | .prev => "lean-goals-prev"
+      | .after | .prev => "lean-goals"
   {
     action := action
     startMsg := s!"beam: running {action} on {pos} and waiting for a ready Lean snapshot"
@@ -299,23 +353,6 @@ def leanTodoWaitSpec
     completeMsg := fun resp =>
       s!"beam: {action} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
     failureBoundary := "before todo inspection completed"
-  }
-
-def leanRequestAtWaitSpec
-    (path : String)
-    (line character : Nat)
-    (method : String)
-    (action : String := "lean-request-at") : BrokerWaitSpec :=
-  let pos := s!"{path}:{line}:{character}"
-  {
-    action := s!"{action} {method}"
-    startMsg := s!"beam: forwarding experimental {method} at {pos} and waiting for a ready Lean snapshot"
-    progressMsg := fun progress => s!"beam: request-at progress for {pos}{syncFileProgressSuffix (some progress)}"
-    stillWaitingMsg := fun seconds =>
-      s!"beam: still waiting for experimental {method} at {pos} ({seconds}s)"
-    completeMsg := fun resp =>
-      s!"beam: experimental {method} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
-    failureBoundary := s!"before experimental {method} completed"
   }
 
 def leanRunWithWaitSpec

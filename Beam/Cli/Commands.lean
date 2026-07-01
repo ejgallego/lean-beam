@@ -157,8 +157,6 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       throw <| IO.userError usage
   | "version" :: [] | "--version" :: [] =>
       printVersion home
-  | "experimental" :: [] =>
-      printExperimentalInfo home
   | "bundle-install" :: toolchain :: [] =>
       let cacheRoot ←
         match ← IO.getEnv "BEAM_INSTALL_BUNDLE_DIR" with
@@ -200,28 +198,62 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         callBrokerWithProgress root daemon.endpoint
           (leanHoverRequest root path version line character)
           (leanHoverWaitSpec path line character action)
-  | "lean-goals-after" :: path :: versionText :: line :: character :: [] =>
+  | "lean-definition" :: path :: versionText :: line :: character :: [] =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       let version ← parseNatArg "version" versionText
       let line ← parseNatArg "line" line
       let character ← parseNatArg "character" character
-      let action ← wrapperDisplayAction "lean-goals-after"
+      let action ← wrapperDisplayAction "lean-definition"
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          (leanGoalsAfterRequest root path version line character)
-          (leanGoalsWaitSpec path line character .after (some action))
-  | "lean-goals-prev" :: path :: versionText :: line :: character :: [] =>
+          (leanDefinitionRequest root path version line character)
+          (leanDefinitionWaitSpec path line character action)
+  | "lean-references" :: path :: versionText :: line :: character :: extra =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
       let version ← parseNatArg "version" versionText
       let line ← parseNatArg "line" line
       let character ← parseNatArg "character" character
-      let action ← wrapperDisplayAction "lean-goals-prev"
+      let includeDeclaration ← parseLeanReferencesArgs extra
+      let action ← wrapperDisplayAction "lean-references"
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          (leanGoalsPrevRequest root path version line character)
-          (leanGoalsWaitSpec path line character .prev (some action))
+          (leanReferencesRequest root path version line character includeDeclaration)
+          (leanReferencesWaitSpec path line character action)
+  | "lean-document-symbols" :: path :: versionText :: [] =>
+      let root ← projectRoot opts .lean
+      let daemon ← ensureProjectDaemon home root .lean opts
+      let version ← parseNatArg "version" versionText
+      let action ← wrapperDisplayAction "lean-document-symbols"
+      withWrapperLease root daemon.startedNew do
+        callBrokerWithProgress root daemon.endpoint
+          (leanDocumentSymbolsRequest root path version)
+          (leanDocumentSymbolsWaitSpec path action)
+  | "lean-workspace-symbols" :: queryParts =>
+      let root ← projectRoot opts .lean
+      let daemon ← ensureProjectDaemon home root .lean opts
+      let query ←
+        match joinTextArgs queryParts with
+        | some query => pure query
+        | none => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-workspace-symbols <query...>"
+      let action ← wrapperDisplayAction "lean-workspace-symbols"
+      withWrapperLease root daemon.startedNew do
+        callBrokerWithProgress root daemon.endpoint
+          (leanWorkspaceSymbolsRequest root query)
+          (leanWorkspaceSymbolsWaitSpec query action)
+  | "lean-goals" :: modeText :: path :: versionText :: line :: character :: [] =>
+      let root ← projectRoot opts .lean
+      let daemon ← ensureProjectDaemon home root .lean opts
+      let mode ← parseLeanGoalsModeArg modeText
+      let version ← parseNatArg "version" versionText
+      let line ← parseNatArg "line" line
+      let character ← parseNatArg "character" character
+      let action ← wrapperDisplayAction "lean-goals"
+      withWrapperLease root daemon.startedNew do
+        callBrokerWithProgress root daemon.endpoint
+          (leanGoalsRequest root path version line character mode)
+          (leanGoalsWaitSpec path line character mode (some action))
   | "lean-todo" :: path :: versionText :: startLine :: startCharacter :: endLine :: endCharacter :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
@@ -236,30 +268,6 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
         callBrokerWithProgress root daemon.endpoint
           (leanTodoRequest root path version startLine startCharacter endLine endCharacter kinds? suggest?)
           (leanTodoWaitSpec path startLine startCharacter endLine endCharacter action)
-  | "lean-request-at" :: path :: versionText :: line :: character :: method :: extra => do
-      let root ← projectRoot opts .lean
-      let daemon ← ensureProjectDaemon home root .lean opts
-      let version ← parseNatArg "version" versionText
-      let line ← parseNatArg "line" line
-      let character ← parseNatArg "character" character
-      let action ← wrapperDisplayAction "lean-request-at"
-      let params? ←
-        match extra with
-        | [] => pure none
-        | [raw] => pure <| some (← parseJsonArg "request params json" raw)
-        | _ => throw <| IO.userError usage
-      withWrapperLease root daemon.startedNew do
-        callBrokerWithProgress root daemon.endpoint {
-          op := .requestAt
-          backend := .lean
-          root? := some root.toString
-          path? := some path
-          version? := some version
-          line? := some line
-          character? := some character
-          method? := some method
-          params? := params?
-        } (leanRequestAtWaitSpec path line character method action)
   | "lean-run-with" :: path :: args =>
       runLeanRunWith home opts (← wrapperDisplayAction "lean-run-with") path args
   | "lean-run-with-linear" :: path :: args =>
