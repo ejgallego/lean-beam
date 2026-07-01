@@ -15,33 +15,67 @@ open BeamTest.LSP.Requests.Support
 
 namespace BeamTest.LSP.Requests.Save.BasicTest
 
-def checkSaveArtifactsAndReadiness : ScenarioM Unit := do
-  let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+private def depAFixture : String :=
+  "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+
+private def staleTextHash (text : String) : UInt64 :=
+  if hash text == 0 then 1 else 0
+
+private def requireCleanReadiness (label : String)
+    (readiness : Beam.LSP.Save.SaveReadinessResult) : ScenarioM Unit := do
+  if !readiness.saveReady then
+    throw <| IO.userError s!"{label}: expected saveReady = true, got {(toJson readiness).compress}"
+  if readiness.saveReadyReason != "ok" then
+    throw <| IO.userError s!"{label}: expected reason = ok, got {readiness.saveReadyReason}"
+  unless readiness.blockingDiagnostics.isEmpty && readiness.blockingCommandMessages.isEmpty do
+    throw <| IO.userError
+      s!"{label}: expected clean file to omit save-blocking evidence, got {(toJson readiness).compress}"
+
+private def requireSavedArtifacts (label : String) (outDir : System.FilePath)
+    (saved : Beam.LSP.Save.SaveArtifactsResult) : ScenarioM Unit := do
+  if !saved.written then
+    throw <| IO.userError s!"{label}: expected written = true"
+  if saved.version != 1 then
+    throw <| IO.userError s!"{label}: expected version 1, got {saved.version}"
+  expectFileExists s!"{label} olean" (outDir / "DepA.olean")
+  expectFileExists s!"{label} ilean" (outDir / "DepA.ilean")
+  expectFileExists s!"{label} c" (outDir / "DepA.c")
+
+def checkSaveReadinessOk : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
 
   let readinessReq ← sendSaveReadiness doc
   let readiness : Beam.LSP.Save.SaveReadinessResult ← awaitResponseAs readinessReq
-  if !readiness.saveReady then
-    throw <| IO.userError s!"saveReadiness: expected saveReady = true, got {(toJson readiness).compress}"
-  if readiness.saveReadyReason != "ok" then
-    throw <| IO.userError s!"saveReadiness: expected reason = ok, got {readiness.saveReadyReason}"
-  unless readiness.blockingDiagnostics.isEmpty && readiness.blockingCommandMessages.isEmpty do
-    throw <| IO.userError
-      s!"saveReadiness: expected clean file to omit save-blocking evidence, got {(toJson readiness).compress}"
+  requireCleanReadiness "saveReadiness" readiness
+
+  closeDoc doc
+
+def checkSaveReadinessStaleVersion : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
 
   let staleReadinessVersionReq ← sendSaveReadiness doc {
     expectedVersionOverride? := some 0
   }
   expectErrorContains staleReadinessVersionReq (Json.mkObj [("code", toJson "contentModified")])
 
-  let depAText ← IO.FS.readFile "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
-  let staleTextHash := if hash depAText == 0 then 1 else 0
+  closeDoc doc
+
+def checkSaveReadinessStaleHash : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
+  let depAText ← IO.FS.readFile depAFixture
+
   let staleReadinessHashReq ← sendSaveReadiness doc {
     expectedVersionOverride? := some 1
-    expectedTextHashOverride? := some staleTextHash
+    expectedTextHashOverride? := some (staleTextHash depAText)
   }
   expectErrorContains staleReadinessHashReq (Json.mkObj [("code", toJson "contentModified")])
 
+  closeDoc doc
+
+def checkSaveArtifactsStaleVersion : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
   let outDir ← mkTmpDir "beam-save-request-surface"
+
   let staleVersionReq ← sendSaveArtifacts doc {
     expectedVersionOverride? := some 0
     oleanFile := (outDir / "StaleVersion.olean").toString
@@ -50,14 +84,28 @@ def checkSaveArtifactsAndReadiness : ScenarioM Unit := do
   }
   expectErrorContains staleVersionReq (Json.mkObj [("code", toJson "contentModified")])
 
+  closeDoc doc
+
+def checkSaveArtifactsStaleHash : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
+  let depAText ← IO.FS.readFile depAFixture
+  let outDir ← mkTmpDir "beam-save-request-surface"
+
   let staleHashReq ← sendSaveArtifacts doc {
     expectedVersionOverride? := some 1
-    expectedTextHashOverride? := some staleTextHash
+    expectedTextHashOverride? := some (staleTextHash depAText)
     oleanFile := (outDir / "StaleHash.olean").toString
     ileanFile := (outDir / "StaleHash.ilean").toString
     cFile := (outDir / "StaleHash.c").toString
   }
   expectErrorContains staleHashReq (Json.mkObj [("code", toJson "contentModified")])
+
+  closeDoc doc
+
+def checkSaveArtifactsWrite : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
+  let depAText ← IO.FS.readFile depAFixture
+  let outDir ← mkTmpDir "beam-save-request-surface"
 
   let saveReq ← sendSaveArtifacts doc {
     expectedVersionOverride? := some 1
@@ -67,13 +115,12 @@ def checkSaveArtifactsAndReadiness : ScenarioM Unit := do
     cFile := (outDir / "DepA.c").toString
   }
   let saved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs saveReq
-  if !saved.written then
-    throw <| IO.userError "saveArtifacts: expected written = true"
-  if saved.version != 1 then
-    throw <| IO.userError s!"saveArtifacts: expected version 1, got {saved.version}"
-  expectFileExists "saveArtifacts olean" (outDir / "DepA.olean")
-  expectFileExists "saveArtifacts ilean" (outDir / "DepA.ilean")
-  expectFileExists "saveArtifacts c" (outDir / "DepA.c")
+  requireSavedArtifacts "saveArtifacts" outDir saved
+
+  closeDoc doc
+
+def checkSaveReadinessDocumentErrors : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
 
   changeDoc doc {
     line := 8
@@ -101,10 +148,10 @@ def checkSaveArtifactsAndReadiness : ScenarioM Unit := do
   closeDoc doc
 
 def checkSaveRequestsWithStandardLspInterference : ScenarioM Unit := do
-  let saveDoc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+  let saveDoc ← openDoc depAFixture
   let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
 
-  let depAText ← IO.FS.readFile "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+  let depAText ← IO.FS.readFile depAFixture
   let outDir ← mkTmpDir "beam-save-lsp-interference"
 
   let readinessReq ← sendSaveReadiness saveDoc
@@ -119,21 +166,10 @@ def checkSaveRequestsWithStandardLspInterference : ScenarioM Unit := do
   syncWhitespacePrefixEdit editDoc
 
   let readiness : Beam.LSP.Save.SaveReadinessResult ← awaitResponseAs readinessReq
-  if !readiness.saveReady then
-    throw <| IO.userError
-      s!"saveReadiness with LSP interference: expected saveReady = true, got {(toJson readiness).compress}"
-  if readiness.saveReadyReason != "ok" then
-    throw <| IO.userError
-      s!"saveReadiness with LSP interference: expected reason = ok, got {readiness.saveReadyReason}"
+  requireCleanReadiness "saveReadiness with LSP interference" readiness
 
   let saved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs saveReq
-  if !saved.written then
-    throw <| IO.userError "saveArtifacts with LSP interference: expected written = true"
-  if saved.version != 1 then
-    throw <| IO.userError s!"saveArtifacts with LSP interference: expected version 1, got {saved.version}"
-  expectFileExists "saveArtifacts with LSP interference olean" (outDir / "DepA.olean")
-  expectFileExists "saveArtifacts with LSP interference ilean" (outDir / "DepA.ilean")
-  expectFileExists "saveArtifacts with LSP interference c" (outDir / "DepA.c")
+  requireSavedArtifacts "saveArtifacts with LSP interference" outDir saved
 
   closeDoc saveDoc
   closeDoc editDoc
@@ -154,7 +190,13 @@ def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
   closeDoc doc
 
 def run : ScenarioM Unit := do
-  checkSaveArtifactsAndReadiness
+  checkSaveReadinessOk
+  checkSaveReadinessStaleVersion
+  checkSaveReadinessStaleHash
+  checkSaveArtifactsStaleVersion
+  checkSaveArtifactsStaleHash
+  checkSaveArtifactsWrite
+  checkSaveReadinessDocumentErrors
   checkSaveRequestsWithStandardLspInterference
   checkReportedOnlyErrorReadiness
 

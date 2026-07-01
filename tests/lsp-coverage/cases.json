@@ -175,10 +175,22 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoRequestWithStandardLspInterference"
     },
     {
-      "id": "saveArtifacts.basic-and-stale",
+      "id": "saveArtifacts.basic",
       "method": "$/beam/saveArtifacts",
-      "coverage": ["isolation", "stale-version", "stale-hash"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
+      "coverage": ["isolation"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsWrite"
+    },
+    {
+      "id": "saveArtifacts.stale-version",
+      "method": "$/beam/saveArtifacts",
+      "coverage": ["stale-version"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsStaleVersion"
+    },
+    {
+      "id": "saveArtifacts.stale-hash",
+      "method": "$/beam/saveArtifacts",
+      "coverage": ["stale-hash"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsStaleHash"
     },
     {
       "id": "saveArtifacts.standard-lsp-interference",
@@ -187,10 +199,28 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveRequestsWithStandardLspInterference"
     },
     {
-      "id": "saveReadiness.basic-and-stale",
+      "id": "saveReadiness.basic",
       "method": "$/beam/saveReadiness",
-      "coverage": ["isolation", "stale-version", "stale-hash", "document-errors"],
-      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsAndReadiness"
+      "coverage": ["isolation"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveReadinessOk"
+    },
+    {
+      "id": "saveReadiness.stale-version",
+      "method": "$/beam/saveReadiness",
+      "coverage": ["stale-version"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveReadinessStaleVersion"
+    },
+    {
+      "id": "saveReadiness.stale-hash",
+      "method": "$/beam/saveReadiness",
+      "coverage": ["stale-hash"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveReadinessStaleHash"
+    },
+    {
+      "id": "saveReadiness.document-errors",
+      "method": "$/beam/saveReadiness",
+      "coverage": ["document-errors"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveReadinessDocumentErrors"
     },
     {
       "id": "saveReadiness.standard-lsp-interference",
