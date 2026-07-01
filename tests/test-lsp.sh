@@ -161,6 +161,7 @@ run_case proofNestedBulletWhitespace
 run_case proofNestedConstructorOrder
 run_case proofNestedRightSibling
 run_case proofNestedHave
+run_case proofTermAscriptionError
 run_scenario_case cancelPending
 run_scenario_case cancelInnerPolling
 run_scenario_case changePending
