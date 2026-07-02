@@ -43,6 +43,12 @@
       "pointer": "tests/scenario/cancelPending.scn"
     },
     {
+      "id": "runAt.standard-lsp-interference",
+      "method": "$/lean/runAt",
+      "coverage": ["standard-lsp-interference"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtWithStandardLspInterference"
+    },
+    {
       "id": "runAt.mixed-concurrency",
       "method": "$/lean/runAt",
       "coverage": ["mixed-concurrency"],
