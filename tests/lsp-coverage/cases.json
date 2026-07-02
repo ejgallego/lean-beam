@@ -7,6 +7,24 @@
       "pointer": "tests/interactive/proofBasis.lean"
     },
     {
+      "id": "runAt.single-command-limit",
+      "method": "$/lean/runAt",
+      "coverage": ["single-command-limit"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtOneCommandOnly"
+    },
+    {
+      "id": "runAt.theorem-proof-failure",
+      "method": "$/lean/runAt",
+      "coverage": ["theorem-proof-failure"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtTheoremProofFailure"
+    },
+    {
+      "id": "runAt.theorem-tactic-failure",
+      "method": "$/lean/runAt",
+      "coverage": ["theorem-tactic-failure"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtTheoremTacticFailure"
+    },
+    {
       "id": "runAt.invalid-position-line",
       "method": "$/lean/runAt",
       "coverage": ["invalid-position"],
