@@ -10,31 +10,33 @@
 
 prompt_mcp_registration_selection() {
   local selection=""
-  selection="$(prompt_agent_target_choice \
+  local target=""
+  selection="$(prompt_agent_target_multi_choice \
     "MCP Registration" \
     "Register lean-beam-mcp with:" \
     "MCP clients" \
-    "Codex" \
-    "Claude Code" \
-    "MCP registration")"
-  case "$selection" in
-    none)
-      register_codex_mcp=0
-      register_claude_mcp=0
-      ;;
-    codex)
-      register_codex_mcp=1
-      register_claude_mcp=0
-      ;;
-    claude)
-      register_codex_mcp=0
-      register_claude_mcp=1
-      ;;
-    both)
-      register_codex_mcp=1
-      register_claude_mcp=1
-      ;;
-  esac
+    "MCP registration" \
+    "codex|Codex|c" \
+    "claude|Claude Code|claude-code" \
+    "opencode|OpenCode|o open-code")"
+  register_codex_mcp=0
+  register_claude_mcp=0
+  register_opencode_mcp=0
+  for target in $selection; do
+    case "$target" in
+      none)
+        ;;
+      codex)
+        register_codex_mcp=1
+        ;;
+      claude)
+        register_claude_mcp=1
+        ;;
+      opencode)
+        register_opencode_mcp=1
+        ;;
+    esac
+  done
 }
 
 verify_requested_mcp_clients() {
@@ -79,11 +81,18 @@ register_claude_mcp_server() {
   registered_mcp_targets+=("Claude Code: lean-beam")
 }
 
+register_opencode_mcp_server() {
+  manual_mcp_targets+=("OpenCode: lean-beam")
+}
+
 register_requested_mcp_servers() {
   if [ "$register_codex_mcp" -eq 1 ]; then
     register_codex_mcp_server
   fi
   if [ "$register_claude_mcp" -eq 1 ]; then
     register_claude_mcp_server
+  fi
+  if [ "$register_opencode_mcp" -eq 1 ]; then
+    register_opencode_mcp_server
   fi
 }

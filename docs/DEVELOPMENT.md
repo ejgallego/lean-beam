@@ -358,7 +358,7 @@ resolve `BEAM_HOME`, and delegate to `runCommand`.
 
 Installer shell helpers are split by ownership boundary: generic path/style helpers live in
 [scripts/install-lib.sh](../scripts/install-lib.sh), write-location prompting and validation live in
-[scripts/install-locations.sh](../scripts/install-locations.sh), and Codex/Claude MCP client
+[scripts/install-locations.sh](../scripts/install-locations.sh), and MCP client
 registration lives in [scripts/install-mcp.sh](../scripts/install-mcp.sh). Keep new client-specific
 registration behavior out of [scripts/install-beam.sh](../scripts/install-beam.sh) unless it is
 part of the main install orchestration.

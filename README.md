@@ -1,6 +1,6 @@
 # Lean Beam
 
-Lean Beam provides a Claude/Codex skill and local workflow layer for efficient interaction with
+Lean Beam provides agent skills and a local workflow layer for efficient interaction with
 Lean 4. Under the hood, it combines a Lean 4 LSP server extension, the `$/lean/runAt` request for
 cheap speculative execution, and a thin local broker that exposes a more idiomatic CLI and agent
 surface over Lean's LSP and Beam-specific extensions.
@@ -32,6 +32,8 @@ Common setup commands:
 ```bash
 ./scripts/install-beam.sh --codex --codex-mcp
 ./scripts/install-beam.sh --claude --claude-mcp
+./scripts/install-beam.sh --pi
+./scripts/install-beam.sh --opencode --opencode-mcp
 ./scripts/install-beam.sh --all-skills --all-mcp
 ```
 
@@ -39,23 +41,26 @@ The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `$HOM
 stages an immutable runtime under `BEAM_INSTALL_ROOT` (default `$HOME/.local/share/beam`), and
 prebuilds a bundle for the repository-pinned supported Lean toolchain.
 
-See [docs/INSTALL.md](docs/INSTALL.md) for default locations, path overrides, sandboxed Codex and
-Claude Code config setup, supported/custom toolchains, and slow/offline install advice.
+See [docs/INSTALL.md](docs/INSTALL.md) for default locations, path overrides, sandboxed agent
+config setup, supported/custom toolchains, and slow/offline install advice.
 
 ## MCP Setup
 
-The installer includes the experimental stdio MCP server as `lean-beam-mcp`. Register it with Codex,
-Claude Code, or both through the installer:
+The installer includes the experimental stdio MCP server as `lean-beam-mcp`. Register it with Codex
+or Claude Code through the installer. For OpenCode, the installer prints the `opencode mcp add`
+values to use manually. Pi Agent does not support MCP; install its skill with `--pi`.
 
 ```bash
 ./scripts/install-beam.sh --codex-mcp
 ./scripts/install-beam.sh --claude-mcp
+./scripts/install-beam.sh --opencode-mcp
 ./scripts/install-beam.sh --all-mcp
 ```
 
-MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
-root through `roots/list`. If a client does not provide roots, initialize one absolute Lean/Lake
-project root per MCP server session with the `lean_init_workspace` tool before calling Lean tools:
+MCP clients that support workspace roots can use the registered `lean-beam-mcp` command as-is; Lean
+Beam discovers the project root through `roots/list`. If a client does not provide roots, initialize
+one absolute Lean/Lake project root per MCP server session with the `lean_init_workspace` tool before
+calling Lean tools:
 
 ```json
 {"root":"/path/to/lean/project"}
@@ -196,7 +201,7 @@ Detailed Lean workflow guidance lives in [skills/lean-beam/SKILL.md](skills/lean
 
 ## Which Layer To Use
 
-- Use `lean-beam` plus the installed skills if you want the practical agent workflow that integrates with Codex or Claude out of the box
+- Use `lean-beam` plus the installed skills if you want the practical agent workflow that integrates with Codex, Claude Code, Pi Agent, or OpenCode out of the box
 - Use the Beam broker if you want one long-lived local process per project root while keeping a narrower local protocol than raw LSP
 - Use the Lean LSP extension directly if you already own the LSP session and want the smallest typed surface, or if you want to build custom agents doing MCTS or other advanced setups
 
@@ -208,7 +213,7 @@ types, handler, and request-local helpers.
 
 - `Beam.LSP`: Lean LSP server plugin providing `$/lean/runAt`, related follow-up handle methods, and the other Beam-owned Lean LSP extensions
 - `Beam`: local broker, daemon/client pair, and CLI wrappers exposing a narrower agent-facing surface over LSP and Beam-specific extensions
-- `skills`: installed Claude/Codex workflow guidance built around `lean-beam`
+- `skills`: installed agent workflow guidance built around `lean-beam`
 - `tests`: scenario-DSL coverage for LSP-level behavior, concurrent stress coverage, broker and wrapper regression suites, and install/runtime validation
 
 ## Local Build And Test (for development)

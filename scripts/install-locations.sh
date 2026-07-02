@@ -35,6 +35,20 @@ validate_claude_home() {
   require_path_within "$claude_skills_home" "$claude_home" "Claude Code skills home"
 }
 
+validate_pi_home() {
+  require_absolute_path "$pi_home" "Pi Agent home"
+  require_not_root "$pi_home" "Pi Agent home"
+  require_absolute_path "$pi_skills_home" "Pi Agent skills home"
+  require_path_within "$pi_skills_home" "$pi_home" "Pi Agent skills home"
+}
+
+validate_opencode_config_dir() {
+  require_absolute_path "$opencode_config_dir" "OpenCode config dir"
+  require_not_root "$opencode_config_dir" "OpenCode config dir"
+  require_absolute_path "$opencode_skills_home" "OpenCode skills home"
+  require_path_within "$opencode_skills_home" "$opencode_config_dir" "OpenCode skills home"
+}
+
 validate_requested_location_config() {
   validate_install_config
   if [ "$install_codex_skills" -eq 1 ] || [ "$register_codex_mcp" -eq 1 ]; then
@@ -45,6 +59,12 @@ validate_requested_location_config() {
   fi
   if [ "$register_claude_mcp" -eq 1 ]; then
     validate_claude_mcp_config_path
+  fi
+  if [ "$install_pi_skills" -eq 1 ]; then
+    validate_pi_home
+  fi
+  if [ "$install_opencode_skills" -eq 1 ]; then
+    validate_opencode_config_dir
   fi
 }
 
@@ -89,6 +109,14 @@ prompt_install_location_changes() {
     selected_path="$(prompt_optional_path_override "Claude Code home" "$claude_home")"
     set_claude_home "$selected_path"
   fi
+  if [ "$install_pi_skills" -eq 1 ]; then
+    selected_path="$(prompt_optional_path_override "Pi Agent home" "$pi_home")"
+    set_pi_home "$selected_path"
+  fi
+  if [ "$install_opencode_skills" -eq 1 ]; then
+    selected_path="$(prompt_optional_path_override "OpenCode config dir" "$opencode_config_dir")"
+    set_opencode_config_dir "$selected_path"
+  fi
   if [ "$register_claude_mcp" -eq 1 ]; then
     selected_path="$(prompt_optional_path_override "Claude Code user config" "$claude_mcp_user_config")"
     set_claude_mcp_user_config "$selected_path"
@@ -106,13 +134,20 @@ print_write_locations() {
   printf '    - Bundle cache: %s\n' "$install_bundles_root" >&2
   printf '    - Source build output: %s\n' "$repo_root/.lake" >&2
 
-  if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ]; then
+  if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ] \
+    || [ "$install_pi_skills" -eq 1 ] || [ "$install_opencode_skills" -eq 1 ]; then
     printf '\n  Agent skills\n' >&2
     if [ "$install_codex_skills" -eq 1 ]; then
       printf '    - Codex skills: %s (%s)\n' "$codex_skills_home" "$(skill_install_names)" >&2
     fi
     if [ "$install_claude_skills" -eq 1 ]; then
       printf '    - Claude Code skills: %s (%s)\n' "$claude_skills_home" "$(skill_install_names)" >&2
+    fi
+    if [ "$install_pi_skills" -eq 1 ]; then
+      printf '    - Pi Agent skills: %s (%s)\n' "$pi_skills_home" "$(skill_install_names)" >&2
+    fi
+    if [ "$install_opencode_skills" -eq 1 ]; then
+      printf '    - OpenCode skills: %s (%s)\n' "$opencode_skills_home" "$(skill_install_names)" >&2
     fi
   fi
 
@@ -126,6 +161,11 @@ print_write_locations() {
       printf '    - Claude Code config: %s\n' "$claude_mcp_user_config" >&2
       printf '    - Claude Code backups: %s\n' "$claude_mcp_backup_home" >&2
     fi
+  fi
+
+  if [ "$register_opencode_mcp" -eq 1 ]; then
+    printf '\n  Manual follow-up\n' >&2
+    printf '    - OpenCode MCP registration requires manual steps after install.\n' >&2
   fi
 }
 
@@ -162,6 +202,12 @@ approve_current_write_locations() {
   fi
   if [ "$install_claude_skills" -eq 1 ]; then
     remember_approved_write_home "$claude_skills_home"
+  fi
+  if [ "$install_pi_skills" -eq 1 ]; then
+    remember_approved_write_home "$pi_skills_home"
+  fi
+  if [ "$install_opencode_skills" -eq 1 ]; then
+    remember_approved_write_home "$opencode_skills_home"
   fi
   if [ "$register_codex_mcp" -eq 1 ]; then
     remember_approved_write_home "$codex_home"
