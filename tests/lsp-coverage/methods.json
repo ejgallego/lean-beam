@@ -11,6 +11,7 @@
         "stale-version",
         "stale-edit",
         "cancellation",
+        "standard-lsp-interference",
         "mixed-concurrency"
       ]
     },

@@ -4,10 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import BeamTest.LSP.Requests.Interference
 import BeamTest.LSP.Requests.Support
 
 open Lean
 open BeamTest.LSP.Scenario
+open BeamTest.LSP.Requests.Interference
 open BeamTest.LSP.Requests.Support
 
 namespace BeamTest.LSP.Requests.RunAt.BasicTest
@@ -65,11 +67,24 @@ def checkRunAtStaleEditConcurrentRequest : ScenarioM Unit := do
   closeDoc staleDoc
   closeDoc survivorDoc
 
+def checkRunAtWithStandardLspInterference : ScenarioM Unit := do
+  let runAtDoc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+
+  let runAtReq ← sendRunAt runAtDoc { line := 1, character := 2, text := "exact trivial" }
+  syncWhitespacePrefixEdit editDoc
+
+  discard <| requireRunAtResponseSuccess "runAt with LSP interference" runAtReq
+
+  closeDoc runAtDoc
+  closeDoc editDoc
+
 def run : ScenarioM Unit := do
   checkRunAtOneCommandOnly
   checkRunAtTheoremProofFailure
   checkRunAtTheoremTacticFailure
   checkRunAtStaleVersion
   checkRunAtStaleEditConcurrentRequest
+  checkRunAtWithStandardLspInterference
 
 end BeamTest.LSP.Requests.RunAt.BasicTest
