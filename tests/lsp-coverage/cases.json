@@ -181,10 +181,34 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoInvalidRange"
     },
     {
+      "id": "todo.false-positive-filtering",
+      "method": "$/lean/todo",
+      "coverage": ["false-positive-filtering"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkComplexTodoFalsePositives"
+    },
+    {
+      "id": "todo.semantic-items",
+      "method": "$/lean/todo",
+      "coverage": ["semantic-items"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkComplexTodoSemanticItems"
+    },
+    {
+      "id": "todo.incomplete-proof-suggestions",
+      "method": "$/lean/todo",
+      "coverage": ["incomplete-proof-suggestions"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkComplexTodoIncompleteProofs"
+    },
+    {
       "id": "todo.diagnostics",
       "method": "$/lean/todo",
       "coverage": ["diagnostics"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkComplexTodoDiagnostics"
+    },
+    {
+      "id": "todo.interactive-only-diagnostics",
+      "method": "$/lean/todo",
+      "coverage": ["interactive-only-diagnostics"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoInteractiveOnlyDiagnostic"
     },
     {
       "id": "todo.code-action",
