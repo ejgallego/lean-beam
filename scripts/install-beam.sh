@@ -21,6 +21,13 @@ claude_skills_home=""
 claude_mcp_user_config=""
 claude_mcp_home=""
 claude_mcp_backup_home=""
+pi_home=""
+pi_skills_home=""
+opencode_config_dir=""
+opencode_skills_home=""
+opencode_mcp_config=""
+opencode_mcp_config_home=""
+opencode_mcp_config_custom=0
 bin_home=""
 install_root=""
 versions_root=""
@@ -31,9 +38,12 @@ beam_cli="$repo_root/.lake/build/bin/beam-cli"
 installer_cmd="./scripts/install-beam.sh"
 install_codex_skills=0
 install_claude_skills=0
+install_pi_skills=0
+install_opencode_skills=0
 install_rocq_skill=0
 register_codex_mcp=0
 register_claude_mcp=0
+register_opencode_mcp=0
 install_all_supported=0
 dont_ask=0
 toolchain_selection_explicit=0
@@ -95,11 +105,36 @@ set_claude_mcp_user_config() {
   claude_mcp_backup_home="$claude_mcp_home/.claude"
 }
 
+set_pi_home() {
+  pi_home="$1"
+  pi_skills_home="$pi_home/skills"
+}
+
+set_opencode_config_dir() {
+  opencode_config_dir="$1"
+  opencode_skills_home="$opencode_config_dir/skills"
+  if [ "$opencode_mcp_config_custom" -eq 0 ]; then
+    opencode_mcp_config="$opencode_config_dir/opencode.json"
+    opencode_mcp_config_home="$opencode_config_dir"
+  fi
+}
+
+set_opencode_mcp_config() {
+  opencode_mcp_config="$1"
+  opencode_mcp_config_home="$(dirname "$opencode_mcp_config")"
+  opencode_mcp_config_custom=1
+}
+
 set_bin_home "${BEAM_BIN_HOME:-$HOME/.local/bin}"
 set_install_root "${BEAM_INSTALL_ROOT:-$HOME/.local/share/beam}"
 set_codex_home "${CODEX_HOME:-$HOME/.codex}"
 set_claude_home "${CLAUDE_HOME:-$HOME/.claude}"
 set_claude_mcp_user_config "${BEAM_CLAUDE_MCP_CONFIG:-$HOME/.claude.json}"
+set_pi_home "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+set_opencode_config_dir "${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+if [ -n "${BEAM_OPENCODE_MCP_CONFIG:-}" ]; then
+  set_opencode_mcp_config "$BEAM_OPENCODE_MCP_CONFIG"
+fi
 
 runtime_payload_spec=(
   "copy|rootFiles|Beam.lean|Beam.lean"
@@ -137,7 +172,7 @@ minimal runtime install:
   - $bin_home/lean-beam-mcp
   - one prebuilt toolchain build for the repo-pinned Lean toolchain
 
-With --dont-ask and no agent flags, this does not install Codex or Claude Code skills.
+With --dont-ask and no agent flags, this does not install agent skills.
 
 Optional flags:
   --dont-ask    do not prompt before Beam-owned filesystem edits
@@ -150,14 +185,23 @@ Optional flags:
                 prebuild every supported Lean toolchain
   --codex       install bundled Lean skill into $codex_skills_home
   --claude      install bundled Lean skill into $claude_skills_home
-  --all-skills  install bundled Lean skill for both Codex and Claude Code
+  --pi          install bundled Lean skill into $pi_skills_home
+  --opencode    install bundled Lean skill into $opencode_skills_home
+  --all-skills  install bundled Lean skill for every supported agent target
   --rocq-skill  also install the optional Rocq skill for the selected agent target(s)
   --codex-mcp   register lean-beam-mcp with Codex
   --codex-home  Codex home for --codex and --codex-mcp
   --claude-mcp  register lean-beam-mcp with Claude Code user config
   --claude-mcp-config
                 Claude Code user .claude.json path for --claude-mcp
-  --all-mcp     register lean-beam-mcp with both Codex and Claude Code
+  --opencode-mcp
+                register lean-beam-mcp with OpenCode config
+  --opencode-config-dir
+                OpenCode config directory for --opencode and default --opencode-mcp config
+  --opencode-mcp-config
+                OpenCode config file path for --opencode-mcp
+  --pi-home     Pi Agent home for --pi
+  --all-mcp     register lean-beam-mcp with every supported MCP client
   -h, --help    show this help
 
 Environment:
@@ -165,8 +209,13 @@ Environment:
   BEAM_INSTALL_ROOT   override the runtime install root
   CODEX_HOME           override the Codex home used by --codex and --codex-mcp
   CLAUDE_HOME          override the Claude home used by --claude
+  PI_CODING_AGENT_DIR  override the Pi Agent home used by --pi
+  OPENCODE_CONFIG_DIR  override the OpenCode config directory used by --opencode
+                       and default --opencode-mcp config
   BEAM_CLAUDE_MCP_CONFIG
                         override the Claude Code user .claude.json path used by --claude-mcp
+  BEAM_OPENCODE_MCP_CONFIG
+                        override the OpenCode config path used by --opencode-mcp
 
 Requirements:
   elan must be on PATH so the installer can prebuild the selected Lean bundle(s)
@@ -491,10 +540,20 @@ parse_args() {
         skill_selection_explicit=1
         install_claude_skills=1
         ;;
+      --pi)
+        skill_selection_explicit=1
+        install_pi_skills=1
+        ;;
+      --opencode)
+        skill_selection_explicit=1
+        install_opencode_skills=1
+        ;;
       --all-skills)
         skill_selection_explicit=1
         install_codex_skills=1
         install_claude_skills=1
+        install_pi_skills=1
+        install_opencode_skills=1
         ;;
       --rocq-skill)
         install_rocq_skill=1
@@ -521,10 +580,36 @@ parse_args() {
         set_claude_mcp_user_config "$2"
         shift
         ;;
+      --opencode-mcp)
+        mcp_registration_explicit=1
+        register_opencode_mcp=1
+        ;;
+      --opencode-config-dir)
+        if [ "$#" -lt 2 ]; then
+          die "missing value for --opencode-config-dir"
+        fi
+        set_opencode_config_dir "$2"
+        shift
+        ;;
+      --opencode-mcp-config)
+        if [ "$#" -lt 2 ]; then
+          die "missing value for --opencode-mcp-config"
+        fi
+        set_opencode_mcp_config "$2"
+        shift
+        ;;
+      --pi-home)
+        if [ "$#" -lt 2 ]; then
+          die "missing value for --pi-home"
+        fi
+        set_pi_home "$2"
+        shift
+        ;;
       --all-mcp)
         mcp_registration_explicit=1
         register_codex_mcp=1
         register_claude_mcp=1
+        register_opencode_mcp=1
         ;;
       -h|--help|help)
         usage
@@ -689,38 +774,47 @@ prompt_toolchain_selection() {
 
 prompt_skill_selection() {
   local selection=""
-  selection="$(prompt_agent_target_choice \
+  local target=""
+  selection="$(prompt_agent_target_multi_choice \
     "Agent Skills" \
     "Lean agent skill targets to install:" \
     "Install Lean skill" \
-    "Codex ($codex_skills_home)" \
-    "Claude Code ($claude_skills_home)" \
-    "skill")"
-  case "$selection" in
-    none)
-      install_codex_skills=0
-      install_claude_skills=0
-      ;;
-    codex)
-      install_codex_skills=1
-      install_claude_skills=0
-      ;;
-    claude)
-      install_codex_skills=0
-      install_claude_skills=1
-      ;;
-    both)
-      install_codex_skills=1
-      install_claude_skills=1
-      ;;
-  esac
+    "skill" \
+    "codex|Codex ($codex_skills_home)|c" \
+    "claude|Claude Code ($claude_skills_home)|claude-code" \
+    "pi|Pi Agent ($pi_skills_home)|p pi-agent" \
+    "opencode|OpenCode ($opencode_skills_home)|o open-code")"
+  install_codex_skills=0
+  install_claude_skills=0
+  install_pi_skills=0
+  install_opencode_skills=0
+  for target in $selection; do
+    case "$target" in
+      none)
+        ;;
+      codex)
+        install_codex_skills=1
+        ;;
+      claude)
+        install_claude_skills=1
+        ;;
+      pi)
+        install_pi_skills=1
+        ;;
+      opencode)
+        install_opencode_skills=1
+        ;;
+    esac
+  done
 }
 
 validate_skill_selection() {
   if [ "$install_rocq_skill" -eq 1 ] \
     && [ "$install_codex_skills" -eq 0 ] \
-    && [ "$install_claude_skills" -eq 0 ]; then
-    die "--rocq-skill requires --codex, --claude, --all-skills, or an interactive skill target"
+    && [ "$install_claude_skills" -eq 0 ] \
+    && [ "$install_pi_skills" -eq 0 ] \
+    && [ "$install_opencode_skills" -eq 0 ]; then
+    die "--rocq-skill requires --codex, --claude, --pi, --opencode, --all-skills, or an interactive skill target"
   fi
 }
 
@@ -831,7 +925,8 @@ print_install_plan() {
       fi
     done
   fi
-  if [ "$install_codex_skills" -eq 0 ] && [ "$install_claude_skills" -eq 0 ]; then
+  if [ "$install_codex_skills" -eq 0 ] && [ "$install_claude_skills" -eq 0 ] \
+    && [ "$install_pi_skills" -eq 0 ] && [ "$install_opencode_skills" -eq 0 ]; then
     print_field "skills" "none"
   else
     if [ "$install_codex_skills" -eq 1 ]; then
@@ -840,8 +935,15 @@ print_install_plan() {
     if [ "$install_claude_skills" -eq 1 ]; then
       print_field "Claude skills" "$(skill_install_path_summary "$claude_skills_home")"
     fi
+    if [ "$install_pi_skills" -eq 1 ]; then
+      print_field "Pi Agent skills" "$(skill_install_path_summary "$pi_skills_home")"
+    fi
+    if [ "$install_opencode_skills" -eq 1 ]; then
+      print_field "OpenCode skills" "$(skill_install_path_summary "$opencode_skills_home")"
+    fi
   fi
-  if [ "$register_codex_mcp" -eq 0 ] && [ "$register_claude_mcp" -eq 0 ]; then
+  if [ "$register_codex_mcp" -eq 0 ] && [ "$register_claude_mcp" -eq 0 ] \
+    && [ "$register_opencode_mcp" -eq 0 ]; then
     print_field "MCP setup" "none"
   else
     if [ "$register_codex_mcp" -eq 1 ]; then
@@ -849,6 +951,9 @@ print_install_plan() {
     fi
     if [ "$register_claude_mcp" -eq 1 ]; then
       print_field "Claude MCP" "lean-beam -> $bin_home/lean-beam-mcp"
+    fi
+    if [ "$register_opencode_mcp" -eq 1 ]; then
+      print_field "OpenCode MCP" "lean-beam -> $bin_home/lean-beam-mcp"
     fi
   fi
   print_field "source build" "$repo_root/.lake"
@@ -1050,6 +1155,12 @@ verify_requested_skill_targets() {
   if [ "$install_claude_skills" -eq 1 ]; then
     verify_skill_home_targets "$claude_skills_home"
   fi
+  if [ "$install_pi_skills" -eq 1 ]; then
+    verify_skill_home_targets "$pi_skills_home"
+  fi
+  if [ "$install_opencode_skills" -eq 1 ]; then
+    verify_skill_home_targets "$opencode_skills_home"
+  fi
 }
 
 prepare_install_environment() {
@@ -1123,6 +1234,14 @@ install_requested_skills() {
   fi
   if [ "$install_claude_skills" -eq 1 ]; then
     target="$(install_skill_target "Claude Code" "$claude_skills_home")"
+    installed_skill_targets+=("$target")
+  fi
+  if [ "$install_pi_skills" -eq 1 ]; then
+    target="$(install_skill_target "Pi Agent" "$pi_skills_home")"
+    installed_skill_targets+=("$target")
+  fi
+  if [ "$install_opencode_skills" -eq 1 ]; then
+    target="$(install_skill_target "OpenCode" "$opencode_skills_home")"
     installed_skill_targets+=("$target")
   fi
 }
@@ -1211,6 +1330,25 @@ print_claude_followup_hint() {
   fi
 }
 
+print_pi_followup_hint() {
+  local skill_installed="$1"
+  if [ "$skill_installed" -eq 0 ]; then
+    print_field "Pi Agent Lean skill" "$installer_cmd --pi"
+  fi
+}
+
+print_opencode_followup_hint() {
+  local skill_installed="$1"
+  local mcp_registered="$2"
+  if [ "$skill_installed" -eq 0 ] && [ "$mcp_registered" -eq 0 ]; then
+    print_field "OpenCode setup" "$installer_cmd --opencode --opencode-mcp"
+  elif [ "$skill_installed" -eq 0 ]; then
+    print_field "OpenCode Lean skill" "$installer_cmd --opencode"
+  elif [ "$mcp_registered" -eq 0 ]; then
+    print_field "OpenCode MCP" "$installer_cmd --opencode-mcp"
+  fi
+}
+
 print_install_references() {
   print_field "Lean Beam help" "$bin_home/lean-beam help"
   print_field "MCP help" "$bin_home/lean-beam-mcp --help"
@@ -1222,8 +1360,11 @@ print_install_references() {
 print_agent_setup_summary() {
   local codex_skill_installed=0
   local claude_skill_installed=0
+  local pi_skill_installed=0
+  local opencode_skill_installed=0
   local codex_mcp_registered=0
   local claude_mcp_registered=0
+  local opencode_mcp_registered=0
 
   if target_list_contains_prefix "Codex" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
     codex_skill_installed=1
@@ -1231,22 +1372,37 @@ print_agent_setup_summary() {
   if target_list_contains_prefix "Claude Code" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
     claude_skill_installed=1
   fi
+  if target_list_contains_prefix "Pi Agent" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
+    pi_skill_installed=1
+  fi
+  if target_list_contains_prefix "OpenCode" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
+    opencode_skill_installed=1
+  fi
   if target_list_contains_prefix "Codex" ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; then
     codex_mcp_registered=1
   fi
   if target_list_contains_prefix "Claude Code" ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; then
     claude_mcp_registered=1
   fi
+  if target_list_contains_prefix "OpenCode" ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; then
+    opencode_mcp_registered=1
+  fi
 
   print_section "$style_green" "Agent Setup"
   print_field "Codex" "skills: $(skill_state_for_summary "$codex_skill_installed"); MCP: $(mcp_state_for_summary "$codex_mcp_registered")"
   print_field "Claude Code" "skills: $(skill_state_for_summary "$claude_skill_installed"); MCP: $(mcp_state_for_summary "$claude_mcp_registered")"
+  print_field "Pi Agent" "skills: $(skill_state_for_summary "$pi_skill_installed"); MCP: unsupported"
+  print_field "OpenCode" "skills: $(skill_state_for_summary "$opencode_skill_installed"); MCP: $(mcp_state_for_summary "$opencode_mcp_registered")"
   print_field "MCP restart" "restart active MCP client sessions to use this runtime"
   print_codex_followup_hint "$codex_skill_installed" "$codex_mcp_registered"
   print_claude_followup_hint "$claude_skill_installed" "$claude_mcp_registered"
+  print_pi_followup_hint "$pi_skill_installed"
+  print_opencode_followup_hint "$opencode_skill_installed" "$opencode_mcp_registered"
   if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ] \
-    && [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ]; then
-    print_field "both agents" "$installer_cmd --all-skills --all-mcp"
+    && [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ] \
+    && [ "$pi_skill_installed" -eq 0 ] \
+    && [ "$opencode_skill_installed" -eq 0 ] && [ "$opencode_mcp_registered" -eq 0 ]; then
+    print_field "all agents" "$installer_cmd --all-skills --all-mcp"
   fi
   print_install_references
 }
