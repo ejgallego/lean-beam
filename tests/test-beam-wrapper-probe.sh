@@ -42,6 +42,7 @@ fi
   cd "$project_root"
   "$beam_script" ensure lean > /dev/null
   command_version="$(beam_wrapper_update_version CommandA "$beam_script" lean-update CommandA.lean)"
+  signature_version="$(beam_wrapper_update_version SignatureHelp "$beam_script" lean-update SignatureHelp.lean)"
   position_empty_version="$(beam_wrapper_update_version PositionEmptyLine "$beam_script" lean-update PositionEmptyLine.lean)"
   position_utf16_version="$(beam_wrapper_update_version PositionUtf16 "$beam_script" lean-update PositionUtf16.lean)"
   goal_version="$(beam_wrapper_update_version GoalSmoke "$beam_script" lean-update GoalSmoke.lean)"
@@ -318,6 +319,18 @@ fi
     exit 1
   fi
 
+  signature_help_out="$("$beam_script" signature-help SignatureHelp.lean "$signature_version" 4 12)"
+  if [ "$(BEAM_JSON_PAYLOAD="$signature_help_out" read_json_text_field ok)" != "true" ]; then
+    echo "expected wrapper signature-help probe to succeed" >&2
+    printf '%s\n' "$signature_help_out" >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$signature_help_out" | grep -q 'x y : Nat'; then
+    echo "expected wrapper signature-help probe to expose function parameter information" >&2
+    printf '%s\n' "$signature_help_out" >&2
+    exit 1
+  fi
+
   definition_out="$("$beam_script" definition CommandA.lean "$command_version" 0 4)"
   if [ "$(BEAM_JSON_PAYLOAD="$definition_out" read_json_text_field ok)" != "true" ]; then
     echo "expected wrapper definition probe to succeed" >&2
@@ -390,6 +403,12 @@ fi
   hover_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.hover.count)"
   if [ "${hover_count:-0}" -lt 1 ]; then
     echo "expected wrapper stats to record at least one hover request" >&2
+    printf '%s\n' "$stats_out" >&2
+    exit 1
+  fi
+  signature_help_count="$(BEAM_JSON_PAYLOAD="$stats_out" read_json_text_field result.byBackend.lean.ops.signature_help.count)"
+  if [ "${signature_help_count:-0}" -lt 1 ]; then
+    echo "expected wrapper stats to record at least one signature_help request" >&2
     printf '%s\n' "$stats_out" >&2
     exit 1
   fi

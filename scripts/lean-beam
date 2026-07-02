@@ -15,6 +15,7 @@ usage:
   lean-beam [--root PATH] [--port N] run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--port N] run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--port N] hover <path> <version> <line> <character>
+  lean-beam [--root PATH] [--port N] signature-help <path> <version> <line> <character>
   lean-beam [--root PATH] [--port N] definition <path> <version> <line> <character>
   lean-beam [--root PATH] [--port N] references <path> <version> <line> <character> [--include-declaration|--exclude-declaration]
   lean-beam [--root PATH] [--port N] document-symbols <path> <version>
@@ -154,6 +155,10 @@ case "$cmd" in
     ;;
   hover)
     mapped=("lean-hover")
+    display_cmd="$cmd"
+    ;;
+  signature-help)
+    mapped=("lean-signature-help")
     display_cmd="$cmd"
     ;;
   definition)

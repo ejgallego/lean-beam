@@ -55,6 +55,7 @@ Inspect Lean type/term information at a specific position:
 
 ```bash
 lean-beam hover "Foo.lean" <version-from-update> 10 2
+lean-beam signature-help "Foo.lean" <version-from-update> 10 2
 ```
 
 Follow semantic navigation and symbol information:
@@ -105,7 +106,8 @@ What is not a valid checkpoint target:
 ## Source-File And Execution Model
 
 - `lean-beam run-at` does not edit `Foo.lean`
-- `lean-beam hover` is the normal read-only semantic inspection command for an existing position
+- `lean-beam hover` and `lean-beam signature-help` are normal read-only semantic inspection
+  commands for an existing position
 - `lean-beam definition`, `lean-beam references`, and `lean-beam document-symbols` are normal
   read-only semantic navigation commands against a specific document version
 - `lean-beam workspace-symbols` is a read-only workspace query and does not take a document version
@@ -216,8 +218,9 @@ Interpretation:
   `lean-beam refresh` the stale target before relying on downstream probes
 - after `lean-beam run-at`, top-level `fileProgress` may exist with `done = false`; that is normal
   because the request only waited for its own target snapshot
-- use `lean-beam hover` for semantic inspection and `lean-beam goals before` / `lean-beam goals after` for
-  existing proof state; use `lean-beam run-at` only when you need speculative execution
+- use `lean-beam hover` or `lean-beam signature-help` for semantic inspection and
+  `lean-beam goals before` / `lean-beam goals after` for existing proof state; use
+  `lean-beam run-at` only when you need speculative execution
 - if you need a real ready/fresh boundary after edits, use `lean-beam sync`, not a successful probe
 
 Recovery loop for `syncBarrierIncomplete`:
@@ -248,9 +251,9 @@ useful for context-free syntax checks, but they are the wrong default for questi
 depends on the real module, imports, options, notation, instances, or proof state.
 
 Beam is designed for the opposite loop. Once the per-root daemon and target document are warm,
-`run-at`, `hover`, `definition`, `references`, `document-symbols`, and `goals` are cheap local
-questions against the saved source snapshot. The intended agent style is therefore small,
-source-position probes, not large detached experiments.
+`run-at`, `hover`, `signature-help`, `definition`, `references`, `document-symbols`, and `goals`
+are cheap local questions against the saved source snapshot. The intended agent style is therefore
+small, source-position probes, not large detached experiments.
 
 Write the on-disk document as `prefix ++ E ++ suffix`.
 

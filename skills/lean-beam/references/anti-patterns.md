@@ -18,7 +18,7 @@ Use this reference as a short checklist of what not to assume in Lean `beam` wor
 
 ## Prefer Instead
 
-- use `lean-beam hover` for existing semantic info
+- use `lean-beam hover` and `lean-beam signature-help` for existing semantic info
 - use `lean-beam definition`, `lean-beam references`, `lean-beam document-symbols`, and
   `lean-beam workspace-symbols` for semantic navigation
 - use `lean-beam goals before` / `lean-beam goals after` for existing proof state

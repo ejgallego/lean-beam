@@ -116,6 +116,7 @@ private def checkToolsListShape : IO Unit := do
       Beam.Mcp.capabilityNames.contains "lean_refresh" &&
       Beam.Mcp.capabilityNames.contains "lean_save" &&
       Beam.Mcp.capabilityNames.contains "lean_close_save" &&
+      Beam.Mcp.capabilityNames.contains "lean_signature_help" &&
       Beam.Mcp.capabilityNames.contains "lean_definition" &&
       Beam.Mcp.capabilityNames.contains "lean_references" &&
       Beam.Mcp.capabilityNames.contains "lean_document_symbols" &&
@@ -130,6 +131,7 @@ private def checkToolsListShape : IO Unit := do
     ("lean_run_at", #["path", "version", "line", "character", "text"]),
     ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
     ("lean_hover", #["path", "version", "line", "character"]),
+    ("lean_signature_help", #["path", "version", "line", "character"]),
     ("lean_definition", #["path", "version", "line", "character"]),
     ("lean_references", #["path", "version", "line", "character"]),
     ("lean_document_symbols", #["path", "version"]),

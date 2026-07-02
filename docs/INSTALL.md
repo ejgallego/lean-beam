@@ -113,18 +113,20 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 
 Successful `lean_init_workspace` results include a `capabilities` array with projected MCP tool
 names, including `beam_version`, `beam_stats`, `lean_run_at`, `lean_update`, `lean_sync`,
-`lean_refresh`, `lean_save`, `lean_close_save`, `lean_hover`, `lean_definition`,
-`lean_references`, `lean_document_symbols`, `lean_workspace_symbols`, and `lean_goals`.
+`lean_refresh`, `lean_save`, `lean_close_save`, `lean_hover`, `lean_signature_help`,
+`lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`, and
+`lean_goals`.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
-`lean_run_at_handle`, `lean_hover`, `lean_definition`, `lean_references`,
-`lean_document_symbols`, `lean_goals`, and `lean_todo`; those calls require the `version` returned
-by a successful `lean_update` or `lean_sync` for the same path. The `lean_workspace_symbols` query
-is workspace-scoped and does not take a file version. `lean_goals` also requires `mode: "before"`
-or `mode: "after"`. The `lean-beam` wrapper follows the same model: call
-`lean-beam update <path>` first, then pass the returned `version` to `run-at`, `hover`,
-`definition`, `references`, `document-symbols`, `goals`, or `todo`. Use `lean_sync` /
-`lean-beam sync` instead when the client also needs the diagnostics/readiness barrier.
+`lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`,
+`lean_references`, `lean_document_symbols`, `lean_goals`, and `lean_todo`; those calls require the
+`version` returned by a successful `lean_update` or `lean_sync` for the same path. The
+`lean_workspace_symbols` query is workspace-scoped and does not take a file version. `lean_goals`
+also requires `mode: "before"` or `mode: "after"`. The `lean-beam` wrapper follows the same model:
+call `lean-beam update <path>` first, then pass the returned `version` to `run-at`, `hover`,
+`signature-help`, `definition`, `references`, `document-symbols`, `goals`, or `todo`. Use
+`lean_sync` / `lean-beam sync` instead when the client also needs the diagnostics/readiness
+barrier.
 
 Direct developer runs and single-project MCP registrations may still pass an explicit project root:
 

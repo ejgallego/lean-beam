@@ -739,6 +739,7 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
         "lean_close_save",
         "lean_run_at",
         "lean_hover",
+        "lean_signature_help",
         "lean_definition",
         "lean_references",
         "lean_document_symbols",
@@ -1001,6 +1002,7 @@ def run_cycle(
             require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
+            require("lean_signature_help" in names, f"tools/list missing lean_signature_help: {tools}")
             require("lean_definition" in names, f"tools/list missing lean_definition: {tools}")
             require("lean_references" in names, f"tools/list missing lean_references: {tools}")
             require("lean_document_symbols" in names, f"tools/list missing lean_document_symbols: {tools}")

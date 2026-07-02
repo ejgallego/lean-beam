@@ -17,6 +17,7 @@ def usage : String :=
     "  beam [--root PATH] [--port N] lean-run-at <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--port N] lean-run-at-handle <path> <version> <line> <character> [--stdin | --text-file <path> | -- <text...> | <text...>]",
     "  beam [--root PATH] [--port N] lean-hover <path> <version> <line> <character>",
+    "  beam [--root PATH] [--port N] lean-signature-help <path> <version> <line> <character>",
     "  beam [--root PATH] [--port N] lean-definition <path> <version> <line> <character>",
     "  beam [--root PATH] [--port N] lean-references <path> <version> <line> <character> [--include-declaration|--exclude-declaration]",
     "  beam [--root PATH] [--port N] lean-document-symbols <path> <version>",

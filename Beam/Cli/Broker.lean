@@ -249,20 +249,6 @@ def leanRunAtWaitSpec (action path : String) (line character : Nat) : BrokerWait
     responseNote? := runAtPayloadSummary? action "probe"
   }
 
-def leanHoverWaitSpec (path : String) (line character : Nat) (action : String := "lean-hover") :
-    BrokerWaitSpec :=
-  let pos := s!"{path}:{line}:{character}"
-  {
-    action := action
-    startMsg := s!"beam: running {action} on {pos} and waiting for a ready Lean snapshot"
-    progressMsg := fun progress => s!"beam: hover progress for {pos}{syncFileProgressSuffix (some progress)}"
-    stillWaitingMsg := fun seconds =>
-      s!"beam: still waiting for {action} on {pos} ({seconds}s)"
-    completeMsg := fun resp =>
-      s!"beam: {action} complete for {pos}{syncFileProgressSuffix (responseFileProgress? resp)}"
-    failureBoundary := "before hover data was available"
-  }
-
 private def leanPositionNavigationWaitSpec
     (path : String)
     (line character : Nat)
@@ -279,11 +265,21 @@ private def leanPositionNavigationWaitSpec
     failureBoundary := s!"before {noun} data was available"
   }
 
+def leanHoverWaitSpec (path : String) (line character : Nat) (action : String := "lean-hover") :
+    BrokerWaitSpec :=
+  leanPositionNavigationWaitSpec path line character action "hover" "hover"
+
 def leanDefinitionWaitSpec
     (path : String)
     (line character : Nat)
     (action : String := "lean-definition") : BrokerWaitSpec :=
   leanPositionNavigationWaitSpec path line character action "definition" "definition"
+
+def leanSignatureHelpWaitSpec
+    (path : String)
+    (line character : Nat)
+    (action : String := "lean-signature-help") : BrokerWaitSpec :=
+  leanPositionNavigationWaitSpec path line character action "signature-help" "signature help"
 
 def leanReferencesWaitSpec
     (path : String)

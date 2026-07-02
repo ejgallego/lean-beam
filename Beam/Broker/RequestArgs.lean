@@ -68,6 +68,20 @@ def Request.hoverArgs (req : Request) : Except Response HoverArgs := do
     method
   }
 
+structure SignatureHelpArgs extends PositionArgs where
+  method : String
+
+def Request.signatureHelpArgs (req : Request) : Except Response SignatureHelpArgs := do
+  let position ← req.positionArgs
+  let method ← asInvalidParams (signatureHelpMethod req.backend)
+  pure {
+    path := position.path
+    version := position.version
+    line := position.line
+    character := position.character
+    method
+  }
+
 structure DefinitionArgs extends PositionArgs where
   method : String
 

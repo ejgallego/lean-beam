@@ -29,6 +29,7 @@ inductive Op where
   | close
   | runAt
   | hover
+  | signatureHelp
   | definition
   | references
   | documentSymbols
@@ -53,6 +54,7 @@ def Op.key : Op → String
   | .close => "close"
   | .runAt => "run_at"
   | .hover => "hover"
+  | .signatureHelp => "signature_help"
   | .definition => "definition"
   | .references => "references"
   | .documentSymbols => "document_symbols"
@@ -80,6 +82,7 @@ instance : FromJson Op where
     | .str "close" => .ok .close
     | .str "run_at" => .ok .runAt
     | .str "hover" => .ok .hover
+    | .str "signature_help" => .ok .signatureHelp
     | .str "definition" => .ok .definition
     | .str "references" => .ok .references
     | .str "document_symbols" => .ok .documentSymbols

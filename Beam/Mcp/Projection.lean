@@ -43,6 +43,7 @@ def ToolName.ofLeanOperation (operation : Beam.Lean.Operation) : ToolName :=
 def ToolName.leanRunAt : ToolName := .leanOperation .runAt
 def ToolName.leanRunAtHandle : ToolName := .leanOperation .runAtHandle
 def ToolName.leanHover : ToolName := .leanOperation .hover
+def ToolName.leanSignatureHelp : ToolName := .leanOperation .signatureHelp
 def ToolName.leanDefinition : ToolName := .leanOperation .definition
 def ToolName.leanReferences : ToolName := .leanOperation .references
 def ToolName.leanDocumentSymbols : ToolName := .leanOperation .documentSymbols
