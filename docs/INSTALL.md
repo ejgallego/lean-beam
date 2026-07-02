@@ -34,14 +34,21 @@ The default install creates:
 | Codex MCP config | `$HOME/.codex/config.toml` | derived from the Codex home |
 | Claude Code skill home | `$HOME/.claude` | interactive `change`, or `CLAUDE_HOME` |
 | Claude Code MCP config | `$HOME/.claude.json` | interactive `change`, `BEAM_CLAUDE_MCP_CONFIG`, or `--claude-mcp-config` |
+| Pi Agent skill home | `$HOME/.pi/agent` | interactive `change`, `PI_CODING_AGENT_DIR`, or `--pi-home` |
+| OpenCode config directory | `$HOME/.config/opencode` | interactive `change`, `OPENCODE_CONFIG_DIR`, or `--opencode-config-dir` |
+| OpenCode skill home | `$HOME/.config/opencode/skills` | derived from the OpenCode config directory |
+| OpenCode MCP config | `$HOME/.config/opencode/opencode.json` | interactive `change`, `BEAM_OPENCODE_MCP_CONFIG`, or `--opencode-mcp-config` |
 
 ## Agent Skills
 
-Install the bundled Lean skill for Codex, Claude Code, or both:
+Install the bundled Lean skill for Codex, Claude Code, Pi Agent, OpenCode, or every supported skill
+target:
 
 ```bash
 ./scripts/install-beam.sh --codex
 ./scripts/install-beam.sh --claude
+./scripts/install-beam.sh --pi
+./scripts/install-beam.sh --opencode
 ./scripts/install-beam.sh --all-skills
 ```
 
@@ -50,28 +57,35 @@ Install the optional Rocq skill by adding `--rocq-skill` to a selected agent tar
 ```bash
 ./scripts/install-beam.sh --codex --rocq-skill
 ./scripts/install-beam.sh --claude --rocq-skill
+./scripts/install-beam.sh --pi --rocq-skill
+./scripts/install-beam.sh --opencode --rocq-skill
 ./scripts/install-beam.sh --all-skills --rocq-skill
 ```
 
-`--rocq-skill` is only a modifier. It must be paired with `--codex`, `--claude`,
-`--all-skills`, or an interactive skill target. Rocq-specific setup is documented in
+`--rocq-skill` is only a modifier. It must be paired with `--codex`, `--claude`, `--pi`,
+`--opencode`, `--all-skills`, or an interactive skill target. Rocq-specific setup is documented in
 [ROCQ.md](ROCQ.md).
 
 ## MCP Registration
 
-Register the installed `lean-beam-mcp` server with Codex, Claude Code, or both:
+Register the installed `lean-beam-mcp` server with Codex, Claude Code, OpenCode, or every supported
+MCP client:
 
 ```bash
 ./scripts/install-beam.sh --codex-mcp
 ./scripts/install-beam.sh --claude-mcp
+./scripts/install-beam.sh --opencode-mcp
 ./scripts/install-beam.sh --all-mcp
 ```
+
+Pi Agent does not support MCP. Use `--pi` to install the Beam skill for Pi Agent.
 
 The installer can install skills and register MCP in one run:
 
 ```bash
 ./scripts/install-beam.sh --codex --codex-mcp
 ./scripts/install-beam.sh --claude --claude-mcp
+./scripts/install-beam.sh --opencode --opencode-mcp
 ./scripts/install-beam.sh --all-skills --all-mcp
 ```
 
@@ -80,11 +94,14 @@ For sandboxed config locations, pass the target paths explicitly:
 ```bash
 ./scripts/install-beam.sh --codex-mcp --codex-home /path/to/sandbox/.codex
 ./scripts/install-beam.sh --claude-mcp --claude-mcp-config /path/to/sandbox/.claude.json
+./scripts/install-beam.sh --opencode-mcp --opencode-mcp-config /path/to/sandbox/opencode.json
 ```
 
-The same overrides are available as `CODEX_HOME` and `BEAM_CLAUDE_MCP_CONFIG`.
+The same overrides are available as `CODEX_HOME`, `BEAM_CLAUDE_MCP_CONFIG`,
+`OPENCODE_CONFIG_DIR`, and `BEAM_OPENCODE_MCP_CONFIG`.
 Interactive installs that select MCP registration can also choose `change` at the write-location
-prompt and edit the Codex home or Claude Code config path before approving writes.
+prompt and edit the Codex home, Claude Code config path, OpenCode config directory, or OpenCode
+config path before approving writes.
 
 To register an existing install manually, use an absolute path so the client can launch the server
 even if `$HOME/.local/bin` is not on its `PATH`:
@@ -96,7 +113,20 @@ claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
 
 Codex selects `config.toml` from `CODEX_HOME`, and Claude Code's `mcp add` command selects the
 user-scope config from `HOME`, so the installer runs those commands with the matching environment
-set to the selected location.
+set to the selected location. OpenCode stores MCP servers in its JSON config under `mcp`; the
+installer writes:
+
+```json
+{
+  "mcp": {
+    "lean-beam": {
+      "type": "local",
+      "command": ["/absolute/path/to/lean-beam-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
 
 MCP clients that support workspace roots can use the registered command as-is; Lean Beam discovers
 the project root through `roots/list`. If a client does not provide roots, initialize one absolute

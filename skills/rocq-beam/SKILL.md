@@ -22,14 +22,15 @@ From the `lean-beam` repo root:
 ./scripts/install-beam.sh --codex --rocq-skill
 ```
 
-Use `--claude --rocq-skill` instead when installing for Claude Code, or
-`--all-skills --rocq-skill` when you want both agent skill sets.
+Use `--claude --rocq-skill`, `--pi --rocq-skill`, or `--opencode --rocq-skill` instead when
+installing for Claude Code, Pi Agent, or OpenCode. Use `--all-skills --rocq-skill` when you want
+every supported agent skill target.
 
 The installer puts `lean-beam` in `~/.local/bin`, stages the self-contained runtime under
 `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), and installs the optional Rocq skill only when
 `--rocq-skill` is paired with a selected agent skill target.
 
-Restart Codex or Claude Code after installation.
+Restart active agent sessions after installation.
 
 The user-facing installer reference is [docs/INSTALL.md](../../docs/INSTALL.md). The Rocq status
 and setup page is [docs/ROCQ.md](../../docs/ROCQ.md).

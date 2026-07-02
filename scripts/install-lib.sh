@@ -131,40 +131,107 @@ normalize_choice() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
-prompt_agent_target_choice() {
+prompt_agent_target_multi_choice() {
   local title="$1"
   local intro="$2"
   local prompt="$3"
-  local codex_label="$4"
-  local claude_label="$5"
-  local error_context="$6"
+  local error_context="$4"
+  shift 4
+  local entries=("$@")
   local reply=""
-  local choice=""
+  local normalized_reply=""
+  local token=""
+  local entry=""
+  local key=""
+  local label=""
+  local aliases=""
+  local alias=""
+  local ordinal=2
+  local all_ordinal=$(( ${#entries[@]} + 2 ))
+  local selected=()
+  local select_all=0
+  local matched=0
 
   print_section "$style_blue" "$title"
   printf '%s\n' "$intro" >&2
   printf '  1) none (default)\n' >&2
-  printf '  2) %s\n' "$codex_label" >&2
-  printf '  3) %s\n' "$claude_label" >&2
-  printf '  4) both\n' >&2
-  printf '%s [Enter: none]: ' "$prompt" >&2
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    IFS='|' read -r key label aliases <<< "$entry"
+    printf '  %d) %s\n' "$ordinal" "$label" >&2
+    ordinal=$((ordinal + 1))
+  done
+  printf '  %d) all\n' "$all_ordinal" >&2
+  printf '%s [Enter: none; comma-separated selections allowed]: ' "$prompt" >&2
   IFS= read -r reply || reply=""
-  choice="$(normalize_choice "$reply")"
-  case "$choice" in
-    ""|1|n|no|none)
-      printf 'none\n'
-      ;;
-    2|c|codex)
-      printf 'codex\n'
-      ;;
-    3|claude|"claude code"|claude-code)
-      printf 'claude\n'
-      ;;
-    4|b|both|all)
-      printf 'both\n'
-      ;;
-    *)
-      die "unknown $error_context selection: $reply"
-      ;;
-  esac
+  normalized_reply="$(normalize_choice "$reply")"
+  normalized_reply="${normalized_reply//,/ }"
+
+  if [ -z "$normalized_reply" ]; then
+    printf 'none\n'
+    return 0
+  fi
+
+  for token in $normalized_reply; do
+    case "$token" in
+      ""|1|n|no|none)
+        if [ "${#selected[@]}" -gt 0 ] || [ "$select_all" -eq 1 ]; then
+          die "cannot combine none with other $error_context selections"
+        fi
+        printf 'none\n'
+        return 0
+        ;;
+      all|a|both)
+        select_all=1
+        continue
+        ;;
+    esac
+
+    if [ "$token" = "$all_ordinal" ]; then
+      select_all=1
+      continue
+    fi
+
+    matched=0
+    ordinal=2
+    for entry in ${entries[@]+"${entries[@]}"}; do
+      IFS='|' read -r key label aliases <<< "$entry"
+      if [ "$token" = "$ordinal" ] || [ "$token" = "$key" ]; then
+        if ! array_contains "$key" ${selected[@]+"${selected[@]}"}; then
+          selected+=("$key")
+        fi
+        matched=1
+        break
+      fi
+      for alias in $aliases; do
+        if [ "$token" = "$alias" ]; then
+          if ! array_contains "$key" ${selected[@]+"${selected[@]}"}; then
+            selected+=("$key")
+          fi
+          matched=1
+          break
+        fi
+      done
+      if [ "$matched" -eq 1 ]; then
+        break
+      fi
+      ordinal=$((ordinal + 1))
+    done
+    if [ "$matched" -eq 0 ]; then
+      die "unknown $error_context selection: $token"
+    fi
+  done
+
+  if [ "$select_all" -eq 1 ]; then
+    selected=()
+    for entry in ${entries[@]+"${entries[@]}"}; do
+      IFS='|' read -r key label aliases <<< "$entry"
+      selected+=("$key")
+    done
+  fi
+
+  if [ "${#selected[@]}" -eq 0 ]; then
+    printf 'none\n'
+  else
+    printf '%s\n' "${selected[*]}"
+  fi
 }
