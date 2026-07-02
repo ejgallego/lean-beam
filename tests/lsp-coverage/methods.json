@@ -79,7 +79,11 @@
         "invalid-range",
         "kind-filter",
         "runAt-composition",
+        "false-positive-filtering",
+        "semantic-items",
+        "incomplete-proof-suggestions",
         "diagnostics",
+        "interactive-only-diagnostics",
         "code-action",
         "standard-lsp-interference"
       ]
