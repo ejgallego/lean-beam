@@ -11,6 +11,53 @@ open BeamTest.LSP.Scenario
 
 namespace BeamTest.LSP.Handle.Api
 
+private def invalidParamsJson : Json :=
+  Json.mkObj [("code", toJson "invalidParams")]
+
+private def mintProofHandle (label : String) (doc : DocHandle) :
+    ScenarioM Beam.LSP.RunAt.Handle := do
+  let mintReq ← sendRunAt doc {
+    line := 1
+    character := 2
+    text := "change True"
+    storeHandle := true
+  }
+  let mint : Beam.LSP.RunAt.Result ← awaitResponseAs mintReq
+  unless mint.success do
+    throw <| IO.userError s!"{label}: expected handle-minting runAt to succeed"
+  let some handle := mint.handle?
+    | throw <| IO.userError s!"{label}: expected stored handle"
+  pure handle
+
+def checkRunWithContinuation : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+  syncDoc doc
+  let handle ← mintProofHandle "runWith continuation" doc
+
+  let continueReq ← runWithHandle doc handle { text := "exact trivial" }
+  let continued : Beam.LSP.RunAt.Result ← awaitResponseAs continueReq
+  unless continued.success do
+    throw <| IO.userError "runWith continuation: expected successor to succeed"
+  let some proofState := continued.proofState?
+    | throw <| IO.userError "runWith continuation: expected proofState"
+  unless proofState.goals.isEmpty do
+    throw <| IO.userError
+      s!"runWith continuation: expected solved proof state, got {(toJson proofState).compress}"
+
+  closeDoc doc
+
+def checkReleaseHandleRejectsReleasedHandle : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+  syncDoc doc
+  let handle ← mintProofHandle "releaseHandle" doc
+
+  releaseHandle doc handle
+
+  let rejectedReq ← runWithHandle doc handle { text := "exact trivial" }
+  expectErrorContains rejectedReq invalidParamsJson
+
+  closeDoc doc
+
 def checkRunWithFailureDoesNotStoreHandle : ScenarioM Unit := do
   let cmd ← openDoc "tests/scenario/docs/CommandA.lean"
 
@@ -34,6 +81,8 @@ def checkRunWithFailureDoesNotStoreHandle : ScenarioM Unit := do
   closeDoc cmd
 
 def run : ScenarioM Unit := do
+  checkRunWithContinuation
+  checkReleaseHandleRejectsReleasedHandle
   checkRunWithFailureDoesNotStoreHandle
 
 end BeamTest.LSP.Handle.Api
