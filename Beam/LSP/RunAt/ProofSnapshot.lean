@@ -68,7 +68,10 @@ def create (ctx : Elab.ContextInfo) (goals : List MVarId) (types : List Expr := 
       termState := {}
       termContext := {}
       tacticState := { goals }
-      tacticContext := { elaborator := .anonymous }
+      -- Editor-style tactic recovery is useful for collecting later diagnostics, but an isolated
+      -- runAt probe should report the direct tactic failure. With recovery enabled, term
+      -- elaboration errors can become synthetic sorries and later surface only as `abortTactic`.
+      tacticContext := { elaborator := .anonymous, recover := false }
     }
 
 def ppGoals (p : ProofSnapshot) : IO (List Format) :=

@@ -114,10 +114,32 @@ def checkRunWithFailureDoesNotStoreHandle : ScenarioM Unit := do
 
   closeDoc cmd
 
+def checkRunAtHandleTermAscriptionFailure : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/TermAscriptionProof.lean"
+
+  let req ← sendRunAt doc {
+    line := 2
+    character := 2
+    text := "have htest := (Nat.succ : Nat)"
+    storeHandle := true
+  }
+  let result : Beam.LSP.RunAt.Result ← awaitResponseAs (α := Beam.LSP.RunAt.Result) req
+  if result.success then
+    throw <| IO.userError s!"expected runAt-handle semantic failure, got {(toJson result).compress}"
+  if result.handle?.isSome then
+    throw <| IO.userError "did not expect handle on failed term-ascription probe"
+  unless result.messages.any (fun msg =>
+      msg.severity == MessageSeverity.error && msg.text.contains "Type mismatch") do
+    throw <| IO.userError
+      s!"expected type mismatch diagnostic for term-ascription probe, got {(toJson result).compress}"
+
+  closeDoc doc
+
 def run : ScenarioM Unit := do
   checkRunWithContinuation
   checkReleaseHandleRejectsReleasedHandle
   checkRunWithLinearHandle
   checkRunWithFailureDoesNotStoreHandle
+  checkRunAtHandleTermAscriptionFailure
 
 end BeamTest.LSP.Handle.Api

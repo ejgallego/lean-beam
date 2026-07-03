@@ -106,7 +106,7 @@ Current frozen response semantics:
 - command-mode top-level command sequences fail here with a `runAtSupportsOneCommandOnly` message
 - no backend tag is exposed in the public payload
 - no extra status enum is exposed beyond `success`
-- `handle?` is present only when the request asked the server to retain follow-up state
+- `handle?` is present only when requested and execution produced reusable follow-up state
 - `proofState?` is present only for proof-oriented execution
 - proof goals are structured into target, hypotheses, and optional case name
 - solved proof states use `proofState.goals = #[]`
@@ -348,6 +348,64 @@ def proofStateOfSnapshot (snapshot : ProofSnapshot) : RequestM ProofState := do
   let (proofState, _) ← snapshot.runMetaM <| proofStateOfGoalList snapshot.tacticState.goals
   return proofState
 
+private inductive TacticSnapshotDisposition where
+  | keepAdvanced
+  | restoreInitial
+
+private def TacticSnapshotDisposition.proofState
+    (disposition : TacticSnapshotDisposition)
+    (initialProofState : ProofState)
+    (advancedSnapshot : ProofSnapshot) : RequestM ProofState := do
+  match disposition with
+  | .keepAdvanced =>
+      proofStateOfSnapshot advancedSnapshot
+  | .restoreInitial =>
+      pure initialProofState
+
+private def TacticSnapshotDisposition.nextHandleState?
+    (disposition : TacticSnapshotDisposition)
+    (result : Result)
+    (advancedSnapshot : ProofSnapshot) : Option StoredHandleState :=
+  match disposition with
+  | .keepAdvanced =>
+      if result.success then
+        some <| StoredHandleState.proof advancedSnapshot
+      else
+        none
+  | .restoreInitial =>
+      none
+
+private structure TacticExecutionOutcome where
+  disposition : TacticSnapshotDisposition
+  error? : Option String
+  messages : List Lean.Message
+  traces : List TraceElem
+
+private def collectNewTacticArtifacts
+    (initialMsgCount : Nat)
+    (initialTraceCount : Nat) : Elab.Tactic.TacticM (List Lean.Message × List TraceElem) := do
+  let messages := (← Core.getMessageLog).toList.drop initialMsgCount
+  let traces := (← getTraces).toList.drop initialTraceCount
+  pure (messages, traces)
+
+private def classifyTacticException
+    (ex : Exception)
+    (messages : List Lean.Message) : Elab.Tactic.TacticM (Option String) := do
+  if ex.isInterrupt then
+    throw ex
+  match ex with
+  | .internal id _ =>
+      if id != abortTacticExceptionId then
+        throw ex
+      -- `abortTactic` is Lean's tactic-control exception for a failed tactic. If diagnostics were
+      -- already emitted, those are the user-level error; otherwise retain a fallback message.
+      if messages.any (·.severity == .error) then
+        pure none
+      else
+        pure (some "tactic aborted without diagnostics")
+  | _ =>
+      pure (some (← ex.toMessageData.toString))
+
 def runTacticText (snapshot : ProofSnapshot) (initialProofState : ProofState) (text : String) :
     RequestM (Result × Option StoredHandleState) := do
   checkRequestCancelled
@@ -357,41 +415,31 @@ def runTacticText (snapshot : ProofSnapshot) (initialProofState : ProofState) (t
       match Parser.runParserCategory snapshot.coreState.env `tactic text "<runAt>" with
       | .ok stx => pure stx
       | .error err => return (errorResult err (some initialProofState), none)
-    let (output, ((error?, newMessages, newTraces), proofSnapshot')) ←
+    let (output, (outcome, proofSnapshot')) ←
       try
         IO.FS.withIsolatedStreams do
-          let run := snapshot.runTacticM do
+          let run : IO (TacticExecutionOutcome × ProofSnapshot) := snapshot.runTacticM do
             let saved ← Elab.Tactic.saveState
             let initialMsgCount := (← Core.getMessageLog).toList.length
             let initialTraceCount := (← getTraces).size
-            let error? ← try
+            try
               Elab.Tactic.evalTactic stx
-              pure none
+              let (messages, traces) ← collectNewTacticArtifacts initialMsgCount initialTraceCount
+              return { disposition := .keepAdvanced, error? := none, messages, traces }
             catch ex =>
-              if ex.isInterrupt then
-                throw ex
+              let (messages, traces) ← collectNewTacticArtifacts initialMsgCount initialTraceCount
+              let error? ← classifyTacticException ex messages
               saved.restore (restoreInfo := true)
-              pure (some (← ex.toMessageData.toString))
-            let messages := (← Core.getMessageLog).toList.drop initialMsgCount
-            let traces := (← getTraces).toList.drop initialTraceCount
-            return ((error?, messages, traces))
+              return { disposition := .restoreInitial, error?, messages, traces }
           run
       catch ex =>
         checkRequestCancelled
         throw ex
-    let artifacts ← mkExecutionArtifacts output newMessages newTraces
+    let artifacts ← mkExecutionArtifacts output outcome.messages outcome.traces
     checkRequestCancelled
-    let proofState ←
-      if error?.isSome then
-        pure initialProofState
-      else
-        proofStateOfSnapshot proofSnapshot'
-    let result := mkExecutionResult error? artifacts (proofState? := some proofState)
-    let nextHandle? :=
-      if result.success then
-        some <| StoredHandleState.proof proofSnapshot'
-      else
-        none
+    let proofState ← outcome.disposition.proofState initialProofState proofSnapshot'
+    let result := mkExecutionResult outcome.error? artifacts (proofState? := some proofState)
+    let nextHandle? := outcome.disposition.nextHandleState? result proofSnapshot'
     return (result, nextHandle?)
 
 def runTacticAtBasis (basis : GoalsAtResult) (text : String) :

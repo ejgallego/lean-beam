@@ -1,0 +1,16 @@
+{"textDocument":
+ {"version": 1,
+  "uri": "file:///tests/interactive/proofTermAscriptionError.lean"},
+ "text": "have htest := (Nat.succ : Nat)",
+ "position": {"line": 3, "character": 2}}
+{"traces": [],
+ "success": false,
+ "proofState":
+ {"goals":
+  [{"target": "x = x",
+    "hyps": [{"type": "Nat", "names": ["x"]}],
+    "goalPrefix": "⊢ "}]},
+ "messages":
+ [{"text":
+   "Type mismatch\n  Nat.succ\nhas type\n  Nat → Nat\nbut is expected to have type\n  Nat",
+   "severity": "error"}]}
