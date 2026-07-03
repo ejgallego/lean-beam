@@ -14,6 +14,14 @@ namespace BeamTest.LSP.Handle.Api
 private def invalidParamsJson : Json :=
   Json.mkObj [("code", toJson "invalidParams")]
 
+private def requireStoredHandle (label : String) (result : Beam.LSP.RunAt.Result) :
+    ScenarioM Beam.LSP.RunAt.Handle := do
+  unless result.success do
+    throw <| IO.userError s!"{label}: expected handle-minting request to succeed"
+  let some handle := result.handle?
+    | throw <| IO.userError s!"{label}: expected stored handle"
+  pure handle
+
 private def mintProofHandle (label : String) (doc : DocHandle) :
     ScenarioM Beam.LSP.RunAt.Handle := do
   let mintReq ← sendRunAt doc {
@@ -23,11 +31,7 @@ private def mintProofHandle (label : String) (doc : DocHandle) :
     storeHandle := true
   }
   let mint : Beam.LSP.RunAt.Result ← awaitResponseAs mintReq
-  unless mint.success do
-    throw <| IO.userError s!"{label}: expected handle-minting runAt to succeed"
-  let some handle := mint.handle?
-    | throw <| IO.userError s!"{label}: expected stored handle"
-  pure handle
+  requireStoredHandle label mint
 
 def checkRunWithContinuation : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
@@ -58,14 +62,44 @@ def checkReleaseHandleRejectsReleasedHandle : ScenarioM Unit := do
 
   closeDoc doc
 
+def checkRunWithLinearHandle : ScenarioM Unit := do
+  let cmd ← openDoc "tests/scenario/docs/CommandA.lean"
+
+  let mintReq ← sendRunAt cmd {
+    line := 0
+    character := 2
+    text := "def tempLinear : Nat := 5"
+    storeHandle := true
+  }
+  let mint : Beam.LSP.RunAt.Result ← awaitResponseAs mintReq
+  let handle ← requireStoredHandle "runWith linear initial handle" mint
+
+  let nextReq ← runWithHandle cmd handle {
+    text := "def tempLinearNext : Nat := tempLinear"
+    storeHandle := true
+    linear := true
+  }
+  let next : Beam.LSP.RunAt.Result ← awaitResponseAs nextReq
+  let nextHandle ← requireStoredHandle "runWith linear successor handle" next
+
+  let oldReq ← runWithHandle cmd handle { text := "#check tempLinear" }
+  expectErrorContains oldReq invalidParamsJson
+
+  let newReq ← runWithHandle cmd nextHandle { text := "#check tempLinearNext" }
+  let newResult : Beam.LSP.RunAt.Result ← awaitResponseAs newReq
+  unless newResult.success do
+    throw <| IO.userError
+      s!"runWith linear successor: expected new handle to succeed, got {(toJson newResult).compress}"
+
+  closeDoc cmd
+
 def checkRunWithFailureDoesNotStoreHandle : ScenarioM Unit := do
   let cmd ← openDoc "tests/scenario/docs/CommandA.lean"
 
   -- The scenario DSL cannot currently assert that a failed request did *not* return a handle.
   let mintReq ← sendRunAt cmd { line := 0, character := 2, text := "def tempNoHandle : Nat := 9", storeHandle := true }
   let mint : Beam.LSP.RunAt.Result ← awaitResponseAs (α := Beam.LSP.RunAt.Result) mintReq
-  let some handle := mint.handle?
-    | throw <| IO.userError "expected command handle"
+  let handle ← requireStoredHandle "failed successor no-handle initial handle" mint
 
   let failureReq ← runWithHandle cmd handle {
     text := "#check MissingNameAgain"
@@ -83,6 +117,7 @@ def checkRunWithFailureDoesNotStoreHandle : ScenarioM Unit := do
 def run : ScenarioM Unit := do
   checkRunWithContinuation
   checkReleaseHandleRejectsReleasedHandle
+  checkRunWithLinearHandle
   checkRunWithFailureDoesNotStoreHandle
 
 end BeamTest.LSP.Handle.Api
