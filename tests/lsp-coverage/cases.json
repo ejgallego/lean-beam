@@ -58,7 +58,7 @@
       "id": "runAt.cancellation",
       "method": "$/lean/runAt",
       "coverage": ["cancellation"],
-      "pointer": "tests/scenario/cancelPending.scn"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtCancellation"
     },
     {
       "id": "runAt.standard-lsp-interference",
