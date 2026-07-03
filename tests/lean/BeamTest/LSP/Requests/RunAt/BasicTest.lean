@@ -17,6 +17,9 @@ namespace BeamTest.LSP.Requests.RunAt.BasicTest
 private def invalidParamsJson : Json :=
   Json.mkObj [("code", toJson "invalidParams")]
 
+private def requestCancelledJson : Json :=
+  Json.mkObj [("code", toJson "requestCancelled")]
+
 def checkRunAtOneCommandOnly : ScenarioM Unit := do
   let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
   syncDoc doc
@@ -98,6 +101,26 @@ def checkRunAtStaleEditConcurrentRequest : ScenarioM Unit := do
   closeDoc staleDoc
   closeDoc survivorDoc
 
+def checkRunAtCancellation : ScenarioM Unit := do
+  let slowDoc ← openDoc "tests/scenario/docs/SlowClose.lean"
+  let fastDoc ← openDoc "tests/scenario/docs/CommandB.lean"
+
+  let slowReq ← sendRunAt slowDoc { line := 8, character := 2, text := "exact trivial" }
+  let fastReq ← sendRunAt fastDoc { line := 0, character := 2, text := "#check Nat" }
+
+  cancelReq slowReq
+
+  let fastResult ← requireRunAtResponseSuccess "runAt cancellation survivor" fastReq
+  unless fastResult.messages.any (fun msg =>
+      msg.severity == MessageSeverity.information && msg.text.contains "Nat : Type") do
+    throw <| IO.userError
+      s!"runAt cancellation survivor: expected Nat information message, got {(toJson fastResult).compress}"
+
+  expectErrorContains slowReq requestCancelledJson
+
+  closeDoc slowDoc
+  closeDoc fastDoc
+
 def checkRunAtWithStandardLspInterference : ScenarioM Unit := do
   let runAtDoc ← openDoc "tests/scenario/docs/SimpleProof.lean"
   let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
@@ -119,6 +142,7 @@ def run : ScenarioM Unit := do
   checkRunAtStaleEdit
   checkRunAtStaleVersion
   checkRunAtStaleEditConcurrentRequest
+  checkRunAtCancellation
   checkRunAtWithStandardLspInterference
 
 end BeamTest.LSP.Requests.RunAt.BasicTest
