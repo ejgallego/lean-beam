@@ -28,13 +28,13 @@
       "id": "runAt.invalid-position-line",
       "method": "$/lean/runAt",
       "coverage": ["invalid-position"],
-      "pointer": "tests/scenario/outOfRangeLine.scn"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtInvalidPositionLine"
     },
     {
       "id": "runAt.invalid-position-character",
       "method": "$/lean/runAt",
       "coverage": ["invalid-position"],
-      "pointer": "tests/scenario/outOfRangeCharacter.scn"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtInvalidPositionCharacter"
     },
     {
       "id": "runAt.stale-edit",

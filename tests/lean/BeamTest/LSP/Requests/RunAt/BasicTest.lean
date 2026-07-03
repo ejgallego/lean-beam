@@ -14,6 +14,9 @@ open BeamTest.LSP.Requests.Support
 
 namespace BeamTest.LSP.Requests.RunAt.BasicTest
 
+private def invalidParamsJson : Json :=
+  Json.mkObj [("code", toJson "invalidParams")]
+
 def checkRunAtOneCommandOnly : ScenarioM Unit := do
   let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
   syncDoc doc
@@ -36,6 +39,24 @@ def checkRunAtTheoremTacticFailure : ScenarioM Unit := do
   requireRunAtFailureMessage "runAt theorem tactic failure" doc { line := 7, character := 0 }
     "theorem runAtTacticFailureProbe : True := by\n  runat_fail_tac"
     "runAt custom tactic failure"
+  closeDoc doc
+
+def checkRunAtInvalidPositionLine : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/CommandA.lean"
+
+  let req ← sendRunAt doc { line := 99, character := 0, text := "#check Nat" }
+
+  expectErrorContains req invalidParamsJson
+
+  closeDoc doc
+
+def checkRunAtInvalidPositionCharacter : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/CommandA.lean"
+
+  let req ← sendRunAt doc { line := 0, character := 200, text := "#check Nat" }
+
+  expectErrorContains req invalidParamsJson
+
   closeDoc doc
 
 def checkRunAtStaleVersion : ScenarioM Unit := do
@@ -83,6 +104,8 @@ def run : ScenarioM Unit := do
   checkRunAtOneCommandOnly
   checkRunAtTheoremProofFailure
   checkRunAtTheoremTacticFailure
+  checkRunAtInvalidPositionLine
+  checkRunAtInvalidPositionCharacter
   checkRunAtStaleVersion
   checkRunAtStaleEditConcurrentRequest
   checkRunAtWithStandardLspInterference
