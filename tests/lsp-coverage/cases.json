@@ -40,7 +40,7 @@
       "id": "runAt.stale-edit",
       "method": "$/lean/runAt",
       "coverage": ["stale-edit"],
-      "pointer": "tests/scenario/changePending.scn"
+      "pointer": "tests/lean/BeamTest/LSP/Requests/RunAt/BasicTest.lean#checkRunAtStaleEdit"
     },
     {
       "id": "runAt.stale-version",

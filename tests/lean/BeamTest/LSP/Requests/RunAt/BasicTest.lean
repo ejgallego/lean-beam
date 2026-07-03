@@ -59,6 +59,16 @@ def checkRunAtInvalidPositionCharacter : ScenarioM Unit := do
 
   closeDoc doc
 
+def checkRunAtStaleEdit : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+
+  let staleReq ← sendRunAt doc { line := 1, character := 2, text := "exact trivial" }
+  invalidateWithWhitespacePrefixEdit doc
+
+  expectContentModified staleReq
+
+  closeDoc doc
+
 def checkRunAtStaleVersion : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
   syncDoc doc
@@ -106,6 +116,7 @@ def run : ScenarioM Unit := do
   checkRunAtTheoremTacticFailure
   checkRunAtInvalidPositionLine
   checkRunAtInvalidPositionCharacter
+  checkRunAtStaleEdit
   checkRunAtStaleVersion
   checkRunAtStaleEditConcurrentRequest
   checkRunAtWithStandardLspInterference
