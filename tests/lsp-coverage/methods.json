@@ -29,7 +29,8 @@
         "linear-handle",
         "failed-successor-no-handle",
         "document-edit-invalidation",
-        "document-close-invalidation"
+        "document-close-invalidation",
+        "standard-lsp-interference"
       ]
     },
     {
