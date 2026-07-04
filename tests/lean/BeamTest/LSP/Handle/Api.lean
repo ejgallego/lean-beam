@@ -24,21 +24,29 @@ private def requireStoredHandle (label : String) (result : Beam.LSP.RunAt.Result
     | throw <| IO.userError s!"{label}: expected stored handle"
   pure handle
 
-private def mintProofHandle (label : String) (doc : DocHandle) :
+private def mintProofHandleAt (label : String) (doc : DocHandle) (line character : Nat) :
     ScenarioM Beam.LSP.RunAt.Handle := do
   let mintReq ← sendRunAt doc {
-    line := 1
-    character := 2
+    line
+    character
     text := "change True"
     storeHandle := true
   }
   let mint : Beam.LSP.RunAt.Result ← awaitResponseAs mintReq
   requireStoredHandle label mint
 
-private def requireSolvedProofState (label : String) (result : Beam.LSP.RunAt.Result) :
+private def mintProofHandle (label : String) (doc : DocHandle) :
+    ScenarioM Beam.LSP.RunAt.Handle :=
+  mintProofHandleAt label doc 1 2
+
+private def requireSuccessResult (label : String) (result : Beam.LSP.RunAt.Result) :
     ScenarioM Unit := do
   unless result.success do
-    throw <| IO.userError s!"{label}: expected successor to succeed, got {(toJson result).compress}"
+    throw <| IO.userError s!"{label}: expected request to succeed, got {(toJson result).compress}"
+
+private def requireSolvedProofState (label : String) (result : Beam.LSP.RunAt.Result) :
+    ScenarioM Unit := do
+  requireSuccessResult label result
   let some proofState := result.proofState?
     | throw <| IO.userError s!"{label}: expected proofState"
   unless proofState.goals.isEmpty do
@@ -69,6 +77,48 @@ def checkRunWithWithStandardLspInterference : ScenarioM Unit := do
   requireSolvedProofState "runWith with LSP interference" continued
 
   closeDoc runWithDoc
+  closeDoc editDoc
+
+def checkRunWithMixedConcurrency : ScenarioM Unit := do
+  let proofDoc ← openDoc "tests/scenario/docs/RunWithMixedConcurrencyProof.lean"
+  let cmdDoc ← openDoc "tests/scenario/docs/CommandA.lean"
+  let runAtDoc ← openDoc "tests/scenario/docs/CommandB.lean"
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+  syncDoc proofDoc
+  syncDoc cmdDoc
+  let proofHandle ← mintProofHandleAt "runWith mixed concurrency proof handle" proofDoc 9 2
+
+  let cmdMintReq ← sendRunAt cmdDoc {
+    line := 0
+    character := 2
+    text := "def tempMixedConcurrency : Nat := 11"
+    storeHandle := true
+  }
+  let cmdMint : Beam.LSP.RunAt.Result ← awaitResponseAs cmdMintReq
+  let cmdHandle ← requireStoredHandle "runWith mixed concurrency command handle" cmdMint
+
+  let proofReqs ← (List.range 3).mapM fun _ =>
+    runWithHandle proofDoc proofHandle { text := "mixed_sleep_exact" }
+  let cmdReqs ← (List.range 8).mapM fun _ =>
+    runWithHandle cmdDoc cmdHandle { text := "#check tempMixedConcurrency" }
+  let runAtReqs ← (List.range 6).mapM fun _ =>
+    sendRunAt runAtDoc { line := 0, character := 2, text := "#check Nat" }
+
+  syncWhitespacePrefixEdit editDoc
+
+  for req in proofReqs do
+    let result : Beam.LSP.RunAt.Result ← awaitResponseAs req
+    requireSolvedProofState "runWith mixed concurrency proof successor" result
+  for req in cmdReqs do
+    let result : Beam.LSP.RunAt.Result ← awaitResponseAs req
+    requireSuccessResult "runWith mixed concurrency command successor" result
+  for req in runAtReqs do
+    let result : Beam.LSP.RunAt.Result ← awaitResponseAs req
+    requireSuccessResult "runWith mixed concurrency runAt survivor" result
+
+  closeDoc proofDoc
+  closeDoc cmdDoc
+  closeDoc runAtDoc
   closeDoc editDoc
 
 def checkReleaseHandleRejectsReleasedHandle : ScenarioM Unit := do
@@ -186,6 +236,7 @@ def checkRunAtHandleTermAscriptionFailure : ScenarioM Unit := do
 def run : ScenarioM Unit := do
   checkRunWithContinuation
   checkRunWithWithStandardLspInterference
+  checkRunWithMixedConcurrency
   checkReleaseHandleRejectsReleasedHandle
   checkRunWithLinearHandle
   checkRunWithFailedLinearInvalidatesHandle
