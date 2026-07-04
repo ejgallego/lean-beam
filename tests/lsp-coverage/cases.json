@@ -145,6 +145,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsAfterInvalidPosition"
     },
     {
+      "id": "goalsAfter.invalid-character",
+      "method": "$/lean/goalsAfter",
+      "coverage": ["invalid-position"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsAfterInvalidCharacter"
+    },
+    {
       "id": "goalsAfter.stale-version",
       "method": "$/lean/goalsAfter",
       "coverage": ["stale-version"],
@@ -173,6 +179,12 @@
       "method": "$/lean/goalsPrev",
       "coverage": ["invalid-position"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsPrevInvalidPosition"
+    },
+    {
+      "id": "goalsPrev.invalid-character",
+      "method": "$/lean/goalsPrev",
+      "coverage": ["invalid-position"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsPrevInvalidCharacter"
     },
     {
       "id": "goalsPrev.stale-version",

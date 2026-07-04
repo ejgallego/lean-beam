@@ -58,10 +58,28 @@ def checkGoalsPrevInvalidPosition : ScenarioM Unit := do
 
   closeDoc doc
 
+def checkGoalsPrevInvalidCharacter : ScenarioM Unit := do
+  let doc ← openDoc goalFixture
+
+  let goalsPrevReq ← sendGoals doc { line := 1, character := 200, useAfter := false }
+
+  expectErrorContains goalsPrevReq invalidParamsJson
+
+  closeDoc doc
+
 def checkGoalsAfterInvalidPosition : ScenarioM Unit := do
   let doc ← openDoc goalFixture
 
   let goalsAfterReq ← sendGoals doc { line := 99, character := 0, useAfter := true }
+
+  expectErrorContains goalsAfterReq invalidParamsJson
+
+  closeDoc doc
+
+def checkGoalsAfterInvalidCharacter : ScenarioM Unit := do
+  let doc ← openDoc goalFixture
+
+  let goalsAfterReq ← sendGoals doc { line := 1, character := 200, useAfter := true }
 
   expectErrorContains goalsAfterReq invalidParamsJson
 
@@ -150,7 +168,9 @@ def run : ScenarioM Unit := do
   checkGoalsPrev
   checkGoalsAfter
   checkGoalsPrevInvalidPosition
+  checkGoalsPrevInvalidCharacter
   checkGoalsAfterInvalidPosition
+  checkGoalsAfterInvalidCharacter
   checkGoalsPrevStaleVersion
   checkGoalsAfterStaleVersion
   checkGoalsPrevWithStandardLspInterference
