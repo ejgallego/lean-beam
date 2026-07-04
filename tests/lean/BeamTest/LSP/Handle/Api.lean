@@ -93,6 +93,33 @@ def checkRunWithLinearHandle : ScenarioM Unit := do
 
   closeDoc cmd
 
+def checkRunWithFailedLinearInvalidatesHandle : ScenarioM Unit := do
+  let cmd ← openDoc "tests/scenario/docs/CommandA.lean"
+
+  let mintReq ← sendRunAt cmd {
+    line := 0
+    character := 2
+    text := "def tempInvalidated : Nat := 9"
+    storeHandle := true
+  }
+  let mint : Beam.LSP.RunAt.Result ← awaitResponseAs mintReq
+  let handle ← requireStoredHandle "runWith failed-linear invalidation initial handle" mint
+
+  let failureReq ← runWithHandle cmd handle {
+    text := "#check MissingNameInvalidation"
+    linear := true
+  }
+  let failure : Beam.LSP.RunAt.Result ← awaitResponseAs failureReq
+  if failure.success then
+    throw <| IO.userError "expected semantic failure for failed-linear invalidation test"
+  if failure.handle?.isSome then
+    throw <| IO.userError "did not expect successor handle after failed-linear invalidation"
+
+  let oldReq ← runWithHandle cmd handle { text := "#check tempInvalidated" }
+  expectErrorContains oldReq invalidParamsJson
+
+  closeDoc cmd
+
 def checkRunWithFailureDoesNotStoreHandle : ScenarioM Unit := do
   let cmd ← openDoc "tests/scenario/docs/CommandA.lean"
 
@@ -139,6 +166,7 @@ def run : ScenarioM Unit := do
   checkRunWithContinuation
   checkReleaseHandleRejectsReleasedHandle
   checkRunWithLinearHandle
+  checkRunWithFailedLinearInvalidatesHandle
   checkRunWithFailureDoesNotStoreHandle
   checkRunAtHandleTermAscriptionFailure
 
