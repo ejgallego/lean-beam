@@ -506,14 +506,20 @@ def sendDirectImports (doc : DocHandle) (spec : DirectImportsSpec := {}) : Scena
   let requestID ← sendRequest Beam.LSP.DirectImports.method (toJson params)
   registerRequest requestID (toJson params)
 
-def releaseHandle (doc : DocHandle) (handle : Beam.LSP.RunAt.Handle) : ScenarioM Unit := do
+def sendReleaseHandle (doc : DocHandle) (handle : Beam.LSP.RunAt.Handle) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
   let params : Beam.LSP.RunAt.ReleaseHandleParams := {
     textDocument := { uri := docState.uri }
     handle
   }
   let requestID ← sendRequest Beam.LSP.RunAt.releaseHandleMethod (toJson params)
-  let outcome ← waitForRequestOutcome requestID
+  registerRequest requestID (toJson params)
+
+def releaseHandle (doc : DocHandle) (handle : Beam.LSP.RunAt.Handle) : ScenarioM Unit := do
+  let req ← sendReleaseHandle doc handle
+  let reqState ← getReqState req
+  let outcome ← waitForRequestOutcome reqState.requestID
+  setReqState req { reqState with outcome? := some outcome }
   if outcome.errorCode?.isSome then
     let code := outcome.errorCode?.getD "unknown"
     throw <| IO.userError s!"releaseHandle failed with {code}: {outcome.errorMessage}"
