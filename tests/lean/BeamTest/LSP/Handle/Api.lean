@@ -121,7 +121,19 @@ def checkRunWithMixedConcurrency : ScenarioM Unit := do
   closeDoc runAtDoc
   closeDoc editDoc
 
-def checkReleaseHandleRejectsReleasedHandle : ScenarioM Unit := do
+def checkReleaseHandleRejectsSecondRelease : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+  syncDoc doc
+  let handle ← mintProofHandle "releaseHandle second release" doc
+
+  releaseHandle doc handle
+
+  let rejectedReq ← sendReleaseHandle doc handle
+  expectErrorContains rejectedReq invalidParamsJson
+
+  closeDoc doc
+
+def checkRunWithRejectsReleasedHandle : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
   syncDoc doc
   let handle ← mintProofHandle "releaseHandle" doc
@@ -237,7 +249,8 @@ def run : ScenarioM Unit := do
   checkRunWithContinuation
   checkRunWithWithStandardLspInterference
   checkRunWithMixedConcurrency
-  checkReleaseHandleRejectsReleasedHandle
+  checkReleaseHandleRejectsSecondRelease
+  checkRunWithRejectsReleasedHandle
   checkRunWithLinearHandle
   checkRunWithFailedLinearInvalidatesHandle
   checkRunWithFailureDoesNotStoreHandle

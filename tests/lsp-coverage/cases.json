@@ -124,13 +124,13 @@
       "id": "releaseHandle.release",
       "method": "$/lean/releaseHandle",
       "coverage": ["handle-release"],
-      "pointer": "tests/lean/BeamTest/LSP/Handle/Api.lean#checkReleaseHandleRejectsReleasedHandle"
+      "pointer": "tests/lean/BeamTest/LSP/Handle/Api.lean#checkReleaseHandleRejectsSecondRelease"
     },
     {
       "id": "releaseHandle.released-handle-rejected",
       "method": "$/lean/releaseHandle",
       "coverage": ["released-handle-rejected"],
-      "pointer": "tests/lean/BeamTest/LSP/Handle/Api.lean#checkReleaseHandleRejectsReleasedHandle"
+      "pointer": "tests/lean/BeamTest/LSP/Handle/Api.lean#checkReleaseHandleRejectsSecondRelease"
     },
     {
       "id": "goalsAfter.basic",
