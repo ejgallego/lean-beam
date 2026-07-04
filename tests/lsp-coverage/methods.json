@@ -116,6 +116,7 @@
         "stale-version",
         "stale-hash",
         "document-errors",
+        "reported-only-diagnostics",
         "standard-lsp-interference",
         "mixed-concurrency"
       ]
