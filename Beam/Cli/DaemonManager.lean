@@ -196,6 +196,54 @@ private def tailLines (text : String) (count : Nat := 20) : String :=
   let keep := min count lines.length
   String.intercalate "\n" <| lines.drop (lines.length - keep)
 
+private def appendMaybeSection (msg : String) : Option String → String
+  | none => msg
+  | some context => msg ++ "\n" ++ context
+
+private def optionLine (label : String) : Option String → Option String
+  | none => none
+  | some value => some s!"  {label}: {value}"
+
+private def registryEndpointSummary (entry : RegistryEntry) : String :=
+  match registryEndpoint? entry with
+  | some endpoint => endpointSummary endpoint
+  | none => "invalid"
+
+private def registryPidStatus (entry : RegistryEntry) : IO String := do
+  if entry.pid == 0 then
+    pure "unknown"
+  else
+    try
+      if ← pidAlive entry.pid then
+        pure "alive"
+      else
+        pure "not alive"
+    catch _ =>
+      pure "unavailable"
+
+private def daemonRegistryContext? (root : System.FilePath) : IO (Option String) := do
+  try
+    match ← readRegistry? root with
+    | none => pure none
+    | some entry =>
+        let path ← registryPath root
+        let pidStatus ← registryPidStatus entry
+        let lines := ([
+          s!"Beam daemon registry ({path}):",
+          s!"  daemonId: {entry.daemonId}",
+          s!"  pid: {entry.pid} ({pidStatus})",
+          s!"  endpoint: {registryEndpointSummary entry}",
+          s!"  startedAt: {entry.startedAt}",
+          s!"  configHash: {entry.configHash}",
+          s!"  root: {entry.root}"
+        ] ++
+          (optionLine "toolchain" entry.toolchain?).toList ++
+          (optionLine "bundleId" entry.bundleId?).toList ++
+          (optionLine "pidNamespace" entry.pidNamespace?).toList)
+        pure <| some <| String.intercalate "\n" lines
+  catch _ =>
+    pure none
+
 def daemonFailureMessage (root : System.FilePath) (detail : String) : IO String := do
   let shouldAppend :=
     detail.contains "Beam daemon connection closed" ||
@@ -203,15 +251,16 @@ def daemonFailureMessage (root : System.FilePath) (detail : String) : IO String 
   if !shouldAppend then
     pure detail
   else
+    let msg := appendMaybeSection detail (← daemonRegistryContext? root)
     let logPath ← daemonStartupLogPath root
     if ← logPath.pathExists then
       let logText := trimLine (← IO.FS.readFile logPath)
       if logText.isEmpty then
-        pure detail
+        pure msg
       else
-        pure <| detail ++ s!"\nBeam daemon log tail ({logPath}):\n{tailLines logText}"
+        pure <| msg ++ s!"\nBeam daemon log tail ({logPath}):\n{tailLines logText}"
     else
-      pure detail
+      pure msg
 
 private def startupFailureMessage (endpoint : Transport.Endpoint) (logPath : System.FilePath) (detail : String) :
     IO String := do
@@ -524,7 +573,8 @@ def lookupProjectDaemon (root : System.FilePath) : IO RegistryEntry := do
     match ← registryLiveFor root with
     | some entry => pure entry
     | none =>
+        let msg ← daemonFailureMessage root s!"no live Beam daemon registered for {root}"
         stopRegisteredDaemon root
-        throw <| IO.userError (← daemonFailureMessage root s!"no live Beam daemon registered for {root}")
+        throw <| IO.userError msg
 
 end Beam.Cli
