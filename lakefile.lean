@@ -88,6 +88,10 @@ lean_exe "beam-daemon-smoke-test" where
   srcDir := "tests/lean"
   root := `BeamTest.Broker.SmokeTestMain
 
+lean_exe "beam-sync-concurrency-test" where
+  srcDir := "tests/lean"
+  root := `BeamTest.Broker.SyncConcurrencyProbe
+
 lean_exe "beam-daemon-save-stream-test" where
   srcDir := "tests/lean"
   root := `BeamTest.Broker.SaveStreamTestMain
