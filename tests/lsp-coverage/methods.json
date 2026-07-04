@@ -30,7 +30,8 @@
         "failed-successor-no-handle",
         "document-edit-invalidation",
         "document-close-invalidation",
-        "standard-lsp-interference"
+        "standard-lsp-interference",
+        "mixed-concurrency"
       ]
     },
     {
