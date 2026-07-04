@@ -74,9 +74,5 @@ def create (ctx : Elab.ContextInfo) (goals : List MVarId) (types : List Expr := 
       tacticContext := { elaborator := .anonymous, recover := false }
     }
 
-def ppGoals (p : ProofSnapshot) : IO (List Format) :=
-  Prod.fst <$> p.runMetaM do
-    p.tacticState.goals.mapM Meta.ppGoal
-
 end ProofSnapshot
 end Beam.LSP.RunAt
