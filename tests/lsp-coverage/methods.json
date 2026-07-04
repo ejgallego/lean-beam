@@ -54,7 +54,8 @@
         "proof-state",
         "invalid-position",
         "stale-version",
-        "standard-lsp-interference"
+        "standard-lsp-interference",
+        "mixed-concurrency"
       ]
     },
     {
@@ -67,7 +68,8 @@
         "proof-state",
         "invalid-position",
         "stale-version",
-        "standard-lsp-interference"
+        "standard-lsp-interference",
+        "mixed-concurrency"
       ]
     },
     {

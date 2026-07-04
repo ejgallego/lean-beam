@@ -157,6 +157,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsAfterWithStandardLspInterference"
     },
     {
+      "id": "goalsAfter.mixed-concurrency",
+      "method": "$/lean/goalsAfter",
+      "coverage": ["mixed-concurrency"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsWithMixedConcurrency"
+    },
+    {
       "id": "goalsPrev.basic",
       "method": "$/lean/goalsPrev",
       "coverage": ["isolation", "proof-state"],
@@ -179,6 +185,12 @@
       "method": "$/lean/goalsPrev",
       "coverage": ["standard-lsp-interference"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsPrevWithStandardLspInterference"
+    },
+    {
+      "id": "goalsPrev.mixed-concurrency",
+      "method": "$/lean/goalsPrev",
+      "coverage": ["mixed-concurrency"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Goals/BasicTest.lean#checkGoalsWithMixedConcurrency"
     },
     {
       "id": "todo.basic-kinds-and-composition",

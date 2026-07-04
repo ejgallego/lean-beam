@@ -113,6 +113,39 @@ def checkGoalsAfterWithStandardLspInterference : ScenarioM Unit := do
   closeDoc goalsDoc
   closeDoc editDoc
 
+def checkGoalsWithMixedConcurrency : ScenarioM Unit := do
+  let goalsDoc ← openDoc goalFixture
+  let slowDoc ← openDoc "tests/scenario/docs/RunWithMixedConcurrencyProof.lean"
+  let cmdDoc ← openDoc "tests/scenario/docs/CommandB.lean"
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+
+  let slowReqs ← (List.range 3).mapM fun _ =>
+    sendRunAt slowDoc { line := 9, character := 2, text := "mixed_sleep_exact" }
+  let goalsPrevReqs ← (List.range 6).mapM fun _ =>
+    sendGoals goalsDoc { line := 1, character := 2, useAfter := false }
+  let goalsAfterReqs ← (List.range 6).mapM fun _ =>
+    sendGoals goalsDoc { line := 1, character := 2, useAfter := true }
+  let cmdReqs ← (List.range 6).mapM fun _ =>
+    sendRunAt cmdDoc { line := 0, character := 2, text := "#check Nat" }
+
+  syncWhitespacePrefixEdit editDoc
+
+  for req in goalsPrevReqs do
+    let goalsPrev : Beam.LSP.Lib.ProofState ← awaitResponseAs req
+    requireGoalsPrevState "goals prev mixed concurrency" goalsPrev
+  for req in goalsAfterReqs do
+    let goalsAfter : Beam.LSP.Lib.ProofState ← awaitResponseAs req
+    requireGoalsAfterSolved "goals after mixed concurrency" goalsAfter
+  for req in slowReqs do
+    discard <| requireRunAtResponseSuccess "goals mixed concurrency slow runAt" req
+  for req in cmdReqs do
+    discard <| requireRunAtResponseSuccess "goals mixed concurrency command runAt" req
+
+  closeDoc goalsDoc
+  closeDoc slowDoc
+  closeDoc cmdDoc
+  closeDoc editDoc
+
 def run : ScenarioM Unit := do
   checkGoalsPrev
   checkGoalsAfter
@@ -122,5 +155,6 @@ def run : ScenarioM Unit := do
   checkGoalsAfterStaleVersion
   checkGoalsPrevWithStandardLspInterference
   checkGoalsAfterWithStandardLspInterference
+  checkGoalsWithMixedConcurrency
 
 end BeamTest.LSP.Requests.Goals.BasicTest
