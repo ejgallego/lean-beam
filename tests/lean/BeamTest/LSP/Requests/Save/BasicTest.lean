@@ -174,6 +174,67 @@ def checkSaveRequestsWithStandardLspInterference : ScenarioM Unit := do
   closeDoc saveDoc
   closeDoc editDoc
 
+def checkSaveRequestsWithMixedConcurrency : ScenarioM Unit := do
+  let saveDoc ← openDoc depAFixture
+  let slowDoc ← openDoc "tests/scenario/docs/RunWithMixedConcurrencyProof.lean"
+  let goalsDoc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
+  let cmdDoc ← openDoc "tests/scenario/docs/CommandB.lean"
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+
+  let depAText ← IO.FS.readFile depAFixture
+  let outDir ← mkTmpDir "beam-save-mixed-concurrency"
+
+  let slowReqs ← (List.range 3).mapM fun _ =>
+    sendRunAt slowDoc { line := 9, character := 2, text := "mixed_sleep_exact" }
+  let readinessReqs ← (List.range 6).mapM fun _ =>
+    sendSaveReadiness saveDoc
+  let artifactReqs ← (List.range 2).mapM fun i => do
+    let artifactDir := outDir / s!"artifact-{i}"
+    let req ← sendSaveArtifacts saveDoc {
+      expectedVersionOverride? := some 1
+      expectedTextHashOverride? := some (hash depAText)
+      oleanFile := (artifactDir / "DepA.olean").toString
+      ileanFile := (artifactDir / "DepA.ilean").toString
+      cFile := (artifactDir / "DepA.c").toString
+    }
+    pure (artifactDir, req)
+  let goalsPrevReqs ← (List.range 3).mapM fun _ =>
+    sendGoals goalsDoc { line := 1, character := 2, useAfter := false }
+  let goalsAfterReqs ← (List.range 3).mapM fun _ =>
+    sendGoals goalsDoc { line := 1, character := 2, useAfter := true }
+  let cmdReqs ← (List.range 6).mapM fun _ =>
+    sendRunAt cmdDoc { line := 0, character := 2, text := "#check Nat" }
+
+  syncWhitespacePrefixEdit editDoc
+
+  for req in readinessReqs do
+    let readiness : Beam.LSP.Save.SaveReadinessResult ← awaitResponseAs req
+    requireCleanReadiness "saveReadiness mixed concurrency" readiness
+  for (artifactDir, req) in artifactReqs do
+    let saved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs req
+    requireSavedArtifacts "saveArtifacts mixed concurrency" artifactDir saved
+  for req in goalsPrevReqs do
+    let goalsPrev : Beam.LSP.Lib.ProofState ← awaitResponseAs req
+    if goalsPrev.goals.size != 1 then
+      throw <| IO.userError
+        s!"save mixed concurrency goalsPrev: expected one goal, got {goalsPrev.goals.size}"
+    requireSingleGoalTarget "save mixed concurrency goalsPrev" "True" goalsPrev
+  for req in goalsAfterReqs do
+    let goalsAfter : Beam.LSP.Lib.ProofState ← awaitResponseAs req
+    if goalsAfter.goals.size != 0 then
+      throw <| IO.userError
+        s!"save mixed concurrency goalsAfter: expected solved proof state, got {goalsAfter.goals.size} goals"
+  for req in slowReqs do
+    discard <| requireRunAtResponseSuccess "save mixed concurrency slow runAt" req
+  for req in cmdReqs do
+    discard <| requireRunAtResponseSuccess "save mixed concurrency command runAt" req
+
+  closeDoc saveDoc
+  closeDoc slowDoc
+  closeDoc goalsDoc
+  closeDoc cmdDoc
+  closeDoc editDoc
+
 def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/ReportedOnlyError.lean"
   syncDoc doc
@@ -198,6 +259,7 @@ def run : ScenarioM Unit := do
   checkSaveArtifactsWrite
   checkSaveReadinessDocumentErrors
   checkSaveRequestsWithStandardLspInterference
+  checkSaveRequestsWithMixedConcurrency
   checkReportedOnlyErrorReadiness
 
 end BeamTest.LSP.Requests.Save.BasicTest

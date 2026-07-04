@@ -102,7 +102,8 @@
         "isolation",
         "stale-version",
         "stale-hash",
-        "standard-lsp-interference"
+        "standard-lsp-interference",
+        "mixed-concurrency"
       ]
     },
     {
@@ -115,7 +116,8 @@
         "stale-version",
         "stale-hash",
         "document-errors",
-        "standard-lsp-interference"
+        "standard-lsp-interference",
+        "mixed-concurrency"
       ]
     },
     {

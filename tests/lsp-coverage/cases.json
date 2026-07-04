@@ -283,6 +283,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveRequestsWithStandardLspInterference"
     },
     {
+      "id": "saveArtifacts.mixed-concurrency",
+      "method": "$/beam/saveArtifacts",
+      "coverage": ["mixed-concurrency"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveRequestsWithMixedConcurrency"
+    },
+    {
       "id": "saveReadiness.basic",
       "method": "$/beam/saveReadiness",
       "coverage": ["isolation"],
@@ -311,6 +317,12 @@
       "method": "$/beam/saveReadiness",
       "coverage": ["standard-lsp-interference"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveRequestsWithStandardLspInterference"
+    },
+    {
+      "id": "saveReadiness.mixed-concurrency",
+      "method": "$/beam/saveReadiness",
+      "coverage": ["mixed-concurrency"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveRequestsWithMixedConcurrency"
     },
     {
       "id": "directImports.basic",
