@@ -253,6 +253,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoRequestWithStandardLspInterference"
     },
     {
+      "id": "todo.mixed-concurrency",
+      "method": "$/lean/todo",
+      "coverage": ["mixed-concurrency"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Todo/BasicTest.lean#checkTodoRequestWithMixedConcurrency"
+    },
+    {
       "id": "saveArtifacts.basic",
       "method": "$/beam/saveArtifacts",
       "coverage": ["isolation"],

@@ -168,6 +168,64 @@ def checkTodoRequestWithStandardLspInterference : ScenarioM Unit := do
   closeDoc todoDoc
   closeDoc editDoc
 
+def checkTodoRequestWithMixedConcurrency : ScenarioM Unit := do
+  let todoDoc ← openDoc BeamTest.Fixtures.TodoFixture.repoPath
+  let slowDoc ← openDoc "tests/scenario/docs/RunWithMixedConcurrencyProof.lean"
+  let goalsDoc ← openDoc "tests/save_olean_project/GoalSmoke.lean"
+  let cmdDoc ← openDoc "tests/scenario/docs/CommandB.lean"
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+  syncDoc todoDoc
+
+  let slowReqs ← (List.range 3).mapM fun _ =>
+    sendRunAt slowDoc { line := 9, character := 2, text := "mixed_sleep_exact" }
+  let todoReqs ← (List.range 4).mapM fun _ =>
+    sendTodo todoDoc {
+      startLine := BeamTest.Fixtures.TodoFixture.startLine
+      startCharacter := BeamTest.Fixtures.TodoFixture.startCharacter
+      endLine := BeamTest.Fixtures.TodoFixture.endLine
+      endCharacter := BeamTest.Fixtures.TodoFixture.endCharacter
+      suggest? := some .basic
+    }
+  let goalsPrevReqs ← (List.range 3).mapM fun _ =>
+    sendGoals goalsDoc { line := 1, character := 2, useAfter := false }
+  let goalsAfterReqs ← (List.range 3).mapM fun _ =>
+    sendGoals goalsDoc { line := 1, character := 2, useAfter := true }
+  let cmdReqs ← (List.range 6).mapM fun _ =>
+    sendRunAt cmdDoc { line := 0, character := 2, text := "#check Nat" }
+
+  syncWhitespacePrefixEdit editDoc
+
+  for req in todoReqs do
+    let todos : Beam.LSP.Todo.TodoResult ← awaitResponseAs req
+    requireTodoKindCount "todo mixed concurrency sorries" .sorry 1 todos
+    requireTodoKindCount "todo mixed concurrency incomplete proofs" .incompleteProof 1 todos
+    let incomplete ← requireTodoKind "todo mixed concurrency incomplete proof" .incompleteProof todos
+    let some proofState := incomplete.proofState?
+      | throw <| IO.userError
+          s!"todo mixed concurrency: expected proofState, got {(toJson incomplete).compress}"
+    requireSingleGoalTarget "todo mixed concurrency incomplete proof" "True" proofState
+  for req in goalsPrevReqs do
+    let goalsPrev : Beam.LSP.Lib.ProofState ← awaitResponseAs req
+    unless goalsPrev.goals.size == 1 do
+      throw <| IO.userError
+        s!"todo mixed concurrency goalsPrev: expected one goal, got {goalsPrev.goals.size}"
+    requireSingleGoalTarget "todo mixed concurrency goalsPrev" "True" goalsPrev
+  for req in goalsAfterReqs do
+    let goalsAfter : Beam.LSP.Lib.ProofState ← awaitResponseAs req
+    unless goalsAfter.goals.isEmpty do
+      throw <| IO.userError
+        s!"todo mixed concurrency goalsAfter: expected solved proof state, got {goalsAfter.goals.size} goals"
+  for req in slowReqs do
+    discard <| requireRunAtResponseSuccess "todo mixed concurrency slow runAt" req
+  for req in cmdReqs do
+    discard <| requireRunAtResponseSuccess "todo mixed concurrency command runAt" req
+
+  closeDoc todoDoc
+  closeDoc slowDoc
+  closeDoc goalsDoc
+  closeDoc cmdDoc
+  closeDoc editDoc
+
 def checkTodoCodeActions : ScenarioM Unit := do
   let doc ← openDoc BeamTest.Fixtures.TodoFixture.codeActionRepoPath
   syncDoc doc
@@ -356,6 +414,7 @@ def run : ScenarioM Unit := do
   checkTodoInvalidRange
   checkTodoStaleVersion
   checkTodoRequestWithStandardLspInterference
+  checkTodoRequestWithMixedConcurrency
   checkTodoCodeActions
   checkComplexTodoRequest
   checkTodoInteractiveOnlyDiagnostic
