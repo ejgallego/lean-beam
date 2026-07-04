@@ -89,7 +89,8 @@
         "diagnostics",
         "interactive-only-diagnostics",
         "code-action",
-        "standard-lsp-interference"
+        "standard-lsp-interference",
+        "mixed-concurrency"
       ]
     },
     {
