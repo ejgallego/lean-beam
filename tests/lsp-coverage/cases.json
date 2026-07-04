@@ -329,6 +329,12 @@
       "method": "$/beam/directImports",
       "coverage": ["standard-lsp-interference"],
       "pointer": "tests/lean/BeamTest/LSP/Requests/DirectImports/BasicTest.lean#checkDirectImportsWithStandardLspInterference"
+    },
+    {
+      "id": "directImports.mixed-concurrency",
+      "method": "$/beam/directImports",
+      "coverage": ["mixed-concurrency"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/DirectImports/BasicTest.lean#checkDirectImportsWithMixedConcurrency"
     }
   ]
 }
