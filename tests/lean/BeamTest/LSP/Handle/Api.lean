@@ -4,10 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import BeamTest.LSP.Requests.Interference
 import BeamTest.LSP.Scenario
 
 open Lean
 open BeamTest.LSP.Scenario
+open BeamTest.LSP.Requests.Interference
 
 namespace BeamTest.LSP.Handle.Api
 
@@ -33,6 +35,16 @@ private def mintProofHandle (label : String) (doc : DocHandle) :
   let mint : Beam.LSP.RunAt.Result ← awaitResponseAs mintReq
   requireStoredHandle label mint
 
+private def requireSolvedProofState (label : String) (result : Beam.LSP.RunAt.Result) :
+    ScenarioM Unit := do
+  unless result.success do
+    throw <| IO.userError s!"{label}: expected successor to succeed, got {(toJson result).compress}"
+  let some proofState := result.proofState?
+    | throw <| IO.userError s!"{label}: expected proofState"
+  unless proofState.goals.isEmpty do
+    throw <| IO.userError
+      s!"{label}: expected solved proof state, got {(toJson proofState).compress}"
+
 def checkRunWithContinuation : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
   syncDoc doc
@@ -40,15 +52,24 @@ def checkRunWithContinuation : ScenarioM Unit := do
 
   let continueReq ← runWithHandle doc handle { text := "exact trivial" }
   let continued : Beam.LSP.RunAt.Result ← awaitResponseAs continueReq
-  unless continued.success do
-    throw <| IO.userError "runWith continuation: expected successor to succeed"
-  let some proofState := continued.proofState?
-    | throw <| IO.userError "runWith continuation: expected proofState"
-  unless proofState.goals.isEmpty do
-    throw <| IO.userError
-      s!"runWith continuation: expected solved proof state, got {(toJson proofState).compress}"
+  requireSolvedProofState "runWith continuation" continued
 
   closeDoc doc
+
+def checkRunWithWithStandardLspInterference : ScenarioM Unit := do
+  let runWithDoc ← openDoc "tests/scenario/docs/SimpleProof.lean"
+  let editDoc ← openDoc "tests/scenario/docs/SimpleProofB.lean"
+  syncDoc runWithDoc
+  let handle ← mintProofHandle "runWith with LSP interference" runWithDoc
+
+  let continueReq ← runWithHandle runWithDoc handle { text := "exact trivial" }
+  syncWhitespacePrefixEdit editDoc
+
+  let continued : Beam.LSP.RunAt.Result ← awaitResponseAs continueReq
+  requireSolvedProofState "runWith with LSP interference" continued
+
+  closeDoc runWithDoc
+  closeDoc editDoc
 
 def checkReleaseHandleRejectsReleasedHandle : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/SimpleProof.lean"
@@ -164,6 +185,7 @@ def checkRunAtHandleTermAscriptionFailure : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkRunWithContinuation
+  checkRunWithWithStandardLspInterference
   checkReleaseHandleRejectsReleasedHandle
   checkRunWithLinearHandle
   checkRunWithFailedLinearInvalidatesHandle
