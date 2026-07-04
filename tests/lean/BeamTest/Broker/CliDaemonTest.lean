@@ -353,6 +353,48 @@ private def checkStartupRetryPolicy : IO Unit := do
   require "macOS bind failure wording should be recognized"
     (Beam.Cli.startupFailureSuggestsEndpointInUse "Address already in use")
 
+private def checkDaemonFailureContext : IO Unit := do
+  let root := System.FilePath.mk s!"/tmp/beam-daemon-failure-context-{← IO.monoNanosNow}"
+  try
+    IO.FS.createDirAll root
+    let registryPath ← Beam.Cli.registryPath root
+    if let some parent := registryPath.parent then
+      IO.FS.createDirAll parent
+    let entry : Beam.Cli.RegistryEntry := {
+      daemonId := "daemon-test"
+      pid := 999999999
+      port? := some 42424
+      root := root.toString
+      configHash := "config-test"
+      toolchain? := some "leanprover/lean4:test"
+      bundleId? := some "bundle-test"
+      startedAt := "2026-07-02T00:00:00Z"
+    }
+    IO.FS.writeFile registryPath ((toJson entry).pretty ++ "\n")
+    let startupLog := (← Beam.Cli.controlDir root) / "beam-daemon-startup.log"
+    IO.FS.writeFile startupLog "line 1\nline 2\n"
+    let msg ← Beam.Cli.daemonFailureMessage root "Beam daemon connection closed"
+    requireSubstring "daemon failure context should include registry path" "Beam daemon registry" msg
+    requireSubstring "daemon failure context should include daemon id" "daemonId: daemon-test" msg
+    requireSubstring "daemon failure context should include dead pid status" "pid: 999999999 (not alive)" msg
+    requireSubstring "daemon failure context should include endpoint" "endpoint: tcp://127.0.0.1:42424" msg
+    requireSubstring "daemon failure context should include toolchain" "toolchain: leanprover/lean4:test" msg
+    requireSubstring "daemon failure context should include bundle id" "bundleId: bundle-test" msg
+    requireSubstring "daemon failure context should include daemon log tail" "Beam daemon log tail" msg
+    requireSubstring "daemon failure context should include log contents" "line 2" msg
+  finally
+    try
+      let control ← Beam.Cli.controlDir root
+      if ← control.pathExists then
+        IO.FS.removeDirAll control
+    catch _ =>
+      pure ()
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
 private structure RelativePathCase where
   label : String
   root : System.FilePath
@@ -604,6 +646,7 @@ def main : IO Unit := do
   checkCancelAcknowledgementDecoding
   checkLeanOperationRequests
   checkStartupRetryPolicy
+  checkDaemonFailureContext
   checkPathRelativeToRoot
   checkLeanModuleNamePathHelpers
   checkPathCanonicalization
