@@ -700,6 +700,20 @@ def require_failure(label, structured):
     require(structured.get("success") is False, f"{label} should fail semantically: {structured}")
 
 
+def require_message_contains(label, structured, needle):
+    messages = structured.get("messages")
+    require(isinstance(messages, list), f"{label}: missing messages array: {structured}")
+    require(
+        any(
+            isinstance(message, dict)
+            and isinstance(message.get("text"), str)
+            and needle in message["text"]
+            for message in messages
+        ),
+        f"{label}: expected message containing {needle!r}, got {structured}",
+    )
+
+
 def init_workspace(client, root, *, mode=None, invalidated_handles=False, previous_root=None):
     args = {"root": str(root)}
     if mode is not None:
@@ -927,6 +941,24 @@ def run_iteration(client, suffix):
     goal_update = client.call_tool("lean_update", {"path": "GoalSmoke.lean"})
     goal_version = goal_update.get("version")
     require(isinstance(goal_version, int), f"GoalSmoke update did not return a version: {goal_update}")
+
+    ascription = client.call_tool(
+        "lean_run_at_handle",
+        {
+            "path": "GoalSmoke.lean",
+            "version": goal_version,
+            "line": 1,
+            "character": 2,
+            "text": "have htest := (Nat.succ : Nat)",
+        },
+    )
+    require_failure("term-ascription handle probe", ascription)
+    require_message_contains("term-ascription handle probe", ascription, "Type mismatch")
+    require(
+        ascription.get("next_handle") is None,
+        f"term-ascription failure leaked a follow-up handle: {ascription}",
+    )
+
     goals_prev = client.call_tool(
         "lean_goals",
         {"path": "GoalSmoke.lean", "version": goal_version, "line": 1, "character": 2, "mode": "before"},
