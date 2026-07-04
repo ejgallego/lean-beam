@@ -126,7 +126,7 @@ supported bundle lane at a time. The lane also checks that Lean's stale-import d
 still matches Beam's temporary text-based detector while the structured Lean stale-dependency API is
 pending. If bundle installation stalls on a slow machine, raise
 `BEAM_TOOLCHAIN_COMPAT_TIMEOUT` from its default 600 seconds. On failure, the test prints the fake
-home, Codex/Claude homes, bundle directory, platform, and captured build/bundle/stale-diagnostic
+home, agent homes, bundle directory, platform, and captured build/bundle/stale-diagnostic
 log tails so the bundle or stale-diagnostic state can be diagnosed from the test log. Set
 `BEAM_TOOLCHAIN_COMPAT_KEEP_TMP_ON_FAILURE=1` to preserve the fake roots for local inspection after
 a failed run.

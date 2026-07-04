@@ -19,8 +19,8 @@ From the `lean-beam` repo root:
 ./scripts/install-beam.sh --codex
 ```
 
-Use `--claude` instead when installing for Claude Code, or `--all-skills` when you want both agent
-targets.
+Use `--claude`, `--pi`, or `--opencode` instead when installing for Claude Code, Pi Agent, or
+OpenCode. Use `--all-skills` when you want every supported agent skill target.
 
 The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `~/.local/bin`, stages
 the self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), and installs
@@ -34,7 +34,7 @@ to report the running server process identity as structured content.
 `lean_init_workspace` with `mode: "reset"` restarts the Lean runtime inside the current MCP server
 process; it does not prove the MCP server binary itself was refreshed.
 
-Restart Codex or Claude Code after installation.
+Restart active agent or MCP client sessions after installation.
 
 For authoritative install locations, MCP registration, toolchain options, and slow/offline setup,
 see [docs/INSTALL.md](../../docs/INSTALL.md).

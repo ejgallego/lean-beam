@@ -33,6 +33,8 @@ trap cleanup EXIT
 export HOME="$tmp_root/home"
 export CODEX_HOME="$tmp_root/codex"
 export CLAUDE_HOME="$tmp_root/claude"
+export PI_CODING_AGENT_DIR="$tmp_root/pi-agent"
+export OPENCODE_CONFIG_DIR="$tmp_root/opencode"
 export BEAM_INSTALL_ROOT="$tmp_root/install-root"
 
 mkdir -p "$HOME" "$BEAM_INSTALL_ROOT"
@@ -273,6 +275,8 @@ remove_tmp_file "$missing_elan_err"
 assert_not_exists "$HOME/.local"
 assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"
+assert_not_exists "$PI_CODING_AGENT_DIR"
+assert_not_exists "$OPENCODE_CONFIG_DIR"
 assert_not_exists "$BEAM_INSTALL_ROOT/current"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 0
 assert_not_exists "$BEAM_INSTALL_ROOT/state"
@@ -401,6 +405,8 @@ assert_file "$interactive_install_root/.lean-beam-install-root"
 assert_file "$interactive_home/.local/bin/lean-beam"
 assert_not_exists "$interactive_home/.codex"
 assert_not_exists "$interactive_home/.claude"
+assert_not_exists "$interactive_home/.pi"
+assert_not_exists "$interactive_home/.config/opencode"
 remove_tmp_file "$interactive_transcript"
 
 interactive_claude_home="$tmp_root/interactive-claude-home"
@@ -463,6 +469,34 @@ assert_not_exists "$interactive_codex_custom_runtime"
 assert_not_exists "$interactive_codex_custom_home"
 remove_tmp_file "$interactive_codex_transcript"
 
+interactive_opencode_home="$tmp_root/interactive-opencode-home"
+interactive_opencode_install_root="$tmp_root/interactive-opencode-install-root"
+interactive_opencode_custom_bin="$tmp_root/interactive-opencode-bin"
+interactive_opencode_custom_runtime="$tmp_root/interactive-opencode-runtime"
+interactive_opencode_transcript="$tmp_root/install-interactive-opencode-transcript"
+mkdir -p "$interactive_opencode_home"
+if beam_install_run_interactive_from_source \
+    "$interactive_opencode_transcript" "$interactive_opencode_home" "$interactive_opencode_install_root" \
+    $'\n\n4\nchange\n'"$interactive_opencode_custom_bin"$'\n'"$interactive_opencode_custom_runtime"$'\nN\n'; then
+  echo "expected interactive OpenCode MCP install to stop when write permission is denied" >&2
+  cat "$interactive_opencode_transcript" >&2
+  exit 1
+fi
+assert_contains "$interactive_opencode_transcript" 'Write Locations'
+assert_contains "$interactive_opencode_transcript" 'Change Locations'
+assert_contains_literal "$interactive_opencode_transcript" "Command directory [$interactive_opencode_home/.local/bin]"
+assert_contains_literal "$interactive_opencode_transcript" "Runtime install root [$interactive_opencode_install_root]"
+assert_contains_literal "$interactive_opencode_transcript" "Command directory: $interactive_opencode_custom_bin"
+assert_contains_literal "$interactive_opencode_transcript" "Runtime root: $interactive_opencode_custom_runtime"
+assert_contains "$interactive_opencode_transcript" 'Manual follow-up'
+assert_contains_literal "$interactive_opencode_transcript" 'OpenCode MCP registration requires manual steps after install.'
+assert_not_contains "$interactive_opencode_transcript" 'Run after install: opencode mcp add'
+assert_not_contains "$interactive_opencode_transcript" 'MCP command:'
+assert_contains "$interactive_opencode_transcript" 'cancelled before: Write Locations'
+assert_not_exists "$interactive_opencode_custom_bin"
+assert_not_exists "$interactive_opencode_custom_runtime"
+remove_tmp_file "$interactive_opencode_transcript"
+
 run_step "install default runtime" run_install_from_source
 expected_source_commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
 install_layout_json="$(cd "$source_checkout" && ./.lake/build/bin/beam-cli install-layout)"
@@ -523,6 +557,8 @@ fi
 
 assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"
+assert_not_exists "$PI_CODING_AGENT_DIR"
+assert_not_exists "$OPENCODE_CONFIG_DIR"
 assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" "$toolchain"
 
 blocked_bundle_root="$tmp_root/blocked-bundles"
@@ -608,6 +644,16 @@ run_custom_toolchain_install_test() (
 
 run_step "install custom toolchain runtime" run_custom_toolchain_install_test
 
+release_pre_all_supported_disk() {
+  remove_tmp_tree "$blocked_bundle_root"
+  remove_tmp_tree "$tmp_root/custom-elan"
+  remove_tmp_tree "$tmp_root/custom-home"
+  remove_tmp_tree "$tmp_root/custom-install-root"
+  remove_tmp_tree "$tmp_root/custom-project"
+}
+
+run_step "release install temp trees before all-supported" release_pre_all_supported_disk
+
 run_step "prebuild all supported bundles" run_install_from_source --all-supported
 
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
@@ -627,24 +673,26 @@ assert_contains "$rocq_no_target_err" "rocq-skill requires"
 remove_tmp_file "$rocq_no_target_err"
 assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"
+assert_not_exists "$PI_CODING_AGENT_DIR"
+assert_not_exists "$OPENCODE_CONFIG_DIR"
 
 run_step "install Lean skills" run_install_from_source --toolchain "$toolchain" --all-skills
 
-for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
-  assert_file "$skills_home/skills/lean-beam/SKILL.md"
-  assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
-  assert_not_exists "$skills_home/skills/rocq-beam"
+for skills_home in "$CODEX_HOME/skills" "$CLAUDE_HOME/skills" "$PI_CODING_AGENT_DIR/skills" "$OPENCODE_CONFIG_DIR/skills"; do
+  assert_file "$skills_home/lean-beam/SKILL.md"
+  assert_file "$skills_home/lean-beam/.lean-beam-skill"
+  assert_not_exists "$skills_home/rocq-beam"
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
 
 run_step "install optional Rocq skills" run_install_from_source --toolchain "$toolchain" --all-skills --rocq-skill
 
-for skills_home in "$CODEX_HOME" "$CLAUDE_HOME"; do
-  assert_file "$skills_home/skills/lean-beam/SKILL.md"
-  assert_file "$skills_home/skills/lean-beam/.lean-beam-skill"
-  assert_file "$skills_home/skills/rocq-beam/SKILL.md"
-  assert_file "$skills_home/skills/rocq-beam/.lean-beam-skill"
+for skills_home in "$CODEX_HOME/skills" "$CLAUDE_HOME/skills" "$PI_CODING_AGENT_DIR/skills" "$OPENCODE_CONFIG_DIR/skills"; do
+  assert_file "$skills_home/lean-beam/SKILL.md"
+  assert_file "$skills_home/lean-beam/.lean-beam-skill"
+  assert_file "$skills_home/rocq-beam/SKILL.md"
+  assert_file "$skills_home/rocq-beam/.lean-beam-skill"
 done
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
@@ -665,6 +713,7 @@ run_step "register MCP clients" beam_install_run_with_mcp_stubs "$mcp_stub_bin" 
 assert_contains_literal "$mcp_stub_log" "codex|mcp|add|lean-beam|--|$installed_mcp"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|remove|--scope|user|lean-beam"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp"
+assert_not_exists "$OPENCODE_CONFIG_DIR/opencode.json"
 
 custom_codex_home="$tmp_root/codex-sandbox"
 custom_codex_mcp_stub_log="$tmp_root/mcp-stubs-custom-codex.log"
@@ -694,6 +743,19 @@ assert_contains_literal "$custom_mcp_stub_log" \
   "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp|HOME=$custom_claude_config_home"
 assert_not_exists "$HOME/.claude.json"
 
+opencode_mcp_transcript="$tmp_root/opencode-mcp-manual-transcript"
+preseed_elan_home "$HOME/.elan" "$toolchain"
+run_step "show OpenCode MCP setup" \
+  bash "$source_checkout/scripts/install-beam.sh" --dont-ask --toolchain "$toolchain" --opencode-mcp \
+    >"$opencode_mcp_transcript" 2>&1
+assert_contains "$opencode_mcp_transcript" 'Manual Step Required: OpenCode MCP'
+assert_contains_literal "$opencode_mcp_transcript" 'run                opencode mcp add'
+assert_contains_literal "$opencode_mcp_transcript" 'name               lean-beam'
+assert_contains_literal "$opencode_mcp_transcript" 'type               local'
+assert_contains_literal "$opencode_mcp_transcript" "command            $installed_mcp"
+assert_not_exists "$OPENCODE_CONFIG_DIR/opencode.json"
+remove_tmp_file "$opencode_mcp_transcript"
+
 relative_codex_home_err="$(mktemp "$tmp_root/codex-mcp-relative-home-XXXXXX")"
 if (
   cd "$source_checkout"
@@ -721,6 +783,31 @@ if (
 fi
 assert_contains "$relative_claude_config_err" "Claude Code MCP config must be an absolute path"
 remove_tmp_file "$relative_claude_config_err"
+
+relative_pi_home_err="$(mktemp "$tmp_root/pi-skill-relative-home-XXXXXX")"
+if (
+  cd "$source_checkout"
+  bash scripts/install-beam.sh --dont-ask --pi --pi-home relative/.pi/agent > /dev/null 2>"$relative_pi_home_err"
+); then
+  echo "expected --pi-home to reject relative paths" >&2
+  remove_tmp_file "$relative_pi_home_err"
+  exit 1
+fi
+assert_contains "$relative_pi_home_err" "Pi Agent home must be an absolute path"
+remove_tmp_file "$relative_pi_home_err"
+
+relative_opencode_config_dir_err="$(mktemp "$tmp_root/opencode-relative-config-dir-XXXXXX")"
+if (
+  cd "$source_checkout"
+  bash scripts/install-beam.sh --dont-ask --opencode \
+    --opencode-config-dir relative/opencode > /dev/null 2>"$relative_opencode_config_dir_err"
+); then
+  echo "expected --opencode-config-dir to reject relative paths" >&2
+  remove_tmp_file "$relative_opencode_config_dir_err"
+  exit 1
+fi
+assert_contains "$relative_opencode_config_dir_err" "OpenCode config dir must be an absolute path"
+remove_tmp_file "$relative_opencode_config_dir_err"
 
 blocked_home="$tmp_root/blocked-home"
 blocked_install_root="$tmp_root/blocked-install-root"
