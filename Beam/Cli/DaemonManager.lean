@@ -191,6 +191,9 @@ private partial def selectUnoccupiedEndpoint
 private def daemonStartupLogPath (root : System.FilePath) : IO System.FilePath := do
   pure ((← controlDir root) / "beam-daemon-startup.log")
 
+private def daemonFailureIncidentDir (root : System.FilePath) : IO System.FilePath := do
+  pure ((← controlDir root) / "daemon-failures")
+
 private def tailLines (text : String) (count : Nat := 20) : String :=
   let lines := text.splitOn "\n"
   let keep := min count lines.length
@@ -221,6 +224,89 @@ private def registryPidStatus (entry : RegistryEntry) : IO String := do
     catch _ =>
       pure "unavailable"
 
+private structure DaemonFailureIncident where
+  schemaVersion : Nat
+  kind : String
+  detail : String
+  observedAt : String
+  root : String
+  controlDir : String
+  registryPath : String
+  registry : Option RegistryEntry := none
+  registryPidStatus : Option String := none
+  registryEndpoint : Option String := none
+  startupLogPath : Option String := none
+  startupLogTail : Option String := none
+  deriving ToJson
+
+private def daemonFailureIncidentSchemaVersion : Nat :=
+  1
+
+private def daemonFailureKind? (detail : String) : Option String :=
+  if detail.contains "Beam daemon connection closed" then
+    some "connectionClosed"
+  else if detail.contains "no live Beam daemon registered for " then
+    some "noLiveDaemon"
+  else
+    none
+
+private def startupLogTail? (root : System.FilePath) : IO (Option (System.FilePath × String)) := do
+  try
+    let logPath ← daemonStartupLogPath root
+    if ← logPath.pathExists then
+      let logText := trimLine (← IO.FS.readFile logPath)
+      if logText.isEmpty then
+        pure none
+      else
+        pure <| some (logPath, tailLines logText)
+    else
+      pure none
+  catch _ =>
+    pure none
+
+private def daemonFailureIncidentPath (root : System.FilePath) (kind : String) : IO System.FilePath := do
+  let dir ← daemonFailureIncidentDir root
+  let pid ← IO.Process.getPID
+  let stamp ← IO.monoNanosNow
+  pure (dir / s!"{stamp}-{pid}-{kind}.json")
+
+private def writeDaemonFailureIncident?
+    (root : System.FilePath)
+    (kind detail : String)
+    (logTail? : Option (System.FilePath × String)) : IO (Option System.FilePath) := do
+  try
+    let dir ← daemonFailureIncidentDir root
+    IO.FS.createDirAll dir
+    let registryFile ← registryPath root
+    let registry ← readRegistry? root
+    let pidStatus ←
+      match registry with
+      | none => pure none
+      | some entry => some <$> registryPidStatus entry
+    let endpoint := registry.map registryEndpointSummary
+    let control ← controlDir root
+    let incident : DaemonFailureIncident := {
+      schemaVersion := daemonFailureIncidentSchemaVersion
+      kind
+      detail
+      observedAt := ← utcTimestamp
+      root := root.toString
+      controlDir := control.toString
+      registryPath := registryFile.toString
+      registry
+      registryPidStatus := pidStatus
+      registryEndpoint := endpoint
+      startupLogPath := logTail?.map (fun (path, _) => path.toString)
+      startupLogTail := logTail?.map (fun (_, tail) => tail)
+    }
+    let path ← daemonFailureIncidentPath root kind
+    let tmp := path.withExtension "tmp"
+    IO.FS.writeFile tmp ((toJson incident).pretty ++ "\n")
+    IO.FS.rename tmp path
+    pure (some path)
+  catch _ =>
+    pure none
+
 private def daemonRegistryContext? (root : System.FilePath) : IO (Option String) := do
   try
     match ← readRegistry? root with
@@ -245,22 +331,19 @@ private def daemonRegistryContext? (root : System.FilePath) : IO (Option String)
     pure none
 
 def daemonFailureMessage (root : System.FilePath) (detail : String) : IO String := do
-  let shouldAppend :=
-    detail.contains "Beam daemon connection closed" ||
-    detail.contains "no live Beam daemon registered for "
-  if !shouldAppend then
+  match daemonFailureKind? detail with
+  | none =>
     pure detail
-  else
+  | some kind =>
     let msg := appendMaybeSection detail (← daemonRegistryContext? root)
-    let logPath ← daemonStartupLogPath root
-    if ← logPath.pathExists then
-      let logText := trimLine (← IO.FS.readFile logPath)
-      if logText.isEmpty then
-        pure msg
-      else
-        pure <| msg ++ s!"\nBeam daemon log tail ({logPath}):\n{tailLines logText}"
-    else
-      pure msg
+    let logTail? ← startupLogTail? root
+    let msg :=
+      match logTail? with
+      | none => msg
+      | some (logPath, logTail) => msg ++ s!"\nBeam daemon log tail ({logPath}):\n{logTail}"
+    let incidentPath? ← writeDaemonFailureIncident? root kind detail logTail?
+    pure <| appendMaybeSection msg <|
+      incidentPath?.map fun path => s!"Beam daemon incident: {path}"
 
 private def startupFailureMessage (endpoint : Transport.Endpoint) (logPath : System.FilePath) (detail : String) :
     IO String := do

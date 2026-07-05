@@ -11,8 +11,10 @@ import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle
 import Beam.Path
 import Beam.Mcp.Projection
+import BeamTest.Broker.JsonAssert
 
 open Lean
+open BeamTest.Broker.JsonAssert (requireJsonNull requireJsonString)
 
 namespace BeamTest.Broker.CliDaemonTest
 
@@ -35,6 +37,20 @@ private def expectIoErrorContains (label needle : String) (act : IO α) : IO Uni
 
 private def requireSubstring (label needle haystack : String) : IO Unit := do
   require s!"{label}: expected '{needle}' in '{haystack}'" (Beam.Cli.hasSubstring haystack needle)
+
+private def requireJsonNat (label field : String) (expected : Nat) (json : Json) : IO Unit := do
+  let actual ← IO.ofExcept <| json.getObjValAs? Nat field
+  require s!"{label}: expected {field}={expected}, got {actual}" (actual == expected)
+
+private def readSingleDaemonFailureIncidentJson (root : System.FilePath) : IO Json := do
+  let incidentDir := (← Beam.Cli.controlDir root) / "daemon-failures"
+  require "daemon failure should write incident directory" (← incidentDir.pathExists)
+  let incidentEntries := (← incidentDir.readDir).qsort (fun a b => a.fileName < b.fileName)
+  require s!"expected one daemon failure incident, got {incidentEntries.size}" (incidentEntries.size == 1)
+  let some incidentEntry := incidentEntries[0]?
+    | throw <| IO.userError "expected one daemon failure incident entry"
+  let incidentText ← IO.FS.readFile incidentEntry.path
+  IO.ofExcept <| Json.parse incidentText
 
 private def requireRequestJson
     (label : String)
@@ -382,6 +398,93 @@ private def checkDaemonFailureContext : IO Unit := do
     requireSubstring "daemon failure context should include bundle id" "bundleId: bundle-test" msg
     requireSubstring "daemon failure context should include daemon log tail" "Beam daemon log tail" msg
     requireSubstring "daemon failure context should include log contents" "line 2" msg
+    requireSubstring "daemon failure context should include incident path" "Beam daemon incident:" msg
+
+    let incidentJson ← readSingleDaemonFailureIncidentJson root
+    requireJsonNat "daemon failure incident should use schema version" "schemaVersion" 1 incidentJson
+    requireJsonString "daemon failure incident should classify connection close"
+      "kind" "connectionClosed" incidentJson
+    requireJsonString "daemon failure incident should keep original detail"
+      "detail" "Beam daemon connection closed" incidentJson
+    requireJsonString "daemon failure incident should include root"
+      "root" root.toString incidentJson
+    requireJsonString "daemon failure incident should include registry path"
+      "registryPath" registryPath.toString incidentJson
+    let incidentRegistryJson ← IO.ofExcept <| incidentJson.getObjVal? "registry"
+    let incidentRegistry ← IO.ofExcept <| fromJson? (α := Beam.Cli.RegistryEntry) incidentRegistryJson
+    require "daemon failure incident should include daemon id"
+      (incidentRegistry.daemonId == "daemon-test")
+    requireJsonString "daemon failure incident should include registry pid status"
+      "registryPidStatus" "not alive" incidentJson
+    requireJsonString "daemon failure incident should include endpoint summary"
+      "registryEndpoint" "tcp://127.0.0.1:42424" incidentJson
+    requireJsonString "daemon failure incident should include startup log path"
+      "startupLogPath" startupLog.toString incidentJson
+    requireJsonString "daemon failure incident should include startup log tail"
+      "startupLogTail" "line 1\nline 2" incidentJson
+  finally
+    try
+      let control ← Beam.Cli.controlDir root
+      if ← control.pathExists then
+        IO.FS.removeDirAll control
+    catch _ =>
+      pure ()
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
+private def checkNoLiveDaemonFailureIncident : IO Unit := do
+  let root := System.FilePath.mk s!"/tmp/beam-no-live-daemon-incident-{← IO.monoNanosNow}"
+  try
+    IO.FS.createDirAll root
+    let detail := s!"no live Beam daemon registered for {root}"
+    let msg ← Beam.Cli.daemonFailureMessage root detail
+    requireSubstring "no-live daemon failure should include incident path" "Beam daemon incident:" msg
+
+    let incidentJson ← readSingleDaemonFailureIncidentJson root
+    requireJsonNat "no-live daemon incident should use schema version" "schemaVersion" 1 incidentJson
+    requireJsonString "no-live daemon incident should classify stale lookup"
+      "kind" "noLiveDaemon" incidentJson
+    requireJsonString "no-live daemon incident should keep original detail"
+      "detail" detail incidentJson
+    requireJsonString "no-live daemon incident should include root"
+      "root" root.toString incidentJson
+  finally
+    try
+      let control ← Beam.Cli.controlDir root
+      if ← control.pathExists then
+        IO.FS.removeDirAll control
+    catch _ =>
+      pure ()
+    try
+      if ← root.pathExists then
+        IO.FS.removeDirAll root
+    catch _ =>
+      pure ()
+
+private def checkDaemonFailureUnreadableStartupLog : IO Unit := do
+  let root := System.FilePath.mk s!"/tmp/beam-daemon-unreadable-startup-log-{← IO.monoNanosNow}"
+  try
+    IO.FS.createDirAll root
+    let startupLog := (← Beam.Cli.controlDir root) / "beam-daemon-startup.log"
+    IO.FS.createDirAll startupLog
+    let msg ← Beam.Cli.daemonFailureMessage root "Beam daemon connection closed"
+    requireSubstring "unreadable startup log should preserve original daemon failure"
+      "Beam daemon connection closed" msg
+    requireSubstring "unreadable startup log should still write incident path"
+      "Beam daemon incident:" msg
+    require "unreadable startup log should not print daemon log tail"
+      (!Beam.Cli.hasSubstring msg "Beam daemon log tail")
+
+    let incidentJson ← readSingleDaemonFailureIncidentJson root
+    requireJsonString "unreadable startup log incident should classify connection close"
+      "kind" "connectionClosed" incidentJson
+    requireJsonNull "unreadable startup log incident should omit startup log path"
+      "startupLogPath" incidentJson
+    requireJsonNull "unreadable startup log incident should omit startup log tail"
+      "startupLogTail" incidentJson
   finally
     try
       let control ← Beam.Cli.controlDir root
@@ -647,6 +750,8 @@ def main : IO Unit := do
   checkLeanOperationRequests
   checkStartupRetryPolicy
   checkDaemonFailureContext
+  checkNoLiveDaemonFailureIncident
+  checkDaemonFailureUnreadableStartupLog
   checkPathRelativeToRoot
   checkLeanModuleNamePathHelpers
   checkPathCanonicalization
