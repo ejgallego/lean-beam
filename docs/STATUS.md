@@ -217,7 +217,8 @@ which fields are decisions and evidence.
 - A startup failure that reports `operation not permitted` through `.beam/beam-daemon-startup.log` is
   usually an environment restriction, not a bundle-resolution mismatch.
 - Beam daemon disappearance errors include registry/log context and write a JSON incident record under
-  `.beam/daemon-failures/` or the per-root subdirectory of `BEAM_CONTROL_DIR`.
+  `.beam/daemon-failures/` or the per-root subdirectory of `BEAM_CONTROL_DIR`. Beam keeps the latest
+  50 incident records and `lean-beam doctor` lists recent incident paths.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
 - The Beam daemon is single-root and keeps a conservative single active session per backend.
 - `lean-beam-mcp` is currently an experimental stdio entry point. The installed wrapper is the

@@ -33,11 +33,13 @@ def localhost (port : UInt16) : SocketAddress :=
 def endpointDescription : Endpoint → String
   | .tcp port => s!"tcp://127.0.0.1:{port.toNat}"
 
-private def waitTcpPromise (promise : IO.Promise (Except IO.Error α)) (closedMessage : String) :
+private def waitTcpPromise (promise : IO.Promise (Except IO.Error α)) (failureMessage : String) :
     IO α := do
   let some result := promise.result?.get
-    | throw <| IO.userError closedMessage
-  IO.ofExcept result
+    | throw <| IO.userError failureMessage
+  match result with
+  | .ok value => pure value
+  | .error err => throw <| IO.userError s!"{failureMessage}: {err}"
 
 def connect (endpoint : Endpoint) : IO Connection := do
   match endpoint with
@@ -86,7 +88,7 @@ private def recvMsgTcp (client : TCP.Socket) : IO String := do
   let mut header := ByteArray.empty
   repeat
     let promise ← TCP.Socket.recv? client 1
-    let some chunk ← waitTcpPromise promise "Beam daemon connection failed during TCP receive"
+    let some chunk ← waitTcpPromise promise "Beam daemon connection closed during TCP receive"
       | throw <| IO.userError "Beam daemon connection closed"
     if chunk[0]! == '\n'.toUInt8 then
       break
@@ -98,7 +100,7 @@ private def recvMsgTcp (client : TCP.Socket) : IO String := do
   let mut payload := ByteArray.empty
   while payload.size < len do
     let promise ← TCP.Socket.recv? client (len - payload.size).toUInt64
-    let some chunk ← waitTcpPromise promise "Beam daemon connection failed during TCP receive"
+    let some chunk ← waitTcpPromise promise "Beam daemon connection closed during TCP receive"
       | throw <| IO.userError "Beam daemon connection closed"
     payload := payload ++ chunk
   let some msg := String.fromUTF8? payload

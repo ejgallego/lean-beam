@@ -194,6 +194,37 @@ private def daemonStartupLogPath (root : System.FilePath) : IO System.FilePath :
 private def daemonFailureIncidentDir (root : System.FilePath) : IO System.FilePath := do
   pure ((← controlDir root) / "daemon-failures")
 
+private def daemonFailureIncidentRetainCount : Nat :=
+  50
+
+private def daemonFailureIncidentEntries (root : System.FilePath) : IO (Array IO.FS.DirEntry) := do
+  try
+    let dir ← daemonFailureIncidentDir root
+    unless ← dir.pathExists do
+      return #[]
+    let entries ← dir.readDir
+    pure <| (entries.filter (fun entry => entry.fileName.endsWith ".json")).qsort
+      (fun a b => a.fileName < b.fileName)
+  catch _ =>
+    pure #[]
+
+def recentDaemonFailureIncidentPaths (root : System.FilePath) (limit : Nat := 5) :
+    IO (Array System.FilePath) := do
+  let entries ← daemonFailureIncidentEntries root
+  let keep := min limit entries.size
+  let recent := entries.toList.drop (entries.size - keep)
+  pure <| recent.foldl (fun acc entry => acc.push entry.path) #[]
+
+private def pruneDaemonFailureIncidents (root : System.FilePath) : IO Unit := do
+  let entries ← daemonFailureIncidentEntries root
+  let keep := min daemonFailureIncidentRetainCount entries.size
+  let deleteCount := entries.size - keep
+  for entry in entries.toList.take deleteCount do
+    try
+      IO.FS.removeFile entry.path
+    catch _ =>
+      pure ()
+
 private def tailLines (text : String) (count : Nat := 20) : String :=
   let lines := text.splitOn "\n"
   let keep := min count lines.length
@@ -264,11 +295,17 @@ private def startupLogTail? (root : System.FilePath) : IO (Option (System.FilePa
   catch _ =>
     pure none
 
-private def daemonFailureIncidentPath (root : System.FilePath) (kind : String) : IO System.FilePath := do
+private def daemonFailureIncidentTimestampLabel (timestamp : String) : String :=
+  (timestamp.replace "-" "").replace ":" ""
+
+private def daemonFailureIncidentPath
+    (root : System.FilePath)
+    (kind observedAt : String) : IO System.FilePath := do
   let dir ← daemonFailureIncidentDir root
   let pid ← IO.Process.getPID
-  let stamp ← IO.monoNanosNow
-  pure (dir / s!"{stamp}-{pid}-{kind}.json")
+  let unique ← IO.monoNanosNow
+  let stamp := daemonFailureIncidentTimestampLabel observedAt
+  pure (dir / s!"incident-{stamp}-{pid}-{unique}-{kind}.json")
 
 private def writeDaemonFailureIncident?
     (root : System.FilePath)
@@ -285,11 +322,12 @@ private def writeDaemonFailureIncident?
       | some entry => some <$> registryPidStatus entry
     let endpoint := registry.map registryEndpointSummary
     let control ← controlDir root
+    let observedAt ← utcTimestamp
     let incident : DaemonFailureIncident := {
       schemaVersion := daemonFailureIncidentSchemaVersion
       kind
       detail
-      observedAt := ← utcTimestamp
+      observedAt
       root := root.toString
       controlDir := control.toString
       registryPath := registryFile.toString
@@ -299,10 +337,14 @@ private def writeDaemonFailureIncident?
       startupLogPath := logTail?.map (fun (path, _) => path.toString)
       startupLogTail := logTail?.map (fun (_, tail) => tail)
     }
-    let path ← daemonFailureIncidentPath root kind
+    let path ← daemonFailureIncidentPath root kind observedAt
     let tmp := path.withExtension "tmp"
     IO.FS.writeFile tmp ((toJson incident).pretty ++ "\n")
     IO.FS.rename tmp path
+    try
+      pruneDaemonFailureIncidents root
+    catch _ =>
+      pure ()
     pure (some path)
   catch _ =>
     pure none

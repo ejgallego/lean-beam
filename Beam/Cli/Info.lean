@@ -140,6 +140,19 @@ private def printRocqDoctorInfo (home root : System.FilePath) : IO Unit := do
   IO.println s!"daemon binary: {paths.daemon}"
   IO.println s!"client binary: {paths.client}"
 
+def daemonFailureIncidentDoctorLines (root : System.FilePath) : IO (List String) := do
+  let incidents ← recentDaemonFailureIncidentPaths root
+  if incidents.isEmpty then
+    pure ["daemon incidents: none"]
+  else
+    pure <|
+      s!"daemon incidents: {incidents.size} recent" ::
+        (incidents.toList.map fun path => s!"daemon incident: {path}")
+
+private def printDaemonFailureIncidentDoctorInfo (root : System.FilePath) : IO Unit := do
+  for line in ← daemonFailureIncidentDoctorLines root do
+    IO.println line
+
 def doctor (home : System.FilePath) (opts : CliOptions) (backend : Backend) : IO Unit := do
   let root ← projectRoot opts backend
   IO.println s!"beam home: {home}"
@@ -165,6 +178,7 @@ def doctor (home : System.FilePath) (opts : CliOptions) (backend : Backend) : IO
         IO.println "daemon status: stale"
       else
         IO.println "daemon status: absent"
+  printDaemonFailureIncidentDoctorInfo root
 
 def printSupportedToolchains (home : System.FilePath) (backendName : String) : IO Unit := do
   match backendName with
