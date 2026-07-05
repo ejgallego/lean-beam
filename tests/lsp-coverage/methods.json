@@ -122,15 +122,14 @@
       ]
     },
     {
-      "method": "$/beam/directImports",
-      "family": "DirectImports",
-      "registrySymbol": "DirectImports.method",
-      "definition": "Beam/LSP/DirectImports.lean#method",
+      "method": "$/beam/waitForDiagnostics",
+      "family": "DiagnosticsBarrier",
+      "registrySymbol": "DiagnosticsBarrier.method",
+      "definition": "Beam/LSP/DiagnosticsBarrier.lean#method",
       "requiredCoverage": [
         "isolation",
-        "stale-version",
-        "standard-lsp-interference",
-        "mixed-concurrency"
+        "satisfied-version",
+        "standard-lsp-interference"
       ]
     }
   ]

@@ -89,9 +89,13 @@ def filterSyncDiagnostics (fullDiagnostics : Bool) (diagnostics : Array Diagnost
   if fullDiagnostics then
     diagnostics
   else
-    diagnostics.filter fun diagnostic =>
-      isSyncErrorDiagnostic diagnostic ||
-        isLakeSetupFileProgressDiagnostic diagnostic
+    let completionBlocking := diagnostics.filter isIncompleteBarrierDiagnostic
+    if !completionBlocking.isEmpty then
+      completionBlocking
+    else
+      diagnostics.filter fun diagnostic =>
+        isSyncErrorDiagnostic diagnostic ||
+          isLakeSetupFileProgressDiagnostic diagnostic
 
 def diagnosticDisplayPath (root : System.FilePath) (uri : DocumentUri) : String :=
   match System.Uri.fileUriToPath? uri with

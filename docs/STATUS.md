@@ -251,9 +251,12 @@ which fields are decisions and evidence.
   source change makes an importer need refresh. Beam does not yet implement Lean's dynamic watched-file
   registration, so external source changes that never pass through `sync` remain outside the current
   watcher surface.
-- `error.data.staleDirectDeps` recovery hints are still broker-derived metadata. The planned
-  direction is to patch Lean's stale-dependency signal to expose the stale dependency information
-  Beam needs, then derive these hints from Lean instead of duplicating that state in the broker.
+- `error.data.staleDirectDeps` recovery hints are still broker-derived metadata. Beam currently
+  uses direct imports returned by Beam's diagnostics barrier request from Lean's accepted header
+  snapshot and combines those imports with broker sync/save history to infer stale direct
+  dependencies and `needsSave`. The planned Lean-side backlog item is to expose structured
+  stale-dependency metadata from Lean's watchdog/file-worker
+  path, so Beam can derive these hints from Lean instead of duplicating that state in the broker.
 - agent-skill distribution currently relies on a local checkout and local install script; it is not
   yet published through a registry or marketplace flow.
 - Optional Rocq support is currently limited to goal inspection through `coq-lsp`; it is not yet a
@@ -267,8 +270,8 @@ Near-term work is mostly about hardening and simplifying:
 - preserve strict per-request isolation
 - reduce packaging and workspace rough edges
 - publish a smoother distribution path, likely GitHub-backed install for Codex and plugin marketplace packaging for Claude
-- improve stale-dependency handling, especially by moving stale dependency metadata into Lean's
-  native stale-dependency signal instead of broker-side reconstruction
+- improve stale-dependency handling, especially by moving structured stale-dependency metadata into
+  Lean's native stale-dependency signal instead of broker-side reconstruction
 - upstream structured JSON-RPC error data for Lean request failures, so plugin-level
   `contentModified` errors can carry machine-readable recovery fields such as
   `documentVersionMismatch` without requiring broker-side preflight rejection

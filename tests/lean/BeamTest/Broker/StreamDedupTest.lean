@@ -94,8 +94,6 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
     cwd := root.toString
   }
   let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID Beam.Broker.PendingRequest)
-  let incompleteBarrierDiagnostics ←
-    IO.mkRef ({} : Std.TreeMap Lean.Lsp.DocumentUri (Array Lean.Lsp.Diagnostic))
   let session : Beam.Broker.Session := {
     backend := .lean
     root
@@ -105,7 +103,6 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
     stdin := IO.FS.Stream.ofHandle proc.stdin
     stdout := IO.FS.Stream.ofHandle proc.stdout
     pending
-    incompleteBarrierDiagnostics
   }
   let _ ← IO.asTask (prio := Task.Priority.dedicated) <| Beam.Broker.sessionReaderLoop session
   pure session
@@ -124,8 +121,6 @@ private def fakeSessionWithSyncedDoc
     (version : Nat := 1) : IO Beam.Broker.Session := do
   let proc ← fakeOneRequestProcess root transcript
   let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID Beam.Broker.PendingRequest)
-  let incompleteBarrierDiagnostics ←
-    IO.mkRef ({} : Std.TreeMap Lean.Lsp.DocumentUri (Array Lean.Lsp.Diagnostic))
   let text ← IO.FS.readFile path
   let textMTime ← Lake.getFileMTime path
   let uri := Beam.Broker.sessionUri path
@@ -145,7 +140,6 @@ private def fakeSessionWithSyncedDoc
     stdin := IO.FS.Stream.ofHandle proc.stdin
     stdout := IO.FS.Stream.ofHandle proc.stdout
     pending
-    incompleteBarrierDiagnostics
     docs
   }
   let _ ← IO.asTask (prio := Task.Priority.dedicated) <| Beam.Broker.sessionReaderLoop session

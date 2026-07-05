@@ -211,8 +211,8 @@ Interpretation:
   decision
 - if `lean-beam sync` fails with an incomplete diagnostics barrier, inspect the JSON
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
-  `error.data.completionBlockingDiagnostics`; the recovery hints are based on direct imports whose
-  saved checkpoint is newer than the target file's last successful sync boundary, and entries in
+  `error.data.completionBlockingDiagnostics`; the recovery hints are based on direct imports from
+  Lean's accepted header snapshot and broker sync/save history, and entries in
   `completionBlockingDiagnostics` carry `completionBlocking=true`
 - follow `error.data.saveDeps` only for the listed direct deps that still need checkpointing, then
   `lean-beam refresh` the stale target before relying on downstream probes

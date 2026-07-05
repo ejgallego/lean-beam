@@ -11,7 +11,7 @@ import Beam.LSP.RunAt
 import Beam.LSP.Goals
 import Beam.LSP.Todo
 import Beam.LSP.Save
-import Beam.LSP.DirectImports
+import Beam.LSP.DiagnosticsBarrier
 import Beam.LSP.Lib.Goal
 import BeamTest.TestHarness
 
@@ -78,7 +78,7 @@ structure SaveReadinessSpec where
   expectedTextHashOverride? : Option UInt64 := none
   deriving Inhabited, Repr, ToJson
 
-structure DirectImportsSpec where
+structure DiagnosticsBarrierSpec where
   version? : Option Nat := none
   deriving Inhabited, Repr, ToJson
 
@@ -495,15 +495,10 @@ def sendSaveReadiness (doc : DocHandle) (spec : SaveReadinessSpec := {}) : Scena
   let requestID ← sendRequest Beam.LSP.Save.saveReadinessMethod (toJson params)
   registerRequest requestID (toJson params)
 
-def sendDirectImports (doc : DocHandle) (spec : DirectImportsSpec := {}) : ScenarioM ReqHandle := do
+def sendDiagnosticsBarrier (doc : DocHandle) (spec : DiagnosticsBarrierSpec := {}) : ScenarioM ReqHandle := do
   let docState ← getDocState doc
-  let params : Beam.LSP.DirectImports.DirectImportsParams := {
-    textDocument := {
-      uri := docState.uri
-      version? := some (spec.version?.getD (docState.versionNo - 1))
-    }
-  }
-  let requestID ← sendRequest Beam.LSP.DirectImports.method (toJson params)
+  let params := WaitForDiagnosticsParams.mk docState.uri (spec.version?.getD (docState.versionNo - 1))
+  let requestID ← sendRequest Beam.LSP.DiagnosticsBarrier.method (toJson params)
   registerRequest requestID (toJson params)
 
 def sendReleaseHandle (doc : DocHandle) (handle : Beam.LSP.RunAt.Handle) : ScenarioM ReqHandle := do

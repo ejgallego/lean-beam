@@ -24,7 +24,6 @@ import Beam.Broker.Lean
 import Beam.Broker.LakeSave
 import Beam.Broker.Readiness
 import Beam.Broker.SyncSummary
-import Beam.LSP.DirectImports
 import Beam.LSP.Save
 import Beam.Path
 import Std.Sync.Mutex
@@ -52,7 +51,6 @@ structure Session where
   stdin : IO.FS.Stream
   stdout : IO.FS.Stream
   pending : PendingRequestStore
-  incompleteBarrierDiagnostics : IO.Ref (Std.TreeMap DocumentUri (Array Diagnostic))
   nextId : Nat := 1
   nextEventSeq : Nat := 1
   moduleHistory : Std.TreeMap String ModuleHistory := {}
@@ -363,26 +361,6 @@ private def nextRequestId (session : Session) : Session × RequestID :=
   let id : RequestID := session.nextId
   ({ session with nextId := session.nextId + 1 }, id)
 
-private def recordIncompleteBarrierDiagnostics
-    (session : Session)
-    (diagnosticParam : PublishDiagnosticsParams) : IO Unit := do
-  let incompleteDiagnostics :=
-    diagnosticParam.diagnostics.filter isIncompleteBarrierDiagnostic
-  if incompleteDiagnostics.isEmpty then
-    session.incompleteBarrierDiagnostics.modify (·.erase diagnosticParam.uri)
-  else
-    session.incompleteBarrierDiagnostics.modify (·.insert diagnosticParam.uri incompleteDiagnostics)
-
-private def incompleteBarrierDiagnosticsFor
-    (session : Session)
-    (uri : DocumentUri) : IO (Array Diagnostic) := do
-  pure <| (← session.incompleteBarrierDiagnostics.get).getD uri #[]
-
-private def clearIncompleteBarrierDiagnostics
-    (session : Session)
-    (uri : DocumentUri) : IO Unit := do
-  session.incompleteBarrierDiagnostics.modify (·.erase uri)
-
 partial def sessionReaderLoop (session : Session) : IO Unit := do
   try
     let msg ← session.stdout.readLspMessage
@@ -405,7 +383,6 @@ partial def sessionReaderLoop (session : Session) : IO Unit := do
     | .notification "textDocument/publishDiagnostics" (some param) =>
         match (fromJson? (toJson param) : Except String PublishDiagnosticsParams) with
         | .ok diagnosticParam =>
-            recordIncompleteBarrierDiagnostics session diagnosticParam
             let pending ← PendingRequestStore.snapshot session.pending
             traceBroker s!"lsp publishDiagnostics pending={pending.size} params={(toJson param).compress}"
             for req in pending do
@@ -561,7 +538,6 @@ private def ensureSession (backend : Backend) : M Session := do
       let stdin := IO.FS.Stream.ofHandle proc.stdin
       let stdout := IO.FS.Stream.ofHandle proc.stdout
       let pending ← PendingRequestStore.create
-      let incompleteBarrierDiagnostics ← IO.mkRef {}
       let sessionToken ← mkSessionToken
       let mut session : Session := {
         backend
@@ -572,7 +548,6 @@ private def ensureSession (backend : Backend) : M Session := do
         stdin
         stdout
         pending
-        incompleteBarrierDiagnostics
       }
       writeLspRequest stdin ({ id := 0, method := "initialize", param := initializeParams backend root : Lean.JsonRpc.Request Json })
       awaitInitializeResponse stdout
@@ -629,16 +604,18 @@ private def readFileSyncSnapshot
   let path ← resolvePath root path
   let text ← IO.FS.readFile path
   let textMTime ← Lake.getFileMTime path
+  let uri := sessionUri path
+  let moduleName? := DocumentState.trackedModuleName? root path backend
   pure {
     path
-    uri := sessionUri path
+    uri
     text
     file := {
       textHash := hash text
       textTraceHash := Lake.Hash.ofText text
       textMTime
       readSeq
-      moduleName? := DocumentState.trackedModuleName? root path backend
+      moduleName?
     }
   }
 
@@ -658,7 +635,6 @@ private def syncFileSnapshotDetailed
         } : DidOpenTextDocumentParams
       })
       let session ← sendNotificationJson session "textDocument/didOpen" param
-      clearIncompleteBarrierDiagnostics session snapshot.uri
       pure session
     | .change =>
         let param := toJson ({
@@ -692,7 +668,6 @@ private def closeFile (session : Session) (path : System.FilePath) : IO Session 
   else
     let param := toJson ({ textDocument := { uri := uri } : DidCloseTextDocumentParams })
     let session ← sendNotificationJson session "textDocument/didClose" param
-    clearIncompleteBarrierDiagnostics session uri
     pure { session with docs := session.docs.erase uri }
 
 private def recordFileProgress (session : Session) (uri : DocumentUri)
@@ -703,18 +678,6 @@ private def decodeResponseAs [FromJson α] (json : Json) : IO α := do
   match fromJson? json with
   | .ok value => pure value
   | .error err => throw <| IO.userError s!"invalid backend response payload: {err}\n{json.compress}"
-
-private def ensureSyncBarrierComplete
-    (uri : DocumentUri)
-    (version : Nat)
-    (progress? : Option SyncFileProgress)
-    (diagnostics : Array Diagnostic := #[]) : HandlerM Unit := do
-  let decision := decideSyncBarrier uri version none progress? diagnostics
-  if decision.incomplete then
-    throwBrokerFailure {
-      code := .syncBarrierIncomplete
-      message := decision.message?.getD (syncBarrierIncompleteMessage uri version progress?)
-    }
 
 private def trackedPathLabel (root : System.FilePath) (uri : DocumentUri) : String :=
   Beam.pathRelativeToRootOrUri root uri
@@ -1051,6 +1014,10 @@ private structure StartedTrackedBarrier where
   session : Session
   uri : DocumentUri
   version : Nat
+  textHash : UInt64
+  textTraceHash : Lake.Hash
+  textMTime : Lake.MTime
+  changed : Bool := false
   priorProgress? : Option SyncFileProgress := none
   promise : IO.Promise (Except Response PendingResult)
 
@@ -1064,53 +1031,32 @@ private def startTrackedDiagnosticsBarrierIO
   let snapshot ← readRequestSyncSnapshot server req path
   server.withState do
     let session ← ensureSession req.backend
-    let session ← syncFileSnapshot session snapshot
-    let uri := snapshot.uri
+    let synced ← syncFileSnapshotDetailed session snapshot
+    let session := synced.session
+    let uri := synced.uri
     let docState ← requireDocState session uri
-    let incompleteDiagnostics ← incompleteBarrierDiagnosticsFor session uri
-    let started : StartedTrackedBarrier ←
-      if incompleteDiagnostics.isEmpty then
-        let tracked := trackedDocumentVersion uri docState
-        let params := toJson (WaitForDiagnosticsParams.mk uri docState.version)
-        let (session, promise) ←
-          startRequestJsonTrackedDetailed session "textDocument/waitForDiagnostics" params
-            (clientRequestId? := req.clientRequestId?)
-            (tracked := tracked)
-            (initialProgress? := docState.fileProgress?)
-            (emitProgress? := emitProgress?)
-            (fullDiagnostics := req.fullDiagnostics?.getD false)
-            (emitDiagnostic? := emitDiagnostic?)
-        updateSession session
-        pure ({
-          session
-          uri
-          version := docState.version
-          priorProgress? := docState.fileProgress?
-          promise
-        } : StartedTrackedBarrier)
-      else
-        let promise : IO.Promise (Except Response PendingResult) ← IO.Promise.new
-        let progress? := some <| incompleteBarrierProgress docState.fileProgress?
-        promise.resolve (Except.ok {
-          result := Json.mkObj []
-          progress?
-          diagnostics := incompleteDiagnostics
-          diagnosticsSeen := true
-        })
-        updateSession session
-        pure ({
-          session
-          uri
-          version := docState.version
-          priorProgress? := docState.fileProgress?
-          promise
-        } : StartedTrackedBarrier)
+    let tracked := trackedDocumentVersion uri docState
+    let params := toJson (WaitForDiagnosticsParams.mk uri docState.version)
+    let method ← IO.ofExcept <| diagnosticsBarrierMethod session.backend
+    let (session, promise) ←
+      startRequestJsonTrackedDetailed session method params
+        (clientRequestId? := req.clientRequestId?)
+        (tracked := tracked)
+        (initialProgress? := docState.fileProgress?)
+        (emitProgress? := emitProgress?)
+        (fullDiagnostics := req.fullDiagnostics?.getD false)
+        (emitDiagnostic? := emitDiagnostic?)
+    updateSession session
     pure {
-      session := started.session
-      uri := started.uri
-      version := started.version
-      priorProgress? := started.priorProgress?
-      promise := started.promise
+      session
+      uri
+      version := synced.version
+      textHash := docState.textHash
+      textTraceHash := docState.textTraceHash
+      textMTime := docState.textMTime
+      changed := synced.changed
+      priorProgress? := docState.fileProgress?
+      promise
     }
 
 private def finalizeSavedDoc
@@ -1134,8 +1080,6 @@ private def finalizeSavedDoc
         { current with docs := current.docs.erase uri }
       else
         current
-    if closeAfter then
-      clearIncompleteBarrierDiagnostics current uri
     updateSession current
 
 private structure SaveOleanCompleted where
@@ -1186,38 +1130,63 @@ private def fetchSyncSaveReadiness
       }
     pure (syncSaveReadinessOfResult readiness)
 
-private def fetchDirectImports
-    (server : ServerRuntime)
-    (session : Session)
-    (uri : DocumentUri)
-    (version : Nat) : HandlerM DirectImportsQueryResult := do
-  let method ← requestMethod <| directImportsMethod session.backend
-  let params := toJson ({
-    textDocument := ({ uri := uri, version? := some version : VersionedTextDocumentIdentifier })
-    : Beam.LSP.DirectImports.DirectImportsParams
-  })
-  let result : Beam.LSP.DirectImports.DirectImportsResult ←
-    sendCurrentSessionRequestDecode server session method params
-  pure {
-    version := result.version
-    imports := result.imports
-  }
-
 private def collectStaleDirectDepHintsForSession
     (server : ServerRuntime)
     (session : Session)
     (uri : DocumentUri)
-    (version : Nat) : HandlerM (Array StaleDirectDepHint) := do
+    (version : Nat)
+    (imports : Array String) : HandlerM (Array StaleDirectDepHint) := do
   if session.backend != .lean then
     pure #[]
   else
-    let importsResult ← fetchDirectImports server session uri version
     withCurrentMatchingSession server session fun current => do
-      let targetLastSyncEventSeq :=
-        match current.docs.get? uri with
-        | some docState => docState.lastSyncEventSeq
-        | none => 0
-      pure <| collectStaleDirectDepHints importsResult version targetLastSyncEventSeq current.moduleHistory
+      match current.docs.get? uri with
+      | some docState =>
+          if docState.version == version then
+            pure <| collectStaleDirectDepHints imports
+              docState.lastSyncEventSeq current.moduleHistory
+          else
+            pure #[]
+      | none =>
+          pure #[]
+
+private structure SyncBarrierOutcome where
+  completionDiagnostics : Array Diagnostic := #[]
+  hints : Array StaleDirectDepHint := #[]
+  fileProgress? : Option SyncFileProgress := none
+  incomplete : Bool := false
+
+private def staleDirectDepsBlock
+    (changed : Bool)
+    (hints : Array StaleDirectDepHint) : Bool :=
+  !hints.isEmpty && (!changed || hints.any (·.needsSave))
+
+private def syncBarrierOutcome
+    (server : ServerRuntime)
+    (started : StartedTrackedBarrier)
+    (progress? : Option SyncFileProgress)
+    (diagnosticsSeen : Bool)
+    (observedDiagnostics : Array Diagnostic)
+    (directImports : Array String)
+    (currentDiagnostics : Array Diagnostic) : HandlerM SyncBarrierOutcome := do
+  let completionDiagnostics :=
+    if diagnosticsSeen then observedDiagnostics else currentDiagnostics
+  let decision :=
+    decideSyncBarrier started.uri started.version started.priorProgress? progress? completionDiagnostics
+  let hints ← collectStaleDirectDepHintsForSession server started.session started.uri started.version
+    directImports
+  let staleDepsBlock := staleDirectDepsBlock started.changed hints
+  let fileProgress? :=
+    if staleDepsBlock then
+      some <| incompleteBarrierProgress decision.fileProgress?
+    else
+      decision.fileProgress?
+  pure {
+    completionDiagnostics
+    hints
+    fileProgress?
+    incomplete := decision.incomplete || staleDepsBlock
+  }
 
 private def brokerFailureCodeOfResponseCode : String → BrokerFailureCode
   | code => (BrokerFailureCode.ofName? code).getD .internalError
@@ -1251,37 +1220,40 @@ private def saveOlean
     pure (← get).config.root
   let path ← liftHandlerIO <| resolvePath root path
   let started ← liftHandlerIO <| startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
-  let (textHash, textTraceHash, textMTime, leanCmd?) ← liftHandlerIO <| server.withState do
-    let docState ← requireDocState started.session started.uri
-    pure (
-      docState.textHash,
-      docState.textTraceHash,
-      docState.textMTime,
-      (← get).config.leanCmd?
-    )
+  let leanCmd? ← liftHandlerIO <| server.withState do
+    pure (← get).config.leanCmd?
   liftHandlerIO <| propagatePendingCancellation started.session req.clientRequestId? cancelRef?
   let barrier ← awaitWaitForDiagnosticsBarrier
     s!"save_olean sync barrier clientRequestId={optionLabel req.clientRequestId?} uri={started.uri} version={started.version}"
     started.promise
-  let barrierDecision :=
-    decideSyncBarrier started.uri started.version started.priorProgress? barrier.progress? barrier.diagnostics
-  let barrierProgress? := barrierDecision.fileProgress?
-  let (_ : WaitForDiagnostics) ← liftHandlerIO <| decodeResponseAs barrier.result
-  liftHandlerIO <| mergeFileProgressIfCurrent server started.session started.uri barrierProgress?
-  ensureSyncBarrierComplete started.uri started.version barrierProgress? barrier.diagnostics
+  let barrierResult : DiagnosticsBarrierResult ←
+    liftHandlerIO <| decodeResponseAs barrier.result
+  if barrierResult.version != started.version then
+    throw <| documentVersionMismatchResponse started.version barrierResult.version started.uri
   liftResponseIO <| ensureRequestNotCancelled cancelRef?
   let saveReadiness ←
     fetchSyncSaveReadiness server started.session started.uri
       started.version
-      textHash
+      started.textHash
   let currentDiagnostics := saveReadiness.currentDiagnostics
+  let barrierOutcome ←
+    syncBarrierOutcome server started barrier.progress? barrier.diagnosticsSeen
+      barrier.diagnostics barrierResult.directImports currentDiagnostics
+  let barrierProgress? := barrierOutcome.fileProgress?
+  liftHandlerIO <| mergeFileProgressIfCurrent server started.session started.uri barrierProgress?
+  if barrierOutcome.incomplete then
+    let targetPath := trackedPathLabel started.session.root started.uri
+    throw <| syncBarrierIncompleteResponse
+      started.uri started.version targetPath barrierOutcome.hints
+      barrierOutcome.completionDiagnostics barrierProgress?
   let syncSummary :=
     mkSyncSummary started.version currentDiagnostics saveReadiness
   let syncVerdict :=
     syncFileSuccessPayload syncSummary
   recordCompletedSyncSummary server started.session started.uri started.version
   let spec ← liftBrokerFailureIO <|
-    mkLeanSaveSpec started.session.root path { hash := textTraceHash, mtime := textMTime } leanCmd?
+    mkLeanSaveSpec started.session.root path
+      { hash := started.textTraceHash, mtime := started.textMTime } leanCmd?
   if let some reason := spec.unsupportedSetupReason? then
     throwBrokerFailure {
       code := .saveUnsupportedSetup
@@ -1298,7 +1270,7 @@ private def saveOlean
   let params := toJson ({
     textDocument := ({ uri := started.uri : TextDocumentIdentifier })
     expectedVersion := started.version
-    expectedTextHash := textHash
+    expectedTextHash := started.textHash
     oleanFile := spec.oleanPath.toString
     ileanFile := spec.ileanPath.toString
     cFile := spec.cPath.toString
@@ -1324,16 +1296,17 @@ private def saveOlean
   if saveResult.version != started.version then
     throw <| Response.error "internalError"
       s!"save_olean saved version {saveResult.version}, expected document version {started.version}"
-  if saveResult.textHash != textHash then
+  if saveResult.textHash != started.textHash then
     throw <| Response.error "internalError"
-      s!"save_olean saved text hash {saveResult.textHash}, expected synced hash {textHash}"
+      s!"save_olean saved text hash {saveResult.textHash}, expected synced hash {started.textHash}"
   liftHandlerIO <| writeLeanSaveTrace spec
   pure {
     session
     uri := started.uri
     version := started.version
     spec
-    payload := savePayloadWithSyncVerdict (leanSavePayload spec started.version textTraceHash) syncVerdict
+    payload := savePayloadWithSyncVerdict
+      (leanSavePayload spec started.version started.textTraceHash) syncVerdict
     fileProgress? := barrierProgress?
   }
 
@@ -1360,24 +1333,25 @@ private def handleSyncFileOp
     started.promise
   liftHandlerIO <| traceBroker
     s!"sync_file barrier completed clientRequestId={optionLabel req.clientRequestId?} progress={pending.progress?.isSome} diagnostics={pending.diagnostics.size} diagnosticsSeen={pending.diagnosticsSeen}"
-  let barrierDecision :=
-    decideSyncBarrier started.uri started.version started.priorProgress? pending.progress? pending.diagnostics
-  let fileProgress? := barrierDecision.fileProgress?
-  liftHandlerIO <| mergeFileProgressIfCurrent server started.session started.uri fileProgress?
-  if barrierDecision.incomplete then
-    let hints ← collectStaleDirectDepHintsForSession server started.session started.uri started.version
-    let targetPath := trackedPathLabel started.session.root started.uri
-    return (syncBarrierIncompleteResponse
-      started.uri started.version targetPath hints pending.diagnostics fileProgress?, false)
-  let textHash ←
-    withCurrentMatchingSession server started.session fun current => do
-      let docState ← requireDocState current started.uri
-      pure docState.textHash
+  let barrierResult : DiagnosticsBarrierResult ←
+    liftHandlerIO <| decodeResponseAs pending.result
+  if barrierResult.version != started.version then
+    throw <| documentVersionMismatchResponse started.version barrierResult.version started.uri
   let saveReadiness ←
     fetchSyncSaveReadiness server started.session started.uri
       started.version
-      textHash
+      started.textHash
   let currentDiagnostics := saveReadiness.currentDiagnostics
+  let barrierOutcome ←
+    syncBarrierOutcome server started pending.progress? pending.diagnosticsSeen
+      pending.diagnostics barrierResult.directImports currentDiagnostics
+  let fileProgress? := barrierOutcome.fileProgress?
+  liftHandlerIO <| mergeFileProgressIfCurrent server started.session started.uri fileProgress?
+  if barrierOutcome.incomplete then
+    let targetPath := trackedPathLabel started.session.root started.uri
+    return (syncBarrierIncompleteResponse
+      started.uri started.version targetPath barrierOutcome.hints
+      barrierOutcome.completionDiagnostics fileProgress?, false)
   let syncSummary :=
     mkSyncSummary started.version currentDiagnostics saveReadiness
   recordCompletedSyncSummary server started.session started.uri started.version

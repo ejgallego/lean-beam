@@ -155,8 +155,12 @@ past that incomplete barrier.
 
 Sync failures may include `error.data.staleDirectDeps`, `error.data.saveDeps`,
 `error.data.recoveryPlan`, and `error.data.completionBlockingDiagnostics`. For now, recovery hints
-are based on direct imports whose saved checkpoint is newer than the target file's last successful
-sync boundary, but the intended direction is to get stale-dependency metadata from Lean's native
+are based on direct imports returned by Beam's diagnostics barrier request from Lean's accepted
+header snapshot. Beam combines those imports with broker sync/save history and reports a stale direct
+dependency when the dependency's observed source
+change or saved checkpoint is newer than the target file's last successful sync boundary. It sets
+`needsSave=true` when the latest saved checkpoint is older than the latest observed source change.
+The intended direction is to get structured stale-dependency metadata from Lean's native
 stale-dependency signal instead of reconstructing it in Beam. `completionBlockingDiagnostics`
 entries carry `completionBlocking=true` when they explain why the file could not reach a
 diagnostics-complete barrier.
