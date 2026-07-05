@@ -22,6 +22,44 @@ that data is available; see [Feedback Report Cards](docs/FEEDBACK.md).
 Lean Beam is experimental public alpha software. It is not an official Lean FRO product. Current
 scope, limitations, and release direction are tracked in [docs/STATUS.md](docs/STATUS.md).
 
+## Install And First Query
+
+Install Beam once from a Lean Beam checkout:
+
+```bash
+./scripts/install-beam.sh
+```
+
+The default installer is interactive. It asks which supported Lean toolchains, agent skills, and MCP
+client registrations to set up, then asks before writing Beam-owned install or config paths. For
+non-interactive scripts, pass `--dont-ask`.
+
+Use `--codex`, `--claude`, `--pi`, `--opencode`, or `--all-skills` when you also want bundled agent
+skills. Then move to the Lean project you want to work on:
+
+```bash
+cd /path/to/lean/project
+lean-beam doctor
+lean-beam ensure
+lean-beam update "Foo.lean"
+version="<version-from-update>"
+lean-beam hover "Foo.lean" "$version" 10 2
+lean-beam definition "Foo.lean" "$version" 10 2
+lean-beam goals before "Foo.lean" "$version" 10 2
+lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
+```
+
+Beam reads saved files on disk, not unsaved editor buffers. After a real source edit, save the file
+normally and update or sync that workspace module before trusting later probes:
+
+```bash
+lean-beam sync "MyPkg/Sub/Module.lean"
+```
+
+Detailed setup, supported toolchains, bundle behavior, and MCP client setup live in
+[docs/SETUP.md](docs/SETUP.md). Detailed installer locations, overrides, and offline advice live in
+[docs/INSTALL.md](docs/INSTALL.md).
+
 ## Why Lean Beam?
 
 Lean already has Lake for builds and editor integrations for interactive development. Some workflows
@@ -62,44 +100,6 @@ Lean Beam is a thin layer over Lean LSP plus Beam-specific extensions.
 The lower-level Lean protocol includes `$/lean/runAt`; the user-facing contract is simpler: ask Lean
 a question at a saved file position, get typed feedback, and keep ordinary requests isolated.
 Optional follow-up handles exist, but they are alpha extensions around that base request.
-
-## Quick Setup
-
-Install Beam once from a Lean Beam checkout:
-
-```bash
-./scripts/install-beam.sh
-```
-
-The default installer is interactive. It asks which supported Lean toolchains, agent skills, and MCP
-client registrations to set up, then asks before writing Beam-owned install or config paths. For
-non-interactive scripts, pass `--dont-ask`.
-
-Use `--codex`, `--claude`, `--pi`, `--opencode`, or `--all-skills` when you also want bundled agent
-skills. Then move to the Lean project you want to work on:
-
-```bash
-cd /path/to/lean/project
-lean-beam doctor
-lean-beam ensure
-lean-beam update "Foo.lean"
-version="<version-from-update>"
-lean-beam hover "Foo.lean" "$version" 10 2
-lean-beam definition "Foo.lean" "$version" 10 2
-lean-beam goals before "Foo.lean" "$version" 10 2
-lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
-```
-
-Beam reads saved files on disk, not unsaved editor buffers. After a real source edit, save the file
-normally and update or sync that workspace module before trusting later probes:
-
-```bash
-lean-beam sync "MyPkg/Sub/Module.lean"
-```
-
-Detailed setup, supported toolchains, bundle behavior, and MCP client setup live in
-[docs/SETUP.md](docs/SETUP.md). Detailed installer locations, overrides, and offline advice live in
-[docs/INSTALL.md](docs/INSTALL.md).
 
 ## FAQ
 
