@@ -209,30 +209,61 @@ import sys
 import time
 
 beam_script, project_root, slow_version, command_version, out_path, err_path = sys.argv[1:]
-env = os.environ.copy()
-env.pop("BEAM_PROGRESS", None)
-env["BEAM_REQUEST_ID"] = "wrapper-sigint-quiet"
+base_request_id = "wrapper-sigint-quiet"
+max_attempts = 5
+setup_race_count = 0
 
-with open(out_path, "wb") as out, open(err_path, "wb") as err:
-    proc = subprocess.Popen(
-        [
-            beam_script,
-            "--root",
-            project_root,
-            "lean-run-at",
-            "tests/scenario/docs/SlowPoll.lean",
-            slow_version,
-            "25",
-            "2",
-            "poll_sleep_cmd",
-        ],
-        stdout=out,
-        stderr=err,
-        env=env,
-    )
+
+def read_file(path):
+    try:
+        with open(path, "rb") as handle:
+            return handle.read().decode("utf-8", errors="replace")
+    except FileNotFoundError:
+        return ""
+
+
+def append_failure_detail(message, target_text, duplicate_text):
+    with open(err_path, "ab") as err_file:
+        err_file.write(f"\n{message}\n".encode("utf-8"))
+        if target_text:
+            err_file.write(b"\nlast target output/stderr:\n")
+            err_file.write(target_text.encode("utf-8", errors="replace"))
+        if duplicate_text:
+            err_file.write(b"\nlast duplicate output/stderr:\n")
+            err_file.write(duplicate_text.encode("utf-8", errors="replace"))
+
+
+def request_id_for_attempt(attempt):
+    if attempt == 1:
+        return base_request_id
+    return f"{base_request_id}-{attempt}"
+
+
+for attempt in range(1, max_attempts + 1):
+    request_id = request_id_for_attempt(attempt)
+    env = os.environ.copy()
+    env.pop("BEAM_PROGRESS", None)
+    env["BEAM_REQUEST_ID"] = request_id
+    with open(out_path, "wb") as out, open(err_path, "wb") as err:
+        proc = subprocess.Popen(
+            [
+                beam_script,
+                "--root",
+                project_root,
+                "lean-run-at",
+                "tests/scenario/docs/SlowPoll.lean",
+                slow_version,
+                "25",
+                "2",
+                "poll_sleep_cmd",
+            ],
+            stdout=out,
+            stderr=err,
+            env=env,
+        )
     duplicate_env = os.environ.copy()
     duplicate_env.pop("BEAM_PROGRESS", None)
-    duplicate_env["BEAM_REQUEST_ID"] = "wrapper-sigint-quiet"
+    duplicate_env["BEAM_REQUEST_ID"] = request_id
     deadline = time.monotonic() + 20.0
     active = False
     duplicate_text = ""
@@ -264,12 +295,27 @@ with open(out_path, "wb") as out, open(err_path, "wb") as err:
             break
         time.sleep(0.1)
     if not active:
-        proc.kill()
+        if proc.poll() is None:
+            proc.kill()
         proc.wait()
-        with open(err_path, "ab") as err_file:
-            err_file.write(b"\nmissing active-request marker before SIGINT\n")
-            err_file.write(duplicate_text.encode("utf-8", errors="replace"))
+        target_text = read_file(out_path) + read_file(err_path)
+        if "already active" in target_text:
+            setup_race_count += 1
+            if attempt < max_attempts:
+                continue
+            append_failure_detail(
+                f"quiet SIGINT readiness probe lost the setup race {setup_race_count} times",
+                target_text,
+                duplicate_text,
+            )
+        else:
+            append_failure_detail(
+                "missing active-request marker before SIGINT",
+                target_text,
+                duplicate_text,
+            )
         rc = "active-timeout"
+        break
     else:
         proc.send_signal(signal.SIGINT)
         try:
@@ -278,10 +324,13 @@ with open(out_path, "wb") as out, open(err_path, "wb") as err:
             proc.kill()
             proc.wait()
             rc = "timeout"
+        break
 
-print(rc)
+print(f"{rc} {request_id}")
 PY
 )"
+  interrupt_quiet_request_id="${interrupt_quiet_status#* }"
+  interrupt_quiet_status="${interrupt_quiet_status%% *}"
   if [ "$interrupt_quiet_status" = "timeout" ] || [ "$interrupt_quiet_status" = "active-timeout" ]; then
     cat "$interrupt_quiet_out" >&2
     cat "$interrupt_quiet_err" >&2
@@ -294,7 +343,7 @@ PY
     exit 1
   fi
 
-  expect_sigint_cancelled "non-progress wrapper SIGINT path" "$interrupt_quiet_out" "$interrupt_quiet_err" wrapper-sigint-quiet
+  expect_sigint_cancelled "non-progress wrapper SIGINT path" "$interrupt_quiet_out" "$interrupt_quiet_err" "$interrupt_quiet_request_id"
 
   interrupt_quiet_anon_out="$(beam_wrapper_mktemp_file interrupt-quiet-anon-out)"
   interrupt_quiet_anon_err="$(beam_wrapper_mktemp_file interrupt-quiet-anon-err)"
