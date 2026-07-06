@@ -199,22 +199,8 @@ project root per MCP server session with the `lean_init_workspace` tool before c
 
 The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check the active root or
 `mode: "reset"` to explicitly switch roots and invalidate handles; see
-[the status doc](STATUS.md#mcp-workspace-initialization).
-Successful `lean_init_workspace` results include a `capabilities` array with the projected MCP tool
-names, including `beam_version`, `beam_stats`, `lean_update`, `lean_sync`, `lean_refresh`,
-`lean_save`, `lean_close_save`, `lean_run_at`, `lean_hover`, `lean_signature_help`,
-`lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`,
-`lean_goals`, `lean_todo`, and `lean_code_action_resolve`.
-
-Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
-`lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
-`lean_document_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`; those calls
-require the `version` returned by a successful `lean_update` or `lean_sync` for the same path.
-`lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`; clients
-apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again. The
-`lean_workspace_symbols` query is workspace-scoped and does not take a file version. `lean_goals`
-also requires `mode: "before"` or `mode: "after"`. Use `lean_sync` instead when the client also
-needs the diagnostics/readiness barrier.
+[the status doc](STATUS.md#mcp-workspace-initialization). Direct-client tool and version semantics
+live in the [MCP protocol notes](MCP.md#client-tool-semantics).
 
 Direct single-project MCP registrations may still pass an explicit project root:
 
@@ -227,9 +213,7 @@ The `--root` startup flag accepts absolute paths and paths relative to the serve
 directory. The `lean_init_workspace` tool intentionally accepts only absolute paths so clients do
 not accidentally bind a session to a root interpreted from the server process cwd.
 
-The wrapper resolves the matching installed `beam-cli`, Lean command, and Beam LSP plugin for each
-project. Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
-`--lean-plugin` explicitly.
+The wrapper resolves the matching installed Beam runtime for each project.
 
 Use `lean-beam --version` for bug reports and CLI refresh checks. Use `lean-beam-mcp --version` to
 check which MCP server command a client registration resolves. From a live MCP session, call the
