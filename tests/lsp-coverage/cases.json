@@ -289,6 +289,12 @@
       "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsStaleHash"
     },
     {
+      "id": "saveArtifacts.same-document-edit-race",
+      "method": "$/beam/saveArtifacts",
+      "coverage": ["same-document-edit-race"],
+      "pointer": "tests/lean/BeamTest/LSP/Requests/Save/BasicTest.lean#checkSaveArtifactsRejectsSameDocumentEditRace"
+    },
+    {
       "id": "saveArtifacts.standard-lsp-interference",
       "method": "$/beam/saveArtifacts",
       "coverage": ["standard-lsp-interference"],

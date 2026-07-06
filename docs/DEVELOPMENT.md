@@ -95,10 +95,11 @@ request family owns its method constants, JSON payload types, handler, and reque
   [Beam/LSP/RunAt](../Beam/LSP/RunAt)
 - [Beam/LSP/Goals.lean](../Beam/LSP/Goals.lean): `$/lean/goalsAfter` and `$/lean/goalsPrev`
 - [Beam/LSP/Todo.lean](../Beam/LSP/Todo.lean): `$/lean/todo`
-- [Beam/LSP/Save.lean](../Beam/LSP/Save.lean): broker-only save readiness and artifact requests
+- [Beam/LSP/Save.lean](../Beam/LSP/Save.lean): save-readiness helpers and artifact requests
 - [Beam/LSP/DiagnosticsBarrier.lean](../Beam/LSP/DiagnosticsBarrier.lean): broker-only diagnostics
-  barrier handler returning direct imports from Lean's accepted header snapshot; the broker decodes
-  the matching small JSON contract without importing this handler module
+  barrier handler returning direct imports from Lean's accepted header snapshot and Lean-side
+  save-readiness metadata; the broker decodes the matching small JSON contract without importing
+  this handler module
 
 Use `Beam.LSP.Lib.*` only for helpers shared across multiple families, such as request hygiene,
 proof-state projection, diagnostics compatibility, and native shared-library naming. Keep
@@ -257,8 +258,9 @@ typed observations such as `fileProgress`, and report stale direct-dependency hi
 readiness is a backend/LSP verdict. Do not rebuild or override the save decision from progress,
 diagnostic counts, saved-olean bookkeeping, or other broker-side observations.
 For checkpoint decisions, the broker passes the expected document version and text hash to the
-Lean-side save-readiness and save-artifact requests. Streamed diagnostics and broker summaries are
-evidence attached to that verdict, not the authority for it.
+Lean-side save-artifact request. The broker uses the save-readiness metadata returned by the
+diagnostics barrier that already waited for the same document version. Streamed diagnostics and
+broker summaries are evidence attached to that verdict, not the authority for it.
 
 Do not remove broker-side ordered file snapshots when thinning orchestration. Beam requests are
 path-based and may run concurrently, while LSP document updates are an ordered client stream. The LSP

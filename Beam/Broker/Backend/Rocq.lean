@@ -44,9 +44,6 @@ def releaseMethod : Except String String :=
 def saveArtifactsMethod : Except String String :=
   .error "rocq backend does not support artifact save yet"
 
-def saveReadinessMethod : Except String String :=
-  .error "rocq backend does not support save-readiness checks yet"
-
 def goalsMethod : String :=
   "proof/goals"
 
