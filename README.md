@@ -42,11 +42,16 @@ cd /path/to/lean/project
 lean-beam doctor
 lean-beam ensure
 lean-beam update "Foo.lean"
-version="<version-from-update>"
-lean-beam hover "Foo.lean" "$version" 10 2
-lean-beam definition "Foo.lean" "$version" 10 2
-lean-beam goals before "Foo.lean" "$version" 10 2
-lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
+```
+
+`lean-beam update` prints JSON. Copy the returned `version` number; position-based queries require
+it so they run against the saved file snapshot you just opened. Then use that version:
+
+```bash
+lean-beam hover "Foo.lean" <version> 10 2
+lean-beam definition "Foo.lean" <version> 10 2
+lean-beam goals before "Foo.lean" <version> 10 2
+lean-beam run-at "Foo.lean" <version> 10 2 "exact trivial"
 ```
 
 Beam reads saved files on disk, not unsaved editor buffers. After a real source edit, save the file
