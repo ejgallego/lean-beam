@@ -49,6 +49,11 @@ sections.
 This skill documents the current Lean-facing `lean-beam` workflow surface. Use the smallest command
 family that fits the task.
 
+Agents may access Beam through the `lean-beam` wrapper or through a registered `lean-beam-mcp`
+server. This skill names wrapper commands because they are always available after installation. When
+your client exposes the matching MCP tools, use them with the same saved-file, version, update, sync,
+and isolation rules; do not treat MCP as a raw Lean LSP proxy.
+
 Supported command families:
 
 - bootstrap the Lean backend: `lean-beam ensure`
