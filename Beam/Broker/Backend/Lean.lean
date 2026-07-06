@@ -88,9 +88,6 @@ def releaseMethod : String :=
 def saveArtifactsMethod : String :=
   Beam.LSP.Save.saveArtifactsMethod
 
-def saveReadinessMethod : String :=
-  Beam.LSP.Save.saveReadinessMethod
-
 def diagnosticsBarrierMethod : String :=
   "$/beam/waitForDiagnostics"
 

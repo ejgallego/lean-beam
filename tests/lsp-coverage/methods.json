@@ -102,6 +102,7 @@
         "isolation",
         "stale-version",
         "stale-hash",
+        "same-document-edit-race",
         "standard-lsp-interference",
         "mixed-concurrency"
       ]

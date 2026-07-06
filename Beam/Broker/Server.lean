@@ -1100,35 +1100,35 @@ private def saveCompletedResponse
       saved.payload
   responseWithFileProgress (Response.success payload) saved.fileProgress?
 
-private def fetchSyncSaveReadiness
-    (server : ServerRuntime)
-    (session : Session)
+private def syncSaveReadinessOfBarrierResult
     (uri : DocumentUri)
     (expectedVersion : Nat)
-    (expectedTextHash : UInt64) : HandlerM SyncSaveReadiness := do
-  if session.backend != .lean then
-    pure {}
-  else
-    let method ← requestMethod <| saveReadinessMethod session.backend
-    let params := toJson ({
-      textDocument := ({ uri := uri : TextDocumentIdentifier })
-      expectedVersion
-      expectedTextHash
-      : Beam.LSP.Save.SaveReadinessParams
-    })
-    let readiness : Beam.LSP.Save.SaveReadinessResult ←
-      sendCurrentSessionRequestDecode server session method params
-    if readiness.version != expectedVersion then
-      throwBrokerFailure {
-        code := .contentModified
-        message :=
-          s!"save readiness reported version {readiness.version}, " ++
-            s!"expected document version {expectedVersion}"
-        data? := some <| documentVersionMismatchErrorData expectedVersion readiness.version
-          (currentVersion? := some readiness.version)
-          (uri? := some uri)
-      }
-    pure (syncSaveReadinessOfResult readiness)
+    (expectedTextHash : UInt64)
+    (barrierResult : DiagnosticsBarrierResult) : HandlerM SyncSaveReadiness := do
+  let readiness := barrierResult.saveReadiness
+  if readiness.version != expectedVersion then
+    throwBrokerFailure {
+      code := .contentModified
+      message :=
+        s!"diagnostics barrier save readiness reported version " ++
+          s!"{readiness.version}, expected document version {expectedVersion}"
+      data? := some <| documentVersionMismatchErrorData expectedVersion readiness.version
+        (currentVersion? := some readiness.version)
+        (uri? := some uri)
+    }
+  if readiness.textHash != expectedTextHash then
+    throwBrokerFailure {
+      code := .contentModified
+      message :=
+        s!"diagnostics barrier save readiness reported text hash " ++
+          s!"{readiness.textHash}, expected synced hash {expectedTextHash}"
+      data? := some <| Json.mkObj [
+        ("expectedHash", toJson expectedTextHash),
+        ("actualHash", toJson readiness.textHash),
+        ("uri", toJson uri)
+      ]
+    }
+  pure <| syncSaveReadinessOfResult readiness
 
 private def collectStaleDirectDepHintsForSession
     (server : ServerRuntime)
@@ -1232,9 +1232,7 @@ private def saveOlean
     throw <| documentVersionMismatchResponse started.version barrierResult.version started.uri
   liftResponseIO <| ensureRequestNotCancelled cancelRef?
   let saveReadiness ←
-    fetchSyncSaveReadiness server started.session started.uri
-      started.version
-      started.textHash
+    syncSaveReadinessOfBarrierResult started.uri started.version started.textHash barrierResult
   let currentDiagnostics := saveReadiness.currentDiagnostics
   let barrierOutcome ←
     syncBarrierOutcome server started barrier.progress? barrier.diagnosticsSeen
@@ -1338,9 +1336,7 @@ private def handleSyncFileOp
   if barrierResult.version != started.version then
     throw <| documentVersionMismatchResponse started.version barrierResult.version started.uri
   let saveReadiness ←
-    fetchSyncSaveReadiness server started.session started.uri
-      started.version
-      started.textHash
+    syncSaveReadinessOfBarrierResult started.uri started.version started.textHash barrierResult
   let currentDiagnostics := saveReadiness.currentDiagnostics
   let barrierOutcome ←
     syncBarrierOutcome server started pending.progress? pending.diagnosticsSeen

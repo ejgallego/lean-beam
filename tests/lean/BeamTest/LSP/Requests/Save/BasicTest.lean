@@ -119,6 +119,28 @@ def checkSaveArtifactsWrite : ScenarioM Unit := do
 
   closeDoc doc
 
+def checkSaveArtifactsRejectsSameDocumentEditRace : ScenarioM Unit := do
+  let path := "tests/scenario/docs/PartialProgress.lean"
+  let doc ← openDoc path
+  let text ← IO.FS.readFile path
+  let outDir ← mkTmpDir "beam-save-request-race"
+
+  let saveReq ← sendSaveArtifacts doc {
+    expectedVersionOverride? := some 1
+    expectedTextHashOverride? := some (hash text)
+    oleanFile := (outDir / "PartialProgress.olean").toString
+    ileanFile := (outDir / "PartialProgress.ilean").toString
+    cFile := (outDir / "PartialProgress.c").toString
+  }
+  changeDoc doc {
+    line := 0
+    character := 0
+    insert := "-- concurrent edit while saveArtifacts is pending\n"
+  }
+
+  expectErrorContains saveReq (Json.mkObj [("code", toJson "contentModified")])
+  closeDoc doc
+
 def checkSaveReadinessDocumentErrors : ScenarioM Unit := do
   let doc ← openDoc depAFixture
 
@@ -257,6 +279,7 @@ def run : ScenarioM Unit := do
   checkSaveArtifactsStaleVersion
   checkSaveArtifactsStaleHash
   checkSaveArtifactsWrite
+  checkSaveArtifactsRejectsSameDocumentEditRace
   checkSaveReadinessDocumentErrors
   checkSaveRequestsWithStandardLspInterference
   checkSaveRequestsWithMixedConcurrency

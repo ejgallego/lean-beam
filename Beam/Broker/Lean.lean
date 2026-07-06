@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Beam.Broker.Backend.Lean
 import Beam.Broker.Backend.Rocq
 import Beam.Broker.Backend.Shared
+import Beam.LSP.Save
 
 namespace Beam.Broker
 
@@ -15,6 +16,7 @@ handler without importing the handler module into the broker. -/
 structure DiagnosticsBarrierResult where
   version : Nat
   directImports : Array String := #[]
+  saveReadiness : Beam.LSP.Save.SaveReadinessResult
   deriving Lean.FromJson, Lean.ToJson
 
 def backendCommand
@@ -85,11 +87,6 @@ def saveArtifactsMethod (backend : Backend) : Except String String :=
   match backend with
   | .lean => .ok Backend.Lean.saveArtifactsMethod
   | .rocq => Backend.Rocq.saveArtifactsMethod
-
-def saveReadinessMethod (backend : Backend) : Except String String :=
-  match backend with
-  | .lean => .ok Backend.Lean.saveReadinessMethod
-  | .rocq => Backend.Rocq.saveReadinessMethod
 
 def diagnosticsBarrierMethod (backend : Backend) : Except String String :=
   match backend with

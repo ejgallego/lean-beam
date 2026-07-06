@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean.Data.Lsp.Extra
 import Lean.Server.References
 import Lean.Server.Requests
+import Beam.LSP.Save
 
 open Lean
 open Lean.Server
@@ -23,6 +24,7 @@ def method : String := "$/beam/waitForDiagnostics"
 structure Result where
   version : Nat
   directImports : Array String := #[]
+  saveReadiness : Save.SaveReadinessResult
   deriving FromJson, ToJson
 
 private def importsOfHeader (header : Lean.Elab.HeaderSyntax) : Array String :=
@@ -40,19 +42,23 @@ partial def waitForDocumentVersion (version : Nat) : RequestM Lean.Server.FileWo
     IO.sleep 50
     waitForDocumentVersion version
 
-def resultOfDocument (doc : Lean.Server.FileWorker.EditableDocument) : Result := {
+def resultOfDocument
+    (doc : Lean.Server.FileWorker.EditableDocument)
+    (saveReadiness : Save.SaveReadinessResult) : Result := {
   version := doc.meta.version
   directImports := importsOfHeader ⟨doc.initSnap.stx⟩
+  saveReadiness
 }
 
 def handle (p : Lean.Lsp.WaitForDiagnosticsParams) : RequestM (RequestTask Result) := do
   let t ← RequestM.asTask <| waitForDocumentVersion p.version
   RequestM.bindTaskCheap t fun doc? => do
     let doc ← liftExcept doc?
-    let result := resultOfDocument doc
     -- Match `textDocument/waitForDiagnostics`: wait on both the reporter and `cmdSnaps` so
     -- request handlers using `IO.hasFinished` on `doc.cmdSnaps` have completed.
-    return doc.reporter.bindCheap (fun _ => doc.cmdSnaps.waitAll)
-      |>.mapCheap fun _ => pure result
+    let t := doc.reporter.bindCheap (fun _ => doc.cmdSnaps.waitAll)
+    RequestM.mapTaskCostly t fun _ => do
+      let (saveReadiness, _, _, _) ← Save.collectSaveReadiness doc
+      pure <| resultOfDocument doc saveReadiness
 
 end Beam.LSP.DiagnosticsBarrier

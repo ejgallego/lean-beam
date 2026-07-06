@@ -39,8 +39,9 @@ def saveArtifactsMethod : String := "$/beam/saveArtifacts"
 Internal broker-only request for checking whether the current elaborated document
 state is ready for artifact save.
 
-This underpins the supported `save after sync` path. It is not part of the public
-`runAt` API.
+Broker sync/save paths consume this metadata from `$/beam/waitForDiagnostics`; this request remains
+a direct request-surface check for the current worker snapshot. It is not part of the public `runAt`
+API.
 -/
 def saveReadinessMethod : String := "$/beam/saveReadiness"
 
@@ -107,6 +108,7 @@ private def optionalField? [FromJson α] (json : Json) (field : String) : Except
 /-- Internal success payload for save-readiness checks. -/
 structure SaveReadinessResult where
   version : Nat
+  textHash : UInt64 := 0
   /-- Current worker snapshot diagnostics for reporting, not the save-readiness verdict. -/
   currentDiagnostics : Array Lean.Lsp.Diagnostic := #[]
   currentWarningCount : Nat := 0
@@ -120,6 +122,7 @@ structure SaveReadinessResult where
 instance : FromJson SaveReadinessResult where
   fromJson? json := do
     let version ← json.getObjValAs? Nat "version"
+    let textHash ← json.getObjValAs? UInt64 "textHash"
     let currentDiagnostics? ←
       optionalField? (α := Array Lean.Lsp.Diagnostic) json "currentDiagnostics"
     let currentWarningCount? ← optionalField? (α := Nat) json "currentWarningCount"
@@ -132,6 +135,7 @@ instance : FromJson SaveReadinessResult where
       optionalField? (α := Array SaveBlockingCommandMessage) json "blockingCommandMessages"
     pure {
       version
+      textHash
       currentDiagnostics := currentDiagnostics?.getD #[]
       currentWarningCount := currentWarningCount?.getD 0
       saveReady := saveReady?.getD true
@@ -341,6 +345,7 @@ def collectSaveReadiness
   let commandErrors ← commandErrorMessages frontendMessages
   let frontendBlockingDiagnostics ← saveBlockingDiagnosticsOfMessages doc frontendMessages
   let frontendBlockingCommandMessages := saveBlockingCommandMessages commandErrors
+  let textHash := currentDocumentTextHash doc
   let fallbackBlockingDiagnostics :=
     if frontendErrorCount == 0 then
       saveBlockingDiagnosticsOfInteractive diagnosticErrors
@@ -351,6 +356,7 @@ def collectSaveReadiness
   let some cmdState := Lean.Language.Lean.waitForFinalCmdState? doc.initSnap
     | return ({
       version := doc.meta.version
+      textHash
       currentDiagnostics := diagnostics.map currentDiagnosticOfInteractive
       currentWarningCount :=
         if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
@@ -364,6 +370,7 @@ def collectSaveReadiness
   let saveReady := frontendErrorCount == 0
   let readiness : SaveReadinessResult := {
     version := doc.meta.version
+    textHash
     currentDiagnostics := diagnostics.map currentDiagnosticOfInteractive
     currentWarningCount :=
       if frontendWarningCount == 0 then diagnosticWarnings.size else frontendWarningCount
