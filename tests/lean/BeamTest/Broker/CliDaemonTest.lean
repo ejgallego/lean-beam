@@ -4,12 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
-import Beam.Cli.Daemon
 import Beam.Cli.Broker
 import Beam.Cli.Info
 import Beam.Cli.LeanOperation
 import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle
+import Beam.Daemon.Debug
 import Beam.Path
 import Beam.Mcp.Projection
 import BeamTest.Broker.JsonAssert
@@ -22,6 +22,19 @@ namespace BeamTest.Broker.CliDaemonTest
 private def require (label : String) (cond : Bool) : IO Unit := do
   unless cond do
     throw <| IO.userError label
+
+private def checkDaemonDebugWarnings : IO Unit := do
+  let debug := Json.mkObj [
+    ("registry", Json.mkObj [
+      ("daemonId", toJson "fixture-daemon"),
+      ("pid", toJson (424242 : Nat))
+    ]),
+    ("registryPidStatus", toJson "not alive"),
+    ("registryEndpoint", toJson "tcp://127.0.0.1:42424")
+  ]
+  let warnings := Beam.Daemon.daemonDebugWarnings debug
+  require "dead registry pid should produce a feedback warning"
+    (warnings.any (fun warning => warning.contains "registry pid is not alive"))
 
 private def expectIoErrorMessage (label : String) (act : IO α) : IO String := do
   let result ←
@@ -126,6 +139,7 @@ private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
     | .leanOperation op => acc.push op
     | .serverInfo => acc
     | .serverDebug => acc
+    | .feedback => acc
     | .workspaceInit => acc
 
 private def requireSameOperationSurface
@@ -408,19 +422,19 @@ private def checkLeanOperationRequests : IO Unit := do
 
 private def checkStartupRetryPolicy : IO Unit := do
   require "automatic occupied endpoint should retry"
-    (Beam.Cli.shouldRetryAutomaticStartup true 1 true false)
+    (Beam.Daemon.shouldRetryAutomaticStartup true 1 true false)
   require "automatic startup bind collision should retry"
-    (Beam.Cli.shouldRetryAutomaticStartup true 1 false true)
+    (Beam.Daemon.shouldRetryAutomaticStartup true 1 false true)
   require "automatic endpoint should not retry after attempts are exhausted"
-    (!Beam.Cli.shouldRetryAutomaticStartup true 0 true true)
+    (!Beam.Daemon.shouldRetryAutomaticStartup true 0 true true)
   require "automatic endpoint should not retry when endpoint is not occupied after failure"
-    (!Beam.Cli.shouldRetryAutomaticStartup true 1 false false)
+    (!Beam.Daemon.shouldRetryAutomaticStartup true 1 false false)
   require "explicit endpoint should not retry"
-    (!Beam.Cli.shouldRetryAutomaticStartup false 1 true true)
+    (!Beam.Daemon.shouldRetryAutomaticStartup false 1 true true)
   require "Linux bind failure wording should be recognized"
-    (Beam.Cli.startupFailureSuggestsEndpointInUse "resource busy (error code: 4294967198, address already in use)")
+    (Beam.Daemon.startupFailureSuggestsEndpointInUse "resource busy (error code: 4294967198, address already in use)")
   require "macOS bind failure wording should be recognized"
-    (Beam.Cli.startupFailureSuggestsEndpointInUse "Address already in use")
+    (Beam.Daemon.startupFailureSuggestsEndpointInUse "Address already in use")
 
 private def checkDaemonFailureContext : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/beam-daemon-failure-context-{← IO.monoNanosNow}"
@@ -429,7 +443,7 @@ private def checkDaemonFailureContext : IO Unit := do
     let registryPath ← Beam.Cli.registryPath root
     if let some parent := registryPath.parent then
       IO.FS.createDirAll parent
-    let entry : Beam.Cli.RegistryEntry := {
+    let entry : Beam.Daemon.RegistryEntry := {
       daemonId := "daemon-test"
       pid := 999999999
       port? := some 42424
@@ -464,7 +478,7 @@ private def checkDaemonFailureContext : IO Unit := do
     requireJsonString "daemon failure incident should include registry path"
       "registryPath" registryPath.toString incidentJson
     let incidentRegistryJson ← IO.ofExcept <| incidentJson.getObjVal? "registry"
-    let incidentRegistry ← IO.ofExcept <| fromJson? (α := Beam.Cli.RegistryEntry) incidentRegistryJson
+    let incidentRegistry ← IO.ofExcept <| fromJson? (α := Beam.Daemon.RegistryEntry) incidentRegistryJson
     require "daemon failure incident should include daemon id"
       (incidentRegistry.daemonId == "daemon-test")
     requireJsonString "daemon failure incident should include registry pid status"
@@ -557,7 +571,7 @@ private def writeTestRegistryEntry
   let registryPath ← Beam.Cli.registryPath root
   if let some parent := registryPath.parent then
     IO.FS.createDirAll parent
-  let entry : Beam.Cli.RegistryEntry := {
+  let entry : Beam.Daemon.RegistryEntry := {
     daemonId := "daemon-test"
     pid := 999999999
     port?
@@ -591,7 +605,7 @@ private def checkBrokerConnectionClosedIncident : IO Unit := do
       requireJsonStringContains "broker close incident should keep transport detail"
         "detail" "Beam daemon connection closed" incidentJson
       requireJsonString "broker close incident should include endpoint summary"
-        "registryEndpoint" (Beam.Cli.endpointSummary endpoint) incidentJson
+        "registryEndpoint" (Beam.Daemon.endpointSummary endpoint) incidentJson
   finally
     try
       let control ← Beam.Cli.controlDir root
@@ -919,6 +933,7 @@ def main : IO Unit := do
   checkCancelAcknowledgementDecoding
   checkLeanOperationRequests
   checkStartupRetryPolicy
+  checkDaemonDebugWarnings
   checkDaemonFailureContext
   checkNoLiveDaemonFailureIncident
   checkDaemonFailureUnreadableStartupLog

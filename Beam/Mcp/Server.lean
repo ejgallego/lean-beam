@@ -5,6 +5,9 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Broker.Server
+import Beam.Feedback
+import Beam.Feedback.Broker
+import Beam.Daemon.Debug
 import Beam.Lean.Workspace
 import Beam.Mcp.Options
 import Beam.Mcp.Protocol
@@ -12,6 +15,7 @@ import Beam.Mcp.Runtime
 import Beam.Mcp.Roots
 import Beam.Mcp.SelfCheck
 import Beam.Mcp.Stdio
+import Beam.System
 import Beam.Workspace
 import Beam.Version
 
@@ -378,6 +382,76 @@ private def handleBeamVersion
   let identity ← serverIdentity opts currentState.root? (some currentState.runtime?.isSome)
   pure <| callToolResult identity.asJson
 
+private def collectFeedbackRuntimePayload
+    (runtime? : Option Beam.Broker.ServerRuntime)
+    (root? : Option System.FilePath)
+    (warnings : Array String) : IO (Json × Json × Array String) := do
+  match runtime? with
+  | none =>
+      pure (Json.null, Json.null, warnings.push "no active MCP Lean runtime was available for stats/open-files")
+  | some runtime =>
+      let (statsResp, _) ← runtime.dispatchRequest { op := .stats }
+      let (stats, warnings) := Beam.Feedback.responsePayloadOrWarning "stats" statsResp warnings
+      let (openResp, _) ← runtime.dispatchRequest { op := .openDocs, root? := root?.map (·.toString) }
+      let (openDocs, warnings) := Beam.Feedback.responsePayloadOrWarning "open-files" openResp warnings
+      pure (stats, openDocs, warnings)
+
+private def feedbackAllowedRoots
+    (root? : Option System.FilePath) : IO (Array System.FilePath) := do
+  match root? with
+  | some root => do
+      let control ← Beam.Daemon.controlDir root
+      pure #[root, control]
+  | none => pure #[]
+
+private def handleBeamFeedback
+    (state : IO.Ref ProtocolState)
+    (opts : Options)
+    (arguments : Json)
+    (progress? : Option ProgressEmitter) : IO Json := do
+  let input ←
+    match fromJson? (α := Beam.Feedback.Input) arguments with
+    | .ok input => pure input
+    | .error err =>
+        emitProgress? progress? "beam_feedback failed"
+        return callToolErrorResult <| ToolError.invalidInput err
+  let currentState ← state.get
+  emitProgress? progress? "collecting beam_feedback context"
+  let generatedAt ← Beam.utcTimestamp
+  let identity ← serverIdentity opts currentState.root? (some currentState.runtime?.isSome)
+  let mut warnings := #[]
+  let daemon ←
+    match currentState.root? with
+    | some root => Beam.Daemon.daemonDebugContextJson root
+    | none =>
+        warnings := warnings.push "no active MCP root was available for daemon registry context"
+        pure Json.null
+  let warningsWithDaemon := warnings ++ Beam.Daemon.daemonDebugWarnings daemon
+  let (stats, openDocs, warnings') ←
+    collectFeedbackRuntimePayload currentState.runtime? currentState.root? warningsWithDaemon
+  let collection : Beam.Feedback.Collection := {
+    generatedAt
+    activeRoot? := currentState.root?.map (·.toString)
+    data := Json.mkObj [
+      ("identity", identity.asJson),
+      ("stats", stats),
+      ("openFiles", openDocs),
+      ("daemon", daemon)
+    ]
+    warnings := warnings'
+  }
+  let allowedRoots ← feedbackAllowedRoots currentState.root?
+  try
+    let result ← Beam.Feedback.buildResult input collection {
+      root? := currentState.root?
+      allowedRoots
+    }
+    emitProgress? progress? "completed beam_feedback"
+    pure <| callToolResult <| Beam.Feedback.Result.toJson result
+  catch e =>
+    emitProgress? progress? "beam_feedback failed"
+    pure <| callToolErrorResult <| ToolError.invalidInput e.toString
+
 private def brokerRequestForTool
     (root : System.FilePath)
     (params : CallToolParams)
@@ -407,6 +481,11 @@ private def handleToolCall
   if params.name == .beamVersion then
     let result ← handleBeamVersion state opts
     traceMcp s!"tools/call version complete id={requestIdLabel req.id} tool={params.name.key}"
+    return .ok result
+  if params.name == .beamFeedback then
+    emitProgress? progress? s!"starting {params.name.key}"
+    let result ← handleBeamFeedback state opts params.arguments progress?
+    traceMcp s!"tools/call feedback complete id={requestIdLabel req.id} tool={params.name.key}"
     return .ok result
   let root ←
     match ← ensureRoot state stdin notifier with

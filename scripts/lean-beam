@@ -33,6 +33,7 @@ usage:
   lean-beam [--root PATH] [--port N] close-save <path> [+full]
   lean-beam [--root PATH] [--port N] rocq-goals-after <path> <line> <character> [text...]
   lean-beam [--root PATH] [--port N] rocq-goals-prev <path> <line> <character> [text...]
+  lean-beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]
   lean-beam supported-toolchains [lean]
   lean-beam [--root PATH] doctor [lean|rocq]
   lean-beam [--root PATH] open-files
@@ -51,6 +52,7 @@ notes:
   - use `ensure --hold` when a PID-isolated command runner needs one foreground process to keep a newly-started daemon alive
   - set `BEAM_DEBUG_TEXT=1` to print the exact escaped text and UTF-8 bytes sent for text-carrying Lean probes
   - use `lean-beam --version` for bug reports and installed runtime identity checks
+  - use `lean-beam feedback` with JSON object input to produce a pasteable Beam report card with debug context
 EOF
 }
 
@@ -245,6 +247,10 @@ case "$cmd" in
       mapped=("supported-toolchains")
     fi
     ;;
+  feedback)
+    mapped=("feedback")
+    display_cmd="$cmd"
+    ;;
   *)
     mapped=("$cmd")
     ;;
@@ -256,7 +262,7 @@ else
   unset BEAM_WRAPPER_COMMAND
 fi
 case "$cmd" in
-  version|--version)
+  version|--version|feedback)
     export BEAM_WRAPPER_PATH="$script_path"
     export BEAM_PUBLIC_COMMAND="lean-beam"
     ;;

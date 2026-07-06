@@ -168,8 +168,8 @@ def doctor (home : System.FilePath) (opts : CliOptions) (backend : Backend) : IO
       IO.println s!"daemon pid: {entry.pid}"
       if let some pidNamespace := entry.pidNamespace? then
         IO.println s!"daemon pid namespace: {pidNamespace}"
-      if let some endpoint := registryEndpoint? entry then
-        IO.println s!"daemon endpoint: {endpointSummary endpoint}"
+      if let some endpoint := Beam.Daemon.registryEndpoint? entry then
+        IO.println s!"daemon endpoint: {Beam.Daemon.endpointSummary endpoint}"
       else
         IO.println "daemon endpoint: invalid"
       IO.println s!"daemon config hash: {entry.configHash}"

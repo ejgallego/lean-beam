@@ -138,8 +138,8 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 [STATUS.md](STATUS.md#mcp-workspace-initialization).
 
 Successful `lean_init_workspace` results include a `capabilities` array with projected MCP tool
-names, including `beam_version`, `beam_stats`, `lean_run_at`, `lean_update`, `lean_sync`,
-`lean_refresh`, `lean_save`, `lean_close_save`, `lean_hover`, `lean_signature_help`,
+names, including `beam_version`, `beam_stats`, `beam_feedback`, `lean_run_at`, `lean_update`,
+`lean_sync`, `lean_refresh`, `lean_save`, `lean_close_save`, `lean_hover`, `lean_signature_help`,
 `lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`, and
 `lean_goals`, `lean_todo`, and `lean_code_action_resolve`.
 

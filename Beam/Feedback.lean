@@ -1,0 +1,555 @@
+/-
+Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Author: Emilio J. Gallego Arias
+-/
+
+import Lean
+import Beam.JsonPretty
+import Beam.Path
+
+open Lean
+
+namespace Beam.Feedback
+
+inductive BundleMode where
+  | none
+  | dir
+  | zip
+  deriving BEq, Repr
+
+def BundleMode.key : BundleMode → String
+  | .none => "none"
+  | .dir => "dir"
+  | .zip => "zip"
+
+instance : ToJson BundleMode where
+  toJson mode := toJson mode.key
+
+instance : FromJson BundleMode where
+  fromJson?
+    | .str "none" => .ok .none
+    | .str "dir" => .ok .dir
+    | .str "zip" => .ok .zip
+    | j => .error s!"expected feedback bundle mode 'none', 'dir', or 'zip', got {j.compress}"
+
+def bundleModeKeys : Array String :=
+  #["none", "dir", "zip"]
+
+def requiredInputFields : Array String :=
+  #["title", "summary", "reproduction", "expected", "actual"]
+
+def requiredInputFieldsText : String :=
+  String.intercalate ", " requiredInputFields.toList
+
+private def requireObject (label : String) : Json → Except String Unit
+  | Json.obj _ => pure ()
+  | other => throw s!"{label}, got {other.compress}"
+
+private def optionalField? [FromJson α] (json : Json) (field : String) : Except String (Option α) := do
+  match json.getObjVal? field with
+  | .ok value =>
+      match fromJson? value with
+      | .ok decoded => pure (some decoded)
+      | .error err => throw s!"invalid '{field}': {err}"
+  | .error _ =>
+      pure none
+
+private def requiredString (json : Json) (field : String) : Except String String := do
+  match json.getObjVal? field with
+  | .error _ =>
+      throw s!"missing required string field '{field}'"
+  | .ok (.str value) =>
+      if value.trimAscii.isEmpty then
+        throw s!"'{field}' must not be empty"
+      pure value
+  | .ok other =>
+      throw s!"field '{field}' must be a string, got {other.compress}"
+
+structure EvidenceInput where
+  name : String
+  content? : Option Json := none
+  path? : Option String := none
+
+instance : FromJson EvidenceInput where
+  fromJson? json := do
+    requireObject "feedback evidence entry must be a JSON object" json
+    let name ← requiredString json "name"
+    let content? ← optionalField? (α := Json) json "content"
+    let path? ← optionalField? (α := String) json "path"
+    if content?.isSome && path?.isSome then
+      throw "feedback evidence accepts either 'content' or 'path', not both"
+    if content?.isNone && path?.isNone then
+      throw "feedback evidence requires 'content' or 'path'"
+    pure { name, content?, path? }
+
+instance : ToJson EvidenceInput where
+  toJson evidence :=
+    Json.mkObj <|
+      [("name", toJson evidence.name)] ++
+      (match evidence.content? with
+      | some content => [("content", content)]
+      | none => []) ++
+      match evidence.path? with
+      | some path => [("path", toJson path)]
+      | none => []
+
+structure Input where
+  title : String
+  summary : String
+  reproduction : String
+  expected : String
+  actual : String
+  impact? : Option String := none
+  workaround? : Option String := none
+  tags : Array String := #[]
+  clientRequestId? : Option String := none
+  request? : Option Json := none
+  response? : Option Json := none
+  evidence : Array EvidenceInput := #[]
+  bundle : BundleMode := .none
+  redact : Bool := true
+
+instance : FromJson Input where
+  fromJson? json := do
+    requireObject
+      s!"feedback input must be a JSON object with required string fields: {requiredInputFieldsText}"
+      json
+    let title ← requiredString json "title"
+    let summary ← requiredString json "summary"
+    let reproduction ← requiredString json "reproduction"
+    let expected ← requiredString json "expected"
+    let actual ← requiredString json "actual"
+    let impact? ← optionalField? (α := String) json "impact"
+    let workaround? ← optionalField? (α := String) json "workaround"
+    let tags? ← optionalField? (α := Array String) json "tags"
+    let tags := tags?.map (·.filter (fun tag => !tag.trimAscii.isEmpty)) |>.getD #[]
+    let clientRequestId? ← optionalField? (α := String) json "client_request_id"
+    let request? ← optionalField? (α := Json) json "request"
+    let response? ← optionalField? (α := Json) json "response"
+    let evidence? ← optionalField? (α := Array EvidenceInput) json "evidence"
+    let evidence := evidence?.getD #[]
+    let bundle? ← optionalField? (α := BundleMode) json "bundle"
+    let bundle := bundle?.getD .none
+    let redact? ← optionalField? (α := Bool) json "redact"
+    let redact := redact?.getD true
+    pure {
+      title, summary, reproduction, expected, actual,
+      impact?, workaround?, tags, clientRequestId?, request?, response?,
+      evidence, bundle, redact
+    }
+
+instance : ToJson Input where
+  toJson input :=
+    Json.mkObj <|
+      [
+        ("title", toJson input.title),
+        ("summary", toJson input.summary),
+        ("reproduction", toJson input.reproduction),
+        ("expected", toJson input.expected),
+        ("actual", toJson input.actual)
+      ] ++
+      (match input.impact? with
+      | some impact => [("impact", toJson impact)]
+      | none => []) ++
+      (match input.workaround? with
+      | some workaround => [("workaround", toJson workaround)]
+      | none => []) ++
+      (if input.tags.isEmpty then [] else [("tags", toJson input.tags)]) ++
+      (match input.clientRequestId? with
+      | some clientRequestId => [("client_request_id", toJson clientRequestId)]
+      | none => []) ++
+      (match input.request? with
+      | some request => [("request", request)]
+      | none => []) ++
+      (match input.response? with
+      | some response => [("response", response)]
+      | none => []) ++
+      (if input.evidence.isEmpty then [] else [("evidence", toJson input.evidence)]) ++
+      (if input.bundle == .none then [] else [("bundle", toJson input.bundle)]) ++
+      if input.redact then [] else [("redact", toJson false)]
+
+def Input.withBundle (input : Input) (bundle? : Option BundleMode) : Input :=
+  match bundle? with
+  | some bundle => { input with bundle }
+  | none => input
+
+def Input.withRedactOverride (input : Input) (redact? : Option Bool) : Input :=
+  match redact? with
+  | some redact => { input with redact }
+  | none => input
+
+structure Collection where
+  generatedAt : String
+  activeRoot? : Option String := none
+  data : Json := Json.mkObj []
+  warnings : Array String := #[]
+
+structure BundleWriteOptions where
+  root? : Option System.FilePath := none
+  outputDir? : Option System.FilePath := none
+  allowedRoots : Array System.FilePath := #[]
+
+structure Result where
+  markdown : String
+  metadata : Json
+  collected : Json
+  collectionWarnings : Array String := #[]
+  bundleDir? : Option String := none
+  zipPath? : Option String := none
+
+private def nonemptyLines (text : String) : String :=
+  let trimmed := text.trimAscii.toString
+  if trimmed.isEmpty then "_Not supplied._" else trimmed
+
+private def mdSection (title body : String) : String :=
+  s!"## {title}\n\n{nonemptyLines body}\n"
+
+private def optSection (title : String) : Option String → String
+  | some body =>
+      if body.trimAscii.isEmpty then "" else "\n" ++ mdSection title body
+  | none => ""
+
+private def jsonBlock (json : Json) : String :=
+  "```json\n" ++ Beam.orderedJsonPretty json ++ "\n```"
+
+private def requestResponseSection (input : Input) : String :=
+  let requestPart :=
+    match input.request? with
+    | some request => "\n### Request\n\n" ++ jsonBlock request ++ "\n"
+    | none => ""
+  let responsePart :=
+    match input.response? with
+    | some response => "\n### Response\n\n" ++ jsonBlock response ++ "\n"
+    | none => ""
+  if requestPart.isEmpty && responsePart.isEmpty then
+    ""
+  else
+    "\n## Request And Response\n" ++ requestPart ++ responsePart
+
+private def evidenceLine (evidence : EvidenceInput) : String :=
+  match evidence.content?, evidence.path? with
+  | some _, _ => s!"- `{evidence.name}`: inline evidence supplied by caller."
+  | none, some path => s!"- `{evidence.name}`: file evidence from `{path}`."
+  | none, none => s!"- `{evidence.name}`"
+
+private def evidenceSection (input : Input) : String :=
+  let lines := input.evidence.map evidenceLine
+  let lines :=
+    match input.clientRequestId? with
+    | some id => #["- client request id: `" ++ id ++ "`"] ++ lines
+    | none => lines
+  if lines.isEmpty then
+    ""
+  else
+    "\n" ++ mdSection "Evidence" (String.intercalate "\n" lines.toList)
+
+private def environmentSection (collection : Collection) : String :=
+  let warnings :=
+    if collection.warnings.isEmpty then
+      ""
+    else
+      "\n\nCollection warnings:\n" ++
+        String.intercalate "\n" (collection.warnings.toList.map (fun warning => "- " ++ warning))
+  mdSection "Beam Debug Context" (jsonBlock collection.data ++ warnings)
+
+def renderMarkdown (input : Input) (collection : Collection) : String :=
+  let tagLine :=
+    if input.tags.isEmpty then
+      ""
+    else
+      "\n\nTags: " ++ String.intercalate ", " (input.tags.toList.map (fun tag => "`" ++ tag ++ "`"))
+  "# " ++ input.title ++ "\n\n" ++
+    mdSection "Summary" (input.summary ++ tagLine) ++ "\n" ++
+    mdSection "Reproduction" input.reproduction ++ "\n" ++
+    mdSection "Expected Behavior" input.expected ++ "\n" ++
+    mdSection "Actual Behavior" input.actual ++ "\n" ++
+    optSection "Impact" input.impact? ++
+    "\n" ++ environmentSection collection ++
+    requestResponseSection input ++
+    evidenceSection input ++
+    optSection "Workaround" input.workaround?
+
+def metadataJson (input : Input) (collection : Collection) : Json :=
+  Json.mkObj [
+    ("schema", toJson ("beam.feedback.report-card.v1" : String)),
+    ("title", toJson input.title),
+    ("generated_at", toJson collection.generatedAt),
+    ("active_root", match collection.activeRoot? with | some root => toJson root | none => Json.null),
+    ("tags", toJson input.tags),
+    ("bundle", toJson input.bundle),
+    ("redacted", toJson input.redact),
+    ("client_request_id", match input.clientRequestId? with | some id => toJson id | none => Json.null)
+  ]
+
+private def redactString (home? : Option String) (text : String) : String :=
+  match home? with
+  | some home =>
+      if home.isEmpty then text else text.replace home "~"
+  | none => text
+
+partial def redactJson (home? : Option String) : Json → Json
+  | .str text => .str (redactString home? text)
+  | .arr values => .arr (values.map (redactJson home?))
+  | .obj fields =>
+      Json.mkObj <| (Std.TreeMap.Raw.toList fields).map fun (key, value) =>
+        (key, redactJson home? value)
+  | other => other
+
+private def redactResult (home? : Option String) (result : Result) : Result :=
+  {
+    result with
+      markdown := redactString home? result.markdown
+      metadata := redactJson home? result.metadata
+      collected := redactJson home? result.collected
+      collectionWarnings := result.collectionWarnings.map (redactString home?)
+      bundleDir? := result.bundleDir?.map (redactString home?)
+      zipPath? := result.zipPath?.map (redactString home?)
+  }
+
+def renderResult (input : Input) (collection : Collection) : IO Result := do
+  let result : Result := {
+    markdown := renderMarkdown input collection
+    metadata := metadataJson input collection
+    collected := collection.data
+    collectionWarnings := collection.warnings
+  }
+  if input.redact then
+    let home? ← IO.getEnv "HOME"
+    pure <| redactResult home? result
+  else
+    pure result
+
+private def jsonResultFields (result : Result) : List (String × Json) :=
+  [
+    ("markdown", toJson result.markdown),
+    ("metadata", result.metadata),
+    ("collected", result.collected),
+    ("collection_warnings", toJson result.collectionWarnings)
+  ] ++
+  (match result.bundleDir? with
+  | some path => [("bundle_dir", toJson path)]
+  | none => []) ++
+  match result.zipPath? with
+  | some path => [("zip_path", toJson path)]
+  | none => []
+
+def Result.toJson (result : Result) : Json :=
+  Json.mkObj (jsonResultFields result)
+
+def validateEvidenceName (name : String) : Except String Unit := do
+  if name.trimAscii.isEmpty then
+    throw "evidence name must not be empty"
+  if name.contains '/' || name.contains '\\' || (name.splitOn "..").length > 1 then
+    throw s!"invalid evidence name '{name}': use a simple filename without path separators"
+
+private def textForEvidenceContent (home? : Option String) (redact : Bool) (content : Json) : String :=
+  let content :=
+    if redact then
+      redactJson home? content
+    else
+      content
+  match content with
+  | .str text => text
+  | other => Beam.orderedJsonPretty other ++ "\n"
+
+private def slugChar (c : Char) : Option Char :=
+  let c := c.toLower
+  if c.isAlphanum then
+    some c
+  else if c == '-' || c == '_' then
+    some '-'
+  else if c.isWhitespace then
+    some '-'
+  else
+    none
+
+private def collapseDashes (chars : List Char) : List Char :=
+  let rec loop : List Char → Bool → List Char
+    | [], _ => []
+    | '-' :: rest, true => loop rest true
+    | '-' :: rest, false => '-' :: loop rest true
+    | c :: rest, _ => c :: loop rest false
+  loop chars false
+
+private def trimDashes (text : String) : String :=
+  let chars := text.toList
+  let chars := chars.dropWhile (· == '-')
+  let chars := chars.reverse.dropWhile (· == '-')
+  String.ofList chars.reverse
+
+def slugify (title : String) : String :=
+  let chars := title.toList.filterMap slugChar |> collapseDashes
+  let slug := trimDashes <| String.ofList chars
+  if slug.isEmpty then "feedback" else String.ofList <| slug.toList.take 60
+
+private partial def uniqueDir (base : System.FilePath) (n : Nat := 0) : IO System.FilePath := do
+  let candidate :=
+    if n == 0 then
+      base
+    else
+      System.FilePath.mk s!"{base.toString}-{n}"
+  if ← candidate.pathExists then
+    uniqueDir base (n + 1)
+  else
+    pure candidate
+
+private def defaultBundleBase (root : System.FilePath) (generatedAt title : String) : System.FilePath :=
+  let stamp := (generatedAt.replace "-" "").replace ":" "" |>.replace "T" "-" |>.replace "Z" ""
+  root / ".beam" / "feedback" / s!"{stamp}-{slugify title}"
+
+private def resolveBundleDir
+    (input : Input)
+    (collection : Collection)
+    (opts : BundleWriteOptions) : IO System.FilePath := do
+  match opts.outputDir? with
+  | some outputDir => uniqueDir outputDir
+  | none =>
+      match opts.root? with
+      | some root => uniqueDir <| defaultBundleBase root collection.generatedAt input.title
+      | none => throw <| IO.userError "feedback bundle output requires a project root or --output-dir"
+
+private def resolveAllowedRoots (roots : Array System.FilePath) : IO (Array System.FilePath) := do
+  let mut resolved := #[]
+  for root in roots do
+    try
+      resolved := resolved.push (← IO.FS.realPath root)
+    catch _ =>
+      pure ()
+  pure resolved
+
+private def evidencePathAllowed (allowedRoots : Array System.FilePath) (path : System.FilePath) :
+    IO Bool := do
+  let resolved ← IO.FS.realPath path
+  let roots ← resolveAllowedRoots allowedRoots
+  for root in roots do
+    if (Beam.pathRelativeToRoot? root resolved).isSome then
+      return true
+  pure false
+
+private def resolveEvidencePath
+    (root? : Option System.FilePath)
+    (pathText : String) : System.FilePath :=
+  let path := System.FilePath.mk pathText
+  if path.isAbsolute then
+    path
+  else
+    match root? with
+    | some root => root / path
+    | none => path
+
+private def writeEvidence
+    (input : Input)
+    (opts : BundleWriteOptions)
+    (bundleDir : System.FilePath)
+    (home? : Option String)
+    (warnings : Array String) :
+    IO (Array String) := do
+  let evidenceDir := bundleDir / "evidence"
+  let mut warnings := warnings
+  if !input.evidence.isEmpty then
+    IO.FS.createDirAll evidenceDir
+  let allowedRoots := opts.allowedRoots ++ #[bundleDir]
+  for evidence in input.evidence do
+    match validateEvidenceName evidence.name with
+    | .error err => throw <| IO.userError err
+    | .ok () => pure ()
+    let target := evidenceDir / evidence.name
+    match evidence.content?, evidence.path? with
+    | some content, _ =>
+        IO.FS.writeFile target <| textForEvidenceContent home? input.redact content
+    | none, some pathText =>
+        let source := resolveEvidencePath opts.root? pathText
+        if ← evidencePathAllowed allowedRoots source then
+          let text ← IO.FS.readFile source
+          let text := if input.redact then redactString home? text else text
+          IO.FS.writeFile target text
+        else
+          throw <| IO.userError s!"feedback evidence path is outside the allowed roots: {pathText}"
+    | none, none =>
+        warnings := warnings.push s!"evidence '{evidence.name}' had no content or path"
+  pure warnings
+
+private def expectedZipPath? (bundleDir : System.FilePath) : Option System.FilePath := do
+  match bundleDir.parent, bundleDir.fileName with
+  | some _, some _ => some <| System.FilePath.mk s!"{bundleDir.toString}.zip"
+  | _, _ => none
+
+private def zipBundle? (bundleDir : System.FilePath) : IO (Option System.FilePath × Option String) := do
+  let some parent := bundleDir.parent
+    | pure (none, some "could not zip feedback bundle without a parent directory")
+  let some dirName := bundleDir.fileName
+    | pure (none, some "could not zip feedback bundle without a directory name")
+  let some zipPath := expectedZipPath? bundleDir
+    | pure (none, some "could not derive feedback zip filename")
+  let some zipName := zipPath.fileName
+    | pure (none, some "could not derive feedback zip filename")
+  try
+    let out ← IO.Process.output {
+      cmd := "zip"
+      args := #["-rq", zipName, dirName]
+      cwd := some parent.toString
+    }
+    if out.exitCode == 0 then
+      pure (some zipPath, none)
+    else
+      pure (none, some s!"zip failed: {out.stderr.trimAscii.toString}")
+  catch e =>
+    pure (none, some s!"zip unavailable or failed: {e.toString}")
+
+private def writePrettyJsonFile (path : System.FilePath) (json : Json) : IO Unit :=
+  IO.FS.writeFile path (Beam.orderedJsonPretty json ++ "\n")
+
+private def writeBundleFiles (bundleDir : System.FilePath) (result : Result) : IO Unit := do
+  IO.FS.writeFile (bundleDir / "card.md") result.markdown
+  writePrettyJsonFile (bundleDir / "metadata.json") result.metadata
+  writePrettyJsonFile (bundleDir / "collected.json") result.collected
+  writePrettyJsonFile (bundleDir / "report.json") (Result.toJson result)
+
+def writeBundle
+    (input : Input)
+    (collection : Collection)
+    (result : Result)
+    (opts : BundleWriteOptions) : IO Result := do
+  if input.bundle == .none then
+    pure result
+  else
+    let bundleDir ← resolveBundleDir input collection opts
+    IO.FS.createDirAll bundleDir
+    let home? ← if input.redact then IO.getEnv "HOME" else pure none
+    let mut warnings := result.collectionWarnings
+    warnings ← writeEvidence input opts bundleDir home? warnings
+    let mut result := { result with
+      collectionWarnings := warnings
+      bundleDir? := some bundleDir.toString
+    }
+    if input.bundle == .zip then
+      let resultForZip :=
+        { result with zipPath? := (expectedZipPath? bundleDir).map (·.toString) }
+      writeBundleFiles bundleDir <|
+        if input.redact then redactResult home? resultForZip else resultForZip
+      let (zipPath?, warning?) ← zipBundle? bundleDir
+      let updatedWarnings :=
+        match warning? with
+        | some warning => result.collectionWarnings.push warning
+        | none => result.collectionWarnings
+      result := { result with
+        zipPath? := zipPath?.map (·.toString)
+        collectionWarnings := updatedWarnings
+      }
+    writeBundleFiles bundleDir <|
+      if input.redact then redactResult home? result else result
+    if input.redact then
+      let home? ← IO.getEnv "HOME"
+      pure <| redactResult home? result
+    else
+      pure result
+
+def buildResult
+    (input : Input)
+    (collection : Collection)
+    (opts : BundleWriteOptions := {}) : IO Result := do
+  let result ← renderResult input collection
+  writeBundle input collection result opts
+
+end Beam.Feedback

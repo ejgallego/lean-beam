@@ -15,7 +15,10 @@ the [cost model and workflow details](skills/lean-beam/references/workflow-detai
 Lean Beam started as a personal internal project and is now published for public use. It is not an
 official Lean FRO product, the code remains experimental, and you should use it at your own risk.
 
-Feedback is welcome; feel free to open issues or let us know what you think on Zulip.
+Feedback is welcome; feel free to open issues or let us know what you think on Zulip. For useful
+bug reports from a local checkout, `lean-beam feedback --stdin` produces a pasteable Markdown report
+card with Beam version, daemon registry, recent daemon incident, stats, and open-file context when
+that data is available; see [Feedback Report Cards](docs/FEEDBACK.md).
 
 ## Install
 
@@ -70,10 +73,11 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 `mode: "reset"` to explicitly switch roots and invalidate handles; see
 [docs/STATUS.md](docs/STATUS.md#mcp-workspace-initialization).
 Successful `lean_init_workspace` results include a `capabilities` array with the projected MCP tool
-names, including `beam_version`, `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`,
-`lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`,
-`lean_goals`, `lean_todo`, and `lean_code_action_resolve`. Use `beam_version` for live MCP server
-identity, source commit/branch/dirty data, and bug reports.
+names, including `beam_version`, `beam_stats`, `beam_feedback`, `lean_run_at`, `lean_sync`,
+`lean_save`, `lean_hover`, `lean_definition`, `lean_references`, `lean_document_symbols`,
+`lean_workspace_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`. Use
+`beam_version` for live MCP server identity, source commit/branch/dirty data, and bug reports. Use
+`beam_feedback` when an MCP client should produce the same report-card JSON directly.
 
 MCP clients can opt into live operation progress for `tools/call` requests by including
 `params._meta.progressToken` as a string or integer. The field-level progress, diagnostic, and
