@@ -17,6 +17,8 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
 - agent-oriented `$/lean/todo` range inspection for actionable items such as sorries, holes,
   diagnostics, code actions, and incomplete proofs, exposed through the broker, `lean-beam todo`,
   and MCP `lean_todo`
+- versioned broker/MCP code-action resolution for raw Lean code actions returned by `lean_todo`;
+  clients still apply returned LSP workspace edits themselves and then update or sync the file
 - small Lean semantic navigation wrappers for hover, signature help, definition, references,
   document symbols, workspace symbols, and mode-based goal inspection, exposed through the broker,
   `lean-beam`, and MCP

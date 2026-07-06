@@ -400,7 +400,15 @@ if init.get("result", {}).get("protocolVersion") != "2025-11-25":
     sys.exit(1)
 
 tool_names = {tool.get("name") for tool in tools.get("result", {}).get("tools", [])}
-if "beam_version" not in tool_names or "lean_update" not in tool_names or "lean_run_at" not in tool_names or "lean_todo" not in tool_names or "$/lean/runAt" in tool_names or "lean_request_at" in tool_names:
+if (
+    "beam_version" not in tool_names
+    or "lean_update" not in tool_names
+    or "lean_run_at" not in tool_names
+    or "lean_todo" not in tool_names
+    or "lean_code_action_resolve" not in tool_names
+    or "$/lean/runAt" in tool_names
+    or "lean_request_at" in tool_names
+):
     print(f"unexpected MCP tool list: {sorted(tool_names)}", file=sys.stderr)
     proc.kill()
     sys.exit(1)

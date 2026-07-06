@@ -29,6 +29,7 @@ inductive Operation where
   | workspaceSymbols
   | goals
   | todo
+  | codeActionResolve
   | runWith
   | runWithLinear
   | release
@@ -51,6 +52,7 @@ def Operation.all : Array Operation := #[
   .workspaceSymbols,
   .goals,
   .todo,
+  .codeActionResolve,
   .runWith,
   .runWithLinear,
   .release,
@@ -73,6 +75,7 @@ def Operation.key : Operation → String
   | .workspaceSymbols => "workspace_symbols"
   | .goals => "goals"
   | .todo => "todo"
+  | .codeActionResolve => "code_action_resolve"
   | .runWith => "run_with"
   | .runWithLinear => "run_with_linear"
   | .release => "release"
@@ -97,6 +100,7 @@ def Operation.description : Operation → String
   | .workspaceSymbols => "Search Lean workspace symbols by query string."
   | .goals => "Inspect Lean goals before or after a file position."
   | .todo => "Inspect agent-actionable Lean todo items in a file range."
+  | .codeActionResolve => "Resolve a Lean code action payload returned by lean_todo before a client applies its workspace edit."
   | .runWith => "Run one Lean continuation command or tactic block from a stored handle without consuming the parent handle."
   | .runWithLinear => "Run one Lean continuation command or tactic block from a stored handle and consume that handle on success or failure."
   | .release => "Release a stored Lean follow-up handle."
@@ -174,6 +178,10 @@ private def includeDiagnosticsField : String × Json :=
   ("include_diagnostics", Beam.JsonSchema.bool
     "When true, include the current request diagnostics in the final sync result; the full_diagnostics setting controls the severity filter.")
 
+private def codeActionField : String × Json :=
+  ("code_action", Beam.JsonSchema.object
+    "Raw Lean LSP CodeAction payload returned by lean_todo. The action must include its data field so Lean can resolve it against this document version.")
+
 private def positionFields : List (String × Json) :=
   [pathField, versionField, lineField, characterField]
 
@@ -207,6 +215,8 @@ def Operation.inputSchema : Operation → Json
   | .todo =>
       inputObject (rangeFields ++ [kindsField, suggestField])
         #["path", "version", "start_line", "start_character", "end_line", "end_character"]
+  | .codeActionResolve =>
+      inputObject (documentFields ++ [codeActionField]) #["path", "version", "code_action"]
   | .runWith | .runWithLinear =>
       inputObject [pathField, handleField, continuationTextField] #["path", "handle", "text"]
   | .release =>
@@ -363,6 +373,27 @@ instance : FromJson TodoInput where
     let suggest? ← optionalField? (α := Beam.LSP.Todo.TodoSuggestMode) j "suggest"
     pure { path, version, startLine, startCharacter, endLine, endCharacter, kinds?, suggest? }
 
+/-- Input for resolving a Lean code action returned by `lean_todo`. -/
+structure CodeActionResolveInput where
+  path : String
+  version : Nat
+  codeAction : Lean.Lsp.CodeAction
+
+instance : ToJson CodeActionResolveInput where
+  toJson input :=
+    Json.mkObj [
+      ("path", toJson input.path),
+      ("version", toJson input.version),
+      ("code_action", toJson input.codeAction)
+    ]
+
+instance : FromJson CodeActionResolveInput where
+  fromJson? j := do
+    let path ← j.getObjValAs? String "path"
+    let version ← j.getObjValAs? Nat "version"
+    let codeAction ← j.getObjValAs? Lean.Lsp.CodeAction "code_action"
+    pure { path, version, codeAction }
+
 /-- Input for handle-based Lean execution. -/
 structure RunWithInput where
   path : String
@@ -518,6 +549,17 @@ def TodoInput.toBrokerRequest (input : TodoInput) (root : String) : Beam.Broker.
   suggest? := input.suggest?
 }
 
+def CodeActionResolveInput.toBrokerRequest
+    (input : CodeActionResolveInput)
+    (root : String) : Beam.Broker.Request := {
+  op := .codeActionResolve
+  backend := .lean
+  root? := some root
+  path? := some input.path
+  version? := some input.version
+  codeAction? := some input.codeAction
+}
+
 def RunWithInput.toBrokerRequest
     (input : RunWithInput)
     (root : String)
@@ -614,6 +656,8 @@ def Operation.toBrokerRequest
       pure <| (← fromJson? (α := GoalsInput) input).toBrokerRequest root
   | .todo =>
       pure <| (← fromJson? (α := TodoInput) input).toBrokerRequest root
+  | .codeActionResolve =>
+      pure <| (← fromJson? (α := CodeActionResolveInput) input).toBrokerRequest root
   | .runWith =>
       pure <| (← fromJson? (α := RunWithInput) input).toBrokerRequest root
   | .runWithLinear =>

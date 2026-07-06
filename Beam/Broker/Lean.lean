@@ -59,6 +59,11 @@ def workspaceSymbolsMethod (backend : Backend) : Except String String :=
   | .lean => .ok Backend.Lean.workspaceSymbolsMethod
   | .rocq => .error "rocq backend does not support workspace symbol queries"
 
+def codeActionResolveMethod (backend : Backend) : Except String String :=
+  match backend with
+  | .lean => .ok Backend.Lean.codeActionResolveMethod
+  | .rocq => .error "rocq backend does not support code action resolution"
+
 def runWithMethod (backend : Backend) : Except String String :=
   match backend with
   | .lean => .ok Backend.Lean.runWithMethod

@@ -77,6 +77,9 @@ def documentSymbolsMethod : String :=
 def workspaceSymbolsMethod : String :=
   "workspace/symbol"
 
+def codeActionResolveMethod : String :=
+  "codeAction/resolve"
+
 def runWithMethod : String :=
   Beam.LSP.RunAt.runWithMethod
 

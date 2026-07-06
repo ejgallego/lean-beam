@@ -72,8 +72,8 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 Successful `lean_init_workspace` results include a `capabilities` array with the projected MCP tool
 names, including `beam_version`, `lean_run_at`, `lean_sync`, `lean_save`, `lean_hover`,
 `lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`,
-and `lean_goals`. Use `beam_version` for live MCP server identity, source commit/branch/dirty data,
-and bug reports.
+`lean_goals`, `lean_todo`, and `lean_code_action_resolve`. Use `beam_version` for live MCP server
+identity, source commit/branch/dirty data, and bug reports.
 
 MCP clients can opt into live operation progress for `tools/call` requests by including
 `params._meta.progressToken` as a string or integer. The field-level progress, diagnostic, and
@@ -146,8 +146,13 @@ Common MCP tool names:
 | `lean-beam document-symbols` | `mcp__lean_beam.lean_document_symbols` |
 | `lean-beam workspace-symbols` | `mcp__lean_beam.lean_workspace_symbols` |
 | `lean-beam goals before|after` | `mcp__lean_beam.lean_goals` |
+| `lean-beam todo` | `mcp__lean_beam.lean_todo` |
 | `lean-beam sync` | `mcp__lean_beam.lean_sync` |
 | `lean-beam save` | `mcp__lean_beam.lean_save` |
+
+MCP clients can pass a `code_action` returned by `lean_todo` to `lean_code_action_resolve` for the
+same `path` and `version`. Any returned LSP `WorkspaceEdit` is still applied by the client; call
+`lean_update` or `lean_sync` afterward so Beam observes the edited file and reports the new version.
 
 Read those commands like this:
 

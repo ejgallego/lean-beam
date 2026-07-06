@@ -456,6 +456,30 @@ private def checkRequestArgsBoundary : IO Unit := do
     "rocq backend does not support run_at yet"
     runAtRocqUnsupported.runAtArgs
 
+  let codeActionResolveMissingAction : Request := {
+    op := .codeActionResolve
+    path? := some "Demo.lean"
+    version? := some 7
+  }
+  expectRequestArgError
+    "code_action_resolve args missing codeAction"
+    "missing 'codeAction'"
+    codeActionResolveMissingAction.codeActionResolveArgs
+
+  let codeActionResolveRocqUnsupported : Request := {
+    op := .codeActionResolve
+    backend := .rocq
+    path? := some "Demo.v"
+    version? := some 7
+    codeAction? := some {
+      title := "Resolve"
+    }
+  }
+  expectRequestArgError
+    "rocq code_action_resolve args"
+    "rocq backend does not support code action resolution"
+    codeActionResolveRocqUnsupported.codeActionResolveArgs
+
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
