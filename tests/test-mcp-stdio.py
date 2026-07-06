@@ -1040,6 +1040,7 @@ def run_cycle(
             require("lean_document_symbols" in names, f"tools/list missing lean_document_symbols: {tools}")
             require("lean_workspace_symbols" in names, f"tools/list missing lean_workspace_symbols: {tools}")
             require("lean_goals" in names, f"tools/list missing lean_goals: {tools}")
+            require("lean_code_action_resolve" in names, f"tools/list missing lean_code_action_resolve: {tools}")
             require("lean_refresh" in names, f"tools/list missing lean_refresh: {tools}")
             require("lean_close_save" in names, f"tools/list missing lean_close_save: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")

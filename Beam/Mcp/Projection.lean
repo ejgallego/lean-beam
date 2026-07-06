@@ -50,6 +50,7 @@ def ToolName.leanDocumentSymbols : ToolName := .leanOperation .documentSymbols
 def ToolName.leanWorkspaceSymbols : ToolName := .leanOperation .workspaceSymbols
 def ToolName.leanGoals : ToolName := .leanOperation .goals
 def ToolName.leanTodo : ToolName := .leanOperation .todo
+def ToolName.leanCodeActionResolve : ToolName := .leanOperation .codeActionResolve
 def ToolName.leanRunWith : ToolName := .leanOperation .runWith
 def ToolName.leanRunWithLinear : ToolName := .leanOperation .runWithLinear
 def ToolName.leanRelease : ToolName := .leanOperation .release
@@ -218,6 +219,7 @@ abbrev DocumentSymbolsInput := Beam.Lean.DocumentSymbolsInput
 abbrev WorkspaceSymbolsInput := Beam.Lean.WorkspaceSymbolsInput
 abbrev GoalsInput := Beam.Lean.GoalsInput
 abbrev TodoInput := Beam.Lean.TodoInput
+abbrev CodeActionResolveInput := Beam.Lean.CodeActionResolveInput
 abbrev RunWithInput := Beam.Lean.RunWithInput
 abbrev ReleaseInput := Beam.Lean.ReleaseInput
 abbrev PathInput := Beam.Lean.PathInput
@@ -320,6 +322,21 @@ private def normalizeTodoResult (result : Json) : Except ToolError Json := do
   | .error err =>
       throw <| ToolError.invalidResult s!"todo result missing 'items': {err}"
 
+private def normalizeCodeActionResolveResult : Json → Except ToolError Json
+  | Json.obj fields =>
+      let fields :=
+        fields.foldl (init := []) fun acc key value =>
+          let key :=
+            if key == "codeAction" then
+              "code_action"
+            else
+              key
+          (key, value) :: acc
+      pure <| Json.mkObj fields.reverse
+  | other =>
+      throw <| ToolError.invalidResult
+        s!"code_action_resolve result must be an object, got {other.compress}"
+
 private def diagnosticSeverityName : Option Lean.Lsp.DiagnosticSeverity → String
   | some .error => "error"
   | some .warning => "warning"
@@ -365,6 +382,9 @@ private def normalizeResult? (tool : ToolName) : Option Json → Except ToolErro
         pure <| some normalized
       else if tool == .leanTodo then do
         let normalized ← normalizeTodoResult result
+        pure <| some normalized
+      else if tool == .leanCodeActionResolve then do
+        let normalized ← normalizeCodeActionResolveResult result
         pure <| some normalized
       else if tool == .leanSync || tool == .leanRefresh then do
         let normalized ← normalizeSyncResult result

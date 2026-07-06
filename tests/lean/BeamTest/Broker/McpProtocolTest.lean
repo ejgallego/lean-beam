@@ -121,7 +121,8 @@ private def checkToolsListShape : IO Unit := do
       Beam.Mcp.capabilityNames.contains "lean_references" &&
       Beam.Mcp.capabilityNames.contains "lean_document_symbols" &&
       Beam.Mcp.capabilityNames.contains "lean_workspace_symbols" &&
-      Beam.Mcp.capabilityNames.contains "lean_goals")
+      Beam.Mcp.capabilityNames.contains "lean_goals" &&
+      Beam.Mcp.capabilityNames.contains "lean_code_action_resolve")
   require "MCP capability names should not expose raw LSP methods"
     (!Beam.Mcp.capabilityNames.contains Beam.LSP.RunAt.method)
 
@@ -138,6 +139,7 @@ private def checkToolsListShape : IO Unit := do
     ("lean_workspace_symbols", #["query"]),
     ("lean_goals", #["path", "version", "line", "character", "mode"]),
     ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character"]),
+    ("lean_code_action_resolve", #["path", "version", "code_action"]),
     ("lean_run_with", #["path", "handle", "text"]),
     ("lean_run_with_linear", #["path", "handle", "text"]),
     ("lean_release", #["path", "handle"]),

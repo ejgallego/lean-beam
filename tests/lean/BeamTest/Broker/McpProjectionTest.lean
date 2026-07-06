@@ -45,6 +45,7 @@ private def expectedLeanOperationSurface : Array Beam.Lean.Operation := #[
   .workspaceSymbols,
   .goals,
   .todo,
+  .codeActionResolve,
   .runWith,
   .runWithLinear,
   .release,
@@ -111,6 +112,11 @@ private def checkToolNames : IO Unit := do
 
   let todo ← expectOk "decode lean_todo" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_todo")
   require "decode lean_todo: wrong tool" (todo == .leanTodo)
+
+  let codeActionResolve ← expectOk "decode lean_code_action_resolve" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_code_action_resolve")
+  require "decode lean_code_action_resolve: wrong tool"
+    (codeActionResolve == .leanCodeActionResolve)
 
   let refresh ← expectOk "decode lean_refresh" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_refresh")
   require "decode lean_refresh: wrong tool" (refresh == .leanRefresh)
@@ -204,6 +210,9 @@ private def checkToolDescriptors : IO Unit := do
   require "todo descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanTodo && desc.kind == .leanOperation .todo))
+  require "code-action-resolve descriptor is exposed"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanCodeActionResolve && desc.kind == .leanOperation .codeActionResolve))
 
 private def checkBrokerRequestAdapters : IO Unit := do
   let root := "/repo"
@@ -372,6 +381,29 @@ private def checkBrokerRequestAdapters : IO Unit := do
   requireFieldAbsent "todo input json" "startLine" todoJson
   requireFieldAbsent "todo input json" "root" todoJson
 
+  let codeAction : Lean.Lsp.CodeAction := {
+    title := "Replace fixture hole with zero"
+    kind? := some "quickfix"
+    data? := some <| Json.mkObj [("marker", toJson "resolve-data")]
+  }
+  let codeActionResolveInput : Beam.Mcp.CodeActionResolveInput := {
+    path := "Demo.lean"
+    version := 15
+    codeAction
+  }
+  let codeActionResolveReq ← expectOk "code-action-resolve tool request" <|
+    Beam.Mcp.ToolName.leanCodeActionResolve.toBrokerRequest root (toJson codeActionResolveInput)
+  require "code-action-resolve op" (codeActionResolveReq.op == .codeActionResolve)
+  require "code-action-resolve backend" (codeActionResolveReq.backend == .lean)
+  require "code-action-resolve version" (codeActionResolveReq.version? == some 15)
+  let some brokerCodeAction := codeActionResolveReq.codeAction?
+    | throw <| IO.userError "code-action-resolve broker request missing codeAction"
+  require "code-action-resolve title" (brokerCodeAction.title == codeAction.title)
+  let codeActionResolveJson := toJson codeActionResolveInput
+  discard <| requireObjVal "code-action-resolve input json" "code_action" codeActionResolveJson
+  requireFieldAbsent "code-action-resolve input json" "codeAction" codeActionResolveJson
+  requireFieldAbsent "code-action-resolve input json" "root" codeActionResolveJson
+
   let runWithInput : Beam.Mcp.RunWithInput := {
     path := "Demo.lean"
     handle := sampleBrokerHandle
@@ -525,6 +557,22 @@ private def checkTodoNormalization : IO Unit := do
   discard <| requireObjVal "todo code action item" "code_action" codeActionItem
   requireFieldAbsent "todo code action item" "codeAction" codeActionItem
 
+private def checkCodeActionResolveNormalization : IO Unit := do
+  let rawResult := Json.mkObj [
+    ("version", toJson (15 : Nat)),
+    ("codeAction", Json.mkObj [
+      ("title", toJson ("Replace fixture hole with zero" : String)),
+      ("kind", toJson ("quickfix" : String))
+    ])
+  ]
+  let normalized ← expectToolOk "normalize code_action_resolve result" <|
+    Beam.Mcp.normalizeBrokerResponse .leanCodeActionResolve {
+      ok := true
+      result? := some rawResult
+    }
+  discard <| requireObjVal "code_action_resolve result" "code_action" normalized
+  requireFieldAbsent "code_action_resolve result" "codeAction" normalized
+
 private def checkInvalidEnvelopeRejection : IO Unit := do
   discard <| expectToolError "missing error envelope" "invalidEnvelope" <|
     Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := false }
@@ -542,6 +590,7 @@ def main : IO Unit := do
   checkRunAtNormalization
   checkTransportErrorNormalization
   checkTodoNormalization
+  checkCodeActionResolveNormalization
   checkInvalidEnvelopeRejection
 
 end BeamTest.Broker.McpProjectionTest

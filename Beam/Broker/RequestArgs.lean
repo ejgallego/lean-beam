@@ -132,6 +132,19 @@ def Request.workspaceSymbolsArgs (req : Request) : Except Response WorkspaceSymb
   let method ← asInvalidParams (workspaceSymbolsMethod req.backend)
   pure { query, method }
 
+structure CodeActionResolveArgs where
+  path : System.FilePath
+  version : Nat
+  codeAction : Lean.Lsp.CodeAction
+  method : String
+
+def Request.codeActionResolveArgs (req : Request) : Except Response CodeActionResolveArgs := do
+  let path ← asInvalidParams req.requirePath
+  let version ← asInvalidParams req.requireVersion
+  let codeAction ← asInvalidParams req.requireCodeAction
+  let method ← asInvalidParams (codeActionResolveMethod req.backend)
+  pure { path, version, codeAction, method }
+
 structure GoalsArgs extends PositionArgs where
   method : String
 

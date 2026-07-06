@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import BeamTest.Broker.SmokeUtil
+import BeamTest.Fixtures.TodoFixture
 
 set_option maxRecDepth 4096
 
@@ -329,6 +330,61 @@ private def runTodoThenSyncDiagnosticSummarySmoke
     root? := some root.toString
     path? := some path
   }
+
+private def runTodoCodeActionResolveSmoke
+    (endpoint : Beam.Broker.Endpoint)
+    (root : System.FilePath) : IO Unit := do
+  let path := BeamTest.Fixtures.TodoFixture.codeActionRepoPath.toString
+  let version ← updateVersion endpoint root path
+  let todoResp ← runClient endpoint {
+    op := .todo
+    root? := some root.toString
+    path? := some path
+    version? := some version
+    line? := some BeamTest.Fixtures.TodoFixture.codeActionLine
+    character? := some BeamTest.Fixtures.TodoFixture.codeActionStartCharacter
+    endLine? := some BeamTest.Fixtures.TodoFixture.codeActionLine
+    endCharacter? := some BeamTest.Fixtures.TodoFixture.codeActionEndCharacter
+    kinds? := some #[.codeAction]
+  }
+  let todoResult : Beam.LSP.Todo.TodoResult ← IO.ofExcept <| fromJson? (← expectOk todoResp)
+  let actionItems := todoResult.items.filter (fun item => item.kind == .codeAction)
+  if actionItems.size != 1 then
+    throw <| IO.userError
+      s!"todo/code_action_resolve composition: expected one code action, got {(toJson todoResult).compress}"
+  let some actionItem := actionItems[0]?
+    | throw <| IO.userError "todo/code_action_resolve composition: missing code action item"
+  let some action := actionItem.codeAction?
+    | throw <| IO.userError <|
+      s!"todo/code_action_resolve composition: expected embedded codeAction, got {(toJson actionItem).compress}"
+  let resolveResp ← runClient endpoint {
+    op := .codeActionResolve
+    root? := some root.toString
+    path? := some path
+    version? := some version
+    codeAction? := some action
+  }
+  let resolved : Beam.Broker.CodeActionResolveResult ← IO.ofExcept <| fromJson? (← expectOk resolveResp)
+  if resolved.version != version then
+    throw <| IO.userError
+      s!"todo/code_action_resolve composition: expected resolved version {version}, got {resolved.version}"
+  if resolved.codeAction.title != action.title then
+    throw <| IO.userError
+      s!"todo/code_action_resolve composition: expected resolved action title {action.title}, got {resolved.codeAction.title}"
+  if resolved.codeAction.edit?.isNone then
+    throw <| IO.userError
+      s!"todo/code_action_resolve composition: expected resolved action edit, got {(toJson resolved).compress}"
+  discard <| requireFileProgress "code_action_resolve" resolveResp
+
+  let staleResp ← runClient endpoint {
+    op := .codeActionResolve
+    root? := some root.toString
+    path? := some path
+    version? := some 0
+    codeAction? := some action
+  }
+  expectErrCode staleResp "contentModified"
+  expectVersionMismatchData "stale code_action_resolve" staleResp 0 version
 
 private def runReportedOnlyDiagnosticSmoke
     (endpoint : Beam.Broker.Endpoint)
@@ -750,6 +806,7 @@ private def runSaveAndStatsSmoke
   expectOpCountAtLeast stats "lean" "run_at" 3
   expectOpCountAtLeast stats "lean" "hover" 4
   expectOpCountAtLeast stats "lean" "goals" 2
+  expectOpCountAtLeast stats "lean" "code_action_resolve" 1
   expectOpCountAtLeast stats "lean" "run_with" 3
   expectOpCountAtLeast stats "lean" "release" 1
   expectOpCountAtLeast stats "lean" "save_olean" 1
@@ -774,6 +831,7 @@ def smokeMain : IO Unit := do
     runSyncSmoke endpoint root
     runErrorOnlySyncSmoke endpoint root
     runTodoThenSyncDiagnosticSummarySmoke endpoint root
+    runTodoCodeActionResolveSmoke endpoint root
     runInteractiveOnlyDiagnosticSmoke endpoint root
     runReportedOnlyDiagnosticSmoke endpoint root
     runPartialProgressSmoke endpoint root

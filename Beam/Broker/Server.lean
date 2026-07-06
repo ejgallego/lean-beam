@@ -10,6 +10,7 @@ import Lean.Data.Lsp.Extra
 import Lean.Data.Lsp.LanguageFeatures
 import Lean.Data.Lsp.Internal
 import Lean.Parser.Module
+import Lean.Server.CodeActions
 import Beam.Broker.Config
 import Beam.Broker.DocumentState
 import Beam.Broker.Errors
@@ -1610,6 +1611,47 @@ private def handleWorkspaceSymbolsOp
   let pending ← awaitPending promise
   pure (Response.success pending.result, false)
 
+private def codeActionResolveSourceUri (action : CodeAction) : Except Response DocumentUri := do
+  let some data := action.data?
+    | throw <| reqError "invalidParams" "code_action_resolve requires codeAction.data"
+  let resolveData ←
+    match (fromJson? data : Except String Lean.Server.CodeActionResolveData) with
+    | .ok resolveData => pure resolveData
+    | .error err =>
+        throw <| reqError "invalidParams" s!"invalid codeAction.data: {err}"
+  pure resolveData.params.textDocument.uri
+
+private def handleCodeActionResolveOp
+    (server : ServerRuntime)
+    (req : Request)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
+    HandlerM (Response × Bool) := do
+  let args ← requestArg req.codeActionResolveArgs
+  liftResponseIO <| ensureRequestNotCancelled cancelRef?
+  let snapshot ← liftHandlerIO <| readRequestSyncSnapshot server req args.path
+  let sourceUri ← requestArg <| codeActionResolveSourceUri args.codeAction
+  if sourceUri != snapshot.uri then
+    return (
+      reqError "invalidParams"
+        s!"codeAction.data targets {sourceUri}, not requested document {snapshot.uri}",
+      false)
+  let started ← liftResponseIO <| server.withState do
+    let session ← ensureSession req.backend
+    startSyncedDocumentRequest session snapshot args.method
+      (fun _uri _docState => toJson args.codeAction)
+      (trackedLeanDocumentVersion req.backend)
+      (expectedVersion? := some args.version)
+      (clientRequestId? := req.clientRequestId?)
+      (emitProgress? := emitProgress?)
+  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+  let resolved : CodeAction ← liftHandlerIO <| decodeResponseAs pending.result
+  let payload : CodeActionResolveResult := {
+    version := started.version
+    codeAction := resolved
+  }
+  pure (responseWithFileProgress (Response.success (toJson payload)) pending.progress?, false)
+
 private def handleSaveOleanOp
     (server : ServerRuntime)
     (req : Request)
@@ -1836,6 +1878,7 @@ private def handleRequestIO
           | .references => runHandler <| handleReferencesOp server req cancelRef? emitProgress?
           | .documentSymbols => runHandler <| handleDocumentSymbolsOp server req cancelRef? emitProgress?
           | .workspaceSymbols => runHandler <| handleWorkspaceSymbolsOp server req cancelRef?
+          | .codeActionResolve => runHandler <| handleCodeActionResolveOp server req cancelRef? emitProgress?
           | .saveOlean => runHandler <| handleSaveOleanOp server req cancelRef? emitProgress? emitDiagnostic?
           | .goals => runHandler <| handleGoalsOp server req cancelRef? emitProgress?
           | .todo => runHandler <| handleTodoOp server req cancelRef? emitProgress?

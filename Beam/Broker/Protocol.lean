@@ -34,6 +34,7 @@ inductive Op where
   | references
   | documentSymbols
   | workspaceSymbols
+  | codeActionResolve
   | saveOlean
   | goals
   | todo
@@ -59,6 +60,7 @@ def Op.key : Op → String
   | .references => "references"
   | .documentSymbols => "document_symbols"
   | .workspaceSymbols => "workspace_symbols"
+  | .codeActionResolve => "code_action_resolve"
   | .saveOlean => "save_olean"
   | .goals => "goals"
   | .todo => "todo"
@@ -87,6 +89,7 @@ instance : FromJson Op where
     | .str "references" => .ok .references
     | .str "document_symbols" => .ok .documentSymbols
     | .str "workspace_symbols" => .ok .workspaceSymbols
+    | .str "code_action_resolve" => .ok .codeActionResolve
     | .str "save_olean" => .ok .saveOlean
     | .str "goals" => .ok .goals
     | .str "todo" => .ok .todo
@@ -185,6 +188,7 @@ structure Request where
   includeDiagnostics? : Option Bool := none
   saveArtifacts? : Option Bool := none
   handle? : Option Handle := none
+  codeAction? : Option Lsp.CodeAction := none
   deriving Inhabited, ToJson
 
 private def optionalField? [FromJson α] (j : Json) (field : String) : Except String (Option α) := do
@@ -226,12 +230,13 @@ instance : FromJson Request where
     let includeDiagnostics? ← optionalField? (α := Bool) j "includeDiagnostics"
     let saveArtifacts? ← optionalField? (α := Bool) j "saveArtifacts"
     let handle? ← optionalField? (α := Handle) j "handle"
+    let codeAction? ← optionalField? (α := Lsp.CodeAction) j "codeAction"
     pure {
       op, backend, clientRequestId?, cancelRequestId?,
       root?, path?, version?, line?, character?, endLine?, endCharacter?,
       text?, query?, includeDeclaration?, kinds?, suggest?, storeHandle?,
       linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
-      saveArtifacts?, handle?
+      saveArtifacts?, handle?, codeAction?
     }
 
 structure Error where
@@ -451,6 +456,11 @@ structure UpdateFileResult where
   changed : Bool := false
   deriving Inhabited, FromJson, ToJson, BEq, Repr
 
+structure CodeActionResolveResult where
+  version : Nat
+  codeAction : Lsp.CodeAction
+  deriving FromJson, ToJson
+
 namespace SyncFileResult
 
 def currentReadiness (result : SyncFileResult) : SyncReadinessCurrent :=
@@ -633,6 +643,11 @@ def Request.requireQuery (req : Request) : Except String String := do
   let some query := req.query?
     | throw "missing 'query'"
   pure query
+
+def Request.requireCodeAction (req : Request) : Except String Lsp.CodeAction := do
+  let some codeAction := req.codeAction?
+    | throw "missing 'codeAction'"
+  pure codeAction
 
 def Request.requireLine (req : Request) : Except String Nat := do
   let some line := req.line?
