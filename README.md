@@ -100,7 +100,7 @@ Lean Beam is a thin layer over Lean LSP plus Beam-specific extensions.
 - The Beam broker keeps one local runtime per project root and exposes a narrower local protocol.
 - The `lean-beam` CLI wraps the broker for human and agent command-line workflows.
 - The `lean-beam-mcp` server exposes the same Lean operations to MCP clients.
-- Bundled skills describe the intended Lean and Rocq agent workflows.
+- Bundled skills describe the intended Lean workflow and optional Rocq workflow.
 
 The lower-level Lean protocol includes `$/lean/runAt`; the user-facing contract is simpler: ask Lean
 a question at a saved file position, get typed feedback, and keep ordinary requests isolated.

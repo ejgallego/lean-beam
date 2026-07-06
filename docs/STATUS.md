@@ -28,8 +28,7 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
   `lean-beam`, and MCP
 - explicit Lean `lean-beam sync` barrier with diagnostics wait and compact `fileProgress` reporting
 - zero-build `lean-beam save` checkpoint for one synced workspace module
-- typed sync summaries with current diagnostic/readiness counts and deltas against the previous
-  successful sync boundary
+- typed sync summaries with current diagnostic/readiness counts for the synced document version
 
 ### Local Beam Layer
 
@@ -65,15 +64,19 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
   setup through `lean_init_workspace`, and a real `lean_sync` tool call
 - MCP root discovery through exactly one `roots/list` workspace root, or explicit session setup
   through `lean_init_workspace`
-- successful `lean_init_workspace` responses advertise projected MCP capability names such as
-  `beam_version`, `beam_stats`, `beam_feedback`, `lean_update`, `lean_sync`, `lean_refresh`, `lean_save`,
-  `lean_close_save`, `lean_run_at`, `lean_hover`, `lean_signature_help`, `lean_definition`,
-  `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`, and `lean_goals`
+- successful `lean_init_workspace` responses advertise post-initialization MCP capabilities derived
+  from the shared operation layer, including `beam_version`, `beam_stats`, `beam_feedback`,
+  `lean_update`, `lean_sync`, `lean_refresh`, `lean_save`, `lean_close_save`, `lean_close`,
+  `lean_run_at`, `lean_run_at_handle`, `lean_run_with`, `lean_run_with_linear`, `lean_release`,
+  `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
+  `lean_document_symbols`, `lean_workspace_symbols`, `lean_goals`, `lean_todo`, and
+  `lean_code_action_resolve`
 - MCP progress notifications for requests that pass `_meta.progressToken`
 - MCP diagnostic log notifications for incremental Lean diagnostics during sync/save-style tools
 - MCP `lean_sync` `include_diagnostics` option for clients that need the current request diagnostics
   replayed in the final structured result instead of collecting only interleaved log notifications
-- bundled Lean and Rocq skills for Codex/Claude workflow guidance
+- bundled Lean skills for supported agent clients, plus optional Rocq skills when installed with
+  `--rocq-skill`
 
 ### Coverage
 
@@ -102,7 +105,7 @@ Successful responses include `active_root`, `runtime_reused`, `invalidated_handl
 `capabilities` array naming the projected MCP tools available for the initialized workspace.
 `runtime_reused` means no runtime was changed because the requested root was already active;
 `reset` always reports `runtime_reused: false`, even when resetting to the same root. Reset
-responses also include `previous_root`:
+responses also include `previous_root`. Abbreviated example:
 
 ```json
 {
@@ -172,10 +175,9 @@ The final sync result reports the current synced document state under save-readi
 `errorCount` is the current save-blocking frontend error count, `warningCount` is the current
 warning count, and `saveReady` / `stateErrorCount` / `stateCommandErrorCount` describe whether the
 save/checkpoint path should proceed. Successful sync responses also include `result.syncSummary`,
-with `currentVersion`, optional `deltaBaseVersion`, current diagnostic/readiness counts, and deltas
-against the previous successful sync boundary when one exists. New machine consumers should prefer
-`result.syncSummary.readiness.current.saveReady` and `saveBlockingErrorCount` for checkpoint
-decisions.
+with `currentVersion` and current diagnostic/readiness counts. New machine consumers should prefer
+`result.syncSummary.readiness.current.saveReady` and `errorCount` for checkpoint decisions. The
+canonical field-level contract lives in [SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md).
 
 `lean-beam save` includes the sync verdict it established before checkpointing in `result.sync`;
 `lean-beam close-save` includes the same verdict in `result.saved.sync`. Document-error save
@@ -228,16 +230,15 @@ root through MCP `roots/list`. Multiple roots are rejected for now. Direct devel
 
 Current MCP implementation, protocol, and conformance notes live in [docs/MCP.md](MCP.md).
 
-### Progress And Sync Delta Reporting
+### Progress And Sync Reporting
 
-Progress, diagnostics, readiness, and deltas are separate typed concepts:
+Progress, diagnostics, and readiness are separate typed concepts:
 
 | Concept | Scope | Current surface |
 | --- | --- | --- |
 | Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `progress` events; CLI progress text. |
 | Streamed diagnostics | Lean-published events observed while a request is pending. | MCP `notifications/message` with logger `lean.diagnostic`; Beam stream `diagnostic` events; CLI stderr diagnostics. |
 | Current summary | Stable synced-state verdict for one document version. | Final structured tool result and broker response fields such as `saveReady`, `errorCount`, and `file_progress`. |
-| Delta summary | Comparison against one named previous sync boundary. | `result.syncSummary` diagnostic/readiness deltas when a previous sync boundary exists. |
 
 The canonical field-level contract lives in
 [SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md). This status document summarizes the current
@@ -259,29 +260,17 @@ The numeric `progress` value is a per-request monotonic sequence.
 
 Diagnostic severity and save readiness intentionally answer different questions. Use
 `diagnostics.current.error` for Lean-published error-severity diagnostics. Use
-`readiness.current.saveBlockingErrorCount` and `readiness.current.saveReady` for the save/checkpoint
-decision. Current error-severity diagnostics force a not-ready verdict for the synced version;
-warnings, information, and hints do not block saving by themselves.
+`readiness.current.errorCount` and `readiness.current.saveReady` for the save/checkpoint decision.
+Current error-severity diagnostics force a not-ready verdict for the synced version; warnings,
+information, and hints do not block saving by themselves.
 
 Beam save-readiness follows Lean batch/Lake's artifact gate for the current synced snapshot:
 current save-blocking frontend errors block saving. Diagnostic streams, diagnostic summaries, and
 message history are observations; clients should not reconstruct save readiness from them.
 
-For sync deltas, every delta-bearing payload states both sides of the comparison:
-
-- `currentVersion`: the synced document version described by the current result
-- `deltaBaseVersion?`: the previous successful sync version used as the comparison base, absent on
-  the first successful sync for a document or after a reset/close boundary that discards history
-- `sourceChangedSinceDeltaBase`: whether the source text hash changed between `deltaBaseVersion`
-  and `currentVersion`
-- `diagnostics.current`: current Lean-published diagnostic counts by severity and total
-- `diagnostics.delta`: added / removed / persisted counts keyed by Beam's diagnostic identity
-  `(range, effective severity, message)`, with `baseVersion` and `currentVersion` repeated inside
-  the delta object
-- `readiness.current`: save-blocking errors, command/frontend errors, warnings, `saveReady`,
-  `saveReadyReason`, and the blocking diagnostics/messages that carry `saveBlocking=true`
-- `readiness.delta`: count changes and readiness-state changes between the same base/current
-  versions
+Each `syncSummary` describes only the current synced document version. It does not carry deltas
+against previous responses; clients that need comparisons should retain the previous response they
+care about and compare it explicitly.
 
 ## Known Limitations
 

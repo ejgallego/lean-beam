@@ -24,11 +24,9 @@ OpenCode. Use `--all-skills` when you want every supported agent skill target.
 
 The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `~/.local/bin`, stages
 the self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires
-`elan` on `PATH`, prebuilds the pinned `lean-toolchain` bundle under
-`BEAM_INSTALL_ROOT/state/install-bundles` by default, supports `--toolchain <toolchain>` and
-`--all-supported` for explicit supported bundle selection, supports
-`--custom-toolchain <toolchain>` for explicit elan-linked local Lean development toolchains, and
-installs the bundled skills only for the agent flags you request.
+`elan` on `PATH`, prebuilds the pinned `lean-toolchain` bundle by default, and installs the bundled
+Lean skill only for the agent flags you request. Use the setup docs for additional supported or
+custom toolchain prebuilds.
 
 Use `lean-beam --version` for CLI bug reports and installed runtime identity checks. Use
 `lean-beam-mcp --version` to verify which installed MCP server wrapper, server binary, runtime
@@ -92,7 +90,8 @@ Core workflow contract:
 - `lean-beam` only sees the on-disk file, not unsaved editor buffers
 - in transient PID-sandboxed command runners, start one foreground `lean-beam ensure --hold`
   process when you need daemon reuse across separate shell invocations; interrupt it when finished
-- after every real Lean source edit: save the file normally, then run `lean-beam sync`
+- after every real Lean source edit: save the file normally, then run `lean-beam update` before the
+  next version-bound probe; run `lean-beam sync` when you need diagnostics/readiness
 - use `lean-beam save` only for a synced workspace module path in the current Lake workspace package
   graph, for example `MyPkg/Sub/Module.lean`
 - `lean-beam save` validates and checkpoints only the module you save; it does not validate importers of
@@ -285,7 +284,8 @@ Default rules:
 - use `lean-beam`, not raw JSON and not raw LSP
 - start with `lean-beam run-at`
 - use `lean-beam ensure --hold` only when your command runner needs a foreground owner for daemon reuse
-- after every real source edit: save the file to disk normally, then `lean-beam sync`
+- after every real source edit: save the file to disk normally, then `lean-beam update` before the
+  next version-bound probe; use `lean-beam sync` for diagnostics/readiness
 - if exact continuation matters: mint a handle
 - if search branches: use `lean-beam run-with`, `lean-beam run-with-linear`, and `lean-beam release`
 - if you want shorter shell commands for search loops: use `lean-beam-search`
@@ -301,7 +301,7 @@ lean-beam ensure
 lean-beam ensure --hold
 
 # inspect existing code or proof state
-version="<version-from-lean-beam-sync>"
+version="<version-from-lean-beam-update-or-sync>"
 lean-beam hover "Foo.lean" "$version" 10 2
 lean-beam signature-help "Foo.lean" "$version" 10 2
 lean-beam definition "Foo.lean" "$version" 10 2
@@ -315,7 +315,10 @@ lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
 # for multiline probes, prefer stdin
 printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" "$version" 10 2 --stdin
 
-# after every real edit saved to disk, on that same workspace module path
+# after every real edit saved to disk, use update for the next probe version
+lean-beam update "MyPkg/Sub/Module.lean"
+
+# when you need diagnostics/readiness, on that same workspace module path
 lean-beam sync "MyPkg/Sub/Module.lean"
 lean-beam refresh "MyPkg/Sub/Module.lean"
 

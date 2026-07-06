@@ -69,18 +69,23 @@ Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-
 
 ## Client Tool Semantics
 
-Successful `lean_init_workspace` results include a `capabilities` array with the projected MCP tool
-names. Current Lean operation names include `beam_version`, `beam_stats`, `lean_update`,
-`lean_sync`, `lean_refresh`, `lean_save`, `lean_close_save`, `lean_run_at`, `lean_hover`,
-`lean_signature_help`, `lean_definition`, `lean_references`, `lean_document_symbols`,
-`lean_workspace_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`.
+`tools/list` includes the setup tool `lean_init_workspace`, the Beam utility tools `beam_version`
+and `beam_stats`, and the Lean operation tools projected from `Beam.Lean.Operation`. Successful
+`lean_init_workspace` results include a `capabilities` array for the post-initialization tools:
+`beam_version`, `beam_stats`, `lean_update`, `lean_sync`, `lean_refresh`, `lean_save`,
+`lean_close_save`, `lean_close`, `lean_run_at`, `lean_run_at_handle`, `lean_run_with`,
+`lean_run_with_linear`, `lean_release`, `lean_hover`, `lean_signature_help`, `lean_definition`,
+`lean_references`, `lean_document_symbols`, `lean_workspace_symbols`, `lean_goals`, `lean_todo`,
+and `lean_code_action_resolve`.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
 `lean_document_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`; those calls
 require the `version` returned by a successful `lean_update` or `lean_sync` for the same path.
-`lean_workspace_symbols` is workspace-scoped and does not take a file version. `lean_goals` also
-requires `mode: "before"` or `mode: "after"`.
+`lean_workspace_symbols` is workspace-scoped and does not take a file version. `lean_run_with`,
+`lean_run_with_linear`, and `lean_release` use an opaque handle returned by a previous handle tool
+result rather than a document version. `lean_goals` also requires `mode: "before"` or
+`mode: "after"`.
 
 `lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
 apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so

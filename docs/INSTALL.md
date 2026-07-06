@@ -137,11 +137,9 @@ The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check
 `mode: "reset"` to explicitly switch roots and invalidate handles; see
 [STATUS.md](STATUS.md#mcp-workspace-initialization).
 
-Successful `lean_init_workspace` results include a `capabilities` array with projected MCP tool
-names, including `beam_version`, `beam_stats`, `beam_feedback`, `lean_run_at`, `lean_update`,
-`lean_sync`, `lean_refresh`, `lean_save`, `lean_close_save`, `lean_hover`, `lean_signature_help`,
-`lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`, and
-`lean_goals`, `lean_todo`, and `lean_code_action_resolve`.
+Successful `lean_init_workspace` results include a `capabilities` array with the projected
+post-initialization MCP tool names. The complete tool list and direct-client semantics live in
+[MCP.md](MCP.md#client-tool-semantics).
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`,
@@ -150,8 +148,10 @@ Direct MCP clients should call `lean_update` before snapshot-bound tools such as
 `lean_update` or `lean_sync` for the same path. `lean_code_action_resolve` takes a `code_action`
 payload previously returned by `lean_todo`; clients apply any returned LSP `WorkspaceEdit`
 themselves, then call `lean_update` or `lean_sync` again. The `lean_workspace_symbols` query is
-workspace-scoped and does not take a file version. `lean_goals` also requires `mode: "before"` or
-`mode: "after"`. The `lean-beam` wrapper follows the same model: call `lean-beam update <path>`
+workspace-scoped and does not take a file version. Handle continuation tools use an opaque handle
+returned by a previous handle tool result instead of a document version. `lean_goals` also requires
+`mode: "before"` or `mode: "after"`. The `lean-beam` wrapper follows the same model: call
+`lean-beam update <path>`
 first, then pass the returned `version` to `run-at`, `hover`, `signature-help`, `definition`,
 `references`, `document-symbols`, `goals`, or `todo`. Use `lean_sync` / `lean-beam sync` instead
 when the client also needs the diagnostics/readiness barrier.

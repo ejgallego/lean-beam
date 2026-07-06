@@ -36,8 +36,9 @@ Each install rebuilds the runtime binaries from the current source checkout befo
 immutable runtime. After reinstalling, restart active MCP client sessions so they launch the new
 runtime instead of continuing to use an already-running server process.
 
-The agent flags also install the bundled Lean and Rocq skills into the corresponding agent home. Use
-`--all-skills` when you want every supported agent skill target:
+The agent flags install the bundled Lean skill into the corresponding agent home. Rocq support is
+separate and optional; add `--rocq-skill` to a selected agent target when you also want the Rocq
+skill. Use `--all-skills` when you want every supported agent skill target:
 
 ```bash
 ./scripts/install-beam.sh --all-skills
@@ -109,16 +110,21 @@ lean-beam doctor
 Command positions use Lean/LSP coordinates: line and character are zero-based, and character counts
 UTF-16 code units.
 
-Then start the per-project daemon and ask questions against saved files:
+Then start the per-project daemon and ask questions against a saved Lean file in that project:
 
 ```bash
 lean-beam ensure
-lean-beam update "Foo.lean"
-lean-beam hover "Foo.lean" <version-from-update> 10 2
-lean-beam definition "Foo.lean" <version-from-update> 10 2
-lean-beam goals before "Foo.lean" <version-from-update> 10 2
-lean-beam run-at "Foo.lean" <version-from-update> 10 2 "exact trivial"
+update_json="$(lean-beam update "Foo.lean")"
+printf '%s\n' "$update_json"
+version="$(printf '%s\n' "$update_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["version"])')"
+lean-beam hover "Foo.lean" "$version" 10 2
+lean-beam definition "Foo.lean" "$version" 10 2
+lean-beam goals before "Foo.lean" "$version" 10 2
+lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
 ```
+
+The `python3` line extracts `result.version` for shell examples. You can also copy that version
+number from the printed `lean-beam update` JSON.
 
 Beam reads the saved file on disk, not unsaved editor buffers. After a real source edit, save the
 file normally and then update or sync that workspace module before trusting later probes:
@@ -132,7 +138,7 @@ For multiline speculative Lean text, pass the text on stdin:
 
 ```bash
 printf '%s\n' 'example : True := by' '  trivial' |
-  lean-beam run-at "Foo.lean" <version-from-update> 10 2 --stdin
+  lean-beam run-at "Foo.lean" "$version" 10 2 --stdin
 ```
 
 Read those commands like this:
@@ -140,7 +146,7 @@ Read those commands like this:
 - `lean-beam update` opens or updates the broker's LSP mirror and returns the current document
   version without waiting for diagnostics
 - `lean-beam run-at` tries speculative Lean text without editing the file
-- `lean-beam sync` is the explicit on-disk edit barrier after a real saved edit
+- `lean-beam sync` waits for diagnostics/readiness after a real saved edit
 - `lean-beam refresh` is `lean-beam close` plus `lean-beam sync`
 - `lean-beam save` checkpoints one synced workspace module; it does not validate downstream importers
 - `lean-beam doctor` explains toolchain support and runtime bundle selection
@@ -154,7 +160,7 @@ with the accepted current version rather than guessing.
 Useful follow-up commands:
 
 ```bash
-lean-beam deps "Foo.lean"
+lean-beam open-files
 lean-beam refresh "MyPkg/Sub/Module.lean"
 lean-beam save "MyPkg/Sub/Module.lean"
 ```
