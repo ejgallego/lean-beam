@@ -350,6 +350,11 @@ private def checkReadinessBoundary : IO Unit := do
     incompleteResp
   let data ← requireErrorData "readiness incomplete response" err
   requireJsonString "readiness incomplete response data" "targetPath" "SaveSmoke/A.lean" data
+  let saveDepsJson ← requireObjVal "readiness incomplete response data" "saveDeps" data
+  let saveDeps ← expectOk "readiness saveDeps decode"
+    (fromJson? (α := Array String) saveDepsJson)
+  require "readiness incomplete response should include dependency save hint"
+    (saveDeps[0]? == some "SaveSmoke/B.lean")
   let completionBlocking ← requireObjVal
     "readiness incomplete response data" "completionBlockingDiagnostics" data
   let completionBlockingItems ← expectOk "readiness completion-blocking diagnostics decode"
@@ -423,6 +428,51 @@ private def checkReadinessBoundary : IO Unit := do
   require "readiness interactive-only payload nested saveReady"
     interactiveOnlySyncResult.currentReadiness.saveReady
 
+private def checkStaleDirectDepHints : IO Unit := do
+  let directImports := #["SaveSmoke.B"]
+
+  let unsavedHistory : DocumentState.ModuleHistories :=
+    Std.TreeMap.empty.insert "SaveSmoke.B" ({
+      path := "SaveSmoke/B.lean"
+      lastSyncEventSeq := 9
+      lastSaveEventSeq := 2
+      lastTextHash? := some 11
+      lastTextChangeEventSeq := 9
+    } : ModuleHistory)
+  let unsavedHints := collectStaleDirectDepHints directImports 7 unsavedHistory
+  let some unsavedHint := unsavedHints[0]?
+    | throw <| IO.userError "expected unsaved stale direct dependency hint"
+  require "unsaved stale direct dependency should need save" unsavedHint.needsSave
+  require "unsaved stale direct dependency should name module"
+    (unsavedHint.module == "SaveSmoke.B")
+  require "unsaved stale direct dependency should name path"
+    (unsavedHint.path == "SaveSmoke/B.lean")
+
+  let savedHistory : DocumentState.ModuleHistories :=
+    Std.TreeMap.empty.insert "SaveSmoke.B" ({
+      path := "SaveSmoke/B.lean"
+      lastSyncEventSeq := 9
+      lastSaveEventSeq := 10
+      lastTextHash? := some 11
+      lastTextChangeEventSeq := 9
+    } : ModuleHistory)
+  let savedHints := collectStaleDirectDepHints directImports 7 savedHistory
+  let some savedHint := savedHints[0]?
+    | throw <| IO.userError "expected saved stale direct dependency hint"
+  require "saved stale direct dependency should not need save" (!savedHint.needsSave)
+
+  let noopSyncHistory : DocumentState.ModuleHistories :=
+    Std.TreeMap.empty.insert "SaveSmoke.B" ({
+      path := "SaveSmoke/B.lean"
+      lastSyncEventSeq := 10
+      lastSaveEventSeq := 2
+      lastTextHash? := some 11
+      lastTextChangeEventSeq := 4
+    } : ModuleHistory)
+  let noopSyncHints := collectStaleDirectDepHints directImports 7 noopSyncHistory
+  require "no-op dependency sync after target should not create stale hint"
+    noopSyncHints.isEmpty
+
 private def checkRequestArgsBoundary : IO Unit := do
   let runAtMissingVersion : Request := {
     op := .runAt
@@ -489,6 +539,7 @@ def main : IO Unit := do
   checkDocumentVersionMismatchErrorData
   checkJsonRpcErrorObjectMapping
   checkReadinessBoundary
+  checkStaleDirectDepHints
   checkRequestArgsBoundary
 
 end BeamTest.Broker.ProtocolTest

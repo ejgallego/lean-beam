@@ -19,11 +19,6 @@ This is intentionally scoped to the sync/readiness recovery path rather than exp
 dependency-inspection surface.
 -/
 
-structure DirectImportsQueryResult where
-  version : Nat
-  imports : Array String := #[]
-  deriving Inhabited
-
 structure StaleDirectDepHint where
   module : String
   path : String
@@ -54,26 +49,23 @@ def staleSyncErrorData
   ]
 
 def collectStaleDirectDepHints
-    (importsResult : DirectImportsQueryResult)
-    (version : Nat)
+    (imports : Array String)
     (targetLastSyncEventSeq : Nat)
     (history : DocumentState.ModuleHistories)
     : Array StaleDirectDepHint :=
-  if importsResult.version != version then
-    #[]
-  else
-    importsResult.imports.foldl (init := #[]) fun hints moduleName =>
-      match history.get? moduleName with
-      | some moduleHistory =>
-          if moduleHistory.lastSaveEventSeq > targetLastSyncEventSeq then
-            hints.push {
-              module := moduleName
-              path := moduleHistory.path
-              needsSave := moduleHistory.lastSaveEventSeq < moduleHistory.lastSyncEventSeq
-            }
-          else
-            hints
-      | none =>
+  imports.foldl (init := #[]) fun hints moduleName =>
+    match history.get? moduleName with
+    | some moduleHistory =>
+        if moduleHistory.lastTextChangeEventSeq > targetLastSyncEventSeq ||
+            moduleHistory.lastSaveEventSeq > targetLastSyncEventSeq then
+          hints.push {
+            module := moduleName
+            path := moduleHistory.path
+            needsSave := moduleHistory.lastSaveEventSeq < moduleHistory.lastTextChangeEventSeq
+          }
+        else
           hints
+    | none =>
+        hints
 
 end Beam.Broker

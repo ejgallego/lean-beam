@@ -10,7 +10,6 @@ import Lean.Data.Lsp.LanguageFeatures
 import Beam.Broker.Config
 import Beam.Broker.LakeEnv
 import Beam.Broker.Protocol
-import Beam.LSP.DirectImports
 import Beam.LSP.Goals
 import Beam.LSP.RunAt
 import Beam.LSP.Save
@@ -92,8 +91,8 @@ def saveArtifactsMethod : String :=
 def saveReadinessMethod : String :=
   Beam.LSP.Save.saveReadinessMethod
 
-def directImportsMethod : String :=
-  Beam.LSP.DirectImports.method
+def diagnosticsBarrierMethod : String :=
+  "$/beam/waitForDiagnostics"
 
 def goalsMethod (mode? : Option GoalMode := none) : String :=
   match mode?.getD .after with

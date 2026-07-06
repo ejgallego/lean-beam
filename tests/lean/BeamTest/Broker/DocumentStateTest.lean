@@ -53,7 +53,8 @@ private def mkSnapshot
 
 private def checkSyncFileDecisionOpen : IO Unit := do
   let uri := "file:///workspace/Foo.lean"
-  let decision := DocumentState.syncFileDecision {} uri (mkSnapshot 10)
+  let decision := DocumentState.syncFileDecision {} uri
+    (mkSnapshot 10)
   require "syncFileDecision opens unknown doc" (decision.action == .open)
   require "syncFileDecision open starts at version 1" (decision.version == 1)
   let some doc := decision.docs.get? uri
@@ -114,6 +115,35 @@ private def checkMarkSyncedVersion : IO Unit := do
     | throw <| IO.userError "markSyncedVersion did not update module history"
   require "markSyncedVersion updates module sync event seq" (history.lastSyncEventSeq == 7)
   require "markSyncedVersion leaves save event seq untouched" (history.lastSaveEventSeq == 0)
+  require "markSyncedVersion records baseline text hash" (history.lastTextHash? == some 0)
+  require "markSyncedVersion does not count initial text as a change"
+    (history.lastTextChangeEventSeq == 0)
+
+  let changedDocs := result.docs.insert uri {
+    (mkDoc 4 (some "Foo")) with
+    textHash := 11
+  }
+  let changed := DocumentState.markSyncedVersion changedDocs result.moduleHistory uri 4 "Foo.lean" 8
+  require "markSyncedVersion applies changed version" changed.applied
+  let some changedHistory := changed.moduleHistory.get? "Foo"
+    | throw <| IO.userError "changed markSyncedVersion did not update module history"
+  require "markSyncedVersion records changed text hash"
+    (changedHistory.lastTextHash? == some 11)
+  require "markSyncedVersion records text change event seq"
+    (changedHistory.lastTextChangeEventSeq == 8)
+
+  let unchangedDocs := changed.docs.insert uri {
+    (mkDoc 5 (some "Foo")) with
+    textHash := 11
+  }
+  let unchanged := DocumentState.markSyncedVersion unchangedDocs changed.moduleHistory uri 5 "Foo.lean" 9
+  require "markSyncedVersion applies unchanged text version" unchanged.applied
+  let some unchangedHistory := unchanged.moduleHistory.get? "Foo"
+    | throw <| IO.userError "unchanged markSyncedVersion did not update module history"
+  require "markSyncedVersion advances sync event on unchanged text"
+    (unchangedHistory.lastSyncEventSeq == 9)
+  require "markSyncedVersion keeps prior text change event seq for unchanged text"
+    (unchangedHistory.lastTextChangeEventSeq == 8)
 
   let stale := DocumentState.markSyncedVersion result.docs result.moduleHistory uri 2 "Foo.lean" 8
   require "markSyncedVersion rejects stale version" (!stale.applied)
@@ -134,6 +164,9 @@ private def checkMarkSavedVersion : IO Unit := do
     | throw <| IO.userError "markSavedVersion did not update module history"
   require "markSavedVersion updates module sync event seq" (history.lastSyncEventSeq == 9)
   require "markSavedVersion updates module save event seq" (history.lastSaveEventSeq == 9)
+  require "markSavedVersion records text hash" (history.lastTextHash? == some 0)
+  require "markSavedVersion leaves text change event seq untouched"
+    (history.lastTextChangeEventSeq == 0)
 
   let stale := DocumentState.markSavedVersion result.docs result.moduleHistory uri 3 "Foo.lean" 10
   require "markSavedVersion rejects stale version" (!stale.applied)

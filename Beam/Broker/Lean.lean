@@ -10,6 +10,13 @@ import Beam.Broker.Backend.Shared
 
 namespace Beam.Broker
 
+/-- Broker-side view of `$/beam/waitForDiagnostics`; keep this JSON shape aligned with the Lean LSP
+handler without importing the handler module into the broker. -/
+structure DiagnosticsBarrierResult where
+  version : Nat
+  directImports : Array String := #[]
+  deriving Lean.FromJson, Lean.ToJson
+
 def backendCommand
     (config : BrokerConfig)
     (backend : Backend) : IO (String × Array String × Array (String × Option String)) := do
@@ -84,10 +91,10 @@ def saveReadinessMethod (backend : Backend) : Except String String :=
   | .lean => .ok Backend.Lean.saveReadinessMethod
   | .rocq => Backend.Rocq.saveReadinessMethod
 
-def directImportsMethod (backend : Backend) : Except String String :=
+def diagnosticsBarrierMethod (backend : Backend) : Except String String :=
   match backend with
-  | .lean => .ok Backend.Lean.directImportsMethod
-  | .rocq => .error "rocq backend does not support direct import queries"
+  | .lean => .ok Backend.Lean.diagnosticsBarrierMethod
+  | .rocq => .error "rocq backend does not support diagnostics barriers"
 
 def goalsMethod (backend : Backend) (mode? : Option GoalMode := none) : Except String String :=
   match backend with

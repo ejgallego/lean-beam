@@ -34,6 +34,10 @@ structure ModuleHistory where
   lastSyncEventSeq : Nat := 0
   /-- Broker event sequence of the latest successful save checkpoint for this module. -/
   lastSaveEventSeq : Nat := 0
+  /-- Latest source hash observed by a successful sync/save for this module. -/
+  lastTextHash? : Option UInt64 := none
+  /-- Broker event sequence of the latest observed source text change after the initial baseline. -/
+  lastTextChangeEventSeq : Nat := 0
 
 namespace DocumentState
 
@@ -153,17 +157,26 @@ def syncFileDecision
 def updateModuleHistorySync
     (moduleHistory : ModuleHistories)
     (moduleName path : String)
+    (textHash : UInt64)
     (eventSeq : Nat) : ModuleHistories :=
   let history := (moduleHistory.get? moduleName).getD { path }
+  let textChanged :=
+    match history.lastTextHash? with
+    | some lastTextHash => lastTextHash != textHash
+    | none => false
   moduleHistory.insert moduleName {
     history with
     path
     lastSyncEventSeq := eventSeq
+    lastTextHash? := some textHash
+    lastTextChangeEventSeq :=
+      if textChanged then eventSeq else history.lastTextChangeEventSeq
   }
 
 def updateModuleHistorySave
     (moduleHistory : ModuleHistories)
     (moduleName path : String)
+    (textHash : UInt64)
     (eventSeq : Nat) : ModuleHistories :=
   let history := (moduleHistory.get? moduleName).getD { path }
   moduleHistory.insert moduleName {
@@ -171,6 +184,7 @@ def updateModuleHistorySave
     path
     lastSyncEventSeq := eventSeq
     lastSaveEventSeq := eventSeq
+    lastTextHash? := some textHash
   }
 
 def markSyncedVersion
@@ -185,7 +199,8 @@ def markSyncedVersion
       if docState.version == version then
         let moduleHistory :=
           match docState.moduleName? with
-          | some moduleName => updateModuleHistorySync moduleHistory moduleName path eventSeq
+          | some moduleName =>
+              updateModuleHistorySync moduleHistory moduleName path docState.textHash eventSeq
           | none => moduleHistory
         {
           docs := docs.insert uri {
@@ -212,7 +227,8 @@ def markSavedVersion
       if docState.version == version then
         let moduleHistory :=
           match docState.moduleName? with
-          | some moduleName => updateModuleHistorySave moduleHistory moduleName path eventSeq
+          | some moduleName =>
+              updateModuleHistorySave moduleHistory moduleName path docState.textHash eventSeq
           | none => moduleHistory
         {
           docs := docs.insert uri {

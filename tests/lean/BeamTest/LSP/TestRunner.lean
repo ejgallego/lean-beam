@@ -9,7 +9,6 @@ import Beam.LSP.RunAt
 import Beam.LSP.Goals
 import Beam.LSP.Todo
 import Beam.LSP.Save
-import Beam.LSP.DirectImports
 import Beam.LSP.Lib.Goal
 import BeamTest.TestHarness
 

@@ -5,7 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean.Server.FileWorker.RequestHandling
-import Beam.LSP.DirectImports
+import Beam.LSP.DiagnosticsBarrier
 import Beam.LSP.Goals
 import Beam.LSP.RunAt
 import Beam.LSP.Save
@@ -42,9 +42,9 @@ initialize
     Save.SaveReadinessParams
     Save.SaveReadinessResult
     Save.handleSaveReadiness
-  registerLspRequestHandler DirectImports.method
-    DirectImports.DirectImportsParams
-    DirectImports.DirectImportsResult
-    DirectImports.handle
+  registerLspRequestHandler DiagnosticsBarrier.method
+    Lean.Lsp.WaitForDiagnosticsParams
+    DiagnosticsBarrier.Result
+    DiagnosticsBarrier.handle
 
 end Beam.LSP

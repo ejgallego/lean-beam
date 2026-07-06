@@ -96,7 +96,9 @@ request family owns its method constants, JSON payload types, handler, and reque
 - [Beam/LSP/Goals.lean](../Beam/LSP/Goals.lean): `$/lean/goalsAfter` and `$/lean/goalsPrev`
 - [Beam/LSP/Todo.lean](../Beam/LSP/Todo.lean): `$/lean/todo`
 - [Beam/LSP/Save.lean](../Beam/LSP/Save.lean): broker-only save readiness and artifact requests
-- [Beam/LSP/DirectImports.lean](../Beam/LSP/DirectImports.lean): broker-only direct-import queries
+- [Beam/LSP/DiagnosticsBarrier.lean](../Beam/LSP/DiagnosticsBarrier.lean): broker-only diagnostics
+  barrier handler returning direct imports from Lean's accepted header snapshot; the broker decodes
+  the matching small JSON contract without importing this handler module
 
 Use `Beam.LSP.Lib.*` only for helpers shared across multiple families, such as request hygiene,
 proof-state projection, diagnostics compatibility, and native shared-library naming. Keep
@@ -404,8 +406,8 @@ support lands, prefer deleting the workaround over preserving compatibility bran
 Current validated support includes Lean `v4.28.0`, which requires two local compatibility shims.
 When support for `v4.28.0` is eventually dropped, re-check and likely simplify these spots:
 
-- `Beam/LSP/RunAt.lean`, `Beam/LSP/Goals.lean`, `Beam/LSP/Todo.lean`,
-  `Beam/LSP/Save.lean`, and `Beam/LSP/DirectImports.lean`:
+- `Beam/LSP/RunAt.lean`, `Beam/LSP/Goals.lean`, `Beam/LSP/Todo.lean`, and
+  `Beam/LSP/Save.lean`:
   `FileSource` instances route through `Lean.Lsp.fileSource p.textDocument` so the same code works
   across the older `FileIdent` return type in `v4.28.0` and the newer `DocumentUri` API.
 - `Beam/Broker/LakeSave.lean`: `hashOfHashable` / `addHashablePureTrace` exist because Lake
