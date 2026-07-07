@@ -85,7 +85,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 beam_cli_version="$(.lake/build/bin/beam-cli --version)"
-assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam-cli 0.1.0"
+assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam-cli 0.2.0-beta"
 assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam home: "
 assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam cli: "
 assert_version_output_contains "beam-cli --version" "$beam_cli_version" ".lake/build/bin/beam-cli"
@@ -100,7 +100,7 @@ if [ -n "$source_tree_dirty" ]; then
 fi
 
 lean_beam_version="$(scripts/lean-beam --version)"
-assert_version_output_contains "lean-beam --version" "$lean_beam_version" "lean-beam 0.1.0"
+assert_version_output_contains "lean-beam --version" "$lean_beam_version" "lean-beam 0.2.0-beta"
 assert_version_output_contains "lean-beam --version" "$lean_beam_version" "wrapper: "
 assert_version_output_contains "lean-beam --version" "$lean_beam_version" "scripts/lean-beam"
 assert_version_output_contains "lean-beam --version" "$lean_beam_version" ".lake/build/bin/beam-cli"
@@ -140,12 +140,12 @@ assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"s
 assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"daemon"'
 
 mcp_bin_version="$(.lake/build/bin/lean-beam-mcp --version)"
-assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "lean-beam-mcp 0.1.0"
+assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "lean-beam-mcp 0.2.0-beta"
 assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "mcp protocol: 2025-11-25"
 assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "server binary: "
 
 mcp_wrapper_version="$(scripts/lean-beam-mcp --version)"
-assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "lean-beam-mcp 0.1.0"
+assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "lean-beam-mcp 0.2.0-beta"
 assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "wrapper: "
 assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "scripts/lean-beam-mcp"
 assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "server binary: "

@@ -12,7 +12,7 @@ open Lean
 namespace Beam.Version
 
 def projectVersion : String :=
-  "0.1.0"
+  "0.2.0-beta"
 
 def cliName : String :=
   "lean-beam"

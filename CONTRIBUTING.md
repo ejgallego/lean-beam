@@ -1,6 +1,6 @@
 # Contributing
 
-This repository is public but still alpha. Favor conservative, well-tested changes over feature
+This repository is public but still pre-stable. Favor conservative, well-tested changes over feature
 sprawl.
 
 ## Workflow
@@ -24,7 +24,7 @@ Keep source-of-truth boundaries clear:
 
 - user setup, supported toolchains, first CLI use, MCP setup, installer locations, and offline notes
   belong in [docs/SETUP.md](docs/SETUP.md)
-- public alpha scope, limitations, and direction belong in [docs/STATUS.md](docs/STATUS.md)
+- public beta scope, limitations, and direction belong in [docs/STATUS.md](docs/STATUS.md)
 - exact MCP implementation, protocol, tool-list, and conformance notes belong in
   [docs/MCP.md](docs/MCP.md)
 - exact sync, save, progress, diagnostics, readiness, and stale-version behavior belongs in

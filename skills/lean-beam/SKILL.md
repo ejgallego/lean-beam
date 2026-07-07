@@ -81,7 +81,7 @@ What to treat as the normal agent workflow surface:
 - operational commands: `lean-beam open-files`, `lean-beam doctor`,
   `lean-beam stats`, `lean-beam reset-stats`, `lean-beam feedback`, `lean-beam save`,
   `lean-beam close-save`
-- alpha support APIs: `lean-beam run-at-handle`, `lean-beam run-with`, `lean-beam run-with-linear`,
+- pre-stable support APIs: `lean-beam run-at-handle`, `lean-beam run-with`, `lean-beam run-with-linear`,
   `lean-beam release`, `lean-beam-search`
 
 Core workflow contract:
@@ -276,7 +276,7 @@ Use `lean-beam`, not raw JSON and not raw LSP.
 - the underlying Lean side can also retain follow-up state through opaque handles for continuation
   and branching when one-shot probing is not enough, through follow-up methods
   `$/lean/runWith` and `$/lean/releaseHandle`
-- treat handles as alpha support APIs: useful, real, and powerful, but more fragile than the base
+- treat handles as pre-stable support APIs: useful, real, and powerful, but more fragile than the base
   request
 - handles are document-bound and are invalidated by same-document edits, close, worker restart, or
   Beam daemon restart

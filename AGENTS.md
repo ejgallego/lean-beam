@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository hosts the alpha Beam Lean plugin, wrapper, and local broker tooling.
+This repository hosts the pre-stable Beam Lean plugin, wrapper, and local broker tooling.
 
 Treat the repo as public but still experimental: prefer conservative, well-tested changes over
 feature sprawl.
@@ -39,7 +39,7 @@ Rules:
 - use transport errors for invalid params, stale state, cancellation, and internal faults
 - avoid exposing internal execution details unless a concrete client need forces it
 
-Follow-up handle APIs exist, but they are alpha extensions around the basic request, not the main
+Follow-up handle APIs exist, but they are pre-stable extensions around the basic request, not the main
 story of the project.
 
 ## Execution Model
@@ -73,7 +73,7 @@ If a behavior is subtle, encode it in tests before optimizing it.
 - do not stringify typed errors or responses and later parse the rendered exception text to recover
   control flow; keep `Response`, `BrokerFailure`, or structured error data typed across
   async/pending boundaries, and stringify only at transport, CLI, or diagnostic display edges
-- do not add useless backward compatibility support; this alpha project has no legacy users, so
+- do not add useless backward compatibility support; this pre-stable project has no legacy users, so
   remove obsolete aliases, inferred envelope shapes, and compatibility branches unless they support
   an explicitly listed Lean/Rocq/tooling/protocol version or another target named in
   [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)
