@@ -1,10 +1,10 @@
 # Status
 
-Lean Beam is alpha code and still mostly a personal experiment. The repository is public for
-collaboration and reuse, but it is not yet a polished or stable general-purpose product.
+Lean Beam is experimental alpha software. The repository is public for collaboration, early use,
+and feedback, but interfaces and installation details may still change before a stable release.
 
 The main product idea is a small, type-safe, isolated execution surface for Lean. Beam is the shared
-thin layer on top of Lean LSP plus Beam-specific extensions: the Lean plugin provides the low-level
+thin layer on top of Lean LSP plus Beam-specific extensions: the Lean plugin provides low-level
 facts, and the local Beam layer turns those facts into practical CLI, broker, MCP, and skill
 workflows.
 
@@ -227,9 +227,9 @@ Near-term work is mostly about hardening and simplifying:
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in
   shared Beam modules, not copied across CLI, broker, MCP, and test helpers
 
-## Release Focus
+## First Alpha Release Focus
 
-The first Lean release should stay conservative:
+The first public Lean release should stay conservative:
 
 - keep the current `runAt`, `lean-beam`, and MCP surfaces small and documented
 - keep CLI and MCP as thin projections over shared typed operation adapters

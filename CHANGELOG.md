@@ -1,11 +1,11 @@
 # Changelog
 
-This project keeps a lightweight, reverse-chronological changelog. Dates use `YYYY-MM-DD`.
-Until the first tagged release, release-facing changes stay under `Unreleased`.
+This project keeps a lightweight, reverse-chronological changelog. Dates use `YYYY-MM-DD`. Until the
+first tagged release, the first public alpha entries stay under `Unreleased`.
 
 ## Unreleased
 
-Preparing the first public Lean Beam alpha release.
+Initial public alpha release.
 
 ### Added
 
@@ -20,12 +20,16 @@ Preparing the first public Lean Beam alpha release.
 - Installed skills for supported agent clients and an optional Rocq goal-probe surface.
 - Runtime identity and diagnostic surfaces such as `lean-beam --version`, `beam_version`,
   `open-files`, and broker stats.
+- Feedback report cards through `lean-beam feedback` and MCP `beam_feedback`.
 
-### Testing
+### Compatibility And Reliability
 
-- Repo-local coverage for isolation, stale edits, cancellation, invalid positions, handle
-  invalidation, sync/save readiness, MCP protocol behavior, installer behavior, and supported Lean
-  toolchain compatibility.
+- Validated Lean toolchains are listed in
+  [`supported-lean-toolchains`](supported-lean-toolchains); the repository-pinned default is
+  recorded in [`lean-toolchain`](lean-toolchain).
+- Repo-local and CI coverage exercise isolation, stale edits, cancellation, invalid positions,
+  handle invalidation, sync/save readiness, MCP protocol behavior, installer behavior, and supported
+  Lean toolchain compatibility.
 
 ### Documentation
 
