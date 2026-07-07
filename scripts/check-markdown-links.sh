@@ -28,6 +28,8 @@ failures: list[str] = []
 
 for rel in md_files:
     path = repo / rel
+    if not path.exists():
+        continue
     text = path.read_text(encoding="utf-8")
     for match in link_re.finditer(text):
         raw_target = match.group(1).strip()

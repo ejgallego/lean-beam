@@ -69,14 +69,15 @@ Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-
 
 ## Client Tool Semantics
 
-`tools/list` includes the setup tool `lean_init_workspace`, the Beam utility tools `beam_version`
-and `beam_stats`, and the Lean operation tools projected from `Beam.Lean.Operation`. Successful
+`tools/list` includes the setup tool `lean_init_workspace`, the Beam utility tools `beam_version`,
+`beam_stats`, and `beam_feedback`, and the Lean operation tools projected from
+`Beam.Lean.Operation`. Successful
 `lean_init_workspace` results include a `capabilities` array for the post-initialization tools:
-`beam_version`, `beam_stats`, `lean_update`, `lean_sync`, `lean_refresh`, `lean_save`,
-`lean_close_save`, `lean_close`, `lean_run_at`, `lean_run_at_handle`, `lean_run_with`,
-`lean_run_with_linear`, `lean_release`, `lean_hover`, `lean_signature_help`, `lean_definition`,
-`lean_references`, `lean_document_symbols`, `lean_workspace_symbols`, `lean_goals`, `lean_todo`,
-and `lean_code_action_resolve`.
+`beam_version`, `beam_stats`, `beam_feedback`, `lean_update`, `lean_sync`, `lean_refresh`,
+`lean_save`, `lean_close_save`, `lean_close`, `lean_run_at`, `lean_run_at_handle`,
+`lean_run_with`, `lean_run_with_linear`, `lean_release`, `lean_hover`, `lean_signature_help`,
+`lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`,
+`lean_goals`, `lean_todo`, and `lean_code_action_resolve`.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
@@ -111,7 +112,7 @@ each tool input.
 `Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. The current
 server advertises `2025-11-25` only. Bump it, or add support for another revision, only with a
 protocol audit: check the upstream MCP schema/changelog, update local protocol tests, run the
-Lean-backed stdio harness, update [docs/STATUS.md](STATUS.md), and run
+Lean-backed stdio harness, update this document and any affected status notes, and run
 [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) against the revised conformance
 baseline.
 

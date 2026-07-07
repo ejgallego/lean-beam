@@ -305,7 +305,9 @@ lean-beam ensure
 lean-beam ensure --hold
 
 # inspect existing code or proof state
-version="<version-from-lean-beam-update-or-sync>"
+update_out="$(lean-beam update "Foo.lean")"
+printf '%s\n' "$update_out"
+version="$(printf '%s\n' "$update_out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["version"])')"
 lean-beam hover "Foo.lean" "$version" 10 2
 lean-beam signature-help "Foo.lean" "$version" 10 2
 lean-beam definition "Foo.lean" "$version" 10 2

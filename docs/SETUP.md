@@ -1,5 +1,9 @@
 # Setup
 
+Use this document as the single path from a Lean Beam checkout to a working `lean-beam` command.
+It covers installation, supported Lean toolchains, first CLI use, MCP registration, installer
+locations, and offline setup notes.
+
 Lean Beam setup has two separate locations:
 
 - the Lean Beam checkout, where you run the installer once
@@ -13,11 +17,12 @@ project. The wrapper detects the target project root from the current directory 
 From a Lean Beam checkout, run one installer command that matches how you plan to use it:
 
 ```bash
-./scripts/install-beam.sh           # CLI and MCP wrappers only
-./scripts/install-beam.sh --codex   # wrappers plus Codex skills
-./scripts/install-beam.sh --claude  # wrappers plus Claude Code skills
-./scripts/install-beam.sh --pi      # wrappers plus Pi Agent skills
+./scripts/install-beam.sh            # CLI and MCP wrappers only
+./scripts/install-beam.sh --codex    # wrappers plus Codex skills
+./scripts/install-beam.sh --claude   # wrappers plus Claude Code skills
+./scripts/install-beam.sh --pi       # wrappers plus Pi Agent skills
 ./scripts/install-beam.sh --opencode # wrappers plus OpenCode skills
+./scripts/install-beam.sh --all-skills # wrappers plus every supported agent skill
 ```
 
 The default installer is interactive: it asks which supported Lean toolchains, agent skills, and
@@ -30,19 +35,25 @@ These forms install:
 
 - `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` into `~/.local/bin`
 - an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
+- a bundle cache under `~/.local/share/beam/state/install-bundles`
 - a prebuilt bundle for the repo-pinned supported Lean toolchain
 
 Each install rebuilds the runtime binaries from the current source checkout before staging the
 immutable runtime. After reinstalling, restart active MCP client sessions so they launch the new
 runtime instead of continuing to use an already-running server process.
 
-The agent flags install the bundled Lean skill into the corresponding agent home. Rocq support is
-separate and optional; add `--rocq-skill` to a selected agent target when you also want the Rocq
-skill. Use `--all-skills` when you want every supported agent skill target:
+The agent flags install the bundled Lean skill into the corresponding agent home. Rocq support is a
+separate optional skill; add `--rocq-skill` to a selected agent target when you also want the Rocq
+skill:
 
 ```bash
-./scripts/install-beam.sh --all-skills
+./scripts/install-beam.sh --codex --rocq-skill
+./scripts/install-beam.sh --all-skills --rocq-skill
 ```
+
+`--rocq-skill` is only a modifier. It must be paired with `--codex`, `--claude`, `--pi`,
+`--opencode`, `--all-skills`, or an interactive skill target. Rocq-specific setup is documented in
+[ROCQ.md](ROCQ.md).
 
 The installer requires `elan` on `PATH`. Make sure `~/.local/bin` is on `PATH` before using the
 installed wrappers directly.
@@ -50,7 +61,8 @@ installed wrappers directly.
 ## Supported Toolchains And Bundles
 
 Lean Beam serves validated Lean toolchains listed in
-[`supported-lean-toolchains`](../supported-lean-toolchains). Inspect the validated allowlist with:
+[`supported-lean-toolchains`](../supported-lean-toolchains). Check that file before install if you
+need a specific Lean release. After install, the wrapper reports the same validated allowlist with:
 
 ```bash
 lean-beam supported-toolchains
@@ -185,6 +197,15 @@ even if `~/.local/bin` is not on its PATH:
 ```bash
 codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
 claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
+opencode mcp add
+```
+
+When `opencode mcp add` prompts for the server, use:
+
+```text
+name: lean-beam
+type: local
+command: /absolute/path/to/lean-beam-mcp
 ```
 
 MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
@@ -197,8 +218,8 @@ project root per MCP server session with the `lean_init_workspace` tool before c
 
 The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check the active root or
 `mode: "reset"` to explicitly switch roots and invalidate handles; see
-[the status doc](STATUS.md#mcp-workspace-initialization). Direct-client tool and version semantics
-live in the [MCP protocol notes](MCP.md#client-tool-semantics).
+[the MCP runtime setup notes](MCP.md#runtime-setup). Direct-client tool and version semantics live
+in the [MCP protocol notes](MCP.md#client-tool-semantics).
 
 Direct single-project MCP registrations may still pass an explicit project root:
 
@@ -229,3 +250,48 @@ lean-beam-mcp --root /path/to/lean/project --self-check MyPkg/Sub/Module.lean
 The self-check starts a child MCP server, supplies the root through MCP `roots/list`, calls
 `lean_sync` on the file, and shuts the child server down. Maintainer details for MCP live in the
 [MCP maintainer notes](MCP.md).
+
+## Installer Locations And Overrides
+
+Default install locations are:
+
+| Purpose | Default | Override |
+| --- | --- | --- |
+| Command wrappers | `$HOME/.local/bin` | interactive `change`, or `BEAM_BIN_HOME` |
+| Runtime root | `$HOME/.local/share/beam` | interactive `change`, or `BEAM_INSTALL_ROOT` |
+| Install bundle cache | `$HOME/.local/share/beam/state/install-bundles` | derived from the runtime root |
+| Source build output | `<repo>/.lake` | fixed by Lake for this checkout |
+| Codex skill and MCP home | `$HOME/.codex` | interactive `change`, `CODEX_HOME`, or `--codex-home` |
+| Codex MCP config | `$HOME/.codex/config.toml` | derived from the Codex home |
+| Claude Code skill home | `$HOME/.claude` | interactive `change`, or `CLAUDE_HOME` |
+| Claude Code MCP config | `$HOME/.claude.json` | interactive `change`, `BEAM_CLAUDE_MCP_CONFIG`, or `--claude-mcp-config` |
+| Pi Agent skill home | `$HOME/.pi/agent` | interactive `change`, `PI_CODING_AGENT_DIR`, or `--pi-home` |
+| OpenCode config directory | `$HOME/.config/opencode` | interactive `change`, `OPENCODE_CONFIG_DIR`, or `--opencode-config-dir` |
+| OpenCode skill home | `$HOME/.config/opencode/skills` | derived from the OpenCode config directory |
+
+For sandboxed config locations, pass the target paths explicitly:
+
+```bash
+./scripts/install-beam.sh --codex-mcp --codex-home /path/to/sandbox/.codex
+./scripts/install-beam.sh --claude-mcp --claude-mcp-config /path/to/sandbox/.claude.json
+```
+
+The same Codex and Claude overrides are available as `CODEX_HOME` and
+`BEAM_CLAUDE_MCP_CONFIG`. Interactive installs can also choose `change` at the write-location
+prompt before approving writes.
+
+## Slow Or Offline Installs
+
+On a cold machine, first bundle builds may need network access to fetch dependencies. When
+travelling or working on a slow connection, install the supported Lean toolchains into the host
+elan cache ahead of time:
+
+```bash
+grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d' |
+  while IFS= read -r toolchain; do
+    elan toolchain install "$toolchain"
+  done
+```
+
+Then run the installer with `--toolchain <toolchain>` for the target releases you need, or
+`--all-supported` for the full validated allowlist.

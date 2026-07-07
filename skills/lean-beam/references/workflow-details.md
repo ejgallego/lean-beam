@@ -115,10 +115,11 @@ What is not a valid checkpoint target:
   inspection commands for an existing tactic position
 - `lean-beam goals before` / `lean-beam goals after` return `result.goals`, not speculative execution output,
   and do not accept speculative text
-- `beam` only sees the on-disk file, not unsaved editor buffers
+- `lean-beam` only sees the on-disk file, not unsaved editor buffers
 - actual source edits happen through the normal file-edit workflow
 - after every real source edit to a Lean file, save the file in the normal editor/file sense and
-  then run `lean-beam sync "Foo.lean"`
+  then run `lean-beam update "Foo.lean"` before the next version-bound probe; use
+  `lean-beam sync "Foo.lean"` when the workflow needs a diagnostics/readiness barrier
 - use `lean-beam refresh "Foo.lean"` when a tracked file needs `lean-beam close` plus `lean-beam sync`
   as one step, especially after saving an upstream dependency
 - treat `lean-beam sync` as the explicit supported boundary between real file edits and Beam daemon
@@ -152,6 +153,7 @@ What is not a valid checkpoint target:
   `error.data.currentVersion` may echo the current tracked document version
 - `lean-beam save` / `lean-beam close-save` checkpoint the current synced Lake module only; they do not
   rebuild reverse dependencies or make downstream files fresh by themselves
+
 ## Diagnostics, Progress, And Request IDs
 
 - `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` always stream fresh diagnostics for the current
@@ -194,7 +196,7 @@ Treat `fileProgress` as observability, not as proof that every call is a full ba
 lean-beam ensure
 sync_out="$(lean-beam sync "Foo.lean")"
 printf '%s\n' "$sync_out"
-version="<version-from-sync-out>"
+version="$(printf '%s\n' "$sync_out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["version"])')"
 
 probe_out="$(lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial")"
 printf '%s\n' "$probe_out"
@@ -292,7 +294,8 @@ itself to prove the dependency cone is fresh.
 lean-beam ensure
 # make a real edit in A.lean and save the source file to disk
 lean-beam sync "A.lean"
-b_version="<version-from-update-B.lean>"
+b_update="$(lean-beam update "B.lean")"
+b_version="$(printf '%s\n' "$b_update" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["version"])')"
 lean-beam run-at "B.lean" "$b_version" 12 2 "#check someNameFromA"
 ```
 

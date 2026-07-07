@@ -34,7 +34,7 @@ Install the optional Rocq skill by adding `--rocq-skill` to a selected agent tar
 `--opencode`, `--all-skills`, or an interactive skill target.
 
 General installer locations, MCP registration, and toolchain options are documented in
-[INSTALL.md](INSTALL.md).
+[SETUP.md](SETUP.md).
 
 ## Rocq Setup
 

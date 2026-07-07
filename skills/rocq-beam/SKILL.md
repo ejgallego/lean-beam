@@ -32,8 +32,8 @@ The installer puts `lean-beam` in `~/.local/bin`, stages the self-contained runt
 
 Restart active agent sessions after installation.
 
-The user-facing installer reference is [docs/INSTALL.md](../../docs/INSTALL.md). The Rocq status
-and setup page is [docs/ROCQ.md](../../docs/ROCQ.md).
+The user-facing setup and installer reference is [docs/SETUP.md](../../docs/SETUP.md). The Rocq
+status and setup page is [docs/ROCQ.md](../../docs/ROCQ.md).
 
 ## Rocq Setup
 
