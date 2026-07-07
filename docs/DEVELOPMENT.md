@@ -29,8 +29,8 @@ If the question is "how do I work on the repo safely and efficiently?", start he
 
 ## Code Organization
 
-- `RunAt`: Lean LSP server plugin providing the `$/lean/runAt` request for speculative execution at
-  arbitrary document points.
+- `Beam.LSP`: Lean LSP server plugin code, including the `$/lean/runAt` request for speculative
+  execution at saved document positions.
 - `Beam`: shared broker, CLI, and MCP layer over Lean LSP plus Beam-specific extensions.
 - `skills`: installed workflow guidance for supported agent clients built around `lean-beam`.
 - Rocq support: a narrow auxiliary goal-probe surface through the same `lean-beam` wrapper, useful

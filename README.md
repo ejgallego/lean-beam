@@ -1,144 +1,66 @@
 # Lean Beam
 
-Lean Beam is an experimental Lean 4 tooling stack for querying saved Lean projects. It combines a
-Lean LSP extension, a local broker, command-line wrappers, and optional MCP and agent-skill
-integration.
+Lean Beam is an experimental project for efficient interaction with Lean from AI-assisted and
+tool-assisted workflows. Its main pieces are new Lean LSP extensions, a `lean-beam` CLI, and a
+`lean-beam-mcp` server, connected by a lightweight broker that provides a convenient agent- and
+tool-facing interface.
 
-It lets a client ask Lean questions about a saved source file at a particular line/character
-position, then returns structured feedback such as hover and signature information, definitions,
-references, symbols, goals, diagnostics, or the result of trying a small Lean fragment in the
-surrounding module context.
+Beam lets a client try Lean commands or tactics at specific positions in saved files without
+changing those files. The central Beam extension is speculative execution through `runAt`, exposed
+by the CLI as `lean-beam run-at` and through MCP as `lean_run_at`. Because these probes can be
+issued concurrently, agents and tools can cheaply explore several "would this work here?"
+possibilities in the real module context.
 
-Beam requests are tied to saved files on disk. Normal speculative requests do not edit the file, do
-not mutate the document's real elaboration state, and do not create hidden state for later requests.
-If a speculative result should become real source, edit the file, save it, and then update or sync
-that file before later probes.
+Together, the LSP extensions, CLI, and MCP interface are intended to make that loop cheaper and more
+structured than repeatedly creating scratch files or using full `lake build` runs as the inner loop.
 
-Feedback is welcome; feel free to open issues or let us know what you think on Zulip. For useful
-bug reports from a local checkout, `lean-beam feedback --stdin` produces a pasteable Markdown report
-card with Beam version, daemon registry, recent daemon incident, stats, and open-file context when
-that data is available; see [Feedback Report Cards](docs/FEEDBACK.md).
+Beam is implemented in Lean, which lets it integrate more directly with Lean server state, saved
+snapshots, and synchronization where that matters.
+
+We have found Beam useful for proof repair, proof search experiments, proof translation and porting,
+autoformalization experiments, and regular AI-assisted Lean editing.
+
+Feedback is welcome; feel free to open issues or let us know what you think on Zulip. For useful bug
+reports from a local checkout, `lean-beam feedback --stdin` can produce a pasteable report card; see
+[docs/FEEDBACK.md](docs/FEEDBACK.md).
 
 Lean Beam is experimental public alpha software. It is not an official Lean FRO product. Current
 scope, limitations, and release direction are tracked in [docs/STATUS.md](docs/STATUS.md).
 
-## Install And First Query
+## Current Alpha Surface
 
-Install Beam once from a Lean Beam checkout:
+The current release includes support for:
+
+- speculative Lean execution with `runAt`
+- incremental synchronization of Lean's view of a file after edits with `sync`
+- actionable file information with `todo`, including sorries, holes, diagnostics, code actions, and
+  incomplete proofs
+- saving `.olean` artifacts from an interactive session with `save`
+- selected Lean/LSP features through the same CLI and MCP interfaces, including hover, signature
+  help, definitions, references, document/workspace symbols, and proof-state inspection
+- feedback report cards for bug reports and project feedback through `lean-beam feedback` and MCP
+  `beam_feedback`
+
+See the repository documentation for the current supported surface, which we expect to evolve during
+the alpha.
+
+## Install
+
+Install or update Beam from a Lean Beam checkout:
 
 ```bash
 ./scripts/install-beam.sh
 ```
 
-The default installer is interactive. It asks which supported Lean toolchains, agent skills, and MCP
-client registrations to set up, then asks before writing Beam-owned install or config paths. For
-non-interactive scripts, pass `--dont-ask`.
+Run the installer again when you update the checkout and want the installed runtime to match it.
+Setup details, supported toolchains, agent-skill installation, MCP registration, and direct CLI
+examples live in [docs/SETUP.md](docs/SETUP.md). Detailed installer locations, overrides, and
+offline advice live in [docs/INSTALL.md](docs/INSTALL.md).
 
-Use `--codex`, `--claude`, `--pi`, `--opencode`, or `--all-skills` when you also want bundled agent
-skills. Then move to the Lean project you want to work on:
-
-```bash
-cd /path/to/lean/project
-lean-beam doctor
-lean-beam ensure
-lean-beam update "Foo.lean"
-```
-
-`lean-beam update` prints JSON. Copy the returned `version` number; position-based queries require
-it so they run against the saved file snapshot you just opened. Then use that version:
-
-```bash
-lean-beam hover "Foo.lean" <version> 10 2
-lean-beam definition "Foo.lean" <version> 10 2
-lean-beam goals before "Foo.lean" <version> 10 2
-lean-beam run-at "Foo.lean" <version> 10 2 "exact trivial"
-```
-
-Beam reads saved files on disk, not unsaved editor buffers. After a real source edit, save the file
-normally and update or sync that workspace module before trusting later probes:
-
-```bash
-lean-beam sync "MyPkg/Sub/Module.lean"
-```
-
-Detailed setup, supported toolchains, bundle behavior, and MCP client setup live in
-[docs/SETUP.md](docs/SETUP.md). Detailed installer locations, overrides, and offline advice live in
-[docs/INSTALL.md](docs/INSTALL.md).
-
-## Why Lean Beam?
-
-Lean already has Lake for builds and editor integrations for interactive development. Some workflows
-also need many small, programmatic questions about local Lean state:
-
-- What are the goals at this saved source position?
-- Does this expression, command, or tactic elaborate here?
-- Where is this symbol defined, and what references it?
-- Which diagnostics are present after a saved edit?
-- Can an external tool or agent get typed Lean feedback without owning a full editor session?
-
-Lean Beam exists to make those questions explicit, local, and reusable across command-line, broker,
-MCP, and agent-skill surfaces.
-
-## Who Can It Help?
-
-Lean Beam is mainly useful for:
-
-- Lean users who want command-line checks against saved files.
-- Tool authors building workflows on top of Lean LSP.
-- Porting and proof-repair workflows that need many local Lean checks.
-- Agent workflows, including Codex, Claude Code, Pi Agent, and OpenCode, that need a small typed
-  Lean interaction surface.
-
-Rocq support exists as a narrower auxiliary goal-inspection surface through the same installed
-wrapper. It is useful for porting workflows, but it is not the main Lean Beam API.
-
-## How It Works
-
-Lean Beam is a thin layer over Lean LSP plus Beam-specific extensions.
-
-- A Lean plugin adds speculative execution and related query primitives to Lean's LSP server.
-- The Beam broker keeps one local runtime per project root and exposes a narrower local protocol.
-- The `lean-beam` CLI wraps the broker for human and agent command-line workflows.
-- The `lean-beam-mcp` server exposes the same Lean operations to MCP clients.
-- Bundled skills describe the intended Lean workflow and optional Rocq workflow.
-
-The lower-level Lean protocol includes `$/lean/runAt`; the user-facing contract is simpler: ask Lean
-a question at a saved file position, get typed feedback, and keep ordinary requests isolated.
-Optional follow-up handles exist, but they are alpha extensions around that base request.
-
-## FAQ
-
-### Does Lean Beam replace Lake?
-
-No. Lake remains the build tool. Beam is for local interactive or programmatic queries against a
-Lean project.
-
-### Does Lean Beam replace an editor?
-
-No. Beam reads saved files and exposes Lean queries. It does not manage unsaved editor buffers or
-provide an IDE UI.
-
-### Does a Beam probe edit my file?
-
-No. Normal probes are speculative and isolated. To keep a result, make the real source edit yourself,
-save the file, and run `lean-beam sync`.
-
-### Which Lean versions are supported?
-
-Lean Beam serves only the validated toolchains listed in
-[`supported-lean-toolchains`](supported-lean-toolchains). Setup details are in
-[docs/SETUP.md](docs/SETUP.md#supported-toolchains-and-bundles). Local Lean development builds can
-also be accepted explicitly as custom toolchains; see
-[docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md).
-
-### Is Lean Beam an official Lean product?
-
-No. Lean Beam is a public experimental project, not an official Lean FRO product.
-
-### Is Lean Beam stable?
-
-No. Lean Beam is alpha software and uses internal Lean APIs. Expect the public surface to remain
-small while installation, stale-state handling, and protocol details continue to mature.
+Lean Beam serves validated Lean toolchains listed in
+[`supported-lean-toolchains`](supported-lean-toolchains). See
+[docs/SETUP.md](docs/SETUP.md#supported-toolchains-and-bundles) for bundle setup and
+[docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md) for explicitly accepted local Lean builds.
 
 ## Documentation Map
 
@@ -149,6 +71,7 @@ For users:
 - [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md): explicit local Lean toolchain support.
 - [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md): alpha compatibility policy and supported targets.
 - [docs/ROCQ.md](docs/ROCQ.md): optional Rocq goal probes for Rocq-to-Lean porting.
+- [docs/FEEDBACK.md](docs/FEEDBACK.md): feedback report cards for useful bug reports.
 - [docs/STATUS.md](docs/STATUS.md): current scope, limitations, and direction.
 - [CHANGELOG.md](CHANGELOG.md): release-facing changes.
 
@@ -169,6 +92,7 @@ For contributors and maintainers:
 
 ## Contributing And Help
 
+The main goal of this public alpha is to gather feedback from Lean users and tool authors.
 Bug reports, design feedback, and documentation improvements are welcome through
 [GitHub issues](https://github.com/ejgallego/lean-beam/issues). Discussion is also welcome on the
 [Lean Zulip](https://leanprover.zulipchat.com).
