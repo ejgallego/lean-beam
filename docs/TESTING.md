@@ -129,8 +129,8 @@ BEAM_INSTALL_TEST_PRESEED_ELAN=require bash tests/test-beam-install.sh
 
 Use [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) to validate one
 supported bundle lane at a time. The lane also checks that Lean's stale-import diagnostic wording
-still matches Beam's temporary text-based detector while the structured Lean stale-dependency API is
-pending. If bundle installation stalls on a slow machine, raise
+still matches Beam's current temporary text-based detector. If bundle installation stalls on a slow
+machine, raise
 `BEAM_TOOLCHAIN_COMPAT_TIMEOUT` from its default 600 seconds. On failure, the test prints the fake
 home, agent homes, bundle directory, platform, and captured build/bundle/stale-diagnostic
 log tails so the bundle or stale-diagnostic state can be diagnosed from the test log. Set

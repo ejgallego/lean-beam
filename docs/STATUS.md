@@ -112,8 +112,8 @@ field-level contract for update, sync, save, progress, diagnostics, stale-versio
 readiness, and recovery hints lives in [SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md).
 
 If a speculative probe looks right and should become real source, the current contract is still:
-make the real edit in the file, save it, then run `lean-beam sync`. The intended future direction is
-to make that handoff cheap by reusing speculative execution rather than replaying it from scratch.
+make the real edit in the file, save it, then run `lean-beam sync`. Beam does not currently persist
+speculative execution into source edits or save checkpoints.
 
 For programmatic local consumers, the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; wrapper stderr should be treated as human-facing. Broker responses
@@ -186,9 +186,7 @@ discriminator.
 - `error.data.staleDirectDeps` recovery hints are still broker-derived metadata. Beam currently
   uses direct imports returned by Beam's diagnostics barrier request from Lean's accepted header
   snapshot and combines those imports with broker sync/save history to infer stale direct
-  dependencies and `needsSave`. The planned Lean-side backlog item is to expose structured
-  stale-dependency metadata from Lean's watchdog/file-worker
-  path, so Beam can derive these hints from Lean instead of duplicating that state in the broker.
+  dependencies and `needsSave`.
 
 ### Distribution And Rocq
 
@@ -210,19 +208,8 @@ current behavior, limitations, and release posture.
 - reduce packaging and workspace rough edges
 - publish a smoother distribution path, likely GitHub-backed install for Codex and plugin
   marketplace packaging for Claude
-- improve stale-dependency handling, especially by moving structured stale-dependency metadata into
-  Lean's native stale-dependency signal instead of broker-side reconstruction
-- upstream structured JSON-RPC error data for Lean request failures, so plugin-level
-  `contentModified` errors can carry machine-readable recovery fields such as
-  `documentVersionMismatch` without requiring broker-side preflight rejection
-- replace broker-side diagnostics/fileProgress barrier inference with a stronger backend-facing
-  readiness primitive, so `lean-beam sync` / `lean-beam save` can trust one authoritative completion
-  signal instead of reconstructing barrier completeness from multiple LSP channels
-- track an upstream Lean API improvement for a pure frontend readiness/reporting helper, close to
-  `SnapshotTree.runAndReport` but returning the build-blocking decision and message counts without
-  printing
-- add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
-  structured MCP log messages for incremental diagnostics rather than overloading progress
+- improve actionable recovery for sync, save, stale-import, and `runAt` failures
+- keep structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result
 - keep the `sync`, `save`, and `close-save` summary projections aligned as the sync-summary schema
   evolves

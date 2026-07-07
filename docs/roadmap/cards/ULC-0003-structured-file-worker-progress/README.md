@@ -37,7 +37,7 @@ Beam would stop matching build-monitor diagnostic strings for progress.
 ## Evidence
 
 The current workaround is documented in
-[Development](../../../DEVELOPMENT.md#upstream-lean-api-backlog), and the narrow
+[Development](../../../DEVELOPMENT.md#lean-api-workaround-notes), and the narrow
 matcher lives near `Beam/Broker/SyncSaveSupport.lean`.
 
 ## Current Workaround

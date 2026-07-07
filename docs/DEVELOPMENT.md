@@ -411,7 +411,7 @@ CI uses Node 24-compatible first-party GitHub Actions majors for checkout, setup
 The MCP conformance job's `node-version` is the JavaScript test runtime and may stay pinned
 separately from the action runtime.
 
-## Upstream Lean API Backlog
+## Lean API Workaround Notes
 
 Beam carries a few local workarounds for missing or version-skewed Lean/Lake APIs. When upstream
 support lands, prefer deleting the workaround over preserving compatibility branches.
@@ -422,10 +422,8 @@ affected code.
 - Lean file-worker `lake setup-file` progress is currently exposed as ordinary information
   diagnostics with a synthetic file-start range. Beam recognizes Lake build-monitor text such as
   `✔ [1/2] Built ...` so MCP/wrapper clients can see cold Lake setup activity during long syncs
-  and `runAt` probes.
-  This is deliberately brittle. A typed Lean API or LSP notification for setup/build progress,
-  including the module/target caption and completion/failure status, would let Beam stop matching
-  diagnostic strings.
+  and `runAt` probes. Keep this matcher narrow and do not use setup progress as a readiness
+  authority.
 
 ## Lean Compatibility Shims
 
