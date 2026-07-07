@@ -23,8 +23,8 @@ snapshots, and synchronization where that matters.
 We have found Beam useful for proof repair, proof search experiments, proof translation and porting,
 autoformalization experiments, and regular AI-assisted Lean editing.
 
-Feedback is welcome; feel free to open issues or let us know what you think on Zulip. For useful bug
-reports from a local checkout, `lean-beam feedback --stdin` can produce a pasteable report card; see
+Feedback is welcome through GitHub issues or Lean Zulip. For structured bug reports from a local
+checkout, `lean-beam feedback --stdin` can produce a pasteable report card; see
 [docs/FEEDBACK.md](docs/FEEDBACK.md).
 
 Lean Beam is experimental public alpha software. It is not an official Lean FRO product. Current

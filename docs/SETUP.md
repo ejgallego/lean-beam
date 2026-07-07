@@ -14,6 +14,10 @@ project. The wrapper detects the target project root from the current directory 
 
 ## Install Beam From This Checkout
 
+The current public alpha distribution path starts from a Lean Beam source checkout. To install a
+specific release once release tags exist, check out that tag first, then run the installer from the
+checkout root.
+
 From a Lean Beam checkout, run one installer command that matches how you plan to use it:
 
 ```bash

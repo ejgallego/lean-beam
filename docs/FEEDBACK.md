@@ -2,7 +2,9 @@
 
 `lean-beam feedback` and MCP `beam_feedback` produce a structured Beam report card for bug reports
 and project feedback. The output is JSON with a pasteable Markdown `markdown` field, structured
-`metadata`, collected Beam debug context, and optional evidence bundle paths.
+`metadata`, non-fatal collection warnings, and optional evidence bundle paths. The CLI includes the
+collected Beam debug context by default; MCP output is compact by default and includes that context
+only when requested.
 
 ## CLI
 
