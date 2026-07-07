@@ -185,6 +185,9 @@ private def checkToolsListShape : IO Unit := do
   let bundleEnum ← requireObjVal "beam_feedback bundle schema" "enum" bundleSchema
   require "beam_feedback bundle enum should expose none/dir/zip"
     (bundleEnum == toJson (#["none", "dir", "zip"] : Array String))
+  requireFieldPresent "beam_feedback input schema" "kind" feedbackProperties
+  requireFieldPresent "beam_feedback input schema" "severity" feedbackProperties
+  requireFieldPresent "beam_feedback input schema" "include_collected" feedbackProperties
 
   let rawExposed := tools.any fun tool =>
     (tool.getObjValAs? String "name").toOption == some Beam.LSP.RunAt.method ||
@@ -568,6 +571,8 @@ private def checkServerBasics : IO Unit := do
     some <| toolCallParams "beam_feedback" <|
       Json.mkObj [
         ("title", toJson "MCP feedback fixture"),
+        ("kind", toJson "bug"),
+        ("severity", toJson "medium"),
         ("summary", toJson "Feedback report from protocol test."),
         ("reproduction", toJson "Call beam_feedback through tools/call."),
         ("expected", toJson "A structured report card is returned."),
@@ -578,8 +583,36 @@ private def checkServerBasics : IO Unit := do
   let feedbackStructured ← requireObjVal "beam feedback result" "structuredContent" feedbackResult
   let feedbackMarkdown ← IO.ofExcept <| feedbackStructured.getObjValAs? String "markdown"
   require "beam feedback markdown contains title" (feedbackMarkdown.contains "# MCP feedback fixture")
+  require "beam feedback compact markdown contains runtime summary"
+    (feedbackMarkdown.contains "## Beam Runtime")
+  require "beam feedback compact markdown omits full debug context"
+    (!feedbackMarkdown.contains "## Beam Debug Context")
   discard <| requireObjVal "beam feedback structured" "metadata" feedbackStructured
-  let feedbackCollected ← requireObjVal "beam feedback structured" "collected" feedbackStructured
+  let feedbackMetadata ← requireObjVal "beam feedback structured" "metadata" feedbackStructured
+  requireJsonString "beam feedback metadata" "kind" "bug" feedbackMetadata
+  requireJsonString "beam feedback metadata" "severity" "medium" feedbackMetadata
+  requireFieldAbsent "beam feedback compact structured" "collected" feedbackStructured
+  requireFieldPresent "beam feedback compact structured" "collection_warnings" feedbackStructured
+
+  let feedbackFullResp ← handleRpcRequest state opts stdin "beam feedback include_collected" 23 "tools/call" <|
+    some <| toolCallParams "beam_feedback" <|
+      Json.mkObj [
+        ("title", toJson "MCP feedback fixture full"),
+        ("kind", toJson "bug"),
+        ("severity", toJson "medium"),
+        ("summary", toJson "Feedback report from protocol test."),
+        ("reproduction", toJson "Call beam_feedback through tools/call."),
+        ("expected", toJson "A structured report card is returned."),
+        ("actual", toJson "A structured report card is returned."),
+        ("include_collected", toJson true)
+      ]
+  let feedbackFullResult ← requireObjVal "beam feedback include_collected response" "result" feedbackFullResp
+  requireJsonBool "beam feedback include_collected result" "isError" false feedbackFullResult
+  let feedbackFullStructured ← requireObjVal "beam feedback include_collected result" "structuredContent" feedbackFullResult
+  let feedbackFullMarkdown ← IO.ofExcept <| feedbackFullStructured.getObjValAs? String "markdown"
+  require "beam feedback include_collected markdown contains full debug context"
+    (feedbackFullMarkdown.contains "## Beam Debug Context")
+  let feedbackCollected ← requireObjVal "beam feedback include_collected structured" "collected" feedbackFullStructured
   discard <| requireObjVal "beam feedback collected" "identity" feedbackCollected
   discard <| requireObjVal "beam feedback collected" "daemon" feedbackCollected
 

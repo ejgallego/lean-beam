@@ -63,7 +63,7 @@ Supported command families:
 - inspect actionable Lean items in a range: `lean-beam todo`
 - inspect file or daemon state: `lean-beam open-files`, `lean-beam doctor`, `lean-beam stats`,
   `lean-beam reset-stats`
-- produce a pasteable bug report card: `lean-beam feedback`
+- produce a pasteable bug report card from JSON input: `lean-beam feedback`
 - try one isolated speculative Lean snippet: `lean-beam run-at`
 - continue from one exact speculative state: `lean-beam run-at-handle`, `lean-beam run-with`,
   `lean-beam run-with-linear`, `lean-beam release`
@@ -101,6 +101,10 @@ Core workflow contract:
   plugins fail with `saveUnsupportedSetup` and should be rebuilt with `lake build`
 - treat wrapper `stderr` as human-facing only; use stdout JSON or `beam-client request-stream`
   for machine-readable automation
+- `lean-beam feedback` does not accept free-form notes; pass a JSON object with required string
+  fields `title`, `summary`, `reproduction`, `expected`, and `actual`
+- use optional feedback triage fields `kind` (`bug`, `ux`, `perf`, `docs`, `question`) and
+  `severity` (`low`, `medium`, `high`, `critical`) when they help route the report
 - do not assume hidden mutable session state carries across unrelated requests
 
 ## Agent Cost Model

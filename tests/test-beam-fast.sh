@@ -118,6 +118,8 @@ fi
 feedback_help="$(scripts/lean-beam feedback --help)"
 assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "input must be a JSON object"
 assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "title, summary, reproduction, expected, actual"
+assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "kind values: bug, ux, perf, docs, question"
+assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "severity values: low, medium, high, critical"
 
 feedback_invalid_err="$(mktemp /tmp/beam-feedback-invalid-XXXXXX)"
 if printf '%s\n' '{}' | scripts/lean-beam --root tests/save_olean_project feedback --stdin > /dev/null 2>"$feedback_invalid_err"; then
@@ -129,10 +131,12 @@ feedback_invalid_output="$(cat "$feedback_invalid_err")"
 rm -f "$feedback_invalid_err"
 assert_version_output_contains "lean-beam feedback invalid input" "$feedback_invalid_output" "missing required string field 'title'"
 
-feedback_smoke_input='{"title":"CLI feedback fixture","summary":"Smoke report.","reproduction":"scripts/lean-beam feedback --stdin","expected":"A report card is returned.","actual":"A report card is returned."}'
+feedback_smoke_input='{"title":"CLI feedback fixture","kind":"bug","severity":"medium","summary":"Smoke report.","reproduction":"scripts/lean-beam feedback --stdin","expected":"A report card is returned.","actual":"A report card is returned."}'
 feedback_smoke_output="$(printf '%s\n' "$feedback_smoke_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin)"
 assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"markdown"'
 assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" 'CLI feedback fixture'
+assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"kind": "bug"'
+assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"severity": "medium"'
 assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"daemon"'
 
 mcp_bin_version="$(.lake/build/bin/lean-beam-mcp --version)"
@@ -439,10 +443,30 @@ feedback = request({
         "name": "beam_feedback",
         "arguments": {
             "title": "MCP feedback fixture",
+            "kind": "bug",
+            "severity": "medium",
             "summary": "Smoke report.",
             "reproduction": "Call beam_feedback through tools/call.",
             "expected": "A report card is returned.",
             "actual": "A report card is returned.",
+        },
+    },
+})
+feedback_full = request({
+    "jsonrpc": "2.0",
+    "id": 9,
+    "method": "tools/call",
+    "params": {
+        "name": "beam_feedback",
+        "arguments": {
+            "title": "MCP feedback fixture full",
+            "kind": "bug",
+            "severity": "medium",
+            "summary": "Smoke report with inline collection.",
+            "reproduction": "Call beam_feedback through tools/call.",
+            "expected": "A report card is returned with collected context.",
+            "actual": "A report card is returned with collected context.",
+            "include_collected": True,
         },
     },
 })
@@ -515,8 +539,40 @@ if "# MCP feedback fixture" not in feedback_content.get("markdown", ""):
     proc.kill()
     sys.exit(1)
 
-if "daemon" not in feedback_content.get("collected", {}):
-    print(f"expected beam_feedback MCP smoke to include daemon context: {feedback}", file=sys.stderr)
+if "## Beam Runtime" not in feedback_content.get("markdown", ""):
+    print(f"expected compact beam_feedback MCP smoke to include runtime summary: {feedback}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+if "## Beam Debug Context" in feedback_content.get("markdown", ""):
+    print(f"expected compact beam_feedback MCP smoke to omit full debug context: {feedback}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+feedback_metadata = feedback_content.get("metadata", {})
+if feedback_metadata.get("kind") != "bug" or feedback_metadata.get("severity") != "medium":
+    print(f"expected beam_feedback MCP smoke metadata to include kind/severity: {feedback}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+if "collected" in feedback_content:
+    print(f"expected compact beam_feedback MCP smoke to omit collected context: {feedback}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+if "collection_warnings" not in feedback_content:
+    print(f"expected compact beam_feedback MCP smoke to include collection warnings: {feedback}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+feedback_full_content = feedback_full.get("result", {}).get("structuredContent", {})
+if "## Beam Debug Context" not in feedback_full_content.get("markdown", ""):
+    print(f"expected beam_feedback include_collected MCP smoke to include debug markdown: {feedback_full}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+if "daemon" not in feedback_full_content.get("collected", {}):
+    print(f"expected beam_feedback include_collected MCP smoke to include daemon context: {feedback_full}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 

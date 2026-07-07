@@ -186,6 +186,8 @@ def feedbackInputSchema : Json :=
     ("reproduction", string "Concrete steps or commands needed to reproduce the behavior."),
     ("expected", string "Expected behavior."),
     ("actual", string "Observed behavior."),
+    ("kind", enumString "Optional triage category." Beam.Feedback.reportKindKeys),
+    ("severity", enumString "Optional triage severity." Beam.Feedback.reportSeverityKeys),
     ("impact", string "Optional user impact."),
     ("workaround", string "Optional workaround."),
     ("tags", arraySchema "Optional short labels for routing the report." (string "Feedback tag.")),
@@ -194,7 +196,8 @@ def feedbackInputSchema : Json :=
     ("response", object "Optional response payload relevant to the report."),
     ("evidence", arraySchema "Optional evidence entries to include in a bundle." evidenceInputSchema),
     ("bundle", enumString "Optional evidence bundle mode. Defaults to none." Beam.Feedback.bundleModeKeys),
-    ("redact", bool "Whether to redact the user's home directory from the rendered report. Defaults to true.")
+    ("redact", bool "Whether to redact the user's home directory from the rendered report. Defaults to true."),
+    ("include_collected", bool "When true, include full collected Beam debug context inline in the MCP result. Defaults to false.")
   ] Beam.Feedback.requiredInputFields
 
 def initWorkspaceDescription : String :=

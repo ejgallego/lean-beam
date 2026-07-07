@@ -36,6 +36,63 @@ instance : FromJson BundleMode where
 def bundleModeKeys : Array String :=
   #["none", "dir", "zip"]
 
+inductive ReportKind where
+  | bug
+  | ux
+  | perf
+  | docs
+  | question
+  deriving BEq, Repr
+
+def ReportKind.key : ReportKind → String
+  | .bug => "bug"
+  | .ux => "ux"
+  | .perf => "perf"
+  | .docs => "docs"
+  | .question => "question"
+
+instance : ToJson ReportKind where
+  toJson kind := toJson kind.key
+
+instance : FromJson ReportKind where
+  fromJson?
+    | .str "bug" => .ok .bug
+    | .str "ux" => .ok .ux
+    | .str "perf" => .ok .perf
+    | .str "docs" => .ok .docs
+    | .str "question" => .ok .question
+    | j => .error s!"expected feedback kind 'bug', 'ux', 'perf', 'docs', or 'question', got {j.compress}"
+
+def reportKindKeys : Array String :=
+  #["bug", "ux", "perf", "docs", "question"]
+
+inductive ReportSeverity where
+  | low
+  | medium
+  | high
+  | critical
+  deriving BEq, Repr
+
+def ReportSeverity.key : ReportSeverity → String
+  | .low => "low"
+  | .medium => "medium"
+  | .high => "high"
+  | .critical => "critical"
+
+instance : ToJson ReportSeverity where
+  toJson severity := toJson severity.key
+
+instance : FromJson ReportSeverity where
+  fromJson?
+    | .str "low" => .ok .low
+    | .str "medium" => .ok .medium
+    | .str "high" => .ok .high
+    | .str "critical" => .ok .critical
+    | j => .error s!"expected feedback severity 'low', 'medium', 'high', or 'critical', got {j.compress}"
+
+def reportSeverityKeys : Array String :=
+  #["low", "medium", "high", "critical"]
+
 def requiredInputFields : Array String :=
   #["title", "summary", "reproduction", "expected", "actual"]
 
@@ -100,6 +157,8 @@ structure Input where
   reproduction : String
   expected : String
   actual : String
+  kind? : Option ReportKind := none
+  severity? : Option ReportSeverity := none
   impact? : Option String := none
   workaround? : Option String := none
   tags : Array String := #[]
@@ -120,6 +179,8 @@ instance : FromJson Input where
     let reproduction ← requiredString json "reproduction"
     let expected ← requiredString json "expected"
     let actual ← requiredString json "actual"
+    let kind? ← optionalField? (α := ReportKind) json "kind"
+    let severity? ← optionalField? (α := ReportSeverity) json "severity"
     let impact? ← optionalField? (α := String) json "impact"
     let workaround? ← optionalField? (α := String) json "workaround"
     let tags? ← optionalField? (α := Array String) json "tags"
@@ -135,7 +196,7 @@ instance : FromJson Input where
     let redact := redact?.getD true
     pure {
       title, summary, reproduction, expected, actual,
-      impact?, workaround?, tags, clientRequestId?, request?, response?,
+      kind?, severity?, impact?, workaround?, tags, clientRequestId?, request?, response?,
       evidence, bundle, redact
     }
 
@@ -149,6 +210,12 @@ instance : ToJson Input where
         ("expected", toJson input.expected),
         ("actual", toJson input.actual)
       ] ++
+      (match input.kind? with
+      | some kind => [("kind", toJson kind)]
+      | none => []) ++
+      (match input.severity? with
+      | some severity => [("severity", toJson severity)]
+      | none => []) ++
       (match input.impact? with
       | some impact => [("impact", toJson impact)]
       | none => []) ++
@@ -244,6 +311,90 @@ private def evidenceSection (input : Input) : String :=
   else
     "\n" ++ mdSection "Evidence" (String.intercalate "\n" lines.toList)
 
+private def code (value : String) : String :=
+  "`" ++ value ++ "`"
+
+private def optionalLine (label : String) (value? : Option String) : List String :=
+  match value? with
+  | some value => [s!"- {label}: {code value}"]
+  | none => []
+
+private def boolText (value : Bool) : String :=
+  if value then "true" else "false"
+
+private def shortCommit (commit : String) : String :=
+  String.ofList <| commit.toList.take 12
+
+private def jsonField? (json : Json) (field : String) : Option Json :=
+  match json.getObjVal? field with
+  | .ok value => some value
+  | .error _ => none
+
+private def jsonStringField? (json : Json) (field : String) : Option String :=
+  match json.getObjValAs? String field with
+  | .ok value => some value
+  | .error _ => none
+
+private def jsonBoolField? (json : Json) (field : String) : Option Bool :=
+  match json.getObjValAs? Bool field with
+  | .ok value => some value
+  | .error _ => none
+
+private def reportRoutingText (input : Input) : String :=
+  let lines :=
+    optionalLine "Kind" (input.kind?.map ReportKind.key) ++
+    optionalLine "Severity" (input.severity?.map ReportSeverity.key) ++
+    if input.tags.isEmpty then
+      []
+    else
+      ["- Tags: " ++ String.intercalate ", " (input.tags.toList.map code)]
+  if lines.isEmpty then
+    ""
+  else
+    "\n\n" ++ String.intercalate "\n" lines
+
+private def runtimeSummarySection (collection : Collection) : String :=
+  let identity := (jsonField? collection.data "identity").getD Json.null
+  let daemon := (jsonField? collection.data "daemon").getD Json.null
+  let name? := jsonStringField? identity "name"
+  let version? := jsonStringField? identity "version"
+  let server? :=
+    match name?, version? with
+    | some name, some version => some s!"{name} {version}"
+    | some name, none => some name
+    | none, some version => some version
+    | none, none => none
+  let source? :=
+    match jsonStringField? identity "source_branch", jsonStringField? identity "source_commit",
+      jsonBoolField? identity "source_dirty" with
+    | none, none, none => none
+    | branch?, commit?, dirty? =>
+        let parts :=
+          (branch?.map (fun branch => s!"branch {branch}")).toList ++
+          (commit?.map (fun commit => s!"commit {shortCommit commit}")).toList ++
+          (dirty?.map (fun dirty => s!"dirty {boolText dirty}")).toList
+        some <| String.intercalate ", " parts
+  let activeRoot? :=
+    match collection.activeRoot? with
+    | some root => some root
+    | none => jsonStringField? identity "active_root"
+  let warningLines :=
+    if collection.warnings.isEmpty then
+      []
+    else
+      ["", "Collection warnings:"] ++ collection.warnings.toList.map (fun warning => "- " ++ warning)
+  let lines :=
+    ["- generated at: " ++ code collection.generatedAt] ++
+    optionalLine "server" server? ++
+    optionalLine "MCP protocol" (jsonStringField? identity "mcp_protocol") ++
+    optionalLine "active root" activeRoot? ++
+    optionalLine "runtime active" ((jsonBoolField? identity "runtime_active").map boolText) ++
+    optionalLine "source" source? ++
+    optionalLine "daemon registry pid" (jsonStringField? daemon "registryPidStatus") ++
+    optionalLine "daemon endpoint" (jsonStringField? daemon "registryEndpoint") ++
+    warningLines
+  mdSection "Beam Runtime" (String.intercalate "\n" lines)
+
 private def environmentSection (collection : Collection) : String :=
   let warnings :=
     if collection.warnings.isEmpty then
@@ -253,27 +404,39 @@ private def environmentSection (collection : Collection) : String :=
         String.intercalate "\n" (collection.warnings.toList.map (fun warning => "- " ++ warning))
   mdSection "Beam Debug Context" (jsonBlock collection.data ++ warnings)
 
-def renderMarkdown (input : Input) (collection : Collection) : String :=
-  let tagLine :=
-    if input.tags.isEmpty then
-      ""
+private def renderMarkdownWithDebugContext
+    (input : Input)
+    (collection : Collection)
+    (includeDebugContext : Bool) : String :=
+  let debugContext :=
+    if includeDebugContext then
+      "\n" ++ environmentSection collection
     else
-      "\n\nTags: " ++ String.intercalate ", " (input.tags.toList.map (fun tag => "`" ++ tag ++ "`"))
+      ""
   "# " ++ input.title ++ "\n\n" ++
-    mdSection "Summary" (input.summary ++ tagLine) ++ "\n" ++
+    mdSection "Summary" (input.summary ++ reportRoutingText input) ++ "\n" ++
+    runtimeSummarySection collection ++ "\n" ++
     mdSection "Reproduction" input.reproduction ++ "\n" ++
     mdSection "Expected Behavior" input.expected ++ "\n" ++
     mdSection "Actual Behavior" input.actual ++ "\n" ++
     optSection "Impact" input.impact? ++
-    "\n" ++ environmentSection collection ++
+    debugContext ++
     requestResponseSection input ++
     evidenceSection input ++
     optSection "Workaround" input.workaround?
+
+def renderMarkdown (input : Input) (collection : Collection) : String :=
+  renderMarkdownWithDebugContext input collection true
+
+def renderCompactMarkdown (input : Input) (collection : Collection) : String :=
+  renderMarkdownWithDebugContext input collection false
 
 def metadataJson (input : Input) (collection : Collection) : Json :=
   Json.mkObj [
     ("schema", toJson ("beam.feedback.report-card.v1" : String)),
     ("title", toJson input.title),
+    ("kind", match input.kind? with | some kind => toJson kind | none => Json.null),
+    ("severity", match input.severity? with | some severity => toJson severity | none => Json.null),
     ("generated_at", toJson collection.generatedAt),
     ("active_root", match collection.activeRoot? with | some root => toJson root | none => Json.null),
     ("tags", toJson input.tags),
@@ -307,6 +470,21 @@ private def redactResult (home? : Option String) (result : Result) : Result :=
       zipPath? := result.zipPath?.map (redactString home?)
   }
 
+def renderMcpMarkdown
+    (input : Input)
+    (collection : Collection)
+    (includeCollected : Bool) : IO String := do
+  let markdown :=
+    if includeCollected then
+      renderMarkdown input collection
+    else
+      renderCompactMarkdown input collection
+  if input.redact then
+    let home? ← IO.getEnv "HOME"
+    pure <| redactString home? markdown
+  else
+    pure markdown
+
 def renderResult (input : Input) (collection : Collection) : IO Result := do
   let result : Result := {
     markdown := renderMarkdown input collection
@@ -320,13 +498,7 @@ def renderResult (input : Input) (collection : Collection) : IO Result := do
   else
     pure result
 
-private def jsonResultFields (result : Result) : List (String × Json) :=
-  [
-    ("markdown", toJson result.markdown),
-    ("metadata", result.metadata),
-    ("collected", result.collected),
-    ("collection_warnings", toJson result.collectionWarnings)
-  ] ++
+private def resultPathFields (result : Result) : List (String × Json) :=
   (match result.bundleDir? with
   | some path => [("bundle_dir", toJson path)]
   | none => []) ++
@@ -334,8 +506,30 @@ private def jsonResultFields (result : Result) : List (String × Json) :=
   | some path => [("zip_path", toJson path)]
   | none => []
 
+private def jsonResultFields (result : Result) : List (String × Json) :=
+  [
+    ("markdown", toJson result.markdown),
+    ("metadata", result.metadata),
+    ("collected", result.collected),
+    ("collection_warnings", toJson result.collectionWarnings)
+  ] ++ resultPathFields result
+
 def Result.toJson (result : Result) : Json :=
   Json.mkObj (jsonResultFields result)
+
+def resultMcpJson
+    (result : Result)
+    (markdown : String)
+    (includeCollected : Bool) : Json :=
+  Json.mkObj <|
+    [
+      ("markdown", toJson markdown),
+      ("metadata", result.metadata)
+    ] ++
+    (if includeCollected then [("collected", result.collected)] else []) ++
+    [
+      ("collection_warnings", toJson result.collectionWarnings)
+    ] ++ resultPathFields result
 
 def validateEvidenceName (name : String) : Except String Unit := do
   if name.trimAscii.isEmpty then

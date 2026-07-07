@@ -404,6 +404,14 @@ private def feedbackAllowedRoots
       pure #[root, control]
   | none => pure #[]
 
+private def feedbackIncludeCollected (arguments : Json) : Except String Bool := do
+  match arguments.getObjVal? "include_collected" with
+  | .ok value =>
+      match fromJson? (α := Bool) value with
+      | .ok includeCollected => pure includeCollected
+      | .error err => throw s!"invalid 'include_collected': {err}"
+  | .error _ => pure false
+
 private def handleBeamFeedback
     (state : IO.Ref ProtocolState)
     (opts : Options)
@@ -412,6 +420,12 @@ private def handleBeamFeedback
   let input ←
     match fromJson? (α := Beam.Feedback.Input) arguments with
     | .ok input => pure input
+    | .error err =>
+        emitProgress? progress? "beam_feedback failed"
+        return callToolErrorResult <| ToolError.invalidInput err
+  let includeCollected ←
+    match feedbackIncludeCollected arguments with
+    | .ok includeCollected => pure includeCollected
     | .error err =>
         emitProgress? progress? "beam_feedback failed"
         return callToolErrorResult <| ToolError.invalidInput err
@@ -446,8 +460,9 @@ private def handleBeamFeedback
       root? := currentState.root?
       allowedRoots
     }
+    let markdown ← Beam.Feedback.renderMcpMarkdown input collection includeCollected
     emitProgress? progress? "completed beam_feedback"
-    pure <| callToolResult <| Beam.Feedback.Result.toJson result
+    pure <| callToolResult <| Beam.Feedback.resultMcpJson result markdown includeCollected
   catch e =>
     emitProgress? progress? "beam_feedback failed"
     pure <| callToolErrorResult <| ToolError.invalidInput e.toString

@@ -39,9 +39,11 @@ def help : String :=
     usage,
     "",
     inputShapeHelp,
-    "optional fields: impact, workaround, tags, client_request_id, request, response, evidence, bundle, redact",
+    "optional fields: kind, severity, impact, workaround, tags, client_request_id, request, response, evidence, bundle, redact",
+    "kind values: bug, ux, perf, docs, question",
+    "severity values: low, medium, high, critical",
     "example:",
-    "  {\"title\":\"Daemon startup failure\",\"summary\":\"Beam failed to start\",\"reproduction\":\"lean-beam run-at Demo.lean 1 0\",\"expected\":\"A response is returned.\",\"actual\":\"The daemon closed the connection.\"}"
+    "  {\"title\":\"Daemon startup failure\",\"kind\":\"bug\",\"severity\":\"high\",\"summary\":\"Beam failed to start\",\"reproduction\":\"lean-beam run-at Demo.lean 1 0\",\"expected\":\"A response is returned.\",\"actual\":\"The daemon closed the connection.\"}"
   ]
 
 private def parseBundleMode (raw : String) : IO Beam.Feedback.BundleMode := do

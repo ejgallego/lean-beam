@@ -134,6 +134,7 @@ private def jsonNonNullField (json : Json) (field : String) : Bool :=
 
 def daemonDebugWarnings (debug : Json) : Array String := Id.run do
   let mut warnings := #[]
+  let recoveryHint := "Run `lean-beam shutdown`, then `lean-beam ensure` from the project root to refresh daemon registry state."
   if jsonNonNullField debug "registry" then
     match jsonStringField? debug "registryPidStatus" with
     | some "not alive" =>
@@ -143,10 +144,10 @@ def daemonDebugWarnings (debug : Json) : Array String := Id.run do
           else
             ""
         warnings := warnings.push
-          s!"Beam daemon registry pid is not alive{detail}; stats/open-files may come from a live endpoint with stale registry metadata"
+          s!"Beam daemon registry pid is not alive{detail}; stats/open-files may come from a live endpoint with stale registry metadata. {recoveryHint}"
     | some "unavailable" =>
         warnings := warnings.push
-          "Beam could not verify the daemon registry pid; stats/open-files may reflect a daemon whose registry metadata cannot be trusted"
+          s!"Beam could not verify the daemon registry pid; stats/open-files may reflect a daemon whose registry metadata cannot be trusted. {recoveryHint}"
     | _ =>
         pure ()
   warnings
