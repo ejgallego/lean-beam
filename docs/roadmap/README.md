@@ -19,6 +19,8 @@ request/response traces, project-specific source snippets, logs, and local paths
 in the originating project until they are sanitized for a public Beam issue.
 When a card maps to an existing Beam GitHub issue, link that issue in the card
 instead of opening a duplicate.
+For upstream Lean cards, keep a `Lean PR` field so accepted or proposed
+`leanprover/lean4` changes can be linked without opening duplicate Beam issues.
 
 ## 0.2.0 Sorting
 
@@ -54,5 +56,6 @@ not adding a large public surface.
 - Keep the top-level card short enough to paste into an issue or PR.
 - Link sanitized public evidence when available; do not paste private project traces.
 - Search existing open Beam issues before filing a new issue for a card.
+- For `ULC` cards, link an upstream Lean PR when one exists.
 - Prefer deleting Beam workarounds when upstream Lean support makes them obsolete.
 - Move a card to close/archive only after retesting or replacing it with a narrower card.

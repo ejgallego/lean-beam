@@ -6,6 +6,7 @@ Priority: low | medium | high | critical
 Origin: local | LIRIS | upstream Lean backlog
 Last reviewed: YYYY-MM-DD
 Issue: none linked | https://github.com/ejgallego/lean-beam/issues/NNN
+Lean PR: none linked | https://github.com/leanprover/lean4/pull/NNN
 
 ## Summary
 
