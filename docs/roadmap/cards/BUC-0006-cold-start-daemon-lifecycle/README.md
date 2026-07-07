@@ -5,6 +5,7 @@ Kind: performance
 Priority: high
 Origin: LIRIS
 Last reviewed: 2026-07-07
+Issue: https://github.com/ejgallego/lean-beam/issues/110
 
 ## Summary
 
@@ -44,6 +45,10 @@ Beam should make cold work visible and failures reportable:
 
 Imported from the LIRIS card set. Raw logs, strace output, and gdb artifacts
 were not copied into this public repository.
+
+Related Beam issue: [lean-beam#110](https://github.com/ejgallego/lean-beam/issues/110)
+tracks intermittent MCP bridge-ready CI timeouts and the diagnostic context
+needed for those occurrences.
 
 ## Current Workaround
 

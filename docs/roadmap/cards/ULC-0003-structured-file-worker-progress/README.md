@@ -5,6 +5,7 @@ Kind: upstream-api
 Priority: medium
 Origin: upstream Lean backlog
 Last reviewed: 2026-07-07
+Issue: none linked
 
 ## Summary
 

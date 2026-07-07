@@ -5,6 +5,7 @@ Kind: diagnostics
 Priority: high
 Origin: LIRIS
 Last reviewed: 2026-07-07
+Issue: none linked
 
 ## Summary
 
@@ -56,6 +57,11 @@ submitted line.
 
 Imported from the LIRIS card set. Raw proofmode traces were not copied into
 this public repository.
+
+Related Beam issues may cover adjacent `runAt` ergonomics, for example
+[lean-beam#100](https://github.com/ejgallego/lean-beam/issues/100) for
+multi-command snippets. This card is narrower: it tracks origin mapping for
+diagnostics that already come from synthetic `runAt` buffers.
 
 ## Current Workaround
 

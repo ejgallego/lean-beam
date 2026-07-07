@@ -5,6 +5,7 @@ Kind: bug | ux | diagnostics | performance | feature | upstream-api | cleanup
 Priority: low | medium | high | critical
 Origin: local | LIRIS | upstream Lean backlog
 Last reviewed: YYYY-MM-DD
+Issue: none linked | https://github.com/ejgallego/lean-beam/issues/NNN
 
 ## Summary
 
