@@ -23,14 +23,36 @@ parameters, diagnostics, and evidence were still available.
 
 ## Beam Decision
 
-Close or archive. The implemented `lean-beam feedback` and MCP `beam_feedback`
-surfaces now produce structured report-card JSON, pasteable Markdown, metadata,
-collection warnings, optional bundles, compact MCP defaults, and optional full
-collected context.
+Archive after review. The implemented `lean-beam feedback` and MCP
+`beam_feedback` surfaces now produce structured report-card JSON, pasteable
+Markdown, metadata, collection warnings, optional bundles, compact MCP
+defaults, and optional full collected context.
 
 Keep a separate future card only if Beam should directly write LIRIS-style card
 directories. That would be a repository workflow tool, not the core feedback
 report-card surface.
+
+## Reproduction Status
+
+Retest passed locally on 2026-07-07:
+
+```text
+lake build beam-feedback-test beam-mcp-projection-test beam-mcp-protocol-test
+.lake/build/bin/beam-feedback-test
+.lake/build/bin/beam-mcp-projection-test
+.lake/build/bin/beam-mcp-protocol-test
+```
+
+These tests cover structured input validation, bundles, compact MCP feedback,
+`include_collected`, metadata, and the MCP tool schema.
+
+## Preliminary Analysis
+
+The original proposal bundled two separate ideas: a bug-report surface and a
+downstream card-directory writer. The bug-report surface is implemented. A
+card-directory writer would be repository workflow automation, should default
+to dry-run, and should stay outside the core Beam feedback report-card API
+until a concrete maintainer workflow requires it.
 
 ## Expected Behavior
 

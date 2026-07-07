@@ -28,6 +28,19 @@ Defer for 0.2.0 unless it becomes necessary for
 upstream cleanup, but the release-critical work is making failures reportable
 with the information Beam already has.
 
+## Reproduction Status
+
+No upstream Lean PR is linked yet. Beam currently has a narrow local matcher for
+Lake build-monitor diagnostic text and tests around progress/readiness
+separation.
+
+## Preliminary Analysis
+
+This should remain a cleanup card unless cold-start incidents prove that
+string-matched setup progress is the blocker. Beam can improve daemon
+tombstones and client-facing failure context without waiting for this upstream
+progress API.
+
 ## Expected Behavior
 
 Lean should expose typed setup/build progress through an LSP notification or

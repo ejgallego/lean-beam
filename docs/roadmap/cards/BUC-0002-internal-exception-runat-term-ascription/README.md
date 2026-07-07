@@ -28,9 +28,29 @@ type mismatch diagnostics.
 
 ## Beam Decision
 
-Close or archive after one final retest on the current release candidate. Beam
-now has regression coverage that expects the ordinary type mismatch diagnostic
-and no stored handle for the semantic failure path.
+Archive after review. Beam has regression coverage that expects the ordinary
+type mismatch diagnostic and no stored handle for the semantic failure path.
+
+## Reproduction Status
+
+Retest passed locally on 2026-07-07:
+
+```text
+lake build Beam.LSP:shared beam-lsp-handle-api-test
+lake exe beam-lsp-handle-api-test
+```
+
+The test `checkRunAtHandleTermAscriptionFailure` sends the original bad
+term-ascription shape through `runAt` with `storeHandle := true`, expects a
+semantic failure, expects no successor handle, and checks for a normal
+`Type mismatch` diagnostic.
+
+## Preliminary Analysis
+
+This no longer looks like an open 0.2.0 issue. The current tactic path
+classifies Lean's `abortTactic` control exception as an ordinary semantic
+failure when Lean has already emitted an error diagnostic. That prevents the
+opaque internal exception from becoming the only user-visible result.
 
 ## Expected Behavior
 

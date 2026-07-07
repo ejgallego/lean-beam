@@ -26,6 +26,17 @@ diagnostic collection, TCP transport, and module output descriptors.
 Defer from 0.2.0 unless the supported toolchain list changes. This is a cleanup
 card, not a user-facing release theme.
 
+## Reproduction Status
+
+No retest needed until Beam changes its supported Lean toolchain window. The
+current shim list is code-local maintainer guidance, not a live bug.
+
+## Preliminary Analysis
+
+This card is useful as a retirement checklist, but it should stay out of the
+0.2.0 reliability theme. Revisit when a release deliberately drops one of the
+toolchain boundaries named in `docs/DEVELOPMENT.md`.
+
 ## Expected Behavior
 
 When Beam drops support for an older toolchain boundary, remove the obsolete

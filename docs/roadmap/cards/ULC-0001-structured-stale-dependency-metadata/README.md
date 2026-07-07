@@ -29,6 +29,21 @@ Track as a 0.2.0 upstream Lean roadmap card because it directly supports
 improve local hints, but should prefer deleting broker inference when Lean can
 return typed stale-dependency metadata.
 
+## Reproduction Status
+
+No upstream Lean PR is linked yet. Local Beam tests prove Beam can consume and
+project broker-derived stale dependency hints for simple fixtures, but they do
+not prove Lean exposes the authoritative stale module/path data needed for all
+project shapes.
+
+## Preliminary Analysis
+
+This is the upstream counterpart to BUC-0001. The likely Lean-side API should
+live near the file-worker/watchdog stale-import path and expose typed module,
+URI/path, importer, and rebuild/save necessity. Beam should consume that data
+instead of parsing diagnostic text or reconstructing stale direct dependencies
+from broker history.
+
 ## Expected Behavior
 
 Lean should expose structured stale-dependency metadata with at least module

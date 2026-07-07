@@ -22,6 +22,15 @@ One paragraph stating the agent-visible or maintainer-visible problem.
 
 The current roadmap decision and release target, if any.
 
+## Reproduction Status
+
+What was last reproduced locally, what still needs an external project or
+upstream Lean retest, and which checks cover the behavior.
+
+## Preliminary Analysis
+
+The likely cause, ownership boundary, and smallest plausible fix direction.
+
 ## Expected Behavior
 
 The smallest behavior or API change that would make the workflow reliable.

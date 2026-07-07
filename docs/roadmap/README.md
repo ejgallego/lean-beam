@@ -54,6 +54,7 @@ not adding a large public surface.
 
 - One card owns one roadmap question.
 - Keep the top-level card short enough to paste into an issue or PR.
+- Record reproduction status separately from proposed fixes.
 - Link sanitized public evidence when available; do not paste private project traces.
 - Search existing open Beam issues before filing a new issue for a card.
 - For `ULC` cards, link an upstream Lean PR when one exists.

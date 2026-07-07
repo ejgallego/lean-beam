@@ -27,6 +27,17 @@ Defer for 0.2.0 unless the backend readiness primitive splits this into a
 smaller upstream change. It is useful, but less directly release-blocking than
 stale dependency metadata.
 
+## Reproduction Status
+
+No upstream Lean PR is linked yet. Current Beam tests cover the sync summary
+and readiness projection that would consume such a helper.
+
+## Preliminary Analysis
+
+This overlaps with ULC-0002 and may be better folded into that card unless a
+specific Lean helper emerges. Keep it deferred to avoid splitting upstream asks
+too early.
+
 ## Expected Behavior
 
 Lean should expose a helper close to `SnapshotTree.runAndReport`, but returning

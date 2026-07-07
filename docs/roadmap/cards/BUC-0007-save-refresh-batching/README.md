@@ -35,6 +35,21 @@ Defer for 0.2.0. This is attractive, but it adds a new public operation. First
 make stale dependency hints reliable enough that any future plan/apply API can
 be small and trustworthy.
 
+## Reproduction Status
+
+Not reproduced as a failure in this review. The local stale dependency tests
+show that the low-level recovery pieces can produce structured hints in the
+save-smoke fixture. The remaining issue is command ergonomics, not a missing
+primitive.
+
+## Preliminary Analysis
+
+This card should stay downstream of
+[BUC-0001](../BUC-0001-stale-import-dependency-reporting/README.md). A
+plan/apply API is only safe if the dependency hints are trustworthy and the
+write/close effects are explicit. Until then, batching risks turning a
+recoverable stale-state problem into a higher-impact workflow operation.
+
 ## Expected Behavior
 
 A future surface could expose a planning method and an execution method. The

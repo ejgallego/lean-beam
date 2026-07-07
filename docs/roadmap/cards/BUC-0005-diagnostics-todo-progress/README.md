@@ -29,6 +29,22 @@ The current docs already define progress, streamed diagnostics, and readiness
 as separate concepts. Remaining `todo` filtering improvements can be handled as
 polish after higher-risk recovery cards.
 
+## Reproduction Status
+
+Not retested against the original broad LIRIS `lean_todo` stress trace in this
+review. The current docs and tests already separate progress, streamed
+diagnostics, and readiness; the remaining claim to retest is whether broad
+`lean_todo` still returns intermediate proof-state noise on completed large
+proof files.
+
+## Preliminary Analysis
+
+This card mixes two concerns. The progress/readiness distinction is now a
+documented contract. The still-open product question is narrower: whether
+`lean_todo` should have a readiness-oriented mode that excludes intermediate
+proof archaeology. That should be a future filtering card, not a 0.2.0 recovery
+blocker.
+
 ## Expected Behavior
 
 Suggested improvements:

@@ -29,6 +29,20 @@ theme of actionable failures and reliable recovery. Beam should keep its
 current contract stable while looking for a smaller authoritative Lean-side
 readiness result.
 
+## Reproduction Status
+
+No upstream Lean PR is linked yet. Local tests exercise Beam's current
+readiness boundaries, including sync summaries, save refusal, and incomplete
+barriers. They do not remove Beam's broker-side barrier interpretation.
+
+## Preliminary Analysis
+
+This is broader than BUC-0001 and should not block local 0.2.0 fixes. The
+lowest-risk path is to keep Beam's current readiness contract stable while
+identifying one narrower Lean primitive that can replace broker inference for
+sync/save completion. If that primitive is too broad, split this card into a
+specific upstream API request and defer the general readiness model.
+
 ## Expected Behavior
 
 Lean should expose a typed readiness primitive for a document version that

@@ -29,6 +29,20 @@ Defer for 0.2.0 unless it blocks a concrete release workflow. Handles are real
 and useful, but they remain alpha support APIs around the core `runAt` request.
 The 0.2.0 focus should stay on actionable failures and recovery.
 
+## Reproduction Status
+
+Not retested against the original LIRIS proofmode trace in this review. General
+handle behavior is covered locally by `beam-lsp-handle-api-test`, including
+continuation, release, linear handles, failed successor handling, and the
+term-ascription failure path.
+
+## Preliminary Analysis
+
+This is mostly a metadata and UX issue, not evidence that handle continuation
+is broken. The likely fix direction is to add explicit continuation-state
+fields to handle-producing results rather than asking agents to infer semantics
+from `goals` and `next_handle` alone.
+
 ## Expected Behavior
 
 Handle responses should expose enough state for an agent to know whether it can

@@ -28,6 +28,18 @@ JSON-RPC error data directly.
 Defer for 0.2.0 unless it unblocks another scoped failure-reporting fix. This
 is an upstream API quality card, not a new Beam user-facing surface.
 
+## Reproduction Status
+
+No upstream Lean PR is linked yet. Beam currently keeps its own broker-side
+structured errors for stale versions and invalid request states.
+
+## Preliminary Analysis
+
+Keep this deferred. It is useful cleanup, but Beam should not depend on it for
+0.2.0. The local code smell to avoid is parsing rendered exception text; Beam
+already has repo guidance to keep `Response`, `BrokerFailure`, and structured
+error data typed across async boundaries.
+
 ## Expected Behavior
 
 Lean request handlers should be able to return structured JSON-RPC error data

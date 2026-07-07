@@ -27,6 +27,33 @@ Keep a narrow version in 0.2.0 scope: better failure reporting and tombstone
 context. Do not expand this into a broad daemon metrics or orchestration
 project for 0.2.0.
 
+## Reproduction Status
+
+Not reproduced as a daemon failure during this review. The local wrapper
+diagnostics suite passed on 2026-07-07 and specifically guards that stale sync
+and save failures do not collapse into `Beam daemon connection closed`:
+
+```text
+bash tests/test-beam-wrapper-diagnostics.sh
+```
+
+The remaining open evidence is intermittent and tracked by
+[lean-beam#110](https://github.com/ejgallego/lean-beam/issues/110). That issue
+is still the right place to collect CI occurrences and process snapshots.
+
+## Preliminary Analysis
+
+The 0.2.0 slice should focus on failure context, not daemon policy. The useful
+implementation target is a daemon incident/tombstone shape that survives client
+timeouts and connection closure: root, pid, endpoint, toolchain, Beam source
+commit, active request id, active operation, last progress event, and exit
+reason when known.
+
+Related but separable work: structured file-worker progress is tracked in
+[ULC-0003](../ULC-0003-structured-file-worker-progress/README.md). Beam should
+not wait for that upstream improvement before making daemon-side incidents more
+actionable.
+
 ## Expected Behavior
 
 Beam should make cold work visible and failures reportable:

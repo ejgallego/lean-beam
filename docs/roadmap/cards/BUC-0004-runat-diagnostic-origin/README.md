@@ -28,6 +28,42 @@ Keep this in 0.2.0 scope if it can be implemented without broadening the public
 request. It improves the existing `runAt` result rather than adding a new
 workflow surface.
 
+## Reproduction Status
+
+Reproduced locally on 2026-07-07 with a small fixture:
+
+```text
+scripts/lean-beam --root tests/save_olean_project update GoalSmoke.lean
+scripts/lean-beam --root tests/save_olean_project run-at GoalSmoke.lean 1 1 2 $'exact true\n  broken syntax'
+```
+
+The result was a normal semantic failure with only a rendered message location:
+
+```json
+{
+  "severity": "error",
+  "text": "<runAt>:2:9: expected end of input"
+}
+```
+
+The result did not include a structured range in the submitted text, a submitted
+text hash, or insertion-site metadata.
+
+## Preliminary Analysis
+
+The current `RunAt.Message` payload contains only `severity` and `text`.
+`messagesToProtocol` converts `Lean.Message` values to rendered strings and
+drops position data. Both command and tactic parser paths use a synthetic input
+context named `<runAt>`, so parser errors can only point at that rendered
+synthetic file name.
+
+Smallest fix direction: extend the internal runAt message projection with an
+optional origin object for messages generated from submitted `runAt` text. For
+parser errors, map the reported synthetic position through the submitted text's
+file map. For elaboration messages whose positions also belong to the
+submitted text, preserve the same origin. Keep the public request unchanged;
+only enrich the result and CLI/MCP projections.
+
 ## Expected Behavior
 
 Diagnostics from synthetic buffers should include origin metadata:
