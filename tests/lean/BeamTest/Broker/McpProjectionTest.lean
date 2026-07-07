@@ -192,8 +192,11 @@ private def checkToolDescriptors : IO Unit := do
     | throw <| IO.userError "beam feedback descriptor is missing"
   let feedbackSchemaProperties ← requireObjVal "beam feedback schema" "properties" feedbackDesc.inputSchema
   discard <| requireObjVal "beam feedback schema properties" "title" feedbackSchemaProperties
+  discard <| requireObjVal "beam feedback schema properties" "kind" feedbackSchemaProperties
+  discard <| requireObjVal "beam feedback schema properties" "severity" feedbackSchemaProperties
   discard <| requireObjVal "beam feedback schema properties" "bundle" feedbackSchemaProperties
   discard <| requireObjVal "beam feedback schema properties" "evidence" feedbackSchemaProperties
+  discard <| requireObjVal "beam feedback schema properties" "include_collected" feedbackSchemaProperties
   let some initDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanInitWorkspace)
     | throw <| IO.userError "init workspace descriptor is missing"
   let schemaProperties ← requireObjVal "init workspace schema" "properties" initDesc.inputSchema

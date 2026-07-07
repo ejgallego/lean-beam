@@ -57,9 +57,9 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
   `beam_version` for the running server process, including manifest commit or source checkout
   commit/branch/dirty data
 - feedback report-card surfaces: `lean-beam feedback` and MCP `beam_feedback` return structured
-  JSON containing pasteable Markdown, metadata, available version/stats/open-file context, daemon
-  registry context, and recent daemon incident paths; callers can request a local directory or zip
-  evidence bundle
+  JSON containing pasteable Markdown, metadata, collection warnings, and optional evidence bundle
+  paths; CLI output and MCP `include_collected: true` include collected version/stats/open-file
+  context, daemon registry context, and recent daemon incident paths
 - `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, root
   setup through `lean_init_workspace`, and a real `lean_sync` tool call
 - MCP root discovery through exactly one `roots/list` workspace root, or explicit session setup
@@ -79,7 +79,6 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
   `--rocq-skill`
 
 ### Coverage
-
 - repo-local regression coverage around isolation, stale state, cancellation, and handle invalidation
 - broker, wrapper, install, MCP, and CI coverage described in [docs/TESTING.md](TESTING.md)
 

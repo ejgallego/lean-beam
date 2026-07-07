@@ -35,6 +35,9 @@ private def checkDaemonDebugWarnings : IO Unit := do
   let warnings := Beam.Daemon.daemonDebugWarnings debug
   require "dead registry pid should produce a feedback warning"
     (warnings.any (fun warning => warning.contains "registry pid is not alive"))
+  require "dead registry pid warning should include recovery hint"
+    (warnings.any (fun warning =>
+      warning.contains "lean-beam shutdown" && warning.contains "lean-beam ensure"))
 
 private def expectIoErrorMessage (label : String) (act : IO α) : IO String := do
   let result ←
