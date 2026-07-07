@@ -27,6 +27,17 @@ Current maintainer priorities are:
 If the question is "how do I use the product?", do not start here.
 If the question is "how do I work on the repo safely and efficiently?", start here.
 
+## Code Organization
+
+- `Beam.LSP`: Lean LSP server plugin code, including the `$/lean/runAt` request for speculative
+  execution at saved document positions.
+- `Beam`: shared broker, CLI, and MCP layer over Lean LSP plus Beam-specific extensions.
+- `skills`: installed workflow guidance for supported agent clients built around `lean-beam`.
+- Rocq support: a narrow auxiliary goal-probe surface through the same `lean-beam` wrapper, useful
+  when porting from Rocq to Lean.
+- `tests`: scenario-DSL coverage for LSP-level behavior, concurrent stress coverage, broker and
+  wrapper regression suites, and install/runtime validation.
+
 ## Local Workflow
 
 Start from the repo root and prefer dedicated worktrees for new tasks:

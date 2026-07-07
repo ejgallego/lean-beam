@@ -23,8 +23,10 @@ Use `--claude`, `--pi`, or `--opencode` instead when installing for Claude Code,
 OpenCode. Use `--all-skills` when you want every supported agent skill target.
 
 The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `~/.local/bin`, stages
-the self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), and installs
-the bundled Lean skill only for the agent flags you request.
+the self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires
+`elan` on `PATH`, prebuilds the pinned `lean-toolchain` bundle by default, and installs the bundled
+Lean skill only for the agent flags you request. Use the setup docs for additional supported or
+custom toolchain prebuilds.
 
 Use `lean-beam --version` for CLI bug reports and installed runtime identity checks. Use
 `lean-beam-mcp --version` to verify which installed MCP server wrapper, server binary, runtime
@@ -36,13 +38,19 @@ process; it does not prove the MCP server binary itself was refreshed.
 
 Restart active agent or MCP client sessions after installation.
 
-For authoritative install locations, MCP registration, toolchain options, and slow/offline setup,
-see [docs/INSTALL.md](../../docs/INSTALL.md).
+For the authoritative install and bundle-resolution order, see the repo
+[docs/SETUP.md](../../docs/SETUP.md) and [Supported Toolchains](../../docs/SETUP.md#supported-toolchains-and-bundles)
+sections.
 
 ## Skill Surface
 
 This skill documents the current Lean-facing `lean-beam` workflow surface. Use the smallest command
 family that fits the task.
+
+Agents may access Beam through the `lean-beam` wrapper or through a registered `lean-beam-mcp`
+server. This skill names wrapper commands because they are always available after installation. When
+your client exposes the matching MCP tools, use them with the same saved-file, version, update, sync,
+and isolation rules; do not treat MCP as a raw Lean LSP proxy.
 
 Supported command families:
 
@@ -82,7 +90,8 @@ Core workflow contract:
 - `lean-beam` only sees the on-disk file, not unsaved editor buffers
 - in transient PID-sandboxed command runners, start one foreground `lean-beam ensure --hold`
   process when you need daemon reuse across separate shell invocations; interrupt it when finished
-- after every real Lean source edit: save the file normally, then run `lean-beam sync`
+- after every real Lean source edit: save the file normally, then run `lean-beam update` before the
+  next version-bound probe; run `lean-beam sync` when you need diagnostics/readiness
 - use `lean-beam save` only for a synced workspace module path in the current Lake workspace package
   graph, for example `MyPkg/Sub/Module.lean`
 - `lean-beam save` validates and checkpoints only the module you save; it does not validate importers of
@@ -110,7 +119,11 @@ This changes the right agent behavior:
 - prefer many small `run-at` probes at the source position over one large scratch experiment
 - use `goals before`, `goals after`, `hover`, `signature-help`, `definition`, `references`, and
   symbol queries instead of reconstructing semantic state elsewhere
-- do not batch unrelated questions just to amortize Lean startup
+- issue independent `run-at` probes or handle-rooted search sequences in parallel when you have many
+  candidates to check; use distinct request IDs if you need per-request cancellation or tracing
+- do not batch unrelated questions just to amortize Lean startup; future batch APIs may reduce
+  per-call overhead, but high-bandwidth clients can already get most of the throughput benefit by
+  keeping independent probe sequences in flight
 - after a real source edit, run `lean-beam update <file>` before later probes; run
   `lean-beam sync <file>` when you need diagnostics/readiness
 - use `lake build` for dependency-cone or final validation, not as the inner loop
@@ -151,7 +164,10 @@ Prefer the smallest command that matches the actual task:
 - for handle-based continuation, prefer `--handle-file <path>` as the normal path; deeper shell-loop
   variants such as stdin handle piping live in the reference docs
 - do not expect one `lean-beam run-at` call to become the basis of the next one automatically
+- parallel probes are fine when they are independent; do not concurrently reuse a linear handle or
+  assume ordered side effects between separate speculative sequences
 - use `lean-beam update` right after every real saved edit before the next speculative probe
+- use `lean-beam sync` when you need diagnostics/readiness before saving or checkpointing
 - use `lean-beam save` or `lean-beam close-save` only for a synced workspace module path such as
   `MyPkg/Sub/Module.lean`
 
@@ -268,7 +284,8 @@ Default rules:
 - use `lean-beam`, not raw JSON and not raw LSP
 - start with `lean-beam run-at`
 - use `lean-beam ensure --hold` only when your command runner needs a foreground owner for daemon reuse
-- after every real source edit: save the file to disk normally, then `lean-beam sync`
+- after every real source edit: save the file to disk normally, then `lean-beam update` before the
+  next version-bound probe; use `lean-beam sync` for diagnostics/readiness
 - if exact continuation matters: mint a handle
 - if search branches: use `lean-beam run-with`, `lean-beam run-with-linear`, and `lean-beam release`
 - if you want shorter shell commands for search loops: use `lean-beam-search`
@@ -284,7 +301,7 @@ lean-beam ensure
 lean-beam ensure --hold
 
 # inspect existing code or proof state
-version="<version-from-lean-beam-sync>"
+version="<version-from-lean-beam-update-or-sync>"
 lean-beam hover "Foo.lean" "$version" 10 2
 lean-beam signature-help "Foo.lean" "$version" 10 2
 lean-beam definition "Foo.lean" "$version" 10 2
@@ -298,7 +315,10 @@ lean-beam run-at "Foo.lean" "$version" 10 2 "exact trivial"
 # for multiline probes, prefer stdin
 printf 'example : True := by\n  trivial\n' | lean-beam run-at "Foo.lean" "$version" 10 2 --stdin
 
-# after every real edit saved to disk, on that same workspace module path
+# after every real edit saved to disk, use update for the next probe version
+lean-beam update "MyPkg/Sub/Module.lean"
+
+# when you need diagnostics/readiness, on that same workspace module path
 lean-beam sync "MyPkg/Sub/Module.lean"
 lean-beam refresh "MyPkg/Sub/Module.lean"
 
@@ -340,8 +360,6 @@ Diagnostic defaults on that path:
 Surface rule:
 
 - wrapper `stderr` is the human-facing diagnostic surface
-- streamed diagnostics are request-scoped observations; they may carry `completionBlocking=true`,
-  but save-blocking evidence is attached to the final sync/save verdict
 - wrapper `stderr` may distinguish request-level failures from a completed request whose payload
   failed inside Lean; use stdout JSON for machine decisions
 - `beam-client request-stream ...` is the machine-facing streamed surface

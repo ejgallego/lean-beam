@@ -1,5 +1,11 @@
 # Testing
 
+This is contributor and maintainer documentation. Normal Lean Beam users should not need to read
+this document to install or use the CLI.
+
+CI is the validation record for routine checks. PR descriptions should mention tests only for rare
+local validation that CI cannot represent; see [CONTRIBUTING.md](../CONTRIBUTING.md#pull-requests).
+
 The repository treats testing as three distinct surfaces:
 
 - `LSP`: every method registered by the Lean plugin in [Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean)
