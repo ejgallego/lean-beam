@@ -1,11 +1,14 @@
 # Changelog
 
-This project keeps a lightweight, reverse-chronological changelog. Dates use `YYYY-MM-DD`. Until the
-first tagged release, the first public alpha entries stay under `Unreleased`.
+This project keeps a lightweight, reverse-chronological changelog. Dates use `YYYY-MM-DD`.
 
 ## Unreleased
 
-Initial public alpha release.
+No entries yet.
+
+## 0.1.0 - 2026-07-07
+
+Initial public release.
 
 ### Added
 

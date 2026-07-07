@@ -1050,7 +1050,7 @@ def run_cycle(
 
             version = client.call_tool("beam_version")
             require(version.get("name") == "lean-beam-mcp", f"beam_version returned wrong name: {version}")
-            require(version.get("version") == "0.1.0-alpha", f"beam_version returned wrong version: {version}")
+            require(version.get("version") == "0.1.0", f"beam_version returned wrong version: {version}")
             require(version.get("mcp_protocol") == SUPPORTED_PROTOCOL_VERSION, f"beam_version returned wrong protocol: {version}")
             require(isinstance(version.get("server_binary"), str) and version["server_binary"], f"beam_version missing server_binary: {version}")
             require(version.get("runtime_active") is False, f"beam_version should not start runtime: {version}")
