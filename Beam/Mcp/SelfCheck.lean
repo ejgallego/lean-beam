@@ -25,7 +25,7 @@ private abbrev stdio : IO.Process.StdioConfig where
   stderr := .piped
 
 private def defaultTimeoutMs : Nat :=
-  30000
+  120000
 
 private def timeoutMs : IO Nat := do
   match ← IO.getEnv "LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS" with
