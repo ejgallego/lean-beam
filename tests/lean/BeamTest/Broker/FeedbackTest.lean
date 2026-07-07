@@ -36,7 +36,7 @@ private def sampleCollection (home : String) : Beam.Feedback.Collection := {
   data := Json.mkObj [
     ("identity", Json.mkObj [
       ("name", toJson "lean-beam-mcp"),
-      ("version", toJson "0.1.0-alpha"),
+      ("version", toJson "0.1.0"),
       ("mcp_protocol", toJson "2025-11-25"),
       ("beam_cli", toJson s!"{home}/beam-cli"),
       ("source_commit", toJson "0123456789abcdef"),
