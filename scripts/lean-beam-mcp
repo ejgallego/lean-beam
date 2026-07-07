@@ -22,6 +22,9 @@ MCP client's roots/list support.
 --self-check starts a child MCP server, calls lean_init_workspace for --root, and
 then calls lean_sync on <lean-file>.
 
+Self-check waits up to 120000 ms per protocol phase by default; override with
+LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS.
+
 --version prints the MCP server version, protocol revision, and resolved runtime
 paths.
 EOF

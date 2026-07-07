@@ -4,7 +4,10 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ## Unreleased
 
-No entries yet.
+### Fixed
+
+- `lean-beam-mcp --self-check` now waits long enough for valid first-use local bundle builds and
+  documents the `LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS` override.
 
 ## 0.1.0 - 2026-07-07
 
