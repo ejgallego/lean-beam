@@ -1,15 +1,18 @@
 # Lean Beam
 
 Lean Beam is an experimental project for efficient interaction with Lean from AI-assisted and
-tool-assisted workflows. Its main pieces are new Lean LSP extensions, a `lean-beam` CLI, and a
-`lean-beam-mcp` server, connected by a lightweight broker that provides a convenient agent- and
-tool-facing interface.
+tool-assisted workflows. It combines new [Lean LSP extensions](docs/STATUS.md#core-lean-surface)
+with a thin local broker. The extensions provide Lean-specific capabilities, and the broker exposes
+them through a [`lean-beam` CLI](docs/SETUP.md#use-beam-from-a-lean-project) and an
+[MCP server](docs/SETUP.md#mcp-setup) for agent- and tool-facing workflows.
 
 Beam lets a client try Lean commands or tactics at specific positions in saved files without
-changing those files. The central Beam extension is speculative execution through `runAt`, exposed
-by the CLI as `lean-beam run-at` and through MCP as `lean_run_at`. Because these probes can be
-issued concurrently, agents and tools can cheaply explore several "would this work here?"
-possibilities in the real module context.
+changing those files. The central Beam extension is speculative execution through
+[`runAt`](docs/STATUS.md#base-request), exposed by the CLI as
+[`lean-beam run-at`](docs/SETUP.md#use-beam-from-a-lean-project) and through MCP as
+[`lean_run_at`](docs/MCP.md#client-tool-semantics). Because these probes can be issued
+concurrently, agents and tools can cheaply explore several "would this work here?" possibilities in
+the real module context.
 
 Together, the LSP extensions, CLI, and MCP interface are intended to make that loop cheaper and more
 structured than repeatedly creating scratch files or using full `lake build` runs as the inner loop.
@@ -27,22 +30,30 @@ reports from a local checkout, `lean-beam feedback --stdin` can produce a pastea
 Lean Beam is experimental public alpha software. It is not an official Lean FRO product. Current
 scope, limitations, and release direction are tracked in [docs/STATUS.md](docs/STATUS.md).
 
+Most readers should start with [Install](#install), then use [docs/SETUP.md](docs/SETUP.md) for
+toolchains, first CLI commands, agent-skill setup, and MCP registration. Release-facing changes are
+tracked in [CHANGELOG.md](CHANGELOG.md).
+
 ## Current Alpha Surface
 
 The current release includes support for:
 
-- speculative Lean execution with `runAt`
-- incremental synchronization of Lean's view of a file after edits with `sync`
-- actionable file information with `todo`, including sorries, holes, diagnostics, code actions, and
-  incomplete proofs
-- saving `.olean` artifacts from an interactive session with `save`
-- selected Lean/LSP features through the same CLI and MCP interfaces, including hover, signature
-  help, definitions, references, document/workspace symbols, and proof-state inspection
-- feedback report cards for bug reports and project feedback through `lean-beam feedback` and MCP
-  `beam_feedback`
+- speculative Lean execution with [`runAt`](docs/STATUS.md#base-request)
+- incremental synchronization of Lean's view of a file after edits with
+  [`sync`](docs/SYNC_AND_DIAGNOSTICS.md#command-model)
+- actionable file information with [`todo`](docs/STATUS.md#core-lean-surface), including sorries,
+  holes, diagnostics, code actions, and incomplete proofs
+- saving `.olean` artifacts from an interactive session with
+  [`save`](docs/SYNC_AND_DIAGNOSTICS.md#command-model)
+- selected Lean/LSP features through the same
+  [CLI](docs/SETUP.md#use-beam-from-a-lean-project) and
+  [MCP](docs/MCP.md#client-tool-semantics) interfaces, including hover, signature help,
+  definitions, references, document/workspace symbols, and proof-state inspection
+- feedback report cards for bug reports and project feedback through
+  [`lean-beam feedback`](docs/FEEDBACK.md) and MCP [`beam_feedback`](docs/FEEDBACK.md#mcp)
 
-See the repository documentation for the current supported surface, which we expect to evolve during
-the alpha.
+See [docs/STATUS.md](docs/STATUS.md) for the current supported surface, known limitations, and
+release direction.
 
 ## Install
 
@@ -66,7 +77,7 @@ Lean Beam serves validated Lean toolchains listed in
 
 For users:
 
-- [docs/SETUP.md](docs/SETUP.md): install, toolchain, bundle, and MCP setup details.
+- [docs/SETUP.md](docs/SETUP.md): install, toolchain bundles, first CLI use, and MCP setup.
 - [docs/INSTALL.md](docs/INSTALL.md): detailed installer locations, overrides, and offline advice.
 - [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md): explicit local Lean toolchain support.
 - [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md): alpha compatibility policy and supported targets.
@@ -87,7 +98,7 @@ For contributors and maintainers:
 - [docs/TESTING.md](docs/TESTING.md): developer test-suite guidance and coverage map.
 - [docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md): sync, save, progress,
   diagnostics, and readiness contract.
-- [docs/MCP.md](docs/MCP.md): current MCP architecture and conformance notes.
+- [docs/MCP.md](docs/MCP.md): current MCP maintainer architecture and conformance notes.
 - [AGENTS.md](AGENTS.md): repo-specific agent instructions.
 
 ## Contributing And Help

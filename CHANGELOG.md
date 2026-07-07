@@ -29,7 +29,8 @@ Preparing the first public Lean Beam alpha release.
 
 ### Documentation
 
-- Human-facing README, setup, compatibility, status, testing, MCP, and skill workflow docs for the
-  public alpha surface.
+- Human-facing [README](README.md), [setup](docs/SETUP.md), [compatibility](docs/COMPATIBILITY.md),
+  [status](docs/STATUS.md), [testing](docs/TESTING.md), [MCP](docs/MCP.md), and
+  [skill workflow](skills/lean-beam/SKILL.md) docs for the public alpha surface.
 - Conservative release posture: keep the public API small, document known limitations, and defer
   broader dependency/readiness redesigns until Lean or Lake expose stronger primitives.

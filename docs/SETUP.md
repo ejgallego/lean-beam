@@ -56,18 +56,10 @@ Lean Beam serves validated Lean toolchains listed in
 lean-beam supported-toolchains
 ```
 
-The current repo allowlist is:
-
-```text
-leanprover/lean4:v4.32.0-rc1
-leanprover/lean4:v4.31.0
-leanprover/lean4:v4.30.0
-leanprover/lean4:v4.29.0
-leanprover/lean4:v4.28.0
-```
-
-By default the installer prebuilds the Lean toolchain pinned by this repository. If your target
-projects use other supported Lean releases, prebuild those bundles too:
+The repository's [`lean-toolchain`](../lean-toolchain) is the default toolchain prebuilt by the
+installer. The allowlist may include adjacent Lean releases for compatibility testing; the file
+above and `lean-beam supported-toolchains` are the source of truth. If your target projects use
+other supported Lean releases, prebuild those bundles too:
 
 ```bash
 ./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0
@@ -224,6 +216,9 @@ The wrapper resolves the matching installed Beam runtime for each project.
 Use `lean-beam --version` for bug reports and CLI refresh checks. Use `lean-beam-mcp --version` to
 check which MCP server command a client registration resolves. From a live MCP session, call the
 `beam_version` tool to report the running server process identity as structured content.
+
+Use `lean-beam feedback --stdin` when reporting setup or runtime issues; see
+[FEEDBACK.md](FEEDBACK.md).
 
 To verify the installed MCP path from a Lean project without writing JSON-RPC by hand, run:
 
