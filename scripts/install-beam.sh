@@ -1325,7 +1325,7 @@ print_opencode_followup_hint() {
 print_install_references() {
   print_field "Lean Beam help" "$bin_home/lean-beam help"
   print_field "MCP help" "$bin_home/lean-beam-mcp --help"
-  print_field "install guide" "$repo_root/docs/INSTALL.md"
+  print_field "setup guide" "$repo_root/docs/SETUP.md"
   print_field "workflow guide" "$repo_root/skills/lean-beam/SKILL.md"
   print_field "Rocq guide" "$repo_root/docs/ROCQ.md"
 }

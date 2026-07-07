@@ -20,7 +20,7 @@ The installer records the name in the installed runtime's `custom-lean-toolchain
 prebuilds an installed bundle for it. Runtime requests accept only supported toolchains from
 `supported-lean-toolchains` or explicit custom names from that installed registry.
 General installer locations and supported-toolchain prebuild options are documented in
-[INSTALL.md](INSTALL.md).
+[SETUP.md](SETUP.md).
 
 ## Bundle Resolution
 

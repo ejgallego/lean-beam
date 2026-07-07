@@ -8,7 +8,7 @@ them through a [`lean-beam` CLI](docs/SETUP.md#use-beam-from-a-lean-project) and
 
 Beam lets a client try Lean commands or tactics at specific positions in saved files without
 changing those files. The central Beam extension is speculative execution through
-[`runAt`](docs/STATUS.md#base-request), exposed by the CLI as
+[`runAt`](docs/STATUS.md#core-lean-surface), exposed by the CLI as
 [`lean-beam run-at`](docs/SETUP.md#use-beam-from-a-lean-project) and through MCP as
 [`lean_run_at`](docs/MCP.md#client-tool-semantics). Because these probes can be issued
 concurrently, agents and tools can cheaply explore several "would this work here?" possibilities in
@@ -38,7 +38,7 @@ tracked in [CHANGELOG.md](CHANGELOG.md).
 
 The current release includes support for:
 
-- speculative Lean execution with [`runAt`](docs/STATUS.md#base-request)
+- speculative Lean execution with [`runAt`](docs/STATUS.md#core-lean-surface)
 - incremental synchronization of Lean's view of a file after edits with
   [`sync`](docs/SYNC_AND_DIAGNOSTICS.md#command-model)
 - actionable file information with [`todo`](docs/STATUS.md#core-lean-surface), including sorries,
@@ -64,9 +64,9 @@ Install or update Beam from a Lean Beam checkout:
 ```
 
 Run the installer again when you update the checkout and want the installed runtime to match it.
-Setup details, supported toolchains, agent-skill installation, MCP registration, and direct CLI
-examples live in [docs/SETUP.md](docs/SETUP.md). Detailed installer locations, overrides, and
-offline advice live in [docs/INSTALL.md](docs/INSTALL.md).
+Setup details, supported toolchains, agent-skill installation, MCP registration, direct CLI
+examples, installer locations, overrides, and offline advice live in
+[docs/SETUP.md](docs/SETUP.md).
 
 Lean Beam serves validated Lean toolchains listed in
 [`supported-lean-toolchains`](supported-lean-toolchains). See
@@ -77,8 +77,7 @@ Lean Beam serves validated Lean toolchains listed in
 
 For users:
 
-- [docs/SETUP.md](docs/SETUP.md): install, toolchain bundles, first CLI use, and MCP setup.
-- [docs/INSTALL.md](docs/INSTALL.md): detailed installer locations, overrides, and offline advice.
+- [docs/SETUP.md](docs/SETUP.md): install, toolchain, first-use, MCP, and installer reference.
 - [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md): explicit local Lean toolchain support.
 - [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md): alpha compatibility policy and supported targets.
 - [docs/ROCQ.md](docs/ROCQ.md): optional Rocq goal probes for Rocq-to-Lean porting.

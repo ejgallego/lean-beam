@@ -9,6 +9,9 @@ feature sprawl.
 
 Current public status and limitations live in [docs/STATUS.md](docs/STATUS.md).
 Compatibility policy lives in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
+User setup lives in [docs/SETUP.md](docs/SETUP.md). Exact MCP behavior lives in
+[docs/MCP.md](docs/MCP.md), and exact sync/save/diagnostic behavior lives in
+[docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md).
 
 ## Product Priorities
 
@@ -149,6 +152,8 @@ When working locally:
 Helpful repo docs:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/SETUP.md](docs/SETUP.md)
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- [docs/TESTING.md](docs/TESTING.md)
 - [skills/lean-beam/SKILL.md](skills/lean-beam/SKILL.md)
 - [skills/rocq-beam/SKILL.md](skills/rocq-beam/SKILL.md)

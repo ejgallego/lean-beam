@@ -20,6 +20,16 @@ For agent-specific runtime instructions, see [AGENTS.md](AGENTS.md).
 Public docs should be readable without local worktree history or private review context. Prefer
 compact prose, but do not compress several policies or failure modes into one abstract phrase.
 
+Keep source-of-truth boundaries clear:
+
+- user setup, supported toolchains, first CLI use, MCP setup, installer locations, and offline notes
+  belong in [docs/SETUP.md](docs/SETUP.md)
+- public alpha scope, limitations, and direction belong in [docs/STATUS.md](docs/STATUS.md)
+- exact MCP implementation, protocol, tool-list, and conformance notes belong in
+  [docs/MCP.md](docs/MCP.md)
+- exact sync, save, progress, diagnostics, readiness, and stale-version behavior belongs in
+  [docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md)
+
 Guidelines:
 
 - put one decision, expectation, or limitation in each sentence

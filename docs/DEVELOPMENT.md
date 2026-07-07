@@ -69,9 +69,18 @@ Preferred maintainer entrypoints:
 ## Human And AI Roles
 
 - README is for humans who want to understand and use the project
+- [docs/SETUP.md](SETUP.md) is the canonical user path for install, supported toolchains, first CLI
+  use, MCP setup, installer locations, and offline notes
+- [docs/STATUS.md](STATUS.md) is the public alpha scope, limitation, and direction summary
+- [docs/MCP.md](MCP.md) owns MCP implementation, protocol, tool-list, and conformance notes
+- [docs/SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md) owns the exact sync, save, progress,
+  diagnostics, readiness, and stale-version contract
+- [docs/COMPATIBILITY.md](COMPATIBILITY.md) and
+  [supported-lean-toolchains](../supported-lean-toolchains) own compatibility targets
 - skills document the installed workflow surface that agents should follow
 - `AGENTS.md` carries repo-specific agent instructions
-- this document is for maintainers working locally, whether the operator is a human or an AI
+- this document is for maintainers working locally, whether the operator is a human or an AI; do not
+  use it as a second source of truth for user-visible setup, status, or protocol behavior
 - the Codex harness scripts are maintainer tools, not public product surface
 
 ## Change Discipline
@@ -228,8 +237,9 @@ boundary and should not leak into the typed MCP inputs.
 `Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
 add support for another revision, only with a protocol audit: check the upstream MCP
 schema/changelog, update local protocol tests, run the Lean-backed stdio harness, update
-[docs/STATUS.md](STATUS.md), and run [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh)
-against the revised conformance baseline.
+[docs/MCP.md](MCP.md) and any affected status notes, and run
+[tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) against the revised conformance
+baseline.
 
 The local Streamable HTTP bridge under [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) is a
 test/conformance adapter over the stdio executable, not a separate product transport. Keep it thin:
@@ -414,25 +424,21 @@ support lands, prefer deleting the workaround over preserving compatibility bran
   including the module/target caption and completion/failure status, would let Beam stop matching
   diagnostic strings.
 
-## Lean 4.28 Compatibility Shims
+## Lean Compatibility Shims
 
-Current validated support includes Lean `v4.28.0`, which requires two local compatibility shims.
-When support for `v4.28.0` is eventually dropped, re-check and likely simplify these spots:
+The supported Lean allowlist lives in
+[supported-lean-toolchains](../supported-lean-toolchains). Use that file, not this maintainer note,
+as the source of truth for supported Lean releases. The shims below exist because the current
+allowlist spans Lean/Lake API changes; when the allowlist changes, re-check these spots and prefer
+deleting obsolete compatibility code over preserving stale branches.
 
 - `Beam/LSP/RunAt.lean`, `Beam/LSP/Goals.lean`, `Beam/LSP/Todo.lean`, and
   `Beam/LSP/Save.lean`:
-  `FileSource` instances route through `Lean.Lsp.fileSource p.textDocument` so the same code works
-  across the older `FileIdent` return type in `v4.28.0` and the newer `DocumentUri` API.
+  `FileSource` instances route through `Lean.Lsp.fileSource p.textDocument` to bridge the older
+  `FileIdent` return type and the newer `DocumentUri` API.
 - `Beam/Broker/LakeSave.lean`: `hashOfHashable` / `addHashablePureTrace` exist because Lake
-  `v4.28.0` lacks the newer generic `ComputeHash [Hashable α]` instance that makes plain
+  older supported releases lack the newer generic `ComputeHash [Hashable α]` instance that makes plain
   `addPureTrace mod.name` and `addPureTrace mod.pkg.id?` work upstream in newer Lean versions.
-
-## Lean 4.30 Through 4.32 Compatibility Shims
-
-Beyond the Lean `v4.28.0` shims above, current validated support spans Lean `v4.29.0` through
-`v4.32.0-rc1`, which requires local compatibility code. When the support window no longer crosses
-these API boundaries, re-check and likely simplify these spots:
-
 - `Beam/LSP/Save.lean`: `emitCForSavedModule` selects between the older `Lean.IR.emitC` API and
   the newer `Lean.Compiler.LCNF.emitC` API.
 - `Beam/LSP/Lib/DiagnosticsCompat.lean`: `collectCurrentDiagnosticsCompat` selects between the
