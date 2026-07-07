@@ -6,6 +6,45 @@ with a thin local broker. The extensions provide Lean-specific capabilities, and
 them through a [`lean-beam` CLI](docs/SETUP.md#use-beam-from-a-lean-project) and an
 [MCP server](docs/SETUP.md#mcp-setup) for agent- and tool-facing workflows.
 
+```mermaid
+flowchart TB
+  subgraph level1["Level 1: agents and tools"]
+    cli["CLI / shell / agent"]
+    mcp["MCP client / agent"]
+  end
+
+  subgraph level2["Level 2: Beam broker"]
+    broker["Beam broker<br/>request routing<br/>session ownership"]
+  end
+
+  subgraph level3["Level 3: Lean instances"]
+    subgraph lsp1["Lean LSP server"]
+      lean1["Lean"]
+      plugin1["Beam LSP plugin"]
+    end
+    subgraph lsp2["Lean LSP server"]
+      lean2["Lean"]
+      plugin2["Beam LSP plugin"]
+    end
+    subgraph lspn["Lean LSP server"]
+      leanN["Lean"]
+      pluginN["Beam LSP plugin"]
+    end
+  end
+
+  cli -- lean-beam --> broker
+  mcp -- lean-beam-mcp --> broker
+  broker --> lsp1
+  broker -- Lean LSP + Beam requests --> lsp2
+  broker --> lspn
+  lean1 --- plugin1
+  lean2 --- plugin2
+  leanN --- pluginN
+```
+
+Beam keeps the agent-facing surface small: clients talk to the broker, and the broker owns request
+routing plus one or more Lean LSP sessions with the Beam plugin loaded.
+
 Beam lets a client try Lean commands or tactics at specific positions in saved files without
 changing those files. The central Beam extension is speculative execution through
 [`runAt`](docs/STATUS.md#core-lean-surface), exposed by the CLI as
