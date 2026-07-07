@@ -4,6 +4,8 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ## Unreleased
 
+0.2.0 beta development is open. Add user-facing changes here as they land.
+
 ### Fixed
 
 - `lean-beam-mcp --self-check` now waits long enough for valid first-use local bundle builds and

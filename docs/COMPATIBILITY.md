@@ -1,7 +1,7 @@
 # Compatibility Policy
 
-Lean Beam is alpha software. Preserve compatibility only for named external or versioned targets;
-do not keep payload shapes, aliases, command spellings, permissive decoders, or harness behavior for
+Lean Beam is beta software. Preserve compatibility only for named external or versioned targets; do
+not keep payload shapes, aliases, command spellings, permissive decoders, or harness behavior for
 hypothetical clients.
 
 ## Current Targets
@@ -17,14 +17,14 @@ hypothetical clients.
 ## Change Rule
 
 CLI and MCP command/tool surfaces are discoverable from the installed skill file, help text, and MCP
-`tools/list` schemas. During alpha, discovery is the compatibility story for those surfaces. The
+`tools/list` schemas. During beta, discovery is the compatibility story for those surfaces. The
 local broker JSON stream is an implementation boundary, and maintainer harness scripts are local
-contributor tooling. LSP compatibility is not a release target until after alpha and beta.
+contributor tooling. LSP compatibility is not a release target until after beta.
 
 If a compatibility branch, deprecated field, alias, or permissive decoder cannot name one of the
 current targets above, remove it and update docs/tests to the current typed contract.
 
-## Alpha Deprecations
+## Beta Deprecations
 
-Alpha deprecations should be short and explicit: document the replacement and removal trigger in the
+Beta deprecations should be short and explicit: document the replacement and removal trigger in the
 same change. Otherwise, treat the surface as current behavior, not compatibility policy.

@@ -71,7 +71,7 @@ Preferred maintainer entrypoints:
 - README is for humans who want to understand and use the project
 - [docs/SETUP.md](SETUP.md) is the canonical user path for install, supported toolchains, first CLI
   use, MCP setup, installer locations, and offline notes
-- [docs/STATUS.md](STATUS.md) is the public alpha scope, limitation, and direction summary
+- [docs/STATUS.md](STATUS.md) is the public beta scope, limitation, and direction summary
 - [docs/MCP.md](MCP.md) owns MCP implementation, protocol, tool-list, and conformance notes
 - [docs/SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md) owns the exact sync, save, progress,
   diagnostics, readiness, and stale-version contract
@@ -95,7 +95,7 @@ Preferred maintainer entrypoints:
 - do not stringify typed errors or responses and later parse the rendered exception text to recover
   control flow; keep `Response`, `BrokerFailure`, or structured error data typed across
   async/pending boundaries, and stringify only at transport, CLI, or diagnostic display edges
-- do not add useless backward compatibility support; this alpha project has no legacy users, so
+- do not add useless backward compatibility support; this pre-stable project has no legacy users, so
   remove obsolete aliases, inferred envelope shapes, and compatibility branches unless they support
   an explicitly listed Lean/Rocq/tooling version or another target named in
   [Compatibility Policy](COMPATIBILITY.md)

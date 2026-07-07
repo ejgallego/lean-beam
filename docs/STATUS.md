@@ -1,6 +1,6 @@
 # Status
 
-Lean Beam is experimental alpha software. The repository is public for collaboration, early use,
+Lean Beam is experimental beta software. The repository is public for collaboration, early use,
 and feedback, but interfaces and installation details may still change before a stable release.
 
 The main product idea is a small, type-safe, isolated execution surface for Lean. Beam is the shared
@@ -8,7 +8,7 @@ thin layer on top of Lean LSP plus Beam-specific extensions: the Lean plugin pro
 facts, and the local Beam layer turns those facts into practical CLI, broker, MCP, and skill
 workflows.
 
-Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
+Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
 
 ## Current Scope
 
@@ -35,7 +35,7 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
 - local Beam daemon/client pair for Lean and Rocq workflows
 - optional Rocq Beam goal probes through `coq-lsp`, documented separately in
   [docs/ROCQ.md](ROCQ.md)
-- alpha Lean wrapper commands for follow-up handle continuation and release
+- experimental Lean wrapper commands for follow-up handle continuation and release
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows
 - explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers,
   while still accepting older inferred-`ok` envelopes on input
@@ -90,7 +90,7 @@ The base request remains intentionally small:
 Request-level failures stay at the transport layer. Semantic Lean outcomes stay in the normal typed
 response payload.
 
-Follow-up handles exist, but they should be treated as alpha support APIs rather than as a frozen
+Follow-up handles exist, but they should be treated as pre-stable support APIs rather than as a frozen
 long-term contract. They are opaque, document-bound, invalidated by same-document edits, document
 close, worker or daemon restart, and MCP workspace reset. Exact continuation requires an explicit
 handle path; separate `lean-beam run-at` calls do not chain through hidden state.

@@ -66,16 +66,16 @@ Feedback is welcome through GitHub issues or Lean Zulip. For structured bug repo
 checkout, `lean-beam feedback --stdin` can produce a pasteable report card; see
 [docs/FEEDBACK.md](docs/FEEDBACK.md).
 
-Lean Beam is experimental public alpha software. It is not an official Lean FRO product. Current
+Lean Beam is experimental beta software. It is not an official Lean FRO product. Current
 scope, limitations, and release direction are tracked in [docs/STATUS.md](docs/STATUS.md).
 
 Most readers should start with [Install](#install), then use [docs/SETUP.md](docs/SETUP.md) for
 toolchains, first CLI commands, agent-skill setup, and MCP registration. Release-facing changes are
 tracked in [CHANGELOG.md](CHANGELOG.md).
 
-## Current Alpha Surface
+## Current Beta Surface
 
-The current release includes support for:
+The current development line includes support for:
 
 - speculative Lean execution with [`runAt`](docs/STATUS.md#core-lean-surface)
 - incremental synchronization of Lean's view of a file after edits with
@@ -118,7 +118,8 @@ For users:
 
 - [docs/SETUP.md](docs/SETUP.md): install, toolchain, first-use, MCP, and installer reference.
 - [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md): explicit local Lean toolchain support.
-- [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md): alpha compatibility policy and supported targets.
+- [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md): pre-stable compatibility policy and supported
+  targets.
 - [docs/ROCQ.md](docs/ROCQ.md): optional Rocq goal probes for Rocq-to-Lean porting.
 - [docs/FEEDBACK.md](docs/FEEDBACK.md): feedback report cards for useful bug reports.
 - [docs/STATUS.md](docs/STATUS.md): current scope, limitations, and direction.
@@ -141,7 +142,7 @@ For contributors and maintainers:
 
 ## Contributing And Help
 
-The main goal of this public alpha is to gather feedback from Lean users and tool authors.
+The main goal of the beta development cycle is to gather feedback from Lean users and tool authors.
 Bug reports, design feedback, and documentation improvements are welcome through
 [GitHub issues](https://github.com/ejgallego/lean-beam/issues). Discussion is also welcome on the
 [Lean Zulip](https://leanprover.zulipchat.com).
