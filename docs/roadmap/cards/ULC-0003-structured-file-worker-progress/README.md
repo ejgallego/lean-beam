@@ -1,0 +1,46 @@
+# ULC-0003 Structured File-Worker Progress
+
+Status: deferred
+Kind: upstream-api
+Priority: medium
+Origin: upstream Lean backlog
+Last reviewed: 2026-07-07
+
+## Summary
+
+Lean file-worker `lake setup-file` progress is currently exposed as ordinary
+information diagnostics with a synthetic file-start range. Beam recognizes Lake
+build-monitor text so MCP and wrapper clients can see cold setup activity
+during long syncs and `runAt` probes.
+
+## Impact
+
+- Matching diagnostic text is deliberately brittle.
+- Progress appears through the same channel as user-facing diagnostics.
+- Cold-start reporting is less structured than request progress should be.
+
+## Beam Decision
+
+Defer for 0.2.0 unless it becomes necessary for
+[BUC-0006](../BUC-0006-cold-start-daemon-lifecycle/README.md). This is a good
+upstream cleanup, but the release-critical work is making failures reportable
+with the information Beam already has.
+
+## Expected Behavior
+
+Lean should expose typed setup/build progress through an LSP notification or
+API that includes target/module caption, phase, completion/failure status, and
+bounded detail text.
+
+Beam would stop matching build-monitor diagnostic strings for progress.
+
+## Evidence
+
+The current workaround is documented in
+[Development](../../../DEVELOPMENT.md#upstream-lean-api-backlog), and the narrow
+matcher lives near `Beam/Broker/SyncSaveSupport.lean`.
+
+## Current Workaround
+
+Keep string matching narrow and isolated. Do not use setup progress as a
+readiness authority.

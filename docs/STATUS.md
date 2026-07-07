@@ -201,6 +201,10 @@ discriminator.
 
 Near-term work is mostly about hardening and simplifying:
 
+Roadmap cards for sorting feedback and upstream Lean API work live in
+[Beam Roadmap Cards](roadmap/README.md). This status document stays focused on
+current behavior, limitations, and release posture.
+
 - keep the base `runAt` request small
 - preserve strict per-request isolation
 - reduce packaging and workspace rough edges

@@ -83,6 +83,8 @@ For users:
 - [docs/ROCQ.md](docs/ROCQ.md): optional Rocq goal probes for Rocq-to-Lean porting.
 - [docs/FEEDBACK.md](docs/FEEDBACK.md): feedback report cards for useful bug reports.
 - [docs/STATUS.md](docs/STATUS.md): current scope, limitations, and direction.
+- [docs/roadmap/README.md](docs/roadmap/README.md): roadmap cards for sorting feedback and
+  upstream Lean API work.
 - [CHANGELOG.md](CHANGELOG.md): release-facing changes.
 
 For agent workflows:

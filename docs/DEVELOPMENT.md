@@ -415,6 +415,9 @@ separately from the action runtime.
 
 Beam carries a few local workarounds for missing or version-skewed Lean/Lake APIs. When upstream
 support lands, prefer deleting the workaround over preserving compatibility branches.
+Roadmap cards for upstream Lean API work live in
+[Beam Roadmap Cards](roadmap/README.md); this section keeps the implementation notes close to the
+affected code.
 
 - Lean file-worker `lake setup-file` progress is currently exposed as ordinary information
   diagnostics with a synthetic file-start range. Beam recognizes Lake build-monitor text such as
