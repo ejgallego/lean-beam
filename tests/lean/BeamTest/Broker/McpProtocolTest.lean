@@ -110,6 +110,7 @@ private def checkToolsListShape : IO Unit := do
   require "MCP capability names should include central Lean tools"
     (Beam.Mcp.capabilityNames.contains "beam_version" &&
       Beam.Mcp.capabilityNames.contains "beam_stats" &&
+      Beam.Mcp.capabilityNames.contains "beam_feedback" &&
       Beam.Mcp.capabilityNames.contains "lean_run_at" &&
       Beam.Mcp.capabilityNames.contains "lean_update" &&
       Beam.Mcp.capabilityNames.contains "lean_sync" &&
@@ -129,6 +130,7 @@ private def checkToolsListShape : IO Unit := do
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
     ("beam_stats", #[]),
+    ("beam_feedback", Beam.Feedback.requiredInputFields),
     ("lean_run_at", #["path", "version", "line", "character", "text"]),
     ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
     ("lean_hover", #["path", "version", "line", "character"]),
@@ -176,6 +178,13 @@ private def checkToolsListShape : IO Unit := do
   let closeSaveSchema ← requireClosedInputSchema "lean_close_save input schema" closeSaveTool
   let closeSaveProperties ← requireObjVal "lean_close_save input schema" "properties" closeSaveSchema
   requireFieldAbsent "lean_close_save input schema" "include_diagnostics" closeSaveProperties
+  let feedbackTool ← requireTool tools "beam_feedback"
+  let feedbackSchema ← requireClosedInputSchema "beam_feedback input schema" feedbackTool
+  let feedbackProperties ← requireObjVal "beam_feedback input schema" "properties" feedbackSchema
+  let bundleSchema ← requireObjVal "beam_feedback input schema" "bundle" feedbackProperties
+  let bundleEnum ← requireObjVal "beam_feedback bundle schema" "enum" bundleSchema
+  require "beam_feedback bundle enum should expose none/dir/zip"
+    (bundleEnum == toJson (#["none", "dir", "zip"] : Array String))
 
   let rawExposed := tools.any fun tool =>
     (tool.getObjValAs? String "name").toOption == some Beam.LSP.RunAt.method ||
@@ -554,6 +563,25 @@ private def checkServerBasics : IO Unit := do
   requireJsonString "beam version structured" "version" Beam.Mcp.serverVersion versionStructured
   requireJsonString "beam version structured" "mcp_protocol" Beam.Mcp.protocolVersion versionStructured
   requireJsonBool "beam version structured" "runtime_active" false versionStructured
+
+  let feedbackResp ← handleRpcRequest state opts stdin "beam feedback" 22 "tools/call" <|
+    some <| toolCallParams "beam_feedback" <|
+      Json.mkObj [
+        ("title", toJson "MCP feedback fixture"),
+        ("summary", toJson "Feedback report from protocol test."),
+        ("reproduction", toJson "Call beam_feedback through tools/call."),
+        ("expected", toJson "A structured report card is returned."),
+        ("actual", toJson "A structured report card is returned.")
+      ]
+  let feedbackResult ← requireObjVal "beam feedback response" "result" feedbackResp
+  requireJsonBool "beam feedback result" "isError" false feedbackResult
+  let feedbackStructured ← requireObjVal "beam feedback result" "structuredContent" feedbackResult
+  let feedbackMarkdown ← IO.ofExcept <| feedbackStructured.getObjValAs? String "markdown"
+  require "beam feedback markdown contains title" (feedbackMarkdown.contains "# MCP feedback fixture")
+  discard <| requireObjVal "beam feedback structured" "metadata" feedbackStructured
+  let feedbackCollected ← requireObjVal "beam feedback structured" "collected" feedbackStructured
+  discard <| requireObjVal "beam feedback collected" "identity" feedbackCollected
+  discard <| requireObjVal "beam feedback collected" "daemon" feedbackCollected
 
   let rawToolResp ← handleRpcRequest state opts stdin "raw tool rejection" 3 "tools/call" <|
     some <| toolCallParams Beam.LSP.RunAt.method

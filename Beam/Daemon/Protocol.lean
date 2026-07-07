@@ -11,7 +11,7 @@ import Beam.Broker.Transport
 
 open Lean
 
-namespace Beam.Cli
+namespace Beam.Daemon
 
 open Beam.Broker
 
@@ -108,4 +108,4 @@ def endpointAcceptsConnection (endpoint : Transport.Endpoint) : IO Bool := do
   catch _ =>
     pure false
 
-end Beam.Cli
+end Beam.Daemon

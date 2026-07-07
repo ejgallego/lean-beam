@@ -43,6 +43,7 @@ run_quiet_lake_build \
   beam-sync-summary-test \
   beam-daemon-startup-handshake-test \
   beam-cli-daemon-test \
+  beam-feedback-test \
   beam-mcp-projection-test \
   beam-mcp-protocol-test
 
@@ -51,6 +52,7 @@ run_quiet_lake_build \
 .lake/build/bin/beam-broker-document-state-test > /dev/null
 .lake/build/bin/beam-broker-open-docs-test > /dev/null
 .lake/build/bin/beam-cli-daemon-test > /dev/null
+.lake/build/bin/beam-feedback-test > /dev/null
 .lake/build/bin/beam-mcp-projection-test > /dev/null
 .lake/build/bin/beam-mcp-protocol-test > /dev/null
 .lake/build/bin/beam-daemon-smoke-test > /dev/null
@@ -112,6 +114,26 @@ fi
 if [ -n "$source_tree_dirty" ]; then
   assert_version_output_contains "lean-beam --version" "$lean_beam_version" "source dirty: $source_tree_dirty"
 fi
+
+feedback_help="$(scripts/lean-beam feedback --help)"
+assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "input must be a JSON object"
+assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "title, summary, reproduction, expected, actual"
+
+feedback_invalid_err="$(mktemp /tmp/beam-feedback-invalid-XXXXXX)"
+if printf '%s\n' '{}' | scripts/lean-beam --root tests/save_olean_project feedback --stdin > /dev/null 2>"$feedback_invalid_err"; then
+  echo "expected lean-beam feedback to reject empty JSON object" >&2
+  rm -f "$feedback_invalid_err"
+  exit 1
+fi
+feedback_invalid_output="$(cat "$feedback_invalid_err")"
+rm -f "$feedback_invalid_err"
+assert_version_output_contains "lean-beam feedback invalid input" "$feedback_invalid_output" "missing required string field 'title'"
+
+feedback_smoke_input='{"title":"CLI feedback fixture","summary":"Smoke report.","reproduction":"scripts/lean-beam feedback --stdin","expected":"A report card is returned.","actual":"A report card is returned."}'
+feedback_smoke_output="$(printf '%s\n' "$feedback_smoke_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin)"
+assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"markdown"'
+assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" 'CLI feedback fixture'
+assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"daemon"'
 
 mcp_bin_version="$(.lake/build/bin/lean-beam-mcp --version)"
 assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "lean-beam-mcp 0.1.0-alpha"
@@ -336,8 +358,12 @@ wrapper_todo_cleanup
 
 python3 - <<'PY'
 import json
+import os
+import select
 import subprocess
 import sys
+
+REQUEST_TIMEOUT_SECONDS = int(os.environ.get("BEAM_MCP_SMOKE_REQUEST_TIMEOUT", "60"))
 
 proc = subprocess.Popen(
     ["scripts/lean-beam-mcp", "--root", "tests/save_olean_project"],
@@ -349,15 +375,27 @@ proc = subprocess.Popen(
     bufsize=1,
 )
 
+def fail(message):
+    proc.kill()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    stderr = proc.stderr.read()
+    raise SystemExit(f"{message}; stderr:\n{stderr}")
+
 def request(payload):
     expected_id = payload.get("id")
     proc.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
     proc.stdin.flush()
     while True:
+        ready, _, _ = select.select([proc.stdout], [], [], REQUEST_TIMEOUT_SECONDS)
+        if not ready:
+            method = payload.get("method")
+            fail(f"timed out after {REQUEST_TIMEOUT_SECONDS}s waiting for MCP response id={expected_id} method={method}")
         line = proc.stdout.readline()
         if not line:
-            stderr = proc.stderr.read()
-            raise SystemExit(f"missing MCP response for {payload}; stderr:\n{stderr}")
+            fail(f"missing MCP response for {payload}")
         message = json.loads(line)
         if message.get("id") == expected_id:
             return message
@@ -393,6 +431,21 @@ todo = request({
     },
 })
 raw_tool = request({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "$/lean/runAt", "arguments": {}}})
+feedback = request({
+    "jsonrpc": "2.0",
+    "id": 8,
+    "method": "tools/call",
+    "params": {
+        "name": "beam_feedback",
+        "arguments": {
+            "title": "MCP feedback fixture",
+            "summary": "Smoke report.",
+            "reproduction": "Call beam_feedback through tools/call.",
+            "expected": "A report card is returned.",
+            "actual": "A report card is returned.",
+        },
+    },
+})
 shutdown = request({"jsonrpc": "2.0", "id": 6, "method": "shutdown"})
 if init.get("result", {}).get("protocolVersion") != "2025-11-25":
     print("MCP initialize did not negotiate the expected protocol version", file=sys.stderr)
@@ -402,6 +455,7 @@ if init.get("result", {}).get("protocolVersion") != "2025-11-25":
 tool_names = {tool.get("name") for tool in tools.get("result", {}).get("tools", [])}
 if (
     "beam_version" not in tool_names
+    or "beam_feedback" not in tool_names
     or "lean_update" not in tool_names
     or "lean_run_at" not in tool_names
     or "lean_todo" not in tool_names
@@ -452,6 +506,17 @@ if todo_items[0].get("run_at_position") != {"line": 13, "character": 2}:
 
 if "run_at_text" in todo_items[0]:
     print(f"expected MCP todo suggest=none to omit run_at_text: {todo}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+feedback_content = feedback.get("result", {}).get("structuredContent", {})
+if "# MCP feedback fixture" not in feedback_content.get("markdown", ""):
+    print(f"expected beam_feedback MCP smoke to return a report card: {feedback}", file=sys.stderr)
+    proc.kill()
+    sys.exit(1)
+
+if "daemon" not in feedback_content.get("collected", {}):
+    print(f"expected beam_feedback MCP smoke to include daemon context: {feedback}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 

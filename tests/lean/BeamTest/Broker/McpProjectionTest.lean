@@ -76,6 +76,10 @@ private def checkToolNames : IO Unit := do
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_stats")
   require "decode beam_stats: wrong tool" (decodedBeamStats == .beamStats)
 
+  let decodedBeamFeedback ← expectOk "decode beam_feedback" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_feedback")
+  require "decode beam_feedback: wrong tool" (decodedBeamFeedback == .beamFeedback)
+
   let initWorkspace ← expectOk "decode lean_init_workspace" <|
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_init_workspace")
   require "decode lean_init_workspace: wrong tool" (initWorkspace == .leanInitWorkspace)
@@ -153,7 +157,7 @@ private def checkToolDescriptors : IO Unit := do
   require "Lean operation tool names track shared operation surface"
     (Beam.Mcp.leanOperationToolNames.size == Beam.Lean.Operation.all.size)
   require "tool names are server tools, init workspace, plus shared Lean operations"
-    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 3)
+    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 4)
   for op in Beam.Lean.Operation.all do
     let projectedTool := Beam.Mcp.ToolName.ofLeanOperation op
     require s!"Lean operation {repr op} should round-trip through MCP projection"
@@ -173,6 +177,9 @@ private def checkToolDescriptors : IO Unit := do
   require "beam stats descriptor is exposed as server debug tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .beamStats && desc.kind == .serverDebug))
+  require "beam feedback descriptor is exposed as feedback tool"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .beamFeedback && desc.kind == .feedback))
   let some versionDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamVersion)
     | throw <| IO.userError "beam version descriptor is missing"
   let versionSchemaProperties ← requireObjVal "beam version schema" "properties" versionDesc.inputSchema
@@ -181,6 +188,12 @@ private def checkToolDescriptors : IO Unit := do
     | throw <| IO.userError "beam stats descriptor is missing"
   let statsSchemaProperties ← requireObjVal "beam stats schema" "properties" statsDesc.inputSchema
   require "beam stats schema should have no input properties" (statsSchemaProperties == Json.mkObj [])
+  let some feedbackDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamFeedback)
+    | throw <| IO.userError "beam feedback descriptor is missing"
+  let feedbackSchemaProperties ← requireObjVal "beam feedback schema" "properties" feedbackDesc.inputSchema
+  discard <| requireObjVal "beam feedback schema properties" "title" feedbackSchemaProperties
+  discard <| requireObjVal "beam feedback schema properties" "bundle" feedbackSchemaProperties
+  discard <| requireObjVal "beam feedback schema properties" "evidence" feedbackSchemaProperties
   let some initDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanInitWorkspace)
     | throw <| IO.userError "init workspace descriptor is missing"
   let schemaProperties ← requireObjVal "init workspace schema" "properties" initDesc.inputSchema
@@ -232,6 +245,13 @@ private def checkBrokerRequestAdapters : IO Unit := do
       throw <| IO.userError s!"beam stats accepted input fields unexpectedly: {repr req.op}"
   | .error err =>
       require "beam stats broker adapter rejects input fields" (err.contains "accepts no input fields")
+
+  match Beam.Mcp.ToolName.beamFeedback.toBrokerRequest root (Json.mkObj []) with
+  | .ok req =>
+      throw <| IO.userError s!"beam feedback produced broker request unexpectedly: {repr req.op}"
+  | .error err =>
+      require "beam feedback broker adapter error names local report card behavior"
+        (err.contains "report card locally")
 
   match Beam.Mcp.ToolName.leanInitWorkspace.toBrokerRequest root (toJson ({ root := root } : Beam.Mcp.InitWorkspaceInput)) with
   | .ok req =>

@@ -8,6 +8,7 @@ import Lean
 import Beam.Cli.Args
 import Beam.Cli.Broker
 import Beam.Cli.DaemonManager
+import Beam.Cli.Feedback
 import Beam.Cli.Info
 import Beam.Cli.LeanOperation
 import Beam.Cli.Lock
@@ -105,7 +106,7 @@ private def shutdownProjectDaemon (opts : CliOptions) : IO Unit := do
   withProjectControlLock root do
     match ← registryLiveFor root with
     | some entry =>
-        if let some endpoint := registryEndpoint? entry then
+        if let some endpoint := Beam.Daemon.registryEndpoint? entry then
           let resp ← sendRequest endpoint { op := .shutdown }
           printResponse resp
           waitForPidGone entry.pid
@@ -174,6 +175,8 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       printInstallManifest payloadHash sourceCommitArg toolchains
   | "mcp-config" :: [] =>
       printMcpConfig home opts
+  | "feedback" :: args =>
+      Beam.Cli.Feedback.run home opts args
   | "ensure" :: [] =>
       ensureBackend home opts .lean
   | "ensure" :: "--hold" :: [] =>
@@ -373,14 +376,14 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   | "open-files" :: [] =>
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
-      if let some endpoint := registryEndpoint? entry then
+      if let some endpoint := Beam.Daemon.registryEndpoint? entry then
         callBroker root endpoint { op := .openDocs, root? := some root.toString }
       else
         throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"
   | "cancel" :: requestId :: [] =>
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
-      if let some endpoint := registryEndpoint? entry then
+      if let some endpoint := Beam.Daemon.registryEndpoint? entry then
         callBroker root endpoint {
           op := .cancel
           root? := some root.toString
@@ -391,14 +394,14 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   | "stats" :: [] =>
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
-      if let some endpoint := registryEndpoint? entry then
+      if let some endpoint := Beam.Daemon.registryEndpoint? entry then
         callBroker root endpoint { op := .stats }
       else
         throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"
   | "reset-stats" :: [] =>
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
-      if let some endpoint := registryEndpoint? entry then
+      if let some endpoint := Beam.Daemon.registryEndpoint? entry then
         callBroker root endpoint { op := .resetStats }
       else
         throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"

@@ -746,6 +746,7 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
     for capability in [
         "beam_version",
         "beam_stats",
+        "beam_feedback",
         "lean_update",
         "lean_sync",
         "lean_refresh",
@@ -1031,6 +1032,7 @@ def run_cycle(
             names = {tool.get("name") for tool in tools}
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("beam_stats" in names, f"tools/list missing beam_stats: {tools}")
+            require("beam_feedback" in names, f"tools/list missing beam_feedback: {tools}")
             require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")

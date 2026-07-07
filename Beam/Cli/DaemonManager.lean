@@ -8,23 +8,19 @@ import Lean
 import Beam.Broker.Client
 import Beam.Broker.Transport
 import Beam.Cli.Args
-import Beam.Cli.Daemon
 import Beam.Cli.Lock
 import Beam.Cli.Project
+import Beam.Daemon.Debug
 
 open Lean
 
 namespace Beam.Cli
 
 open Beam.Broker
+open Beam.Daemon
 
 def controlDir (root : System.FilePath) : IO System.FilePath := do
-  match ← IO.getEnv "BEAM_CONTROL_DIR" with
-  | some dir =>
-      let tag := toString (hash root.toString)
-      pure (System.FilePath.mk dir / tag)
-  | none =>
-      pure (beamStateDir root)
+  Beam.Daemon.controlDir root
 
 private def defaultProjectControlLockTimeoutMs : Nat :=
   60000
@@ -56,7 +52,10 @@ def withProjectControlLock (root : System.FilePath) (act : IO α) : IO α := do
   withLockTimeout (← projectControlLockDir root) (← projectControlLockTimeoutMs) act
 
 def registryPath (root : System.FilePath) : IO System.FilePath := do
-  pure ((← controlDir root) / "beam-daemon.json")
+  Beam.Daemon.registryPath root
+
+private def readRegistry? (root : System.FilePath) : IO (Option RegistryEntry) :=
+  Beam.Daemon.readRegistry? root
 
 private def computeConfigHash
     (root : System.FilePath)
@@ -82,18 +81,6 @@ private def writeRegistry (root : System.FilePath) (entry : RegistryEntry) : IO 
   let tmp := path.withExtension "tmp"
   IO.FS.writeFile tmp ((toJson entry).pretty ++ "\n")
   IO.FS.rename tmp path
-
-private def readRegistry? (root : System.FilePath) : IO (Option RegistryEntry) := do
-  let path ← registryPath root
-  unless ← path.pathExists do
-    return none
-  try
-    let text ← IO.FS.readFile path
-    let json ← IO.ofExcept <| Json.parse text
-    let entry ← IO.ofExcept <| fromJson? json
-    pure (some entry)
-  catch _ =>
-    pure none
 
 def removeRegistry (root : System.FilePath) : IO Unit := do
   let path ← registryPath root
@@ -189,34 +176,20 @@ private partial def selectUnoccupiedEndpoint
     pure endpoint
 
 private def daemonStartupLogPath (root : System.FilePath) : IO System.FilePath := do
-  pure ((← controlDir root) / "beam-daemon-startup.log")
+  Beam.Daemon.daemonStartupLogPath root
 
 private def daemonFailureIncidentDir (root : System.FilePath) : IO System.FilePath := do
-  pure ((← controlDir root) / "daemon-failures")
+  Beam.Daemon.daemonFailureIncidentDir root
 
 private def daemonFailureIncidentRetainCount : Nat :=
   50
 
-private def daemonFailureIncidentEntries (root : System.FilePath) : IO (Array IO.FS.DirEntry) := do
-  try
-    let dir ← daemonFailureIncidentDir root
-    unless ← dir.pathExists do
-      return #[]
-    let entries ← dir.readDir
-    pure <| (entries.filter (fun entry => entry.fileName.endsWith ".json")).qsort
-      (fun a b => a.fileName < b.fileName)
-  catch _ =>
-    pure #[]
-
 def recentDaemonFailureIncidentPaths (root : System.FilePath) (limit : Nat := 5) :
-    IO (Array System.FilePath) := do
-  let entries ← daemonFailureIncidentEntries root
-  let keep := min limit entries.size
-  let recent := entries.toList.drop (entries.size - keep)
-  pure <| recent.foldl (fun acc entry => acc.push entry.path) #[]
+    IO (Array System.FilePath) :=
+  Beam.Daemon.recentDaemonFailureIncidentPaths root limit
 
 private def pruneDaemonFailureIncidents (root : System.FilePath) : IO Unit := do
-  let entries ← daemonFailureIncidentEntries root
+  let entries ← Beam.Daemon.daemonFailureIncidentEntries root
   let keep := min daemonFailureIncidentRetainCount entries.size
   let deleteCount := entries.size - keep
   for entry in entries.toList.take deleteCount do
@@ -225,35 +198,15 @@ private def pruneDaemonFailureIncidents (root : System.FilePath) : IO Unit := do
     catch _ =>
       pure ()
 
-private def tailLines (text : String) (count : Nat := 20) : String :=
-  let lines := text.splitOn "\n"
-  let keep := min count lines.length
-  String.intercalate "\n" <| lines.drop (lines.length - keep)
-
 private def appendMaybeSection (msg : String) : Option String → String
   | none => msg
   | some context => msg ++ "\n" ++ context
 
-private def optionLine (label : String) : Option String → Option String
-  | none => none
-  | some value => some s!"  {label}: {value}"
-
 private def registryEndpointSummary (entry : RegistryEntry) : String :=
-  match registryEndpoint? entry with
-  | some endpoint => endpointSummary endpoint
-  | none => "invalid"
+  Beam.Daemon.registryEndpointSummary entry
 
-private def registryPidStatus (entry : RegistryEntry) : IO String := do
-  if entry.pid == 0 then
-    pure "unknown"
-  else
-    try
-      if ← pidAlive entry.pid then
-        pure "alive"
-      else
-        pure "not alive"
-    catch _ =>
-      pure "unavailable"
+private def registryPidStatus (entry : RegistryEntry) : IO String :=
+  Beam.Daemon.registryPidStatus entry
 
 private structure DaemonFailureIncident where
   schemaVersion : Nat
@@ -281,19 +234,8 @@ private def daemonFailureKind? (detail : String) : Option String :=
   else
     none
 
-private def startupLogTail? (root : System.FilePath) : IO (Option (System.FilePath × String)) := do
-  try
-    let logPath ← daemonStartupLogPath root
-    if ← logPath.pathExists then
-      let logText := trimLine (← IO.FS.readFile logPath)
-      if logText.isEmpty then
-        pure none
-      else
-        pure <| some (logPath, tailLines logText)
-    else
-      pure none
-  catch _ =>
-    pure none
+private def startupLogTail? (root : System.FilePath) : IO (Option (System.FilePath × String)) :=
+  Beam.Daemon.startupLogTail? root
 
 private def daemonFailureIncidentTimestampLabel (timestamp : String) : String :=
   (timestamp.replace "-" "").replace ":" ""
@@ -349,28 +291,11 @@ private def writeDaemonFailureIncident?
   catch _ =>
     pure none
 
-private def daemonRegistryContext? (root : System.FilePath) : IO (Option String) := do
-  try
-    match ← readRegistry? root with
-    | none => pure none
-    | some entry =>
-        let path ← registryPath root
-        let pidStatus ← registryPidStatus entry
-        let lines := ([
-          s!"Beam daemon registry ({path}):",
-          s!"  daemonId: {entry.daemonId}",
-          s!"  pid: {entry.pid} ({pidStatus})",
-          s!"  endpoint: {registryEndpointSummary entry}",
-          s!"  startedAt: {entry.startedAt}",
-          s!"  configHash: {entry.configHash}",
-          s!"  root: {entry.root}"
-        ] ++
-          (optionLine "toolchain" entry.toolchain?).toList ++
-          (optionLine "bundleId" entry.bundleId?).toList ++
-          (optionLine "pidNamespace" entry.pidNamespace?).toList)
-        pure <| some <| String.intercalate "\n" lines
-  catch _ =>
-    pure none
+private def daemonRegistryContext? (root : System.FilePath) : IO (Option String) :=
+  Beam.Daemon.daemonRegistryContext? root
+
+def daemonDebugContextJson (root : System.FilePath) : IO Json :=
+  Beam.Daemon.daemonDebugContextJson root
 
 def daemonFailureMessage (root : System.FilePath) (detail : String) : IO String := do
   match daemonFailureKind? detail with

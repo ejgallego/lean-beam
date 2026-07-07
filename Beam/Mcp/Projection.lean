@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Lean.Operation
+import Beam.Feedback
 import Beam.JsonSchema
 import Beam.Mcp.Json
 import Beam.Version
@@ -25,6 +26,7 @@ such as `$/lean/runAt` are not accepted here.
 inductive ToolName where
   | beamVersion
   | beamStats
+  | beamFeedback
   | leanInitWorkspace
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -33,6 +35,7 @@ inductive ToolName where
 inductive ToolKind where
   | serverInfo
   | serverDebug
+  | feedback
   | workspaceInit
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -64,6 +67,7 @@ def ToolName.leanClose : ToolName := .leanOperation .close
 def ToolName.leanOperation? : ToolName → Option Beam.Lean.Operation
   | .beamVersion => none
   | .beamStats => none
+  | .beamFeedback => none
   | .leanInitWorkspace => none
   | .leanOperation operation => some operation
 
@@ -74,12 +78,13 @@ def ToolName.leanOperationTools : Array ToolName :=
   Beam.Lean.Operation.all.map ToolName.ofLeanOperation
 
 def ToolName.all : Array ToolName :=
-  #[.beamVersion, .beamStats, .leanInitWorkspace] ++ ToolName.leanOperationTools
+  #[.beamVersion, .beamStats, .beamFeedback, .leanInitWorkspace] ++ ToolName.leanOperationTools
 
 def ToolName.key (tool : ToolName) : String :=
   match tool with
   | .beamVersion => "beam_version"
   | .beamStats => "beam_stats"
+  | .beamFeedback => "beam_feedback"
   | .leanInitWorkspace => "lean_init_workspace"
   | .leanOperation operation => leanOperationToolKey operation
 
@@ -87,6 +92,7 @@ def ToolName.kind (tool : ToolName) : ToolKind :=
   match tool with
   | .beamVersion => .serverInfo
   | .beamStats => .serverDebug
+  | .beamFeedback => .feedback
   | .leanInitWorkspace => .workspaceInit
   | .leanOperation operation => .leanOperation operation
 
@@ -109,6 +115,7 @@ def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
   | .leanOperation operation => operation.expectsRunAtResult
   | .serverInfo => false
   | .serverDebug => false
+  | .feedback => false
   | .workspaceInit => false
 
 private def requireEmptyInput (label : String) : Json → Except String Unit
@@ -130,6 +137,7 @@ def ToolName.toBrokerRequest
   | .serverDebug => do
       requireEmptyInput tool.key input
       pure { op := .stats, root? := some root }
+  | .feedback => throw s!"{tool.key} produces a report card locally and does not map to a broker request"
   | .workspaceInit => throw s!"{tool.key} initializes MCP server state and does not map to a broker request"
 
 def beamVersionDescription : String :=
@@ -138,9 +146,56 @@ def beamVersionDescription : String :=
 def beamStatsDescription : String :=
   "Return debug Beam broker runtime statistics for the active MCP workspace."
 
+def beamFeedbackDescription : String :=
+  "Produce a pasteable Beam report card, optionally with a local evidence bundle, using available MCP debug context."
+
 open Beam.JsonSchema in
 def emptyInputSchema : Json :=
   inputObject [] #[]
+
+private def anyJsonSchema (description : String) : Json :=
+  Json.mkObj [
+    ("description", toJson description)
+  ]
+
+private def arraySchema (description : String) (items : Json) : Json :=
+  Json.mkObj [
+    ("type", toJson "array"),
+    ("description", toJson description),
+    ("items", items)
+  ]
+
+private def evidenceInputSchema : Json :=
+  Json.mkObj [
+    ("type", toJson "object"),
+    ("description", toJson "Optional inline or file evidence to copy into a feedback bundle."),
+    ("properties", Json.mkObj [
+      ("name", Beam.JsonSchema.string "Simple evidence filename, without path separators."),
+      ("content", anyJsonSchema "Inline JSON or text evidence to write into the bundle."),
+      ("path", Beam.JsonSchema.string "Path to a local evidence file under the active root or Beam control directory.")
+    ]),
+    ("required", toJson (#[("name" : String)] : Array String)),
+    ("additionalProperties", toJson false)
+  ]
+
+open Beam.JsonSchema in
+def feedbackInputSchema : Json :=
+  inputObject [
+    ("title", string "Short report title."),
+    ("summary", string "What went wrong or what feedback should be reviewed."),
+    ("reproduction", string "Concrete steps or commands needed to reproduce the behavior."),
+    ("expected", string "Expected behavior."),
+    ("actual", string "Observed behavior."),
+    ("impact", string "Optional user impact."),
+    ("workaround", string "Optional workaround."),
+    ("tags", arraySchema "Optional short labels for routing the report." (string "Feedback tag.")),
+    ("client_request_id", string "Optional caller-side correlation id."),
+    ("request", object "Optional request payload relevant to the report."),
+    ("response", object "Optional response payload relevant to the report."),
+    ("evidence", arraySchema "Optional evidence entries to include in a bundle." evidenceInputSchema),
+    ("bundle", enumString "Optional evidence bundle mode. Defaults to none." Beam.Feedback.bundleModeKeys),
+    ("redact", bool "Whether to redact the user's home directory from the rendered report. Defaults to true.")
+  ] Beam.Feedback.requiredInputFields
 
 def initWorkspaceDescription : String :=
   "Initialize, verify, or explicitly reset the Lean workspace root for MCP clients that cannot advertise roots/list."
@@ -173,7 +228,8 @@ def leanOperationToolNames : Array ToolName :=
   ToolName.leanOperationTools
 
 def capabilityNames : Array String :=
-  #[ToolName.beamVersion.key, ToolName.beamStats.key] ++ leanOperationToolNames.map (·.key)
+  #[ToolName.beamVersion.key, ToolName.beamStats.key, ToolName.beamFeedback.key] ++
+    leanOperationToolNames.map (·.key)
 
 def withCapabilities (json : Json) : Json :=
   json.setObjVal! "capabilities" (toJson capabilityNames)
@@ -193,6 +249,13 @@ def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
         kind := .serverDebug
         description := beamStatsDescription
         inputSchema := emptyInputSchema
+      }
+  | .feedback =>
+      {
+        name := tool
+        kind := .feedback
+        description := beamFeedbackDescription
+        inputSchema := feedbackInputSchema
       }
   | .leanOperation op =>
       {

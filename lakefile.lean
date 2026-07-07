@@ -128,6 +128,10 @@ lean_exe "beam-cli-daemon-test" where
   srcDir := "tests/lean"
   root := `BeamTest.Broker.CliDaemonTest
 
+lean_exe "beam-feedback-test" where
+  srcDir := "tests/lean"
+  root := `BeamTest.Broker.FeedbackTest
+
 lean_exe "beam-mcp-projection-test" where
   srcDir := "tests/lean"
   root := `BeamTest.Broker.McpProjectionTest

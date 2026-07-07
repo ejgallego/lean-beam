@@ -295,6 +295,7 @@ def main():
             )).get("tools")
             names = {tool.get("name") for tool in tools}
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
+            require("beam_feedback" in names, f"tools/list missing beam_feedback: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
             require("lean_signature_help" in names, f"tools/list missing lean_signature_help: {tools}")
             require("lean_definition" in names, f"tools/list missing lean_definition: {tools}")

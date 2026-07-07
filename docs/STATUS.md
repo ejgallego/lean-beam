@@ -34,6 +34,10 @@ Alpha compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md).
 - bug-report identity surfaces: `lean-beam --version`, `lean-beam-mcp --version`, and MCP
   `beam_version` for the running server process, including manifest commit or source checkout
   commit/branch/dirty data
+- feedback report-card surfaces: `lean-beam feedback` and MCP `beam_feedback` return structured
+  JSON containing pasteable Markdown, metadata, available version/stats/open-file context, daemon
+  registry context, and recent daemon incident paths; callers can request a local directory or zip
+  evidence bundle
 - MCP `lean_sync` `include_diagnostics` option for clients that need sync diagnostics replayed in
   the final structured tool result instead of collecting only interleaved log notifications
 - MCP `lean_init_workspace` setup tool for clients that can register only a generic global server

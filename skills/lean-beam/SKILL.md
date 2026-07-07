@@ -55,6 +55,7 @@ Supported command families:
 - inspect actionable Lean items in a range: `lean-beam todo`
 - inspect file or daemon state: `lean-beam open-files`, `lean-beam doctor`, `lean-beam stats`,
   `lean-beam reset-stats`
+- produce a pasteable bug report card: `lean-beam feedback`
 - try one isolated speculative Lean snippet: `lean-beam run-at`
 - continue from one exact speculative state: `lean-beam run-at-handle`, `lean-beam run-with`,
   `lean-beam run-with-linear`, `lean-beam release`
@@ -70,7 +71,8 @@ What to treat as the normal agent workflow surface:
   `lean-beam sync`,
   `lean-beam refresh`
 - operational commands: `lean-beam open-files`, `lean-beam doctor`,
-  `lean-beam stats`, `lean-beam reset-stats`, `lean-beam save`, `lean-beam close-save`
+  `lean-beam stats`, `lean-beam reset-stats`, `lean-beam feedback`, `lean-beam save`,
+  `lean-beam close-save`
 - alpha support APIs: `lean-beam run-at-handle`, `lean-beam run-with`, `lean-beam run-with-linear`,
   `lean-beam release`, `lean-beam-search`
 
