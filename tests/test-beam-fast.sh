@@ -358,8 +358,12 @@ wrapper_todo_cleanup
 
 python3 - <<'PY'
 import json
+import os
+import select
 import subprocess
 import sys
+
+REQUEST_TIMEOUT_SECONDS = int(os.environ.get("BEAM_MCP_SMOKE_REQUEST_TIMEOUT", "60"))
 
 proc = subprocess.Popen(
     ["scripts/lean-beam-mcp", "--root", "tests/save_olean_project"],
@@ -371,15 +375,27 @@ proc = subprocess.Popen(
     bufsize=1,
 )
 
+def fail(message):
+    proc.kill()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    stderr = proc.stderr.read()
+    raise SystemExit(f"{message}; stderr:\n{stderr}")
+
 def request(payload):
     expected_id = payload.get("id")
     proc.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
     proc.stdin.flush()
     while True:
+        ready, _, _ = select.select([proc.stdout], [], [], REQUEST_TIMEOUT_SECONDS)
+        if not ready:
+            method = payload.get("method")
+            fail(f"timed out after {REQUEST_TIMEOUT_SECONDS}s waiting for MCP response id={expected_id} method={method}")
         line = proc.stdout.readline()
         if not line:
-            stderr = proc.stderr.read()
-            raise SystemExit(f"missing MCP response for {payload}; stderr:\n{stderr}")
+            fail(f"missing MCP response for {payload}")
         message = json.loads(line)
         if message.get("id") == expected_id:
             return message
