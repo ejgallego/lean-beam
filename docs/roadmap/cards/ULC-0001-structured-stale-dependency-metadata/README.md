@@ -14,13 +14,14 @@ Upstream timing: as soon as possible
 Beam currently reconstructs stale dependency hints from direct imports returned
 by its diagnostics barrier request plus broker sync/save history. That helps,
 but the authoritative stale-import signal lives in Lean's file-worker and
-watchdog path.
+watchdog path, where it should be preserved as document state rather than only
+rendered as a diagnostic.
 
 ## Impact
 
 - Beam can miss the exact stale dependency when Lean reports an out-of-date
   import but the broker-derived direct dependency data is incomplete.
-- Broker-side reconstruction duplicates state Lean already knows.
+- Broker-side reconstruction duplicates document state Lean already knows.
 - Agents get weaker recovery payloads for `syncBarrierIncomplete` failures.
 
 ## Upstream Decision
@@ -40,17 +41,32 @@ needed for all project shapes.
 
 ## Preliminary Analysis
 
-This is the upstream counterpart to BUC-0001. The likely Lean-side API should
-live near the file-worker/watchdog stale-import path and expose typed module,
-URI/path, importer, and rebuild/save necessity. Beam should consume that data
-instead of parsing diagnostic text or reconstructing stale direct dependencies
-from broker history.
+This is the upstream counterpart to BUC-0001. Lean already carries a typed
+`staleDependency` URI from the watchdog to the file worker, but the file worker
+currently projects it immediately into a sticky diagnostic. The better upstream
+shape is to keep this fact in the editable document state, near the existing
+sticky diagnostic state, and let diagnostics, code actions, Beam, or other LSP
+requests decide how to project it.
+
+The Lean-side data should expose the stale dependency URI and importer URI at
+minimum. Module names and rebuild/restart policy can be derived or projected by
+clients when available; Beam should not require Lean to encode Beam-specific
+save/checkpoint policy such as `needsSave`.
 
 ## Expected Behavior
 
-Lean should expose structured stale-dependency metadata with at least module
-name, path or URI, importer, whether the dependency needs save/rebuild, and the
-diagnostic that triggered the stale decision.
+Lean should store structured stale-dependency metadata on the document, with at
+least:
+
+- the importer URI;
+- the stale dependency URI;
+- a stable reason such as `staleDependency`;
+- enough lifecycle behavior to clear/update the fact when the worker restarts,
+  the dependency is no longer stale, or the document closes.
+
+Diagnostics may still display the current "Restart File" warning, but they
+should be a projection of this document state rather than the only carrier of
+the stale-dependency fact.
 
 Beam would map that data into `error.data.staleDirectDeps`, `saveDeps`, and
 structured recovery steps.
@@ -60,6 +76,15 @@ structured recovery steps.
 Current temporary behavior is documented in
 [Sync And Diagnostics](../../../SYNC_AND_DIAGNOSTICS.md#failures-and-recovery)
 and [Status](../../../STATUS.md#sync-save-and-staleness).
+
+Relevant Lean v4.31.0 implementation points:
+
+- `LeanStaleDependencyParams` already carries `staleDependency : DocumentUri`;
+- `FileWorker.handleStaleDependency` currently ignores the parameter and
+  appends only a sticky diagnostic;
+- `EditableDocumentCore` already owns shared sticky diagnostic state across
+  document versions, which is the likely area to extend with structured stale
+  dependency state.
 
 ## Current Workaround
 
