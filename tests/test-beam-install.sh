@@ -304,7 +304,7 @@ assert_not_exists "$source_checkout/relative"
 unsupported_install_err="$(mktemp "$tmp_root/install-unsupported-toolchain-XXXXXX")"
 if (
   cd "$source_checkout"
-  bash scripts/install-beam.sh --toolchain leanprover/lean4:v4.26.0 > /dev/null 2>"$unsupported_install_err"
+  bash scripts/install-beam.sh --toolchain leanprover/lean4:v4.26.0 < /dev/null > /dev/null 2>"$unsupported_install_err"
 ); then
   echo "expected install to fail when an unsupported toolchain is requested explicitly" >&2
   cat "$unsupported_install_err" >&2
@@ -329,7 +329,7 @@ no_prompt_err="$(mktemp "$tmp_root/install-no-prompt-XXXXXX")"
 if (
   cd "$source_checkout"
   HOME="$no_prompt_home" BEAM_INSTALL_ROOT="$no_prompt_install_root" \
-    bash scripts/install-beam.sh > /dev/null 2>"$no_prompt_err"
+    bash scripts/install-beam.sh < /dev/null > /dev/null 2>"$no_prompt_err"
 ); then
   echo "expected install to fail non-interactively without --dont-ask" >&2
   cat "$no_prompt_err" >&2
