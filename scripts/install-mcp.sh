@@ -18,10 +18,12 @@ prompt_mcp_registration_selection() {
     "MCP registration" \
     "codex|Codex|c" \
     "claude|Claude Code|claude-code" \
-    "opencode|OpenCode|o open-code")"
+    "opencode|OpenCode|o open-code" \
+    "vibe|Mistral Vibe|v mistral mistral-vibe")"
   register_codex_mcp=0
   register_claude_mcp=0
   register_opencode_mcp=0
+  register_vibe_mcp=0
   for target in $selection; do
     case "$target" in
       none)
@@ -34,6 +36,9 @@ prompt_mcp_registration_selection() {
         ;;
       opencode)
         register_opencode_mcp=1
+        ;;
+      vibe)
+        register_vibe_mcp=1
         ;;
     esac
   done
@@ -52,6 +57,40 @@ verify_requested_mcp_clients() {
       die "cannot register Claude Code MCP server because claude is not on PATH"
     fi
   fi
+  if [ "$register_vibe_mcp" -eq 1 ]; then
+    validate_vibe_home
+    ensure_vibe_mcp_config_replaceable
+  fi
+}
+
+ensure_vibe_mcp_config_replaceable() {
+  if [ -L "$vibe_mcp_config" ]; then
+    die "refusing to edit symlinked Mistral Vibe config at $vibe_mcp_config"
+  fi
+  if [ -e "$vibe_mcp_config" ] && [ ! -f "$vibe_mcp_config" ]; then
+    die "refusing to edit non-file Mistral Vibe config at $vibe_mcp_config"
+  fi
+  require_vibe_mcp_servers_appendable
+}
+
+# TOML forbids extending an inline `mcp_servers = [...]` array with [[mcp_servers]]
+# tables. The installer removes Vibe's default empty assignment, but refuses to
+# rewrite inline entries it cannot merge safely.
+require_vibe_mcp_servers_appendable() {
+  if [ ! -f "$vibe_mcp_config" ]; then
+    return 0
+  fi
+  if awk '
+    /^[[:space:]]*\[/ { exit 0 }
+    /^[[:space:]]*mcp_servers[[:space:]]*=/ {
+      if ($0 !~ /^[[:space:]]*mcp_servers[[:space:]]*=[[:space:]]*\[[[:space:]]*\][[:space:]]*(#.*)?$/) {
+        exit 1
+      }
+    }
+  ' "$vibe_mcp_config"; then
+    return 0
+  fi
+  die "refusing to edit Mistral Vibe config with inline mcp_servers entries at $vibe_mcp_config; move them to [[mcp_servers]] tables first"
 }
 
 ensure_mcp_config_dir() {
@@ -85,6 +124,89 @@ register_opencode_mcp_server() {
   manual_mcp_targets+=("OpenCode: lean-beam")
 }
 
+# Print the Mistral Vibe config with any existing lean-beam [[mcp_servers]] block,
+# the top-level default empty `mcp_servers = []` assignment, and trailing blank
+# lines removed, so re-registration replaces instead of duplicating and the
+# appended [[mcp_servers]] table stays valid TOML.
+vibe_mcp_config_without_lean_beam_server() {
+  awk '
+    function flush_block() {
+      if (in_block && !block_is_lean_beam) {
+        printf "%s", block
+      }
+      block = ""
+      in_block = 0
+      block_is_lean_beam = 0
+    }
+    /^[[:space:]]*\[\[mcp_servers\]\][[:space:]]*$/ {
+      seen_table = 1
+      flush_block()
+      in_block = 1
+      block = $0 "\n"
+      next
+    }
+    /^[[:space:]]*\[/ {
+      seen_table = 1
+      flush_block()
+      print
+      next
+    }
+    {
+      if (in_block) {
+        block = block $0 "\n"
+        if ($0 ~ /^[[:space:]]*name[[:space:]]*=[[:space:]]*"lean-beam"[[:space:]]*$/) {
+          block_is_lean_beam = 1
+        }
+      } else if (seen_table \
+        || $0 !~ /^[[:space:]]*mcp_servers[[:space:]]*=[[:space:]]*\[[[:space:]]*\][[:space:]]*(#.*)?$/) {
+        print
+      }
+    }
+    END { flush_block() }
+  ' "$1" | awk '
+    { lines[NR] = $0 }
+    END {
+      last = NR
+      while (last > 0 && lines[last] ~ /^[[:space:]]*$/) {
+        last--
+      }
+      for (i = 1; i <= last; i++) {
+        print lines[i]
+      }
+    }
+  '
+}
+
+register_vibe_mcp_server() {
+  local tmp_config=""
+  local mcp_command="$bin_home/lean-beam-mcp"
+  case "$mcp_command" in
+    *'"'*|*\\*)
+      die "refusing to write Mistral Vibe MCP command path containing quotes or backslashes: $mcp_command"
+      ;;
+  esac
+  ensure_mcp_config_dir "$vibe_home" "Mistral Vibe home"
+  ensure_vibe_mcp_config_replaceable
+  confirm_path_edit "register lean-beam MCP server in the Mistral Vibe config" "$vibe_mcp_config"
+  tmp_config="$(mktemp "$vibe_home/.config.toml.lean-beam-XXXXXX")"
+  if [ -f "$vibe_mcp_config" ]; then
+    vibe_mcp_config_without_lean_beam_server "$vibe_mcp_config" >"$tmp_config"
+  fi
+  {
+    if [ -s "$tmp_config" ]; then
+      printf '\n'
+    fi
+    printf '[[mcp_servers]]\n'
+    printf 'name = "lean-beam"\n'
+    printf 'transport = "stdio"\n'
+    printf 'command = "%s"\n' "$mcp_command"
+    printf 'args = []\n'
+    printf 'tool_timeout_sec = 600\n'
+  } >>"$tmp_config"
+  mv "$tmp_config" "$vibe_mcp_config"
+  registered_mcp_targets+=("Mistral Vibe: lean-beam")
+}
+
 register_requested_mcp_servers() {
   if [ "$register_codex_mcp" -eq 1 ]; then
     register_codex_mcp_server
@@ -94,5 +216,8 @@ register_requested_mcp_servers() {
   fi
   if [ "$register_opencode_mcp" -eq 1 ]; then
     register_opencode_mcp_server
+  fi
+  if [ "$register_vibe_mcp" -eq 1 ]; then
+    register_vibe_mcp_server
   fi
 }

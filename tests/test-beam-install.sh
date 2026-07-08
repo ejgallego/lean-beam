@@ -35,6 +35,7 @@ export CODEX_HOME="$tmp_root/codex"
 export CLAUDE_HOME="$tmp_root/claude"
 export PI_CODING_AGENT_DIR="$tmp_root/pi-agent"
 export OPENCODE_CONFIG_DIR="$tmp_root/opencode"
+export VIBE_HOME="$tmp_root/vibe"
 export BEAM_INSTALL_ROOT="$tmp_root/install-root"
 
 mkdir -p "$HOME" "$BEAM_INSTALL_ROOT"
@@ -497,6 +498,33 @@ assert_not_exists "$interactive_opencode_custom_bin"
 assert_not_exists "$interactive_opencode_custom_runtime"
 remove_tmp_file "$interactive_opencode_transcript"
 
+interactive_vibe_home="$tmp_root/interactive-vibe-home"
+interactive_vibe_install_root="$tmp_root/interactive-vibe-install-root"
+interactive_vibe_custom_home="$tmp_root/interactive-vibe-sandbox"
+interactive_vibe_custom_bin="$tmp_root/interactive-vibe-bin"
+interactive_vibe_custom_runtime="$tmp_root/interactive-vibe-runtime"
+interactive_vibe_transcript="$tmp_root/install-interactive-vibe-transcript"
+mkdir -p "$interactive_vibe_home"
+if beam_install_run_interactive_from_source \
+    "$interactive_vibe_transcript" "$interactive_vibe_home" "$interactive_vibe_install_root" \
+    $'\n\n5\nchange\n'"$interactive_vibe_custom_bin"$'\n'"$interactive_vibe_custom_runtime"$'\n'"$interactive_vibe_custom_home"$'\nN\n'; then
+  echo "expected interactive Mistral Vibe MCP install to stop when write permission is denied" >&2
+  cat "$interactive_vibe_transcript" >&2
+  exit 1
+fi
+assert_contains "$interactive_vibe_transcript" 'Write Locations'
+assert_contains "$interactive_vibe_transcript" 'Change Locations'
+assert_contains_literal "$interactive_vibe_transcript" "Command directory [$interactive_vibe_home/.local/bin]"
+assert_contains_literal "$interactive_vibe_transcript" "Runtime install root [$interactive_vibe_install_root]"
+assert_contains_literal "$interactive_vibe_transcript" "Mistral Vibe home [$VIBE_HOME]"
+assert_contains_literal "$interactive_vibe_transcript" "Mistral Vibe home: $interactive_vibe_custom_home"
+assert_contains_literal "$interactive_vibe_transcript" "Mistral Vibe config: $interactive_vibe_custom_home/config.toml"
+assert_contains "$interactive_vibe_transcript" 'cancelled before: Write Locations'
+assert_not_exists "$interactive_vibe_custom_bin"
+assert_not_exists "$interactive_vibe_custom_runtime"
+assert_not_exists "$interactive_vibe_custom_home"
+remove_tmp_file "$interactive_vibe_transcript"
+
 run_step "install default runtime" run_install_from_source
 expected_source_commit="$(git -C "$source_checkout" rev-parse HEAD 2>/dev/null || true)"
 install_layout_json="$(cd "$source_checkout" && ./.lake/build/bin/beam-cli install-layout)"
@@ -675,10 +703,11 @@ assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"
 assert_not_exists "$PI_CODING_AGENT_DIR"
 assert_not_exists "$OPENCODE_CONFIG_DIR"
+assert_not_exists "$VIBE_HOME"
 
 run_step "install Lean skills" run_install_from_source --toolchain "$toolchain" --all-skills
 
-for skills_home in "$CODEX_HOME/skills" "$CLAUDE_HOME/skills" "$PI_CODING_AGENT_DIR/skills" "$OPENCODE_CONFIG_DIR/skills"; do
+for skills_home in "$CODEX_HOME/skills" "$CLAUDE_HOME/skills" "$PI_CODING_AGENT_DIR/skills" "$OPENCODE_CONFIG_DIR/skills" "$VIBE_HOME/skills"; do
   assert_file "$skills_home/lean-beam/SKILL.md"
   assert_file "$skills_home/lean-beam/.lean-beam-skill"
   assert_not_exists "$skills_home/rocq-beam"
@@ -688,7 +717,7 @@ BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$insta
 
 run_step "install optional Rocq skills" run_install_from_source --toolchain "$toolchain" --all-skills --rocq-skill
 
-for skills_home in "$CODEX_HOME/skills" "$CLAUDE_HOME/skills" "$PI_CODING_AGENT_DIR/skills" "$OPENCODE_CONFIG_DIR/skills"; do
+for skills_home in "$CODEX_HOME/skills" "$CLAUDE_HOME/skills" "$PI_CODING_AGENT_DIR/skills" "$OPENCODE_CONFIG_DIR/skills" "$VIBE_HOME/skills"; do
   assert_file "$skills_home/lean-beam/SKILL.md"
   assert_file "$skills_home/lean-beam/.lean-beam-skill"
   assert_file "$skills_home/rocq-beam/SKILL.md"
@@ -714,6 +743,13 @@ assert_contains_literal "$mcp_stub_log" "codex|mcp|add|lean-beam|--|$installed_m
 assert_contains_literal "$mcp_stub_log" "claude|mcp|remove|--scope|user|lean-beam"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp"
 assert_not_exists "$OPENCODE_CONFIG_DIR/opencode.json"
+assert_file "$VIBE_HOME/config.toml"
+assert_contains_literal "$VIBE_HOME/config.toml" '[[mcp_servers]]'
+assert_contains_literal "$VIBE_HOME/config.toml" 'name = "lean-beam"'
+assert_contains_literal "$VIBE_HOME/config.toml" 'transport = "stdio"'
+assert_contains_literal "$VIBE_HOME/config.toml" "command = \"$installed_mcp\""
+assert_contains_literal "$VIBE_HOME/config.toml" 'args = []'
+assert_contains_literal "$VIBE_HOME/config.toml" 'tool_timeout_sec = 600'
 
 custom_codex_home="$tmp_root/codex-sandbox"
 custom_codex_mcp_stub_log="$tmp_root/mcp-stubs-custom-codex.log"
@@ -742,6 +778,86 @@ assert_contains_literal "$custom_mcp_stub_log" \
 assert_contains_literal "$custom_mcp_stub_log" \
   "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp|HOME=$custom_claude_config_home"
 assert_not_exists "$HOME/.claude.json"
+
+custom_vibe_home="$tmp_root/vibe-sandbox"
+mkdir -p "$custom_vibe_home"
+cat >"$custom_vibe_home/config.toml" <<'EOF'
+model = "devstral-medium-latest"
+
+[[mcp_servers]]
+name = "other-server"
+transport = "stdio"
+command = "other-mcp"
+args = ["--flag"]
+tool_timeout_sec = 600
+EOF
+run_step "register Mistral Vibe MCP with custom home" \
+  bash "$source_checkout/scripts/install-beam.sh" --dont-ask --toolchain "$toolchain" \
+    --vibe-mcp --vibe-home "$custom_vibe_home"
+run_step "re-register Mistral Vibe MCP without duplicating the entry" \
+  bash "$source_checkout/scripts/install-beam.sh" --dont-ask --toolchain "$toolchain" \
+    --vibe-mcp --vibe-home "$custom_vibe_home"
+assert_contains_literal "$custom_vibe_home/config.toml" 'model = "devstral-medium-latest"'
+assert_contains_literal "$custom_vibe_home/config.toml" 'name = "other-server"'
+assert_contains_literal "$custom_vibe_home/config.toml" 'name = "lean-beam"'
+assert_contains_literal "$custom_vibe_home/config.toml" "command = \"$installed_mcp\""
+if [ "$(grep -c 'name = "lean-beam"' "$custom_vibe_home/config.toml")" -ne 1 ]; then
+  echo "expected exactly one lean-beam entry in the Mistral Vibe config" >&2
+  cat "$custom_vibe_home/config.toml" >&2
+  exit 1
+fi
+
+default_vibe_home="$tmp_root/vibe-default-config"
+mkdir -p "$default_vibe_home"
+cat >"$default_vibe_home/config.toml" <<'EOF'
+api_timeout = 720.0
+tool_paths = []
+mcp_servers = []
+enabled_tools = []
+
+[tools.write_file]
+permission = "ask"
+EOF
+run_step "register Mistral Vibe MCP over default empty mcp_servers assignment" \
+  bash "$source_checkout/scripts/install-beam.sh" --dont-ask --toolchain "$toolchain" \
+    --vibe-mcp --vibe-home "$default_vibe_home"
+if grep -Fq 'mcp_servers = []' "$default_vibe_home/config.toml"; then
+  echo "expected installer to drop the default empty mcp_servers assignment" >&2
+  cat "$default_vibe_home/config.toml" >&2
+  exit 1
+fi
+assert_contains_literal "$default_vibe_home/config.toml" 'api_timeout = 720.0'
+assert_contains_literal "$default_vibe_home/config.toml" '[tools.write_file]'
+assert_contains_literal "$default_vibe_home/config.toml" 'name = "lean-beam"'
+python3 - "$default_vibe_home/config.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as f:
+    config = tomllib.load(f)
+servers = config["mcp_servers"]
+assert len(servers) == 1, servers
+assert servers[0]["name"] == "lean-beam", servers
+PY
+
+inline_vibe_home="$tmp_root/vibe-inline-config"
+mkdir -p "$inline_vibe_home"
+cat >"$inline_vibe_home/config.toml" <<'EOF'
+mcp_servers = [{ name = "other-server", transport = "stdio", command = "other-mcp" }]
+EOF
+inline_vibe_err="$(mktemp "$tmp_root/vibe-inline-config-XXXXXX")"
+if (
+  cd "$source_checkout"
+  bash scripts/install-beam.sh --dont-ask --vibe-mcp \
+    --vibe-home "$inline_vibe_home" > /dev/null 2>"$inline_vibe_err"
+); then
+  echo "expected --vibe-mcp to refuse inline mcp_servers entries" >&2
+  remove_tmp_file "$inline_vibe_err"
+  exit 1
+fi
+assert_contains "$inline_vibe_err" "inline mcp_servers entries"
+assert_contains_literal "$inline_vibe_home/config.toml" 'name = "other-server"'
+remove_tmp_file "$inline_vibe_err"
 
 opencode_mcp_transcript="$tmp_root/opencode-mcp-manual-transcript"
 preseed_elan_home "$HOME/.elan" "$toolchain"
@@ -808,6 +924,19 @@ if (
 fi
 assert_contains "$relative_opencode_config_dir_err" "OpenCode config dir must be an absolute path"
 remove_tmp_file "$relative_opencode_config_dir_err"
+
+relative_vibe_home_err="$(mktemp "$tmp_root/vibe-mcp-relative-home-XXXXXX")"
+if (
+  cd "$source_checkout"
+  bash scripts/install-beam.sh --dont-ask --vibe-mcp \
+    --vibe-home relative/.vibe > /dev/null 2>"$relative_vibe_home_err"
+); then
+  echo "expected --vibe-home to reject relative paths" >&2
+  remove_tmp_file "$relative_vibe_home_err"
+  exit 1
+fi
+assert_contains "$relative_vibe_home_err" "Mistral Vibe home must be an absolute path"
+remove_tmp_file "$relative_vibe_home_err"
 
 blocked_home="$tmp_root/blocked-home"
 blocked_install_root="$tmp_root/blocked-install-root"

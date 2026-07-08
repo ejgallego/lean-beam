@@ -25,6 +25,9 @@ pi_home=""
 pi_skills_home=""
 opencode_config_dir=""
 opencode_skills_home=""
+vibe_home=""
+vibe_skills_home=""
+vibe_mcp_config=""
 bin_home=""
 install_root=""
 versions_root=""
@@ -37,10 +40,12 @@ install_codex_skills=0
 install_claude_skills=0
 install_pi_skills=0
 install_opencode_skills=0
+install_vibe_skills=0
 install_rocq_skill=0
 register_codex_mcp=0
 register_claude_mcp=0
 register_opencode_mcp=0
+register_vibe_mcp=0
 install_all_supported=0
 dont_ask=0
 toolchain_selection_explicit=0
@@ -113,6 +118,12 @@ set_opencode_config_dir() {
   opencode_skills_home="$opencode_config_dir/skills"
 }
 
+set_vibe_home() {
+  vibe_home="$1"
+  vibe_skills_home="$vibe_home/skills"
+  vibe_mcp_config="$vibe_home/config.toml"
+}
+
 set_bin_home "${BEAM_BIN_HOME:-$HOME/.local/bin}"
 set_install_root "${BEAM_INSTALL_ROOT:-$HOME/.local/share/beam}"
 set_codex_home "${CODEX_HOME:-$HOME/.codex}"
@@ -120,6 +131,7 @@ set_claude_home "${CLAUDE_HOME:-$HOME/.claude}"
 set_claude_mcp_user_config "${BEAM_CLAUDE_MCP_CONFIG:-$HOME/.claude.json}"
 set_pi_home "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 set_opencode_config_dir "${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+set_vibe_home "${VIBE_HOME:-$HOME/.vibe}"
 
 runtime_payload_spec=(
   "copy|rootFiles|Beam.lean|Beam.lean"
@@ -172,6 +184,7 @@ Optional flags:
   --claude      install bundled Lean skill into $claude_skills_home
   --pi          install bundled Lean skill into $pi_skills_home
   --opencode    install bundled Lean skill into $opencode_skills_home
+  --vibe        install bundled Lean skill into $vibe_skills_home
   --all-skills  install bundled Lean skill for every supported agent target
   --rocq-skill  also install the optional Rocq skill for the selected agent target(s)
   --codex-mcp   register lean-beam-mcp with Codex
@@ -184,7 +197,9 @@ Optional flags:
   --opencode-config-dir
                 OpenCode config directory for --opencode skills
   --pi-home     Pi Agent home for --pi
-  --all-mcp     register Codex/Claude MCP and show OpenCode MCP setup
+  --vibe-mcp    register lean-beam-mcp in the Mistral Vibe config
+  --vibe-home   Mistral Vibe home for --vibe and --vibe-mcp
+  --all-mcp     register Codex/Claude/Mistral Vibe MCP and show OpenCode MCP setup
   -h, --help    show this help
 
 Environment:
@@ -194,6 +209,7 @@ Environment:
   CLAUDE_HOME          override the Claude home used by --claude
   PI_CODING_AGENT_DIR  override the Pi Agent home used by --pi
   OPENCODE_CONFIG_DIR  override the OpenCode config directory used by --opencode
+  VIBE_HOME            override the Mistral Vibe home used by --vibe and --vibe-mcp
   BEAM_CLAUDE_MCP_CONFIG
                         override the Claude Code user .claude.json path used by --claude-mcp
 
@@ -528,12 +544,17 @@ parse_args() {
         skill_selection_explicit=1
         install_opencode_skills=1
         ;;
+      --vibe)
+        skill_selection_explicit=1
+        install_vibe_skills=1
+        ;;
       --all-skills)
         skill_selection_explicit=1
         install_codex_skills=1
         install_claude_skills=1
         install_pi_skills=1
         install_opencode_skills=1
+        install_vibe_skills=1
         ;;
       --rocq-skill)
         install_rocq_skill=1
@@ -578,11 +599,23 @@ parse_args() {
         set_pi_home "$2"
         shift
         ;;
+      --vibe-mcp)
+        mcp_registration_explicit=1
+        register_vibe_mcp=1
+        ;;
+      --vibe-home)
+        if [ "$#" -lt 2 ]; then
+          die "missing value for --vibe-home"
+        fi
+        set_vibe_home "$2"
+        shift
+        ;;
       --all-mcp)
         mcp_registration_explicit=1
         register_codex_mcp=1
         register_claude_mcp=1
         register_opencode_mcp=1
+        register_vibe_mcp=1
         ;;
       -h|--help|help)
         usage
@@ -756,11 +789,13 @@ prompt_skill_selection() {
     "codex|Codex ($codex_skills_home)|c" \
     "claude|Claude Code ($claude_skills_home)|claude-code" \
     "pi|Pi Agent ($pi_skills_home)|p pi-agent" \
-    "opencode|OpenCode ($opencode_skills_home)|o open-code")"
+    "opencode|OpenCode ($opencode_skills_home)|o open-code" \
+    "vibe|Mistral Vibe ($vibe_skills_home)|v mistral mistral-vibe")"
   install_codex_skills=0
   install_claude_skills=0
   install_pi_skills=0
   install_opencode_skills=0
+  install_vibe_skills=0
   for target in $selection; do
     case "$target" in
       none)
@@ -777,6 +812,9 @@ prompt_skill_selection() {
       opencode)
         install_opencode_skills=1
         ;;
+      vibe)
+        install_vibe_skills=1
+        ;;
     esac
   done
 }
@@ -786,8 +824,9 @@ validate_skill_selection() {
     && [ "$install_codex_skills" -eq 0 ] \
     && [ "$install_claude_skills" -eq 0 ] \
     && [ "$install_pi_skills" -eq 0 ] \
-    && [ "$install_opencode_skills" -eq 0 ]; then
-    die "--rocq-skill requires --codex, --claude, --pi, --opencode, --all-skills, or an interactive skill target"
+    && [ "$install_opencode_skills" -eq 0 ] \
+    && [ "$install_vibe_skills" -eq 0 ]; then
+    die "--rocq-skill requires --codex, --claude, --pi, --opencode, --vibe, --all-skills, or an interactive skill target"
   fi
 }
 
@@ -899,7 +938,8 @@ print_install_plan() {
     done
   fi
   if [ "$install_codex_skills" -eq 0 ] && [ "$install_claude_skills" -eq 0 ] \
-    && [ "$install_pi_skills" -eq 0 ] && [ "$install_opencode_skills" -eq 0 ]; then
+    && [ "$install_pi_skills" -eq 0 ] && [ "$install_opencode_skills" -eq 0 ] \
+    && [ "$install_vibe_skills" -eq 0 ]; then
     print_field "skills" "none"
   else
     if [ "$install_codex_skills" -eq 1 ]; then
@@ -914,9 +954,12 @@ print_install_plan() {
     if [ "$install_opencode_skills" -eq 1 ]; then
       print_field "OpenCode skills" "$(skill_install_path_summary "$opencode_skills_home")"
     fi
+    if [ "$install_vibe_skills" -eq 1 ]; then
+      print_field "Mistral Vibe skills" "$(skill_install_path_summary "$vibe_skills_home")"
+    fi
   fi
   if [ "$register_codex_mcp" -eq 0 ] && [ "$register_claude_mcp" -eq 0 ] \
-    && [ "$register_opencode_mcp" -eq 0 ]; then
+    && [ "$register_opencode_mcp" -eq 0 ] && [ "$register_vibe_mcp" -eq 0 ]; then
     print_field "MCP setup" "none"
   else
     if [ "$register_codex_mcp" -eq 1 ]; then
@@ -927,6 +970,9 @@ print_install_plan() {
     fi
     if [ "$register_opencode_mcp" -eq 1 ]; then
       print_field "OpenCode MCP" "manual: opencode mcp add"
+    fi
+    if [ "$register_vibe_mcp" -eq 1 ]; then
+      print_field "Mistral Vibe MCP" "lean-beam -> $bin_home/lean-beam-mcp"
     fi
   fi
   print_field "source build" "$repo_root/.lake"
@@ -1134,6 +1180,9 @@ verify_requested_skill_targets() {
   if [ "$install_opencode_skills" -eq 1 ]; then
     verify_skill_home_targets "$opencode_skills_home"
   fi
+  if [ "$install_vibe_skills" -eq 1 ]; then
+    verify_skill_home_targets "$vibe_skills_home"
+  fi
 }
 
 prepare_install_environment() {
@@ -1215,6 +1264,10 @@ install_requested_skills() {
   fi
   if [ "$install_opencode_skills" -eq 1 ]; then
     target="$(install_skill_target "OpenCode" "$opencode_skills_home")"
+    installed_skill_targets+=("$target")
+  fi
+  if [ "$install_vibe_skills" -eq 1 ]; then
+    target="$(install_skill_target "Mistral Vibe" "$vibe_skills_home")"
     installed_skill_targets+=("$target")
   fi
 }
@@ -1310,6 +1363,18 @@ print_pi_followup_hint() {
   fi
 }
 
+print_vibe_followup_hint() {
+  local skill_installed="$1"
+  local mcp_registered="$2"
+  if [ "$skill_installed" -eq 0 ] && [ "$mcp_registered" -eq 0 ]; then
+    print_field "Mistral Vibe setup" "$installer_cmd --vibe --vibe-mcp"
+  elif [ "$skill_installed" -eq 0 ]; then
+    print_field "Mistral Vibe Lean skill" "$installer_cmd --vibe"
+  elif [ "$mcp_registered" -eq 0 ]; then
+    print_field "Mistral Vibe MCP" "$installer_cmd --vibe-mcp"
+  fi
+}
+
 print_opencode_followup_hint() {
   local skill_installed="$1"
   local mcp_ready="$2"
@@ -1335,9 +1400,11 @@ print_agent_setup_summary() {
   local claude_skill_installed=0
   local pi_skill_installed=0
   local opencode_skill_installed=0
+  local vibe_skill_installed=0
   local codex_mcp_registered=0
   local claude_mcp_registered=0
   local opencode_mcp_manual=0
+  local vibe_mcp_registered=0
 
   if target_list_contains_prefix "Codex" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
     codex_skill_installed=1
@@ -1351,6 +1418,9 @@ print_agent_setup_summary() {
   if target_list_contains_prefix "OpenCode" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
     opencode_skill_installed=1
   fi
+  if target_list_contains_prefix "Mistral Vibe" ${installed_skill_targets[@]+"${installed_skill_targets[@]}"}; then
+    vibe_skill_installed=1
+  fi
   if target_list_contains_prefix "Codex" ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; then
     codex_mcp_registered=1
   fi
@@ -1359,6 +1429,9 @@ print_agent_setup_summary() {
   fi
   if target_list_contains_prefix "OpenCode" ${manual_mcp_targets[@]+"${manual_mcp_targets[@]}"}; then
     opencode_mcp_manual=1
+  fi
+  if target_list_contains_prefix "Mistral Vibe" ${registered_mcp_targets[@]+"${registered_mcp_targets[@]}"}; then
+    vibe_mcp_registered=1
   fi
 
   print_section "$style_green" "Agent Setup"
@@ -1370,15 +1443,18 @@ print_agent_setup_summary() {
   else
     print_field "OpenCode" "skills: $(skill_state_for_summary "$opencode_skill_installed"); MCP: not registered"
   fi
+  print_field "Mistral Vibe" "skills: $(skill_state_for_summary "$vibe_skill_installed"); MCP: $(mcp_state_for_summary "$vibe_mcp_registered")"
   print_field "MCP restart" "restart active MCP client sessions to use this runtime"
   print_codex_followup_hint "$codex_skill_installed" "$codex_mcp_registered"
   print_claude_followup_hint "$claude_skill_installed" "$claude_mcp_registered"
   print_pi_followup_hint "$pi_skill_installed"
   print_opencode_followup_hint "$opencode_skill_installed" "$opencode_mcp_manual"
+  print_vibe_followup_hint "$vibe_skill_installed" "$vibe_mcp_registered"
   if [ "$codex_skill_installed" -eq 0 ] && [ "$codex_mcp_registered" -eq 0 ] \
     && [ "$claude_skill_installed" -eq 0 ] && [ "$claude_mcp_registered" -eq 0 ] \
     && [ "$pi_skill_installed" -eq 0 ] \
-    && [ "$opencode_skill_installed" -eq 0 ] && [ "$opencode_mcp_manual" -eq 0 ]; then
+    && [ "$opencode_skill_installed" -eq 0 ] && [ "$opencode_mcp_manual" -eq 0 ] \
+    && [ "$vibe_skill_installed" -eq 0 ] && [ "$vibe_mcp_registered" -eq 0 ]; then
     print_field "all agents" "$installer_cmd --all-skills --all-mcp"
   fi
   print_install_references
