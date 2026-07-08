@@ -57,7 +57,7 @@ upstream API exists.
 
 - [ULC-0001 structured stale dependency metadata](cards/ULC-0001-structured-stale-dependency-metadata/README.md)
 - [ULC-0002 backend readiness primitive](cards/ULC-0002-backend-readiness-primitive/README.md)
-- [ULC-0003 structured file-worker progress](cards/ULC-0003-structured-file-worker-progress/README.md)
+- [ULC-0003 structured setup-file progress](cards/ULC-0003-structured-setup-file-progress/README.md)
 - [ULC-0004 structured Lean request error data](cards/ULC-0004-structured-lean-request-error-data/README.md)
 
 ### Compatibility Cleanup

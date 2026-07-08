@@ -49,8 +49,9 @@ timeouts and connection closure: root, pid, endpoint, toolchain, Beam source
 commit, active request id, active operation, last progress event, and exit
 reason when known.
 
-Related but separable work: structured file-worker progress is tracked in
-[ULC-0003](../ULC-0003-structured-file-worker-progress/README.md). Beam should
+Related but separable work: structured `lake setup-file` dependency-build
+progress is tracked in
+[ULC-0003](../ULC-0003-structured-setup-file-progress/README.md). Beam should
 not wait for that upstream improvement before making daemon-side incidents more
 actionable.
 
