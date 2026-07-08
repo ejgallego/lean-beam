@@ -1,12 +1,13 @@
 # ULC-0004 Structured Lean Request Error Data
 
-Status: deferred
+Status: open
 Kind: upstream-api
 Priority: medium
 Origin: upstream Lean backlog
-Last reviewed: 2026-07-07
+Last reviewed: 2026-07-08
 Issue: none linked
 Lean PR: none linked
+Upstream timing: as soon as possible
 
 ## Summary
 
@@ -23,10 +24,12 @@ JSON-RPC error data directly.
   `documentVersionMismatch`.
 - Clients should not parse rendered exception text to recover control flow.
 
-## Beam Decision
+## Upstream Decision
 
-Defer for 0.2.0 unless it unblocks another scoped failure-reporting fix. This
-is an upstream API quality card, not a new Beam user-facing surface.
+Track as an active Lean-cycle API quality card, not as a Beam release blocker.
+Beam should keep local broker errors structured, and delete duplicated
+preflight or reconstruction code only when Lean can carry equivalent typed
+JSON-RPC error data.
 
 ## Reproduction Status
 
@@ -35,8 +38,8 @@ structured errors for stale versions and invalid request states.
 
 ## Preliminary Analysis
 
-Keep this deferred. It is useful cleanup, but Beam should not depend on it for
-0.2.0. The local code smell to avoid is parsing rendered exception text; Beam
+This is useful cleanup, but Beam should not depend on it for local release
+work. The local code smell to avoid is parsing rendered exception text; Beam
 already has repo guidance to keep `Response`, `BrokerFailure`, and structured
 error data typed across async boundaries.
 

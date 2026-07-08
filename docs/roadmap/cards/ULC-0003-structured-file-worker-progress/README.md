@@ -1,12 +1,13 @@
 # ULC-0003 Structured File-Worker Progress
 
-Status: deferred
+Status: open
 Kind: upstream-api
 Priority: medium
 Origin: upstream Lean backlog
-Last reviewed: 2026-07-07
+Last reviewed: 2026-07-08
 Issue: none linked
 Lean PR: none linked
+Upstream timing: as soon as possible
 
 ## Summary
 
@@ -21,12 +22,12 @@ during long syncs and `runAt` probes.
 - Progress appears through the same channel as user-facing diagnostics.
 - Cold-start reporting is less structured than request progress should be.
 
-## Beam Decision
+## Upstream Decision
 
-Defer for 0.2.0 unless it becomes necessary for
-[BUC-0006](../BUC-0006-cold-start-daemon-lifecycle/README.md). This is a good
-upstream cleanup, but the release-critical work is making failures reportable
-with the information Beam already has.
+Track as an active Lean-cycle cleanup, not as a Beam release blocker. It is a
+good upstream API improvement for cold-start visibility, while Beam can still
+make [BUC-0006](../BUC-0006-cold-start-daemon-lifecycle/README.md) failures
+reportable with the information it already has.
 
 ## Reproduction Status
 

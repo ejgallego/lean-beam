@@ -1,12 +1,13 @@
 # ULC-0005 Pure Frontend Readiness Report
 
-Status: deferred
+Status: superseded
 Kind: upstream-api
 Priority: medium
 Origin: upstream Lean backlog
-Last reviewed: 2026-07-07
+Last reviewed: 2026-07-08
 Issue: none linked
 Lean PR: none linked
+Upstream timing: folded into ULC-0002
 
 ## Summary
 
@@ -21,11 +22,12 @@ nearby APIs and barrier observations.
   semantic authority.
 - A pure helper would simplify sync summaries and save preflight reporting.
 
-## Beam Decision
+## Upstream Decision
 
-Defer for 0.2.0 unless the backend readiness primitive splits this into a
-smaller upstream change. It is useful, but less directly release-blocking than
-stale dependency metadata.
+Superseded by
+[ULC-0002](../ULC-0002-backend-readiness-primitive/README.md). Do not track a
+separate Lean PR for this card unless the readiness umbrella splits into a
+specific pure-frontend helper proposal.
 
 ## Reproduction Status
 
@@ -34,9 +36,9 @@ and readiness projection that would consume such a helper.
 
 ## Preliminary Analysis
 
-This overlaps with ULC-0002 and may be better folded into that card unless a
-specific Lean helper emerges. Keep it deferred to avoid splitting upstream asks
-too early.
+This overlaps with ULC-0002 and is now folded into that card. A pure helper
+near `SnapshotTree.runAndReport` may still be the right implementation slice,
+but it should be tracked from ULC-0002 until the upstream PR shape is concrete.
 
 ## Expected Behavior
 

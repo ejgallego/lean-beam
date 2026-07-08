@@ -1,12 +1,13 @@
 # ULC-0002 Backend Readiness Primitive
 
-Status: candidate-0.2.0
+Status: open
 Kind: upstream-api
 Priority: high
 Origin: upstream Lean backlog
-Last reviewed: 2026-07-07
+Last reviewed: 2026-07-08
 Issue: none linked
 Lean PR: none linked
+Upstream timing: as soon as possible
 
 ## Summary
 
@@ -22,12 +23,14 @@ readiness.
 - A stronger backend-facing primitive would reduce broker inference and make
   save refusal easier to classify.
 
-## Beam Decision
+## Upstream Decision
 
-Track as a 0.2.0 upstream Lean roadmap card because it supports the release
-theme of actionable failures and reliable recovery. Beam should keep its
-current contract stable while looking for a smaller authoritative Lean-side
-readiness result.
+Track as an active Lean-cycle umbrella card, not as a Beam release blocker.
+Beam should keep its current sync/save contract stable while identifying one
+or two small Lean-side primitives that can replace broker inference. The pure
+frontend readiness helper from
+[ULC-0005](../ULC-0005-pure-frontend-readiness-report/README.md) is folded into
+this card.
 
 ## Reproduction Status
 
@@ -37,11 +40,11 @@ barriers. They do not remove Beam's broker-side barrier interpretation.
 
 ## Preliminary Analysis
 
-This is broader than BUC-0001 and should not block local 0.2.0 fixes. The
+This is broader than BUC-0001 and should not block local Beam fixes. The
 lowest-risk path is to keep Beam's current readiness contract stable while
-identifying one narrower Lean primitive that can replace broker inference for
-sync/save completion. If that primitive is too broad, split this card into a
-specific upstream API request and defer the general readiness model.
+identifying narrower Lean primitives that can replace broker inference for
+sync/save completion. Keep this as the umbrella for readiness work; split only
+when there is a concrete Lean PR shape.
 
 ## Expected Behavior
 
@@ -52,6 +55,8 @@ returns:
 - whether save/checkpoint may proceed;
 - blocking diagnostics or failure reasons;
 - current diagnostic counts by severity;
+- a pure frontend helper for the build-blocking decision without printing
+  diagnostics;
 - enough progress identity to explain incomplete states.
 
 Beam would use this as the authority for `lean_sync`, `lean_save`, and

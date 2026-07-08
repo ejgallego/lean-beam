@@ -1,12 +1,13 @@
 # ULC-0001 Structured Stale Dependency Metadata
 
-Status: candidate-0.2.0
+Status: open
 Kind: upstream-api
 Priority: high
 Origin: upstream Lean backlog
-Last reviewed: 2026-07-07
+Last reviewed: 2026-07-08
 Issue: none linked
 Lean PR: none linked
+Upstream timing: as soon as possible
 
 ## Summary
 
@@ -22,19 +23,20 @@ watchdog path.
 - Broker-side reconstruction duplicates state Lean already knows.
 - Agents get weaker recovery payloads for `syncBarrierIncomplete` failures.
 
-## Beam Decision
+## Upstream Decision
 
-Track as a 0.2.0 upstream Lean roadmap card because it directly supports
-[BUC-0001](../BUC-0001-stale-import-dependency-reporting/README.md). Beam can
-improve local hints, but should prefer deleting broker inference when Lean can
-return typed stale-dependency metadata.
+Track as an active Lean-cycle upstream card because it directly supports
+[BUC-0001](../BUC-0001-stale-import-dependency-reporting/README.md) and would
+let Beam delete broker-derived stale dependency inference. This is not a Beam
+release gate: Beam should keep improving local fallback behavior, then prefer
+the Lean-provided metadata when it exists.
 
 ## Reproduction Status
 
 No upstream Lean PR is linked yet. Local Beam tests prove Beam can consume and
-project broker-derived stale dependency hints for simple fixtures, but they do
-not prove Lean exposes the authoritative stale module/path data needed for all
-project shapes.
+project broker-derived stale dependency hints for observed direct dependencies,
+but they do not prove Lean exposes the authoritative stale module/path data
+needed for all project shapes.
 
 ## Preliminary Analysis
 
