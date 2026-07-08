@@ -794,6 +794,11 @@ EOF
 run_step "register Mistral Vibe MCP with custom home" \
   bash "$source_checkout/scripts/install-beam.sh" --dont-ask --toolchain "$toolchain" \
     --vibe-mcp --vibe-home "$custom_vibe_home"
+sed -i.bak \
+  -e 's/^\[\[mcp_servers\]\]$/[[mcp_servers]] # existing table/' \
+  -e 's/^name = "lean-beam"$/name = "lean-beam" # existing server/' \
+  "$custom_vibe_home/config.toml"
+remove_tmp_file "$custom_vibe_home/config.toml.bak"
 run_step "re-register Mistral Vibe MCP without duplicating the entry" \
   bash "$source_checkout/scripts/install-beam.sh" --dont-ask --toolchain "$toolchain" \
     --vibe-mcp --vibe-home "$custom_vibe_home"

@@ -19,8 +19,9 @@ From the `lean-beam` repo root:
 ./scripts/install-beam.sh --codex
 ```
 
-Use `--claude`, `--pi`, or `--opencode` instead when installing for Claude Code, Pi Agent, or
-OpenCode. Use `--all-skills` when you want every supported agent skill target.
+Use `--claude`, `--pi`, `--opencode`, or `--vibe` instead when installing for Claude Code,
+Pi Agent, OpenCode, or Mistral Vibe. Use `--all-skills` when you want every supported agent skill
+target.
 
 The installer puts `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` in `~/.local/bin`, stages
 the self-contained runtime under `BEAM_INSTALL_ROOT` (default `~/.local/share/beam`), requires

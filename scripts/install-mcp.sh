@@ -138,7 +138,7 @@ vibe_mcp_config_without_lean_beam_server() {
       in_block = 0
       block_is_lean_beam = 0
     }
-    /^[[:space:]]*\[\[mcp_servers\]\][[:space:]]*$/ {
+    /^[[:space:]]*\[\[[[:space:]]*mcp_servers[[:space:]]*\]\][[:space:]]*(#.*)?$/ {
       seen_table = 1
       flush_block()
       in_block = 1
@@ -154,7 +154,7 @@ vibe_mcp_config_without_lean_beam_server() {
     {
       if (in_block) {
         block = block $0 "\n"
-        if ($0 ~ /^[[:space:]]*name[[:space:]]*=[[:space:]]*"lean-beam"[[:space:]]*$/) {
+        if ($0 ~ /^[[:space:]]*name[[:space:]]*=[[:space:]]*"lean-beam"[[:space:]]*(#.*)?$/) {
           block_is_lean_beam = 1
         }
       } else if (seen_table \
@@ -179,6 +179,7 @@ vibe_mcp_config_without_lean_beam_server() {
 
 register_vibe_mcp_server() {
   local tmp_config=""
+  local tmp_config_has_content=0
   local mcp_command="$bin_home/lean-beam-mcp"
   case "$mcp_command" in
     *'"'*|*\\*)
@@ -192,8 +193,11 @@ register_vibe_mcp_server() {
   if [ -f "$vibe_mcp_config" ]; then
     vibe_mcp_config_without_lean_beam_server "$vibe_mcp_config" >"$tmp_config"
   fi
+  if [ -s "$tmp_config" ]; then
+    tmp_config_has_content=1
+  fi
   {
-    if [ -s "$tmp_config" ]; then
+    if [ "$tmp_config_has_content" -eq 1 ]; then
       printf '\n'
     fi
     printf '[[mcp_servers]]\n'

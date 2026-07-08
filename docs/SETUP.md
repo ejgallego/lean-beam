@@ -304,9 +304,9 @@ For sandboxed config locations, pass the target paths explicitly:
 ./scripts/install-beam.sh --vibe-mcp --vibe-home /path/to/sandbox/.vibe
 ```
 
-The same Codex and Claude overrides are available as `CODEX_HOME` and
-`BEAM_CLAUDE_MCP_CONFIG`. Interactive installs can also choose `change` at the write-location
-prompt before approving writes.
+The same Codex, Claude, and Mistral Vibe overrides are available as `CODEX_HOME`,
+`BEAM_CLAUDE_MCP_CONFIG`, and `VIBE_HOME`. Interactive installs can also choose `change` at the
+write-location prompt before approving writes.
 
 ## Slow Or Offline Installs
 

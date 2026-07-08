@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(grep -n \"\\\\$'\" tests/test-beam-install.sh)"
-    ]
-  }
-}
