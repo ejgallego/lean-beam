@@ -251,20 +251,23 @@ args = []
 tool_timeout_sec = 600
 ```
 
-MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
-root through `roots/list`. If a client does not provide roots, initialize one absolute Lean/Lake
-project root per MCP server session with the `lean_init_workspace` tool before calling Lean tools:
+MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the default
+workspace root through `roots/list`. If a client does not provide roots, initialize the default
+workspace with an absolute Lean/Lake project root through the `lean_init_workspace` tool before
+calling Lean tools:
 
 ```json
 {"root":"/path/to/lean/project"}
 ```
 
-The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check the active root or
-`mode: "reset"` to explicitly switch roots and invalidate handles; see
-[the MCP runtime setup notes](MCP.md#runtime-setup). Direct-client tool and version semantics live
-in the [MCP protocol notes](MCP.md#client-tool-semantics).
+The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check that workspace root
+or `mode: "reset"` to explicitly replace that workspace and invalidate its handles. Additional local
+workspaces can be initialized with `workspace_id`, listed with `lean_list_workspaces`, dropped with
+`lean_drop_workspace`, and selected by passing the same `workspace_id` to later Lean tools; see
+[the MCP runtime setup notes](MCP.md#runtime-setup).
+Direct-client tool and version semantics live in the [MCP protocol notes](MCP.md#client-tool-semantics).
 
-Direct single-project MCP registrations may still pass an explicit project root:
+Direct single-project MCP registrations may still pass an explicit default workspace root:
 
 ```bash
 codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project

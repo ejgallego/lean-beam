@@ -48,18 +48,21 @@ project-specific Lean command and runAt plugin.
 Keep bundle resolution in the CLI/runtime boundary. Do not duplicate installed-bundle selection
 inside the MCP server, and do not make normal MCP clients pass raw Lean plugin paths.
 
-`--root PATH` is supported as an explicit single-root override. Without `--root`, the server discovers
-the project root through exactly one `file://` MCP `roots/list` result, or through an explicit
-`lean_init_workspace` call before the first Lean tool. Multiple roots are rejected for now, so
-clients that expose more than one workspace should pass `--root` or call `lean_init_workspace`.
+`--root PATH` is supported as the explicit default workspace root. Without `--root`, the server
+discovers the default root through exactly one `file://` MCP `roots/list` result, or through an
+explicit `lean_init_workspace` call before the first default-workspace Lean tool. Clients can add
+additional local workspaces by calling `lean_init_workspace` with `workspace_id`; subsequent Lean
+tools may pass the same optional `workspace_id` to route a request to that workspace. Omitting
+`workspace_id` means the default workspace.
 
 The `--root` startup flag accepts absolute paths and paths relative to the server's current working
 directory. The `lean_init_workspace` tool intentionally accepts only absolute Lean/Lake project
 roots, because it is a client API and should not depend on the server process cwd.
 
-`lean_init_workspace` supports `mode: "set"`, `mode: "verify"`, and `mode: "reset"`. Reset discards
-the current runtime and invalidates handles from the previous root. Keep those semantics in
-[Beam.Workspace](../Beam/Workspace.lean); do not duplicate root-switching policy in the MCP server.
+`lean_init_workspace` supports `mode: "set"`, `mode: "verify"`, and `mode: "reset"`. Reset replaces
+only the selected workspace id and invalidates handles from that workspace. Keep the shared
+input/result shape in [Beam.Workspace](../Beam/Workspace.lean) and the ownership policy in the
+broker workspace lifecycle; do not duplicate root-switching policy in the MCP server.
 Successful initialization results include a `capabilities` array naming projected MCP tool names;
 derive those names from the operation/projection layer instead of maintaining a separate hand-written
 capability list.
@@ -69,23 +72,28 @@ Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-
 
 ## Client Tool Semantics
 
-`tools/list` includes the setup tool `lean_init_workspace`, the Beam utility tools `beam_version`,
+`tools/list` includes the setup tool `lean_init_workspace`, workspace lifecycle tools
+`lean_list_workspaces` and `lean_drop_workspace`, the Beam utility tools `beam_version`,
 `beam_stats`, and `beam_feedback`, and the Lean operation tools projected from
-`Beam.Lean.Operation`. Successful
+`Beam.Lean.Operation`. `lean_drop_workspace` requires an explicit `workspace_id`; pass
+`"default"` to drop the default workspace. Successful
 `lean_init_workspace` results include a `capabilities` array for the post-initialization tools:
-`beam_version`, `beam_stats`, `beam_feedback`, `lean_update`, `lean_sync`, `lean_refresh`,
-`lean_save`, `lean_close_save`, `lean_close`, `lean_run_at`, `lean_run_at_handle`,
-`lean_run_with`, `lean_run_with_linear`, `lean_release`, `lean_hover`, `lean_signature_help`,
-`lean_definition`, `lean_references`, `lean_document_symbols`, `lean_workspace_symbols`,
-`lean_goals`, `lean_todo`, and `lean_code_action_resolve`.
+`beam_version`, `beam_stats`, `beam_feedback`, `lean_list_workspaces`, `lean_drop_workspace`,
+`lean_update`, `lean_sync`, `lean_refresh`, `lean_save`, `lean_close_save`, `lean_close`,
+`lean_run_at`, `lean_run_at_handle`, `lean_run_with`, `lean_run_with_linear`, `lean_release`,
+`lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
+`lean_document_symbols`, `lean_workspace_symbols`, `lean_goals`, `lean_todo`, and
+`lean_code_action_resolve`.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
 `lean_document_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`; those calls
 require the `version` returned by a successful `lean_update` or `lean_sync` for the same path.
-`lean_workspace_symbols` is workspace-scoped and does not take a file version. `lean_run_with`,
+`lean_workspace_symbols` is workspace-scoped and does not take a file version. When multiple
+workspaces are initialized, pass `workspace_id` to select the symbol workspace. `lean_run_with`,
 `lean_run_with_linear`, and `lean_release` use an opaque handle returned by a previous handle tool
-result rather than a document version. `lean_goals` also requires `mode: "before"` or
+result rather than a document version; handles carry their workspace identity and are rejected if a
+conflicting explicit `workspace_id` is supplied. `lean_goals` also requires `mode: "before"` or
 `mode: "after"`.
 
 `lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
@@ -168,11 +176,11 @@ Use the MCP checks as layered gates:
   boundary, public tool names, raw-LSP rejection, typed operation adapters, root-free Lean operation
   inputs, setup tools, and normalized output fields.
 - [BeamTest/Broker/McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean): JSON-RPC shapes,
-  generated schemas, lifecycle gating, roots helpers, `lean_init_workspace` setup policy, setup
-  errors, and tool input validation.
+  generated schemas, lifecycle gating, roots helpers, workspace lifecycle schemas, setup errors, and
+  tool input validation.
 - [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py): real stdio process behavior over a copied
   Lean fixture project, including explicit `--root`, relative `--root`, `lean_init_workspace`,
-  roots discovery, reset, and handle invalidation paths.
+  roots discovery, workspace list/drop, reset, and handle invalidation paths.
 - [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py): deterministic Streamable HTTP
   bridge behavior over a stdio child.
 - [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): pinned external conformance
@@ -199,6 +207,7 @@ the server exposes compatible tools or carries an expected-failure baseline.
 Current known MCP follow-ups:
 
 - MCP cancellation notification handling
+- remote workspace transports and same-source multi-toolchain mirrors
 - richer progress percentages or bounded work-unit totals if Lean exposes them
 - broader conformance scenarios when the server exposes the corresponding capabilities
 - a first-class HTTP transport only if real users need HTTP

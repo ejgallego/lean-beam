@@ -144,6 +144,8 @@ private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
     | .serverDebug => acc
     | .feedback => acc
     | .workspaceInit => acc
+    | .workspaceList => acc
+    | .workspaceDrop => acc
 
 private def requireSameOperationSurface
     (label : String)

@@ -100,17 +100,20 @@ private def checkToolsListShape : IO Unit := do
   let initSchema ← requireClosedInputSchema "lean_init_workspace input schema" initTool
   requireSchemaRequiredFields "lean_init_workspace input schema" #["root"] initSchema
   let initProperties ← requireObjVal "lean_init_workspace input schema" "properties" initSchema
+  requireFieldPresent "lean_init_workspace input schema" "workspace_id" initProperties
   let modeSchema ← requireObjVal "lean_init_workspace properties" "mode" initProperties
   let modeEnum ← requireObjVal "lean_init_workspace mode schema" "enum" modeSchema
   require "lean_init_workspace mode enum should expose set/verify/reset"
     (modeEnum == toJson (#["set", "verify", "reset"] : Array String))
   let modeDescription ← IO.ofExcept <| modeSchema.getObjValAs? String "description"
-  require "lean_init_workspace mode description should explain destructive reset"
+  require "lean_init_workspace mode description should explain handle invalidation"
     (modeDescription.contains "invalidates handles")
   require "MCP capability names should include central Lean tools"
     (Beam.Mcp.capabilityNames.contains "beam_version" &&
       Beam.Mcp.capabilityNames.contains "beam_stats" &&
       Beam.Mcp.capabilityNames.contains "beam_feedback" &&
+      Beam.Mcp.capabilityNames.contains "lean_list_workspaces" &&
+      Beam.Mcp.capabilityNames.contains "lean_drop_workspace" &&
       Beam.Mcp.capabilityNames.contains "lean_run_at" &&
       Beam.Mcp.capabilityNames.contains "lean_update" &&
       Beam.Mcp.capabilityNames.contains "lean_sync" &&
@@ -131,6 +134,8 @@ private def checkToolsListShape : IO Unit := do
     ("beam_version", #[]),
     ("beam_stats", #[]),
     ("beam_feedback", Beam.Feedback.requiredInputFields),
+    ("lean_list_workspaces", #[]),
+    ("lean_drop_workspace", #["workspace_id"]),
     ("lean_run_at", #["path", "version", "line", "character", "text"]),
     ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
     ("lean_hover", #["path", "version", "line", "character"]),
@@ -161,6 +166,7 @@ private def checkToolsListShape : IO Unit := do
   let syncTool ← requireTool tools "lean_sync"
   let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
   let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
+  requireFieldPresent "lean_sync input schema" "workspace_id" syncProperties
   requireFieldPresent "lean_sync input schema" "include_diagnostics" syncProperties
   let referencesTool ← requireTool tools "lean_references"
   let referencesSchema ← requireClosedInputSchema "lean_references input schema" referencesTool
@@ -230,7 +236,7 @@ private def checkRootsProtocol : IO Unit := do
   ]
   let cases : Array (String × Json × Bool) := #[
     (
-      "single root",
+      "one client root",
       rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[
         Json.mkObj [
           ("uri", toJson rootUri),
@@ -256,7 +262,7 @@ private def checkRootsProtocol : IO Unit := do
   for (label, response, shouldDecode) in cases do
     match Beam.Mcp.parseRootsListResponse response, shouldDecode with
     | .ok roots, true =>
-        if label == "single root" then
+        if label == "one client root" then
           require "roots/list should decode one root" (roots.roots.size == 1)
           require "roots/list should preserve root uri" (roots.roots[0]!.uri == rootUri)
           require "roots/list should preserve root name" (roots.roots[0]!.name? == some "fixture")
@@ -318,70 +324,49 @@ private def checkRuntimeSetupErrors : IO Unit := do
     catch _ =>
       pure ()
 
-private def expectWorkspacePlan
-    (label : String)
-    (state : Beam.Workspace.InitState)
-    (root : System.FilePath)
-    (mode : Beam.Workspace.InitMode) : IO Beam.Workspace.InitPlan := do
-  match Beam.Workspace.planInit state root mode with
-  | .ok plan => pure plan
-  | .error err => throw <| IO.userError s!"{label}: {err.message}"
-
-private def expectWorkspacePlanError
-    (label needle : String)
-    (state : Beam.Workspace.InitState)
-    (root : System.FilePath)
-    (mode : Beam.Workspace.InitMode) : IO Beam.Workspace.InitError := do
-  match Beam.Workspace.planInit state root mode with
-  | .ok plan => throw <| IO.userError s!"{label}: expected error, got plan for {plan.root}"
-  | .error err =>
-      require label (err.message.contains needle)
-      pure err
-
 private def checkWorkspaceInitPolicy : IO Unit := do
   let root := System.FilePath.mk "/workspace"
-  let other := System.FilePath.mk "/other-workspace"
+  let previous := System.FilePath.mk "/previous-workspace"
+  let defaultInput ← expectOk "decode default init input" <|
+    fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString)
+    ]
+  require "default init input should default workspace id"
+    (defaultInput.workspaceId == Beam.Workspace.defaultWorkspaceId)
+  require "default init input should default mode" (defaultInput.mode == .set)
+  let namedInput ← expectOk "decode named init input" <|
+    fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString),
+      ("workspace_id", toJson "fixture"),
+      ("mode", toJson "verify")
+    ]
+  require "named init input should preserve workspace id" (namedInput.workspaceId == "fixture")
+  require "named init input should preserve mode" (namedInput.mode == .verify)
 
-  let setPlan ← expectWorkspacePlan "set unbound workspace" {} root .set
-  require "set unbound should create runtime" setPlan.createRuntime
-  require "set unbound should not reset runtime" (!setPlan.resetCurrent)
-  require "set unbound should not reuse runtime" (!setPlan.runtimeReused)
-
-  discard <| expectWorkspacePlanError "verify unbound workspace" "not initialized" {} root .verify
-
-  let readyState : Beam.Workspace.InitState := {
-    root? := some root
-    runtimeReady := true
+  let resetResult : Beam.Workspace.InitResult := {
+    workspaceId := "fixture"
+    root
+    mode := .reset
+    runtimeReused := false
+    previousRoot? := some previous
+    invalidatedHandles := true
   }
-  let samePlan ← expectWorkspacePlan "set same workspace" readyState root .set
-  require "same workspace should reuse runtime" samePlan.runtimeReused
-  require "same workspace should not recreate runtime" (!samePlan.createRuntime)
-
-  let setOtherErr ← expectWorkspacePlanError "set other workspace" "switch roots explicitly" readyState other .set
-  require "set other workspace should report active root" (setOtherErr.activeRoot? == some root)
-
-  let sameResetPlan ← expectWorkspacePlan "reset same workspace" readyState root .reset
-  require "reset same workspace should create runtime" sameResetPlan.createRuntime
-  require "reset same workspace should shut down current runtime" sameResetPlan.resetCurrent
-  require "reset same workspace should target requested root" (sameResetPlan.root == root)
-  require "reset same workspace should not reuse runtime" (!sameResetPlan.runtimeReused)
-  require "reset same workspace should remember previous root" (sameResetPlan.previousRoot? == some root)
-
-  let resetPlan ← expectWorkspacePlan "reset other workspace" readyState other .reset
-  require "reset other workspace should create runtime" resetPlan.createRuntime
-  require "reset other workspace should shut down current runtime" resetPlan.resetCurrent
-  require "reset other workspace should target requested root" (resetPlan.root == other)
-  require "reset other workspace should remember previous root" (resetPlan.previousRoot? == some root)
-  let resetResult := Beam.Workspace.initResult resetPlan other
-  require "reset result should report invalidated handles" resetResult.invalidatedHandles
   let resetJson := toJson resetResult
-  requireJsonString "reset result json" "root" other.toString resetJson
-  requireJsonString "reset result json" "active_root" other.toString resetJson
-  requireJsonString "reset result json" "previous_root" root.toString resetJson
+  requireJsonString "reset result json" "workspace_id" "fixture" resetJson
+  requireJsonString "reset result json" "root" root.toString resetJson
+  requireJsonString "reset result json" "active_root" root.toString resetJson
+  requireJsonString "reset result json" "previous_root" previous.toString resetJson
   requireJsonBool "reset result json" "invalidated_handles" true resetJson
   requireJsonBool "reset result json" "runtime_reused" false resetJson
 
-  let setResultJson := toJson <| Beam.Workspace.initResult setPlan root
+  let setResultJson := toJson ({
+    workspaceId := Beam.Workspace.defaultWorkspaceId
+    root
+    mode := .set
+    runtimeReused := false
+    invalidatedHandles := false
+  } : Beam.Workspace.InitResult)
+  requireJsonString "set result json" "workspace_id" Beam.Workspace.defaultWorkspaceId setResultJson
   requireJsonBool "set result json" "invalidated_handles" false setResultJson
   requireFieldAbsent "set result json" "previous_root" setResultJson
 

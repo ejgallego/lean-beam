@@ -530,6 +530,38 @@ private def checkRequestArgsBoundary : IO Unit := do
     "rocq backend does not support code action resolution"
     codeActionResolveRocqUnsupported.codeActionResolveArgs
 
+private def checkWorkspaceRoutingFields : IO Unit := do
+  let defaultReq : Request := { op := .stats }
+  require "missing workspace id defaults to default" (defaultReq.workspaceId == defaultWorkspaceId)
+
+  let explicitReq : Request := {
+    op := .stats
+    workspaceId? := some "fixture"
+  }
+  require "explicit workspace id wins" (explicitReq.workspaceId == "fixture")
+
+  let handle : Handle := {
+    workspaceId := "handle-workspace"
+    backend := .lean
+    epoch := 1
+    session := "session"
+    raw := Json.mkObj [("value", toJson ("raw" : String))]
+  }
+  let handleReq : Request := {
+    op := .runWith
+    handle? := some handle
+  }
+  require "handle workspace id routes omitted request workspace"
+    (handleReq.workspaceId == "handle-workspace")
+
+  let explicitHandleReq : Request := {
+    op := .runWith
+    workspaceId? := some "explicit"
+    handle? := some handle
+  }
+  require "explicit workspace id overrides handle for validation"
+    (explicitHandleReq.workspaceId == "explicit")
+
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
@@ -541,6 +573,7 @@ def main : IO Unit := do
   checkReadinessBoundary
   checkStaleDirectDepHints
   checkRequestArgsBoundary
+  checkWorkspaceRoutingFields
 
 end BeamTest.Broker.ProtocolTest
 

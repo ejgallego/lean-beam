@@ -714,12 +714,27 @@ def require_message_contains(label, structured, needle):
     )
 
 
-def init_workspace(client, root, *, mode=None, invalidated_handles=False, previous_root=None):
+def init_workspace(
+    client,
+    root,
+    *,
+    workspace_id=None,
+    mode=None,
+    invalidated_handles=False,
+    previous_root=None,
+):
     args = {"root": str(root)}
+    if workspace_id is not None:
+        args["workspace_id"] = workspace_id
     if mode is not None:
         args["mode"] = mode
     structured = client.call_tool("lean_init_workspace", args)
     require(structured.get("initialized") is True, f"init workspace did not initialize: {structured}")
+    expected_workspace_id = workspace_id or "default"
+    require(
+        structured.get("workspace_id") == expected_workspace_id,
+        f"init workspace returned wrong workspace_id {expected_workspace_id!r}: {structured}",
+    )
     require(
         Path(structured.get("root")).resolve() == Path(root).resolve(),
         f"init workspace returned wrong root for {root}: {structured}",
@@ -747,6 +762,8 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
         "beam_version",
         "beam_stats",
         "beam_feedback",
+        "lean_list_workspaces",
+        "lean_drop_workspace",
         "lean_update",
         "lean_sync",
         "lean_refresh",
@@ -773,6 +790,51 @@ def init_workspace(client, root, *, mode=None, invalidated_handles=False, previo
         require(
             Path(structured.get("previous_root")).resolve() == Path(previous_root).resolve(),
             f"init workspace returned wrong previous_root {previous_root}: {structured}",
+        )
+    return structured
+
+
+def workspace_entry(structured, workspace_id):
+    workspaces = structured.get("workspaces")
+    require(isinstance(workspaces, list), f"workspace list missing workspaces array: {structured}")
+    for workspace in workspaces:
+        if isinstance(workspace, dict) and workspace.get("workspace_id") == workspace_id:
+            return workspace
+    return None
+
+
+def require_workspace_listed(structured, workspace_id, root=None):
+    workspace = workspace_entry(structured, workspace_id)
+    require(workspace is not None, f"workspace list missing {workspace_id!r}: {structured}")
+    if root is not None:
+        require(
+            Path(workspace.get("root")).resolve() == Path(root).resolve(),
+            f"workspace list returned wrong root for {workspace_id!r}: {workspace}",
+        )
+    return workspace
+
+
+def require_workspace_absent(structured, workspace_id):
+    require(
+        workspace_entry(structured, workspace_id) is None,
+        f"workspace list unexpectedly included {workspace_id!r}: {structured}",
+    )
+
+
+def drop_workspace(client, workspace_id, *, expected_dropped=True):
+    structured = client.call_tool("lean_drop_workspace", {"workspace_id": workspace_id})
+    require(
+        structured.get("workspace_id") == workspace_id,
+        f"drop workspace returned wrong workspace_id {workspace_id!r}: {structured}",
+    )
+    require(
+        structured.get("dropped") is expected_dropped,
+        f"drop workspace returned wrong dropped={expected_dropped}: {structured}",
+    )
+    if expected_dropped:
+        require(
+            structured.get("invalidated_handles") is True,
+            f"drop workspace should report handle invalidation: {structured}",
         )
     return structured
 
@@ -1034,6 +1096,8 @@ def run_cycle(
             require("beam_stats" in names, f"tools/list missing beam_stats: {tools}")
             require("beam_feedback" in names, f"tools/list missing beam_feedback: {tools}")
             require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
+            require("lean_list_workspaces" in names, f"tools/list missing lean_list_workspaces: {tools}")
+            require("lean_drop_workspace" in names, f"tools/list missing lean_drop_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
             require("lean_signature_help" in names, f"tools/list missing lean_signature_help: {tools}")
@@ -1563,7 +1627,7 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
                         "tools/call",
                         {"name": "lean_init_workspace", "arguments": {"root": str(other_root)}},
                     )
-                    expect_tool_error_code(changed_root, "invalidInput")
+                    expect_tool_error_code(changed_root, "invalidParams")
                 response = client.request(
                     "tools/call",
                     {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
@@ -1644,7 +1708,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
                 "tools/call",
                 {"name": "lean_init_workspace", "arguments": {"root": str(other_root), "mode": "verify"}},
             )
-            expect_tool_error_code(verify_other, "invalidInput")
+            expect_tool_error_code(verify_other, "invalidParams")
 
             reset = init_workspace(
                 client,
@@ -1784,6 +1848,108 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
             require(
                 Path(sync_after_reset.get("active_root")).resolve() == other_root.resolve(),
                 f"sync after stale reset returned wrong active_root: {sync_after_reset}",
+            )
+        finally:
+            client.close()
+
+
+def run_named_workspace_matrix(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-named-workspaces-") as tmp:
+        default_root = Path(tmp) / "default-project"
+        other_root = Path(tmp) / "other-project"
+        shutil.copytree(fixture_root, default_root)
+        shutil.copytree(fixture_root, other_root)
+        client = McpClient(
+            repo_root,
+            default_root,
+            timeout,
+            use_root_arg=False,
+            advertise_roots=False,
+            label="named-workspaces",
+        )
+        try:
+            client.initialize()
+            named_init = init_workspace(client, other_root, workspace_id="other")
+            require(named_init.get("runtime_reused") is False, f"named init should create runtime: {named_init}")
+            initial_list = client.call_tool("lean_list_workspaces")
+            require_workspace_listed(initial_list, "other", other_root)
+            require_workspace_absent(initial_list, "default")
+            named_sync = client.call_tool(
+                "lean_sync",
+                {"path": "PositionEmptyLine.lean", "workspace_id": "other"},
+            )
+            require(
+                named_sync.get("workspace_id") == "other",
+                f"named sync returned wrong workspace_id: {named_sync}",
+            )
+            require(
+                Path(named_sync.get("active_root")).resolve() == other_root.resolve(),
+                f"named sync returned wrong active_root: {named_sync}",
+            )
+
+            default_init = init_workspace(client, default_root)
+            require(default_init.get("runtime_reused") is False, f"default init should add workspace: {default_init}")
+            both_workspaces = client.call_tool("lean_list_workspaces")
+            require_workspace_listed(both_workspaces, "other", other_root)
+            require_workspace_listed(both_workspaces, "default", default_root)
+            default_sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                default_sync.get("workspace_id") == "default",
+                f"default sync returned wrong workspace_id: {default_sync}",
+            )
+            require(
+                Path(default_sync.get("active_root")).resolve() == default_root.resolve(),
+                f"default sync returned wrong active_root: {default_sync}",
+            )
+
+            named_sync_again = client.call_tool(
+                "lean_sync",
+                {"path": "PositionEmptyLine.lean", "workspace_id": "other"},
+            )
+            require(
+                Path(named_sync_again.get("active_root")).resolve() == other_root.resolve(),
+                f"named sync after default init returned wrong active_root: {named_sync_again}",
+            )
+            duplicate_reset = client.request(
+                "tools/call",
+                {
+                    "name": "lean_init_workspace",
+                    "arguments": {
+                        "root": str(default_root),
+                        "workspace_id": "other",
+                        "mode": "reset",
+                    },
+                },
+            )
+            error = expect_tool_error_code(duplicate_reset, "invalidParams")
+            require(
+                "already owned by workspace 'default'" in error.get("message", ""),
+                f"duplicate workspace root error should name owner: {error}",
+            )
+            missing_workspace_id_drop = client.request(
+                "tools/call",
+                {"name": "lean_drop_workspace", "arguments": {}},
+            )
+            missing_error = expect_tool_error_code(missing_workspace_id_drop, "invalidInput")
+            require(
+                "workspace_id" in missing_error.get("message", ""),
+                f"drop without workspace_id should require explicit id: {missing_error}",
+            )
+            drop_workspace(client, "other")
+            after_drop = client.call_tool("lean_list_workspaces")
+            require_workspace_absent(after_drop, "other")
+            require_workspace_listed(after_drop, "default", default_root)
+            dropped_sync = client.request(
+                "tools/call",
+                {
+                    "name": "lean_sync",
+                    "arguments": {"path": "PositionEmptyLine.lean", "workspace_id": "other"},
+                },
+            )
+            dropped_error = expect_tool_error_code(dropped_sync, "invalidInput")
+            require(
+                "unknown Beam workspace 'other'" in dropped_error.get("message", ""),
+                f"dropped workspace sync should fail cleanly: {dropped_error}",
             )
         finally:
             client.close()
@@ -2036,6 +2202,7 @@ def main():
     run_progress_notification_smoke(repo_root, fixture_root, args.timeout)
     run_root_setup_matrix(repo_root, fixture_root, args.timeout)
     run_init_workspace_mode_matrix(repo_root, fixture_root, args.timeout)
+    run_named_workspace_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)
     run_closed_stdout_regression(repo_root, fixture_root, args.timeout)
 

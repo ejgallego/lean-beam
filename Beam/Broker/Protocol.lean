@@ -11,6 +11,11 @@ open Lean
 
 namespace Beam.Broker
 
+abbrev WorkspaceId := String
+
+def defaultWorkspaceId : WorkspaceId :=
+  "default"
+
 instance : Repr Lsp.DiagnosticSeverity where
   reprPrec severity _ :=
     match severity with
@@ -40,6 +45,9 @@ inductive Op where
   | todo
   | runWith
   | release
+  | initWorkspace
+  | listWorkspaces
+  | dropWorkspace
   | stats
   | resetStats
   | shutdown
@@ -66,6 +74,9 @@ def Op.key : Op → String
   | .todo => "todo"
   | .runWith => "run_with"
   | .release => "release"
+  | .initWorkspace => "init_workspace"
+  | .listWorkspaces => "list_workspaces"
+  | .dropWorkspace => "drop_workspace"
   | .stats => "stats"
   | .resetStats => "reset_stats"
   | .shutdown => "shutdown"
@@ -95,6 +106,9 @@ instance : FromJson Op where
     | .str "todo" => .ok .todo
     | .str "run_with" => .ok .runWith
     | .str "release" => .ok .release
+    | .str "init_workspace" => .ok .initWorkspace
+    | .str "list_workspaces" => .ok .listWorkspaces
+    | .str "drop_workspace" => .ok .dropWorkspace
     | .str "stats" => .ok .stats
     | .str "reset_stats" => .ok .resetStats
     | .str "shutdown" => .ok .shutdown
@@ -156,6 +170,7 @@ instance : FromJson GoalPpFormat where
     | j => .error s!"expected pp format 'Box', 'Pp', or 'Str', got {j.compress}"
 
 structure Handle where
+  workspaceId : WorkspaceId := defaultWorkspaceId
   backend : Backend
   epoch : Nat
   session : String
@@ -165,6 +180,8 @@ structure Handle where
 structure Request where
   op : Op
   backend : Backend := .lean
+  workspaceId? : Option WorkspaceId := none
+  workspaceMode? : Option String := none
   clientRequestId? : Option String := none
   cancelRequestId? : Option String := none
   root? : Option String := none
@@ -187,6 +204,9 @@ structure Request where
   fullDiagnostics? : Option Bool := none
   includeDiagnostics? : Option Bool := none
   saveArtifacts? : Option Bool := none
+  leanCmd? : Option String := none
+  leanPlugin? : Option String := none
+  rocqCmd? : Option String := none
   handle? : Option Handle := none
   codeAction? : Option Lsp.CodeAction := none
   deriving Inhabited, ToJson
@@ -207,6 +227,8 @@ instance : FromJson Request where
       match ← optionalField? (α := Backend) j "backend" with
       | some backend => pure backend
       | none => pure .lean
+    let workspaceId? ← optionalField? (α := WorkspaceId) j "workspaceId"
+    let workspaceMode? ← optionalField? (α := String) j "workspaceMode"
     let clientRequestId? ← optionalField? (α := String) j "clientRequestId"
     let cancelRequestId? ← optionalField? (α := String) j "cancelRequestId"
     let root? ← optionalField? (α := String) j "root"
@@ -229,14 +251,17 @@ instance : FromJson Request where
     let fullDiagnostics? ← optionalField? (α := Bool) j "fullDiagnostics"
     let includeDiagnostics? ← optionalField? (α := Bool) j "includeDiagnostics"
     let saveArtifacts? ← optionalField? (α := Bool) j "saveArtifacts"
+    let leanCmd? ← optionalField? (α := String) j "leanCmd"
+    let leanPlugin? ← optionalField? (α := String) j "leanPlugin"
+    let rocqCmd? ← optionalField? (α := String) j "rocqCmd"
     let handle? ← optionalField? (α := Handle) j "handle"
     let codeAction? ← optionalField? (α := Lsp.CodeAction) j "codeAction"
     pure {
-      op, backend, clientRequestId?, cancelRequestId?,
+      op, backend, workspaceId?, workspaceMode?, clientRequestId?, cancelRequestId?,
       root?, path?, version?, line?, character?, endLine?, endCharacter?,
       text?, query?, includeDeclaration?, kinds?, suggest?, storeHandle?,
       linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
-      saveArtifacts?, handle?, codeAction?
+      saveArtifacts?, leanCmd?, leanPlugin?, rocqCmd?, handle?, codeAction?
     }
 
 structure Error where
@@ -618,6 +643,12 @@ def Response.error (code : String) (message : String := "") (data? : Option Json
 
 def Response.withClientRequestId (resp : Response) (clientRequestId? : Option String) : Response :=
   { resp with clientRequestId? := clientRequestId? <|> resp.clientRequestId? }
+
+def Request.workspaceId (req : Request) : WorkspaceId :=
+  match req.workspaceId?, req.handle? with
+  | some workspaceId, _ => workspaceId
+  | none, some handle => handle.workspaceId
+  | none, none => defaultWorkspaceId
 
 def Request.requireRoot (req : Request) : Except String System.FilePath := do
   let some root := req.root?
