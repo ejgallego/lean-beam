@@ -47,8 +47,12 @@ primitive.
 This card should stay downstream of
 [BUC-0001](../BUC-0001-stale-import-dependency-reporting/README.md). A
 plan/apply API is only safe if the dependency hints are trustworthy and the
-write/close effects are explicit. Until then, batching risks turning a
-recoverable stale-state problem into a higher-impact workflow operation.
+write/close effects are explicit. The upstream document-state work in
+[ULC-0001](../ULC-0001-structured-stale-dependency-metadata/README.md) would
+make the dependency input to a future plan/apply API much less speculative,
+because Beam would not have to infer the stale dependency only from diagnostics
+and broker history. Until then, batching risks turning a recoverable
+stale-state problem into a higher-impact workflow operation.
 
 ## Expected Behavior
 
@@ -56,6 +60,10 @@ A future surface could expose a planning method and an execution method. The
 plan must default to dry-run, avoid silently saving user files, show writes and
 closures, stream progress, and fall back to `lake build` when Beam cannot safely
 identify the dependency cone.
+
+If Lean exposes structured stale-dependency document state, the plan should use
+that state as the authority for importer/dependency relationships, then layer
+Beam-local save/checkpoint policy such as `needsSave` on top.
 
 ## Evidence
 

@@ -30,7 +30,9 @@ Beam should keep its current sync/save contract stable while identifying one
 or two small Lean-side primitives that can replace broker inference. The pure
 frontend readiness helper from
 [ULC-0005](../ULC-0005-pure-frontend-readiness-report/README.md) is folded into
-this card.
+this card. Structured stale-dependency document state from
+[ULC-0001](../ULC-0001-structured-stale-dependency-metadata/README.md) should
+be treated as one expected input to readiness, not folded into this umbrella.
 
 ## Reproduction Status
 
@@ -43,8 +45,10 @@ barriers. They do not remove Beam's broker-side barrier interpretation.
 This is broader than BUC-0001 and should not block local Beam fixes. The
 lowest-risk path is to keep Beam's current readiness contract stable while
 identifying narrower Lean primitives that can replace broker inference for
-sync/save completion. Keep this as the umbrella for readiness work; split only
-when there is a concrete Lean PR shape.
+sync/save completion. Stale dependency state is a concrete blocking reason that
+readiness should be able to report once ULC-0001 provides it, but ULC-0001 owns
+the stale-dependency data model. Keep this as the umbrella for readiness work;
+split only when there is a concrete Lean PR shape.
 
 ## Expected Behavior
 
@@ -54,6 +58,7 @@ returns:
 - whether diagnostics are complete for that version;
 - whether save/checkpoint may proceed;
 - blocking diagnostics or failure reasons;
+- structured stale-dependency state when it blocks the document;
 - current diagnostic counts by severity;
 - a pure frontend helper for the build-blocking decision without printing
   diagnostics;
