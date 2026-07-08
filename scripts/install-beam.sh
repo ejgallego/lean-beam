@@ -789,8 +789,8 @@ prompt_skill_selection() {
     "codex|Codex ($codex_skills_home)|c" \
     "claude|Claude Code ($claude_skills_home)|claude-code" \
     "pi|Pi Agent ($pi_skills_home)|p pi-agent" \
-    "opencode|OpenCode ($opencode_skills_home)|o open-code" \
-    "vibe|Mistral Vibe ($vibe_skills_home)|v mistral mistral-vibe")"
+    "vibe|Mistral Vibe ($vibe_skills_home)|v mistral mistral-vibe" \
+    "opencode|OpenCode ($opencode_skills_home)|o open-code")"
   install_codex_skills=0
   install_claude_skills=0
   install_pi_skills=0
