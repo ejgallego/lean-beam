@@ -25,6 +25,7 @@ From a Lean Beam checkout, run one installer command that matches how you plan t
 ./scripts/install-beam.sh --claude   # wrappers plus Claude Code skills
 ./scripts/install-beam.sh --pi       # wrappers plus Pi Agent skills
 ./scripts/install-beam.sh --opencode # wrappers plus OpenCode skills
+./scripts/install-beam.sh --vibe     # wrappers plus Mistral Vibe skills
 ./scripts/install-beam.sh --all-skills # wrappers plus every supported agent skill
 ```
 
@@ -55,8 +56,8 @@ skill:
 ```
 
 `--rocq-skill` is only a modifier. It must be paired with `--codex`, `--claude`, `--pi`,
-`--opencode`, `--all-skills`, or an interactive skill target. Rocq-specific setup is documented in
-[ROCQ.md](ROCQ.md).
+`--opencode`, `--vibe`, `--all-skills`, or an interactive skill target. Rocq-specific setup is
+documented in [ROCQ.md](ROCQ.md).
 
 The installer requires `elan` on `PATH`. Make sure `~/.local/bin` is on `PATH` before using the
 installed wrappers directly.
@@ -183,7 +184,12 @@ Use this section only when your editor or agent client speaks MCP. The ordinary 
 workflow does not require MCP.
 
 The installer includes the experimental stdio MCP server as `lean-beam-mcp`. It can register the
-server automatically for Codex, Claude Code, or OpenCode. For OpenCode, the installer prints the
+server automatically for Codex, Claude Code, Mistral Vibe, or OpenCode. For Mistral Vibe, the
+installer edits `~/.vibe/config.toml` directly: it replaces any existing `lean-beam` entry in
+`[[mcp_servers]]`, removes Vibe's default empty `mcp_servers = []` line (TOML forbids extending an
+inline array with `[[mcp_servers]]` tables), and leaves other entries untouched. If the config
+holds other servers as inline `mcp_servers = [...]` entries, the installer refuses; move those
+entries to `[[mcp_servers]]` tables first. For OpenCode, the installer prints the
 `opencode mcp add` values to use manually. Pi Agent does not support MCP; install its skill with
 `--pi`.
 
@@ -191,6 +197,7 @@ server automatically for Codex, Claude Code, or OpenCode. For OpenCode, the inst
 ./scripts/install-beam.sh --codex-mcp
 ./scripts/install-beam.sh --claude-mcp
 ./scripts/install-beam.sh --opencode-mcp
+./scripts/install-beam.sh --vibe-mcp
 ./scripts/install-beam.sh --all-mcp
 ```
 
@@ -209,6 +216,18 @@ When `opencode mcp add` prompts for the server, use:
 name: lean-beam
 type: local
 command: /absolute/path/to/lean-beam-mcp
+```
+
+To register with Mistral Vibe manually, remove any `mcp_servers = []` line from
+`~/.vibe/config.toml`, then append this entry:
+
+```toml
+[[mcp_servers]]
+name = "lean-beam"
+transport = "stdio"
+command = "/absolute/path/to/lean-beam-mcp"
+args = []
+tool_timeout_sec = 600
 ```
 
 MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the project
@@ -273,17 +292,21 @@ Default install locations are:
 | Pi Agent skill home | `$HOME/.pi/agent` | interactive `change`, `PI_CODING_AGENT_DIR`, or `--pi-home` |
 | OpenCode config directory | `$HOME/.config/opencode` | interactive `change`, `OPENCODE_CONFIG_DIR`, or `--opencode-config-dir` |
 | OpenCode skill home | `$HOME/.config/opencode/skills` | derived from the OpenCode config directory |
+| Mistral Vibe home | `$HOME/.vibe` | interactive `change`, `VIBE_HOME`, or `--vibe-home` |
+| Mistral Vibe skill home | `$HOME/.vibe/skills` | derived from the Mistral Vibe home |
+| Mistral Vibe MCP config | `$HOME/.vibe/config.toml` | derived from the Mistral Vibe home |
 
 For sandboxed config locations, pass the target paths explicitly:
 
 ```bash
 ./scripts/install-beam.sh --codex-mcp --codex-home /path/to/sandbox/.codex
 ./scripts/install-beam.sh --claude-mcp --claude-mcp-config /path/to/sandbox/.claude.json
+./scripts/install-beam.sh --vibe-mcp --vibe-home /path/to/sandbox/.vibe
 ```
 
-The same Codex and Claude overrides are available as `CODEX_HOME` and
-`BEAM_CLAUDE_MCP_CONFIG`. Interactive installs can also choose `change` at the write-location
-prompt before approving writes.
+The same Codex, Claude, and Mistral Vibe overrides are available as `CODEX_HOME`,
+`BEAM_CLAUDE_MCP_CONFIG`, and `VIBE_HOME`. Interactive installs can also choose `change` at the
+write-location prompt before approving writes.
 
 ## Slow Or Offline Installs
 

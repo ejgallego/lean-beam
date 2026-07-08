@@ -6,6 +6,12 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 0.2.0 beta development is open. Add user-facing changes here as they land.
 
+### Added
+
+- Mistral Vibe skill installation and MCP registration support through `--vibe`, `--vibe-mcp`,
+  `--vibe-home`, and `VIBE_HOME`
+  ([#213](https://github.com/ejgallego/lean-beam/pull/213), @archiebrowne).
+
 ### Fixed
 
 - `lean-beam-mcp --self-check` now waits long enough for valid first-use local bundle builds and

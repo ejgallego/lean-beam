@@ -49,6 +49,15 @@ validate_opencode_config_dir() {
   require_path_within "$opencode_skills_home" "$opencode_config_dir" "OpenCode skills home"
 }
 
+validate_vibe_home() {
+  require_absolute_path "$vibe_home" "Mistral Vibe home"
+  require_not_root "$vibe_home" "Mistral Vibe home"
+  require_absolute_path "$vibe_skills_home" "Mistral Vibe skills home"
+  require_path_within "$vibe_skills_home" "$vibe_home" "Mistral Vibe skills home"
+  require_absolute_path "$vibe_mcp_config" "Mistral Vibe MCP config"
+  require_path_within "$vibe_mcp_config" "$vibe_home" "Mistral Vibe MCP config"
+}
+
 validate_requested_location_config() {
   validate_install_config
   if [ "$install_codex_skills" -eq 1 ] || [ "$register_codex_mcp" -eq 1 ]; then
@@ -65,6 +74,9 @@ validate_requested_location_config() {
   fi
   if [ "$install_opencode_skills" -eq 1 ]; then
     validate_opencode_config_dir
+  fi
+  if [ "$install_vibe_skills" -eq 1 ] || [ "$register_vibe_mcp" -eq 1 ]; then
+    validate_vibe_home
   fi
 }
 
@@ -121,6 +133,10 @@ prompt_install_location_changes() {
     selected_path="$(prompt_optional_path_override "Claude Code user config" "$claude_mcp_user_config")"
     set_claude_mcp_user_config "$selected_path"
   fi
+  if [ "$install_vibe_skills" -eq 1 ] || [ "$register_vibe_mcp" -eq 1 ]; then
+    selected_path="$(prompt_optional_path_override "Mistral Vibe home" "$vibe_home")"
+    set_vibe_home "$selected_path"
+  fi
 
   validate_requested_location_config
 }
@@ -135,7 +151,8 @@ print_write_locations() {
   printf '    - Source build output: %s\n' "$repo_root/.lake" >&2
 
   if [ "$install_codex_skills" -eq 1 ] || [ "$install_claude_skills" -eq 1 ] \
-    || [ "$install_pi_skills" -eq 1 ] || [ "$install_opencode_skills" -eq 1 ]; then
+    || [ "$install_pi_skills" -eq 1 ] || [ "$install_opencode_skills" -eq 1 ] \
+    || [ "$install_vibe_skills" -eq 1 ]; then
     printf '\n  Agent skills\n' >&2
     if [ "$install_codex_skills" -eq 1 ]; then
       printf '    - Codex skills: %s (%s)\n' "$codex_skills_home" "$(skill_install_names)" >&2
@@ -149,9 +166,13 @@ print_write_locations() {
     if [ "$install_opencode_skills" -eq 1 ]; then
       printf '    - OpenCode skills: %s (%s)\n' "$opencode_skills_home" "$(skill_install_names)" >&2
     fi
+    if [ "$install_vibe_skills" -eq 1 ]; then
+      printf '    - Mistral Vibe skills: %s (%s)\n' "$vibe_skills_home" "$(skill_install_names)" >&2
+    fi
   fi
 
-  if [ "$register_codex_mcp" -eq 1 ] || [ "$register_claude_mcp" -eq 1 ]; then
+  if [ "$register_codex_mcp" -eq 1 ] || [ "$register_claude_mcp" -eq 1 ] \
+    || [ "$register_vibe_mcp" -eq 1 ]; then
     printf '\n  MCP registration\n' >&2
     if [ "$register_codex_mcp" -eq 1 ]; then
       printf '    - Codex home: %s\n' "$codex_home" >&2
@@ -160,6 +181,10 @@ print_write_locations() {
     if [ "$register_claude_mcp" -eq 1 ]; then
       printf '    - Claude Code config: %s\n' "$claude_mcp_user_config" >&2
       printf '    - Claude Code backups: %s\n' "$claude_mcp_backup_home" >&2
+    fi
+    if [ "$register_vibe_mcp" -eq 1 ]; then
+      printf '    - Mistral Vibe home: %s\n' "$vibe_home" >&2
+      printf '    - Mistral Vibe config: %s\n' "$vibe_mcp_config" >&2
     fi
   fi
 
@@ -209,11 +234,17 @@ approve_current_write_locations() {
   if [ "$install_opencode_skills" -eq 1 ]; then
     remember_approved_write_home "$opencode_skills_home"
   fi
+  if [ "$install_vibe_skills" -eq 1 ]; then
+    remember_approved_write_home "$vibe_skills_home"
+  fi
   if [ "$register_codex_mcp" -eq 1 ]; then
     remember_approved_write_home "$codex_home"
   fi
   if [ "$register_claude_mcp" -eq 1 ]; then
     remember_approved_write_home "$claude_mcp_home"
+  fi
+  if [ "$register_vibe_mcp" -eq 1 ]; then
+    remember_approved_write_home "$vibe_home"
   fi
   runtime_writes_approved=1
   bin_writes_approved=1
