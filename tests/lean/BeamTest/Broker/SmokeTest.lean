@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import BeamTest.Broker.SmokeUtil
+import BeamTest.Broker.JsonAssert
 import BeamTest.Fixtures.TodoFixture
 
 set_option maxRecDepth 4096
@@ -14,6 +15,7 @@ open Lean
 namespace BeamTest.Broker.SmokeTest
 
 open BeamTest.Broker.TestUtil
+open BeamTest.Broker.JsonAssert
 
 private def syncVersion
     (endpoint : Beam.Broker.Endpoint)
@@ -816,16 +818,171 @@ private def runSaveAndStatsSmoke
   expectOpMetricAtLeast stats "lean" "run_at" "cancelledCount" 1
   expectOpMetricAtLeast stats "lean" "run_at" "workerExitedCount" 1
 
+private def requireWorkspaceListed (payload : Json) (workspaceId : String) : IO Unit := do
+  let workspaces ← IO.ofExcept <| payload.getObjVal? "workspaces"
+  match workspaces with
+  | Json.obj _ =>
+      match workspaces.getObjVal? workspaceId with
+      | .ok _ => pure ()
+      | .error _ =>
+        throw <| IO.userError s!"expected workspace '{workspaceId}' in payload: {payload.compress}"
+  | _ =>
+      throw <| IO.userError s!"expected workspaces object in payload: {payload.compress}"
+
+private def requireWorkspaceArrayListed (payload : Json) (workspaceId : String) : IO Unit := do
+  let workspaces ← IO.ofExcept <| payload.getObjVal? "workspaces"
+  match workspaces with
+  | Json.arr entries =>
+      let found := entries.any fun entry =>
+        match entry.getObjVal? "workspace_id" with
+        | .ok (.str id) => id == workspaceId
+        | _ => false
+      unless found do
+        throw <| IO.userError s!"expected workspace '{workspaceId}' in list payload: {payload.compress}"
+  | _ =>
+      throw <| IO.userError s!"expected workspaces array in payload: {payload.compress}"
+
+private def runWorkspaceLifecycleSmoke
+    (endpoint : Beam.Broker.Endpoint)
+    (root otherRoot plugin : System.FilePath)
+    (leanCmd : String) : IO Unit := do
+  let workspaceId := "fixture"
+  let initResp ← runClient endpoint {
+    op := .initWorkspace
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+    leanCmd? := some leanCmd
+    leanPlugin? := some plugin.toString
+  }
+  let init ← expectOk initResp
+  requireJsonString "named workspace init" "workspace_id" workspaceId init
+  requireJsonString "named workspace init mode" "mode" "set" init
+  requireJsonBool "named workspace init reused" "runtime_reused" false init
+  let duplicateRoot ← runClient endpoint {
+    op := .initWorkspace
+    workspaceId? := some "duplicate"
+    root? := some otherRoot.toString
+    leanCmd? := some leanCmd
+    leanPlugin? := some plugin.toString
+  }
+  expectErrCode duplicateRoot "invalidParams"
+
+  discard <| expectOk (← runClient endpoint {
+    op := .ensure
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+  })
+  let updatePayload ← expectOk (← runClient endpoint {
+    op := .updateFile
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+    path? := some "PositionEmptyLine.lean"
+  })
+  let update ← requireUpdateFileResult "named workspace update" updatePayload
+  if update.version != 1 then
+    throw <| IO.userError s!"expected named workspace update version 1, got {update.version}"
+  let proofHandleSeed ← expectOk <| ← runClient endpoint {
+    op := .runAt
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+    path? := some "GoalSmoke.lean"
+    version? := some update.version
+    line? := some 1
+    character? := some 2
+    text? := some "trivial"
+    storeHandle? := some true
+  }
+  let proofHandleJson ← IO.ofExcept <| proofHandleSeed.getObjVal? "handle"
+  let proofHandle : Beam.Broker.Handle ← IO.ofExcept <| fromJson? proofHandleJson
+
+  let resetResp ← runClient endpoint {
+    op := .initWorkspace
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+    workspaceMode? := some "reset"
+    leanCmd? := some leanCmd
+    leanPlugin? := some plugin.toString
+  }
+  let reset ← expectOk resetResp
+  requireJsonString "named workspace reset" "workspace_id" workspaceId reset
+  requireJsonString "named workspace reset mode" "mode" "reset" reset
+  requireJsonBool "named workspace reset invalidated handles" "invalidated_handles" true reset
+  requireJsonString "named workspace reset previous root" "previous_root" otherRoot.toString reset
+  let staleAfterReset ← runClient endpoint {
+    op := .runWith
+    root? := some otherRoot.toString
+    path? := some "GoalSmoke.lean"
+    handle? := some proofHandle
+    text? := some "trivial"
+  }
+  expectErrCode staleAfterReset "contentModified"
+
+  let updateAfterResetPayload ← expectOk (← runClient endpoint {
+    op := .updateFile
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+    path? := some "GoalSmoke.lean"
+  })
+  let updateAfterReset ← requireUpdateFileResult "named workspace update after reset" updateAfterResetPayload
+  let postResetHandleSeed ← expectOk <| ← runClient endpoint {
+    op := .runAt
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+    path? := some "GoalSmoke.lean"
+    version? := some updateAfterReset.version
+    line? := some 1
+    character? := some 2
+    text? := some "trivial"
+    storeHandle? := some true
+  }
+  let postResetHandleJson ← IO.ofExcept <| postResetHandleSeed.getObjVal? "handle"
+  let postResetHandle : Beam.Broker.Handle ← IO.ofExcept <| fromJson? postResetHandleJson
+
+  let defaultMismatch ← runClient endpoint {
+    op := .ensure
+    workspaceId? := some workspaceId
+    root? := some root.toString
+  }
+  expectErrCode defaultMismatch "invalidParams"
+
+  let openDocs ← expectOk (← runClient endpoint { op := .openDocs })
+  requireWorkspaceListed openDocs workspaceId
+  let workspaces ← expectOk (← runClient endpoint { op := .listWorkspaces })
+  requireWorkspaceArrayListed workspaces workspaceId
+
+  let drop ← expectOk (← runClient endpoint {
+    op := .dropWorkspace
+    workspaceId? := some workspaceId
+  })
+  requireJsonBool "drop named workspace" "dropped" true drop
+  let staleAfterDrop ← runClient endpoint {
+    op := .runWith
+    root? := some otherRoot.toString
+    path? := some "GoalSmoke.lean"
+    handle? := some postResetHandle
+    text? := some "trivial"
+  }
+  expectErrCode staleAfterDrop "invalidParams"
+  let droppedEnsure ← runClient endpoint {
+    op := .ensure
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+  }
+  expectErrCode droppedEnsure "invalidParams"
+
 def smokeMain : IO Unit := do
   let endpoint ← freshTcpEndpoint
   let root ← repoRoot
   let otherRoot ← IO.FS.realPath <| root / "tests" / "save_olean_project"
-  let broker ← spawnLeanBrokerWithPlugin endpoint root (← pluginPath) (← leanCmd)
+  let plugin ← pluginPath
+  let leanCmd ← leanCmd
+  let broker ← spawnLeanBrokerWithPlugin endpoint root plugin leanCmd
   try
     waitForBrokerReadyForRoot endpoint root
     discard <| expectOk (← runClient endpoint { op := .ensure, root? := some root.toString })
     let rootMismatch ← runClient endpoint { op := .ensure, root? := some otherRoot.toString }
     expectErrCode rootMismatch "invalidParams"
+    runWorkspaceLifecycleSmoke endpoint root otherRoot plugin leanCmd
     discard <| expectOk (← runClient endpoint { op := .resetStats })
     runUpdateSmoke endpoint root
     runSyncSmoke endpoint root

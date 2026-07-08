@@ -42,6 +42,8 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
 - `lean-beam open-files` daemon introspection for tracked documents, including saved/not-saved state,
   direct Lean deps when available, save preflight fields, checkpoint status, and the last compact
   `fileProgress`
+- local broker workspaces keyed by explicit workspace ids, each owning its own LSP session, document
+  mirror, handles, sync/save history, and metrics
 - compact `fileProgress` reporting on slow Lean wrapper calls when matching LSP progress
   notifications were observed while the request was pending
 - explicit support for installed custom elan-linked Lean toolchains through
@@ -62,8 +64,10 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   context, daemon registry context, and recent daemon incident paths
 - `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, root
   setup through `lean_init_workspace`, and a real `lean_sync` tool call
-- MCP root discovery through exactly one `roots/list` workspace root, explicit `--root`, or explicit
-  session setup through `lean_init_workspace`
+- MCP default-root discovery through exactly one `roots/list` workspace root, explicit `--root`, or
+  explicit session setup through `lean_init_workspace`; additional local workspaces are initialized
+  with `lean_init_workspace` plus `workspace_id`, listed with `lean_list_workspaces`, and removed
+  with explicit `lean_drop_workspace` calls
 - projected MCP tools for versioned Lean file operations, semantic navigation, todo/code-action
   workflows, follow-up handles, save/sync operations, version/stats, and feedback report cards; the
   generated tool list and client semantics are documented in [MCP.md](MCP.md)
@@ -91,9 +95,10 @@ Request-level failures stay at the transport layer. Semantic Lean outcomes stay 
 response payload.
 
 Follow-up handles exist, but they should be treated as pre-stable support APIs rather than as a frozen
-long-term contract. They are opaque, document-bound, invalidated by same-document edits, document
-close, worker or daemon restart, and MCP workspace reset. Exact continuation requires an explicit
-handle path; separate `lean-beam run-at` calls do not chain through hidden state.
+long-term contract. They are opaque, workspace- and document-bound, invalidated by same-document
+edits, document close, worker or daemon restart, and reset/drop of their owning workspace. Exact
+continuation requires an explicit handle path; separate `lean-beam run-at` calls do not chain
+through hidden state.
 
 The `lean-beam update`, `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` commands are
 a progression:
@@ -163,14 +168,17 @@ discriminator.
   `.beam/daemon-failures/` or the per-root subdirectory of `BEAM_CONTROL_DIR`. Beam keeps the latest
   50 incident records and `lean-beam doctor` lists recent incident paths.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
-- The Beam daemon is single-root and keeps a conservative single active session per backend.
+- The Beam daemon can manage multiple local workspaces, with one active session per backend per
+  workspace. Remote workspaces and same-source multi-toolchain mirrors are not implemented yet.
 
 ### MCP
 
 - `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are
   not advertised or tested.
-- MCP workspace reset invalidates handles minted by the old runtime; discard saved handle files
-  after `lean_init_workspace` with `mode: "reset"`.
+- MCP workspace reset invalidates handles minted by the selected workspace id; discard saved handle
+  files for that workspace after `lean_init_workspace` with `mode: "reset"` or after dropping that
+  workspace. `lean_drop_workspace` requires an explicit `workspace_id`; use `"default"` to drop the
+  default workspace.
 - `lean-beam-mcp` can execute ordinary tool calls concurrently in one process. Responses may arrive
   out of request order and are routed by exact JSON-RPC ID, with string and numeric IDs kept distinct.
 - Tool calls that include `_meta.progressToken` receive live MCP progress notifications. Updates for

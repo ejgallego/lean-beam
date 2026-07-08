@@ -84,6 +84,14 @@ private def checkToolNames : IO Unit := do
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_init_workspace")
   require "decode lean_init_workspace: wrong tool" (initWorkspace == .leanInitWorkspace)
 
+  let listWorkspaces ← expectOk "decode lean_list_workspaces" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_list_workspaces")
+  require "decode lean_list_workspaces: wrong tool" (listWorkspaces == .leanListWorkspaces)
+
+  let dropWorkspace ← expectOk "decode lean_drop_workspace" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_drop_workspace")
+  require "decode lean_drop_workspace: wrong tool" (dropWorkspace == .leanDropWorkspace)
+
   let decoded ← expectOk "decode lean_run_at" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_run_at")
   require "decode lean_run_at: wrong tool" (decoded == .leanRunAt)
 
@@ -156,8 +164,8 @@ private def checkToolDescriptors : IO Unit := do
     require s!"generated tool key should decode back to {repr tool}" (decoded == tool)
   require "Lean operation tool names track shared operation surface"
     (Beam.Mcp.leanOperationToolNames.size == Beam.Lean.Operation.all.size)
-  require "tool names are server tools, init workspace, plus shared Lean operations"
-    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 4)
+  require "tool names are server tools, workspace lifecycle tools, plus shared Lean operations"
+    (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 6)
   for op in Beam.Lean.Operation.all do
     let projectedTool := Beam.Mcp.ToolName.ofLeanOperation op
     require s!"Lean operation {repr op} should round-trip through MCP projection"
@@ -171,6 +179,12 @@ private def checkToolDescriptors : IO Unit := do
   require "init workspace descriptor is exposed as setup tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanInitWorkspace && desc.kind == .workspaceInit))
+  require "list workspaces descriptor is exposed as workspace lifecycle tool"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanListWorkspaces && desc.kind == .workspaceList))
+  require "drop workspace descriptor is exposed as workspace lifecycle tool"
+    (Beam.Mcp.toolDescriptors.any (fun desc =>
+      desc.name == .leanDropWorkspace && desc.kind == .workspaceDrop))
   require "beam version descriptor is exposed as server info tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .beamVersion && desc.kind == .serverInfo))
@@ -202,6 +216,14 @@ private def checkToolDescriptors : IO Unit := do
   let schemaProperties ← requireObjVal "init workspace schema" "properties" initDesc.inputSchema
   discard <| requireObjVal "init workspace schema properties" "root" schemaProperties
   discard <| requireObjVal "init workspace schema properties" "mode" schemaProperties
+  let some listDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanListWorkspaces)
+    | throw <| IO.userError "list workspaces descriptor is missing"
+  let listSchemaProperties ← requireObjVal "list workspaces schema" "properties" listDesc.inputSchema
+  require "list workspaces schema should have no input properties" (listSchemaProperties == Json.mkObj [])
+  let some dropDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanDropWorkspace)
+    | throw <| IO.userError "drop workspace descriptor is missing"
+  let dropSchemaProperties ← requireObjVal "drop workspace schema" "properties" dropDesc.inputSchema
+  discard <| requireObjVal "drop workspace schema properties" "workspace_id" dropSchemaProperties
   require "hover descriptor is exposed"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .leanHover && desc.kind == .leanOperation .hover))
@@ -262,6 +284,21 @@ private def checkBrokerRequestAdapters : IO Unit := do
   | .error err =>
       require "init workspace broker adapter error names setup behavior" (err.contains "does not map")
 
+  match Beam.Mcp.ToolName.leanListWorkspaces.toBrokerRequest root (Json.mkObj []) with
+  | .ok req =>
+      throw <| IO.userError s!"list workspaces produced broker request unexpectedly: {repr req.op}"
+  | .error err =>
+      require "list workspaces broker adapter error names workspace state behavior"
+        (err.contains "workspace state")
+
+  match Beam.Mcp.ToolName.leanDropWorkspace.toBrokerRequest root
+      (Json.mkObj [("workspace_id", toJson "fixture")]) with
+  | .ok req =>
+      throw <| IO.userError s!"drop workspace produced broker request unexpectedly: {repr req.op}"
+  | .error err =>
+      require "drop workspace broker adapter error names workspace state behavior"
+        (err.contains "workspace state")
+
   let resetInitJson := toJson ({ root := root, mode? := some .reset } : Beam.Mcp.InitWorkspaceInput)
   requireJsonString "init workspace mode json" "mode" "reset" resetInitJson
 
@@ -284,6 +321,12 @@ private def checkBrokerRequestAdapters : IO Unit := do
   require "runAt text" (runAtReq.text? == some "exact h")
   require "runAt does not store by default" runAtReq.storeHandle?.isNone
   requireFieldAbsent "runAt input json" "root" (toJson runAtInput)
+  requireFieldAbsent "runAt input json" "workspace_id" (toJson runAtInput)
+
+  let runAtWorkspaceJson := (toJson runAtInput).setObjVal! "workspace_id" (toJson "fixture")
+  let runAtWorkspaceReq ← expectOk "runAt workspace tool request" <|
+    Beam.Mcp.ToolName.leanRunAt.toBrokerRequest root runAtWorkspaceJson
+  require "runAt workspace id" (runAtWorkspaceReq.workspaceId? == some "fixture")
 
   let runAtHandleReq ← expectOk "runAt handle tool request" <|
     Beam.Mcp.ToolName.leanRunAtHandle.toBrokerRequest root (toJson runAtInput)

@@ -5,10 +5,16 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Broker.Protocol
 
 open Lean
 
 namespace Beam.Workspace
+
+abbrev WorkspaceId := Beam.Broker.WorkspaceId
+
+def defaultWorkspaceId : WorkspaceId :=
+  Beam.Broker.defaultWorkspaceId
 
 private def optionalField? [FromJson α] (json : Json) (field : String) : Except String (Option α) := do
   match json.getObjVal? field with
@@ -55,15 +61,22 @@ instance : FromJson InitMode where
 /-- Shared input for explicit Beam workspace/session initialization. -/
 structure InitInput where
   root : String
+  workspaceId? : Option WorkspaceId := none
   mode? : Option InitMode := none
 
 def InitInput.mode (input : InitInput) : InitMode :=
   input.mode?.getD .set
 
+def InitInput.workspaceId (input : InitInput) : WorkspaceId :=
+  input.workspaceId?.getD defaultWorkspaceId
+
 instance : ToJson InitInput where
   toJson input :=
     Json.mkObj <|
       [("root", toJson input.root)] ++
+      (match input.workspaceId? with
+      | some workspaceId => [("workspace_id", toJson workspaceId)]
+      | none => []) ++
       match input.mode? with
       | some mode => [("mode", toJson mode)]
       | none => []
@@ -71,10 +84,12 @@ instance : ToJson InitInput where
 instance : FromJson InitInput where
   fromJson? j := do
     let root ← j.getObjValAs? String "root"
+    let workspaceId? ← optionalField? (α := WorkspaceId) j "workspace_id"
     let mode? ← optionalField? (α := InitMode) j "mode"
-    pure { root, mode? }
+    pure { root, workspaceId?, mode? }
 
 structure InitResult where
+  workspaceId : WorkspaceId := defaultWorkspaceId
   root : System.FilePath
   mode : InitMode
   runtimeReused : Bool
@@ -85,6 +100,7 @@ instance : ToJson InitResult where
   toJson result :=
     Json.mkObj <|
       [
+        ("workspace_id", toJson result.workspaceId),
         ("root", toJson result.root.toString),
         ("active_root", toJson result.root.toString),
         ("initialized", toJson true),
@@ -105,85 +121,5 @@ structure InitError where
 
 instance : ToString InitError where
   toString err := err.message
-
-structure InitState where
-  root? : Option System.FilePath := none
-  runtimeReady : Bool := false
-
-structure InitPlan where
-  root : System.FilePath
-  mode : InitMode
-  runtimeReused : Bool
-  resetCurrent : Bool
-  createRuntime : Bool
-  previousRoot? : Option System.FilePath := none
-
-def planInit (state : InitState) (requestedRoot : System.FilePath) (mode : InitMode) :
-    Except InitError InitPlan := do
-  match state.root? with
-  | some currentRoot =>
-      let resetPlan : InitPlan := {
-        root := requestedRoot
-        mode
-        runtimeReused := false
-        resetCurrent := state.runtimeReady
-        createRuntime := true
-        previousRoot? := some currentRoot
-      }
-      if mode == .reset then
-        pure resetPlan
-      else if currentRoot == requestedRoot then
-        if state.runtimeReady then
-          pure {
-            root := currentRoot
-            mode
-            runtimeReused := true
-            resetCurrent := false
-            createRuntime := false
-          }
-        else if mode == .verify then
-          pure {
-            root := currentRoot
-            mode
-            runtimeReused := false
-            resetCurrent := false
-            createRuntime := false
-          }
-        else
-          pure {
-            root := currentRoot
-            mode
-            runtimeReused := false
-            resetCurrent := false
-            createRuntime := true
-          }
-      else
-        match mode with
-        | .set | .verify =>
-            throw {
-              message :=
-                s!"workspace session is already initialized for {currentRoot}; use mode=reset to switch roots explicitly to {requestedRoot}"
-              activeRoot? := some currentRoot
-            }
-        | .reset => pure resetPlan
-  | none =>
-      if mode == .verify then
-        throw { message := "workspace session is not initialized; call init workspace with mode=set first" }
-      else
-        pure {
-          root := requestedRoot
-          mode
-          runtimeReused := false
-          resetCurrent := false
-          createRuntime := true
-        }
-
-def initResult (plan : InitPlan) (root : System.FilePath := plan.root) : InitResult := {
-  root
-  mode := plan.mode
-  runtimeReused := plan.runtimeReused
-  previousRoot? := plan.previousRoot?
-  invalidatedHandles := plan.resetCurrent
-}
 
 end Beam.Workspace
