@@ -17,6 +17,7 @@ The default agent skill install is Lean-only:
 ./scripts/install-beam.sh --claude
 ./scripts/install-beam.sh --pi
 ./scripts/install-beam.sh --opencode
+./scripts/install-beam.sh --vibe
 ./scripts/install-beam.sh --all-skills
 ```
 
@@ -27,11 +28,12 @@ Install the optional Rocq skill by adding `--rocq-skill` to a selected agent tar
 ./scripts/install-beam.sh --claude --rocq-skill
 ./scripts/install-beam.sh --pi --rocq-skill
 ./scripts/install-beam.sh --opencode --rocq-skill
+./scripts/install-beam.sh --vibe --rocq-skill
 ./scripts/install-beam.sh --all-skills --rocq-skill
 ```
 
 `--rocq-skill` is only a modifier. It must be paired with `--codex`, `--claude`, `--pi`,
-`--opencode`, `--all-skills`, or an interactive skill target.
+`--opencode`, `--vibe`, `--all-skills`, or an interactive skill target.
 
 General installer locations, MCP registration, and toolchain options are documented in
 [SETUP.md](SETUP.md).
