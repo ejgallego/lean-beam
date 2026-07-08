@@ -35,7 +35,7 @@ not adding a large public surface.
 - [ULC-0001 structured stale dependency metadata](cards/ULC-0001-structured-stale-dependency-metadata/README.md)
 - [ULC-0002 backend readiness primitive](cards/ULC-0002-backend-readiness-primitive/README.md)
 
-### Close Or Archive Candidates
+### Archived Cards
 
 - [BUC-0002 internal exception for tactic-position term ascription](cards/BUC-0002-internal-exception-runat-term-ascription/README.md)
 - [BUC-0008 agent feedback card API](cards/BUC-0008-agent-feedback-card-api/README.md)

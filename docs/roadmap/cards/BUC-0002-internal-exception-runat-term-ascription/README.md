@@ -1,10 +1,10 @@
 # BUC-0002 Internal Exception For Tactic-Position Term Ascription
 
-Status: close-candidate
+Status: resolved
 Kind: bug
 Priority: critical
 Origin: LIRIS
-Last reviewed: 2026-07-07
+Last reviewed: 2026-07-08
 Issue: none linked
 
 ## Summary
@@ -28,8 +28,8 @@ type mismatch diagnostics.
 
 ## Beam Decision
 
-Archive after review. Beam has regression coverage that expects the ordinary
-type mismatch diagnostic and no stored handle for the semantic failure path.
+Archived. Beam has regression coverage that expects the ordinary type mismatch
+diagnostic and no stored handle for the semantic failure path.
 
 ## Reproduction Status
 

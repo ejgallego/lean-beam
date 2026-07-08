@@ -1,10 +1,10 @@
 # BUC-0008 Agent Feedback Card API
 
-Status: close-candidate
+Status: resolved
 Kind: feature
 Priority: medium
 Origin: LIRIS
-Last reviewed: 2026-07-07
+Last reviewed: 2026-07-08
 Issue: none linked
 
 ## Summary
@@ -23,10 +23,10 @@ parameters, diagnostics, and evidence were still available.
 
 ## Beam Decision
 
-Archive after review. The implemented `lean-beam feedback` and MCP
-`beam_feedback` surfaces now produce structured report-card JSON, pasteable
-Markdown, metadata, collection warnings, optional bundles, compact MCP
-defaults, and optional full collected context.
+Archived. The implemented `lean-beam feedback` and MCP `beam_feedback`
+surfaces now produce structured report-card JSON, pasteable Markdown,
+metadata, collection warnings, optional bundles, compact MCP defaults, and
+optional full collected context.
 
 Keep a separate future card only if Beam should directly write LIRIS-style card
 directories. That would be a repository workflow tool, not the core feedback
