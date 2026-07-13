@@ -1207,7 +1207,9 @@ private def responseAsBrokerFailure
         message := "backend request failed without a typed error response"
       }
 
-private def saveOlean
+private initialize savePublicationMutex : Std.Mutex Unit ← Std.Mutex.new ()
+
+private def saveOleanCore
     (server : ServerRuntime)
     (req : Request)
     (path : System.FilePath)
@@ -1284,6 +1286,11 @@ private def saveOlean
     bcFile? := spec.bcPath?.map (fun bcPath => System.FilePath.toString bcPath)
     : Beam.LSP.Save.SaveArtifactsParams
   })
+  -- A cancellation after readiness/spec computation must not invalidate a valid trace.
+  liftResponseIO <| ensureRequestNotCancelled cancelRef?
+  -- Once artifact publication can begin, an older trace must not remain visible: it may have the
+  -- same dependency hash while describing a different in-server artifact family.
+  liftHandlerIO <| invalidateLeanSaveTrace spec
   let (session, savePromise) ← withCurrentMatchingSession server started.session fun current => do
     let (current, savePromise) ← startRequestJsonTrackedDetailed current method params
       (clientRequestId? := req.clientRequestId?)
@@ -1299,7 +1306,8 @@ private def saveOlean
             some (syncVerdictErrorData syncVerdict)
           else
             err.data?
-  let saveResult : Beam.LSP.Save.SaveArtifactsResult ← liftHandlerIO <| decodeResponseAs savePending.result
+  let saveResult : Beam.LSP.Save.SaveArtifactsResult ←
+    liftHandlerIO <| decodeResponseAs savePending.result
   if saveResult.version != started.version then
     throw <| Response.error "internalError"
       s!"save_olean saved version {saveResult.version}, expected document version {started.version}"
@@ -1316,6 +1324,19 @@ private def saveOlean
       (leanSavePayload spec started.version started.textTraceHash) syncVerdict
     fileProgress? := barrierProgress?
   }
+
+private def saveOlean
+    (server : ServerRuntime)
+    (req : Request)
+    (path : System.FilePath)
+    (cancelRef? : Option (IO.Ref Bool) := none)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
+    HandlerM SaveOleanCompleted :=
+  savePublicationMutex.atomically do
+    -- A cancelled save waiting behind another transaction must not start new sync or trace work.
+    liftResponseIO <| ensureRequestNotCancelled cancelRef?
+    saveOleanCore server req path cancelRef? emitProgress? emitDiagnostic?
 
 private def handleSyncFileOp
     (server : ServerRuntime)

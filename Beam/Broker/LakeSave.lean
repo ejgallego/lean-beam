@@ -225,6 +225,13 @@ def checkLeanSaveTarget
 private def hashDescr (path : FilePath) (ext : String) : IO ArtifactDescr :=
   return artifactWithExt (← computeHash path) ext
 
+/-- Remove metadata for the prior artifact family before a new family can be published. -/
+def invalidateLeanSaveTrace (spec : LeanSaveSpec) : IO Unit := do
+  if ← spec.tracePath.isDir then
+    throw <| IO.userError s!"Lake save trace path is a directory: {spec.tracePath}"
+  if ← spec.tracePath.pathExists then
+    IO.FS.removeFile spec.tracePath
+
 def writeLeanSaveTrace (spec : LeanSaveSpec) : IO Unit := do
   let isModule := spec.oleanServerPath?.isSome
   let olean ← hashDescr spec.oleanPath "olean"
@@ -236,6 +243,18 @@ def writeLeanSaveTrace (spec : LeanSaveSpec) : IO Unit := do
   let bc? ← spec.bcPath?.mapM (fun path => hashDescr path "bc")
   let outputs : ModuleOutputDescrs :=
     mkModuleOutputDescrsCompat(isModule, olean, oleanServer?, oleanPrivate?, ilean, ir?, c, bc?)
-  writeBuildTrace spec.tracePath spec.depTrace outputs {}
+  let pid ← IO.Process.getPID
+  let stagedTrace :=
+    FilePath.mk s!"{spec.tracePath}.beam-save-trace-tmp-{pid}-{← IO.monoNanosNow}"
+  try
+    writeBuildTrace stagedTrace spec.depTrace outputs {}
+    IO.FS.rename stagedTrace spec.tracePath
+  catch e =>
+    try
+      if ← stagedTrace.pathExists then
+        IO.FS.removeFile stagedTrace
+    catch _ =>
+      pure ()
+    throw e
 
 end Beam.Broker
