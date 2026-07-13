@@ -186,29 +186,13 @@ private def removeFileIfExists (path : System.FilePath) : IO Unit := do
   if ← path.pathExists then
     IO.FS.removeFile path
 
-private def withTempSibling (path : System.FilePath) (writeTemp : System.FilePath → IO Unit) : IO Unit := do
-  ensureParentDir path
-  let tmp := System.FilePath.mk s!"{path.toString}.beam-tmp-{← IO.monoNanosNow}"
-  try
-    writeTemp tmp
-    removeFileIfExists path
-    IO.FS.rename tmp path
-  catch e =>
-    try
-      removeFileIfExists tmp
-    catch _ =>
-      pure ()
-    throw e
-
-private def writeFileReplacing (path : System.FilePath) (content : String) : IO Unit :=
-  withTempSibling path fun tmp => IO.FS.writeFile tmp content
-
 private def withTempSiblingDir
     (path : System.FilePath)
     (useDir : System.FilePath → IO α) : IO α := do
   ensureParentDir path
   let parent := path.parent.getD (System.FilePath.mk ".")
-  let tmpDir := parent / s!".beam-save-tmp-{← IO.monoNanosNow}"
+  let pid ← IO.Process.getPID
+  let tmpDir := parent / s!".beam-save-tmp-{pid}-{← IO.monoNanosNow}"
   IO.FS.createDirAll tmpDir
   try
     useDir tmpDir
@@ -216,52 +200,153 @@ private def withTempSiblingDir
     if ← tmpDir.pathExists then
       IO.FS.removeDirAll tmpDir
 
-private def publishStagedFile
-    (staged target : System.FilePath) : IO Unit := do
-  unless ← staged.pathExists do
-    throw <| IO.userError s!"Lean did not write expected staged module artifact: {staged}"
-  ensureParentDir target
-  removeFileIfExists target
-  IO.FS.rename staged target
+private structure StagedArtifact where
+  staged : System.FilePath
+  target : System.FilePath
+  backup : System.FilePath
+
+private initialize artifactPublicationMutex : Std.Mutex Unit ← Std.Mutex.new ()
+
+private def prepareStagedArtifacts
+    (targets : Array System.FilePath) : IO (Array StagedArtifact) := do
+  let pid ← IO.Process.getPID
+  let stamp ← IO.monoNanosNow
+  let mut seenTargets : Array String := #[]
+  let mut artifacts : Array StagedArtifact := #[]
+  let mut index := 0
+  for target in targets do
+    let targetString := target.toString
+    if seenTargets.contains targetString then
+      throw <| IO.userError s!"duplicate artifact output path: {target}"
+    seenTargets := seenTargets.push targetString
+    ensureParentDir target
+    if ← target.isDir then
+      throw <| IO.userError s!"artifact output path is a directory: {target}"
+    let staged := System.FilePath.mk s!"{targetString}.beam-save-tmp-{pid}-{stamp}-{index}"
+    let backup := System.FilePath.mk s!"{targetString}.beam-backup-{pid}-{stamp}-{index}"
+    if ← staged.pathExists then
+      throw <| IO.userError s!"artifact staging path already exists: {staged}"
+    if ← backup.pathExists then
+      throw <| IO.userError s!"artifact backup path already exists: {backup}"
+    artifacts := artifacts.push { staged, target, backup }
+    index := index + 1
+  pure artifacts
+
+private def cleanupStagedArtifacts (artifacts : Array StagedArtifact) : IO Unit := do
+  for artifact in artifacts do
+    try
+      removeFileIfExists artifact.staged
+    catch _ =>
+      pure ()
+
+private def stagedArtifactAt
+    (artifacts : Array StagedArtifact) (index : Nat) (kind : String) : IO StagedArtifact := do
+  let some artifact := artifacts[index]?
+    | throw <| IO.userError s!"internal {kind} artifact staging mismatch"
+  pure artifact
+
+private def publishStagedArtifacts (artifacts : Array StagedArtifact) : IO Unit := do
+  -- Complete all checks that can be done without touching canonical outputs before the commit.
+  for artifact in artifacts do
+    unless ← artifact.staged.pathExists do
+      throw <| IO.userError s!"missing staged artifact: {artifact.staged}"
+    if ← artifact.target.isDir then
+      throw <| IO.userError s!"artifact output path is a directory: {artifact.target}"
+    ensureParentDir artifact.target
+
+  let mut backedUp : Array StagedArtifact := #[]
+  let mut installed : Array StagedArtifact := #[]
+  try
+    -- Hard-link each prior artifact before publication. The canonical paths remain readable, and
+    -- every subsequent rename replaces one file atomically while retaining rollback data.
+    for artifact in artifacts do
+      if ← artifact.target.pathExists then
+        IO.FS.hardLink artifact.target artifact.backup
+        backedUp := backedUp.push artifact
+    for artifact in artifacts do
+      IO.FS.rename artifact.staged artifact.target
+      installed := installed.push artifact
+  catch publishError =>
+    let mut rollbackErrors : Array String := #[]
+    for artifact in installed.toList.reverse do
+      try
+        if ← artifact.backup.pathExists then
+          IO.FS.rename artifact.backup artifact.target
+        else
+          removeFileIfExists artifact.target
+      catch rollbackError =>
+        rollbackErrors := rollbackErrors.push
+          s!"could not restore {artifact.target}: {rollbackError}"
+    for artifact in backedUp.toList.reverse do
+      try
+        let wasInstalled := installed.any fun installedArtifact =>
+          installedArtifact.target.toString == artifact.target.toString
+        if !wasInstalled && (← artifact.backup.pathExists) then
+          removeFileIfExists artifact.backup
+      catch rollbackError =>
+        rollbackErrors := rollbackErrors.push
+          s!"could not clean rollback link for {artifact.target}: {rollbackError}"
+    if rollbackErrors.isEmpty then
+      throw publishError
+    throw <| IO.userError <|
+      s!"artifact publication failed: {publishError}; rollback also failed: " ++
+        String.intercalate "; " rollbackErrors.toList
+
+  -- Publication has committed. Backup cleanup must not turn a successful, complete save into a
+  -- reported failure whose trace is omitted.
+  for artifact in backedUp do
+    try
+      removeFileIfExists artifact.backup
+    catch _ =>
+      pure ()
 
 private structure ModuleArtifactTargets where
   oleanServerFile : System.FilePath
   oleanPrivateFile : System.FilePath
   irFile : System.FilePath
 
-private def writeModuleReplacing
+private def moduleArtifactFiles
     (env : Environment)
     (oleanFile : System.FilePath)
-    (moduleTargets? : Option ModuleArtifactTargets) : IO Unit := do
+    (moduleTargets? : Option ModuleArtifactTargets) : IO (Array System.FilePath) := do
+  let mut files := #[oleanFile]
   if env.header.isModule then
-    unless moduleTargets?.isSome do
-      throw <| IO.userError
-        "module artifact save requires oleanServerFile, oleanPrivateFile, and irFile"
+    let some targets := moduleTargets?
+      | throw <| IO.userError
+          "module artifact save requires oleanServerFile, oleanPrivateFile, and irFile"
+    files := files.push targets.oleanServerFile
+    files := files.push targets.oleanPrivateFile
+    files := files.push targets.irFile
   else
     unless moduleTargets?.isNone do
       throw <| IO.userError
         "non-module artifact save must not provide module companion output paths"
+  pure files
+
+private def stageModuleArtifacts
+    (env : Environment)
+    (oleanFile : System.FilePath)
+    (moduleArtifacts : Array StagedArtifact) : IO Unit := do
   withTempSiblingDir oleanFile fun tmpDir => do
     let some fileName := oleanFile.fileName
       | throw <| IO.userError s!"module artifact path has no file name: {oleanFile}"
     let stagedOlean := tmpDir / fileName
     Lean.writeModule env stagedOlean
-    let mut outputs := #[(stagedOlean, oleanFile)]
-    if let some targets := moduleTargets? then
-      outputs := outputs.push (stagedOlean.addExtension "server", targets.oleanServerFile)
-      outputs := outputs.push (stagedOlean.addExtension "private", targets.oleanPrivateFile)
-      outputs := outputs.push (stagedOlean.withExtension "ir", targets.irFile)
-    -- Validate the complete family before replacing any canonical artifact.
-    for (staged, _) in outputs do
-      unless ← staged.pathExists do
-        throw <| IO.userError s!"Lean did not write expected staged module artifact: {staged}"
-    for (staged, target) in outputs do
-      publishStagedFile staged target
+    let generated :=
+      if env.header.isModule then
+        #[stagedOlean, stagedOlean.addExtension "server", stagedOlean.addExtension "private",
+          stagedOlean.withExtension "ir"]
+      else
+        #[stagedOlean]
+    unless generated.size == moduleArtifacts.size do
+      throw <| IO.userError "internal module artifact staging mismatch"
+    for path in generated do
+      unless ← path.pathExists do
+        throw <| IO.userError s!"Lean did not write expected staged module artifact: {path}"
+    for (path, artifact) in generated.zip moduleArtifacts do
+      IO.FS.writeBinFile artifact.staged (← IO.FS.readBinFile path)
 
-private def emitLLVMReplacing (env : Environment) (mainModule : Name) (path : System.FilePath) : IO Unit :=
-  withTempSibling path fun tmp => Lean.IR.emitLLVM env mainModule tmp.toString
-
-def writeIlean
+private def writeIlean
     (doc : DocumentMeta)
     (headerStx : Syntax)
     (mainModule : Name)
@@ -275,7 +360,7 @@ def writeIlean
     references := moduleRefs
     decls
   }
-  writeFileReplacing ileanFile (Json.compress <| toJson ilean)
+  IO.FS.writeFile ileanFile (Json.compress <| toJson ilean)
 
 def singleLineText (text : String) : String :=
   let parts := text.splitOn "\n"
@@ -473,14 +558,33 @@ def saveCurrentArtifacts
   } : ModuleArtifactTargets)
   let ileanFile := mkFilePath p.ileanFile
   let cFile := mkFilePath p.cFile
-  writeModuleReplacing env oleanFile moduleTargets?
-  let trees := snaps.toArray.map (·.infoTree)
-  writeIlean doc.meta doc.initSnap.stx mainModule trees ileanFile
-  let cOutput ← emitCForSavedModule(env, mainModule)
-  writeFileReplacing cFile cOutput
+  let moduleFiles ← moduleArtifactFiles env oleanFile moduleTargets?
+  let mut targetFiles := moduleFiles.push ileanFile |>.push cFile
   if let some bcFile := p.bcFile?.map mkFilePath then
-    emitLLVMReplacing env mainModule bcFile
-  checkRequestCancelled
+    targetFiles := targetFiles.push bcFile
+  let stagedArtifacts ← prepareStagedArtifacts targetFiles
+  let trees := snaps.toArray.map (·.infoTree)
+  try
+    let moduleArtifacts := stagedArtifacts.extract 0 moduleFiles.size
+    stageModuleArtifacts env oleanFile moduleArtifacts
+    let ileanArtifact ← stagedArtifactAt stagedArtifacts moduleFiles.size "ilean"
+    writeIlean doc.meta doc.initSnap.stx mainModule trees ileanArtifact.staged
+    let cOutput ← emitCForSavedModule(env, mainModule)
+    let cArtifact ← stagedArtifactAt stagedArtifacts (moduleFiles.size + 1) "C"
+    IO.FS.writeFile cArtifact.staged cOutput
+    if p.bcFile?.isSome then
+      let bcArtifact ← stagedArtifactAt stagedArtifacts (moduleFiles.size + 2) "LLVM"
+      Lean.IR.emitLLVM env mainModule bcArtifact.staged.toString
+    -- Serialize only the short commit phase within this file-worker process. Cross-worker and
+    -- cross-process publication coordination belongs to the broker rather than this LSP handler.
+    -- Without this lock, requests handled by one worker could interleave their per-file renames.
+    artifactPublicationMutex.atomically do
+      -- Cancellation and document invalidation are honored until this explicit commit point. Once
+      -- publication starts it runs to completion so success/failure agrees with the artifact family.
+      checkRequestCancelled
+      publishStagedArtifacts stagedArtifacts
+  finally
+    cleanupStagedArtifacts stagedArtifacts
   pure {
     written := true
     version := doc.meta.version
