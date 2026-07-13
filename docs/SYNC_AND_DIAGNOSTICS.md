@@ -61,6 +61,38 @@ arguments, dynamic libraries, or plugins, `save` and `close-save` fail with `sav
 after the sync verdict is established. In that case, use `lake build` for the module or importer
 instead of expecting Beam to write Lake artifacts.
 
+## Development Checkpoints And Batch Validation
+
+`lean-beam save` writes a development checkpoint from the environment accepted by the Lean server.
+A successful save means that the synced server snapshot passed Beam's readiness checks and was
+written as a Lake module artifact. It does not mean that Lean batch elaboration was rerun, and it
+does not certify that the resulting artifact is identical to one produced by `lake build`.
+
+Server and batch elaboration coincide in almost all ordinary Lean code. Custom elaboration code can
+still observe server mode or otherwise choose different behavior in the two contexts. Beam
+intentionally accepts that exceptional distinction to make repeated one-module checkpoints much
+cheaper during the edit and proof-development loop.
+
+For ordinary local development, a successful Beam checkpoint is enough; do not routinely pay for a
+clean local rebuild merely because Beam wrote an artifact. CI must independently run `lake build`
+from a clean checkout or clean Lake build directory, without restoring Beam-produced module
+artifacts into that job. Use the successful clean CI build as the final project-wide
+batch-validation result.
+
+If no successful clean CI result is available, or if server-sensitive elaboration is suspected,
+discard the development checkpoints and perform one clean local batch build:
+
+```bash
+lean-beam shutdown
+lake clean
+lake build
+```
+
+This sequence is not a required step after every Beam checkpoint; it is the local fallback when no
+successful clean CI result is available. A clean CI build remains the preferred
+project-wide batch-validation authority; `saveReady` and successful Beam checkpointing report
+acceptance of the current server snapshot.
+
 ## Reporting Surfaces
 
 Progress, streamed diagnostics, and current summaries are separate typed concepts.
@@ -133,9 +165,10 @@ did Lean report?", while readiness answers "can this synced version be checkpoin
 readiness API is authoritative for `saveReady`; diagnostic severity summaries are evidence and
 counts, not a separate broker-side veto.
 
-Lean-side readiness follows Lean batch/Lake's artifact gate for the current synced snapshot:
-current save-blocking frontend errors block save. Diagnostic streams, diagnostic summaries, and
-message history are observations; clients should not reconstruct save readiness from them.
+Lean-side readiness applies the frontend artifact gate to the current synced snapshot: current
+save-blocking frontend errors block save. This verdict answers whether Beam may checkpoint that
+server snapshot; it is not a batch-equivalence verdict. Diagnostic streams, diagnostic summaries,
+and message history are observations; clients should not reconstruct save readiness from them.
 
 ## Current Summary
 

@@ -88,6 +88,10 @@ These commands require a synced file that belongs to the current Lake workspace 
 module in the package graph. A standalone `.lean` file that the daemon can open but Lake cannot map
 to a module is a valid `lean-beam sync` target, but not a valid `lean-beam save` target.
 
+The checkpoint contains the environment accepted by the Lean server. It avoids a batch
+re-elaboration during the inner loop, so it is a development artifact rather than final build
+evidence. An elaborator that observes server mode can behave differently under `lake build`.
+
 ## Save Eligibility
 
 When `lean-beam save` is valid:
@@ -311,7 +315,22 @@ Use `lake build` when:
 - you edited a dependency and now need trustworthy downstream results
 - repeated probing is no longer clarifying the situation
 - stale-state or rebuild trouble keeps appearing
-- you are doing a final validation pass before considering the work done
+- CI is validating the project from a clean checkout or clean Lake build directory
+- no successful clean CI result is available, or server-sensitive elaboration is suspected
+
+For the one-time local completion fallback, discard Beam checkpoints before the batch build:
+
+```bash
+lean-beam shutdown
+lake clean
+lake build
+```
+
+Do not run this sequence merely because Beam saved a checkpoint: successful checkpoints are
+normally sufficient during the inner loop. Keep using targeted Beam probes and checkpoints instead
+of repeatedly cleaning the build directory. Final batch evidence should come from CI running `lake
+build` from clean artifacts, or from this one-time local fallback when no successful clean CI result
+is available.
 
 ## Stats And Signs Of Good Use
 
