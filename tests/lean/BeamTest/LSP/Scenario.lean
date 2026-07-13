@@ -68,6 +68,7 @@ structure SaveArtifactsSpec where
   expectedVersionOverride? : Option Nat := none
   expectedTextHashOverride? : Option UInt64 := none
   oleanFile : String
+  moduleArtifacts? : Option Beam.LSP.Save.ModuleArtifactPaths := none
   ileanFile : String
   cFile : String
   bcFile? : Option String := none
@@ -478,6 +479,7 @@ def sendSaveArtifacts (doc : DocHandle) (spec : SaveArtifactsSpec) : ScenarioM R
     expectedVersion := spec.expectedVersionOverride?.getD (docState.versionNo - 1)
     expectedTextHash := spec.expectedTextHashOverride?.getD (hash docState.text)
     oleanFile := spec.oleanFile
+    moduleArtifacts? := spec.moduleArtifacts?
     ileanFile := spec.ileanFile
     cFile := spec.cFile
     bcFile? := spec.bcFile?
@@ -534,8 +536,9 @@ def awaitReq (req : ReqHandle) : ScenarioM RequestOutcome := do
 def awaitResponseAs [FromJson α] (req : ReqHandle) : ScenarioM α := do
   let outcome ← awaitReq req
   let some actual := outcome.result?
-    | throw <| IO.userError
-        s!"request handle {req.id} returned transport error {outcome.errorCode?.getD "unknown"} instead of a response"
+    | throw <| IO.userError <|
+        s!"request handle {req.id} returned transport error " ++
+          s!"{outcome.errorCode?.getD "unknown"} instead of a response: {outcome.errorMessage}"
   match fromJson? actual with
   | .ok value => pure value
   | .error err =>

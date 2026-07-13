@@ -149,6 +149,17 @@ path.write_text("def bVal : Nat := 3\n")
 PY
 }
 
+edit_module_b() {
+  local dest="$1"
+  python3 - "$dest/SaveSmoke/ModuleB.lean" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+text = text.replace("public def moduleBVal : Nat := 1", "public def moduleBVal : Nat := 2")
+path.write_text(text)
+PY
+}
+
 print_diag_section() {
   printf '\n--- %s ---\n' "$1" >&2
 }
@@ -264,6 +275,7 @@ tmp4="$(mktemp -d /tmp/beam-save-olean-cancel-XXXXXX)"
 tmp5="$(mktemp -d /tmp/beam-save-olean-stale-XXXXXX)"
 tmp6="$(mktemp -d /tmp/beam-save-olean-stale-trace-XXXXXX)"
 tmp7="$(mktemp -d /tmp/beam-save-olean-unsupported-setup-XXXXXX)"
+tmp8="$(mktemp -d /tmp/beam-save-olean-module-XXXXXX)"
 race_sentinel="$(mktemp /tmp/beam-save-olean-race-sentinel-XXXXXX)"
 cancel_sentinel="$(mktemp /tmp/beam-save-olean-cancel-sentinel-XXXXXX)"
 log1="$(mktemp /tmp/beam-save-olean-build-log-XXXXXX)"
@@ -271,6 +283,7 @@ log2="$(mktemp /tmp/beam-save-olean-broker-log-XXXXXX)"
 log3="$(mktemp /tmp/beam-save-olean-race-log-XXXXXX)"
 log4="$(mktemp /tmp/beam-save-olean-exact-log-XXXXXX)"
 log5="$(mktemp /tmp/beam-save-olean-downstream-log-XXXXXX)"
+log6="$(mktemp /tmp/beam-save-olean-module-log-XXXXXX)"
 race_save_out="$(mktemp /tmp/beam-save-olean-race-save-out-XXXXXX)"
 race_save_err="$(mktemp /tmp/beam-save-olean-race-save-err-XXXXXX)"
 save_race_broker_trace="${BEAM_SAVE_RACE_BROKER_TRACE:-1}"
@@ -284,6 +297,7 @@ cleanup() {
   remove_owned_tmp_tree "$tmp5"
   remove_owned_tmp_tree "$tmp6"
   remove_owned_tmp_tree "$tmp7"
+  remove_owned_tmp_tree "$tmp8"
   remove_owned_tmp_file "$race_sentinel"
   remove_owned_tmp_file "$cancel_sentinel"
   remove_owned_tmp_file "$log1"
@@ -291,6 +305,7 @@ cleanup() {
   remove_owned_tmp_file "$log3"
   remove_owned_tmp_file "$log4"
   remove_owned_tmp_file "$log5"
+  remove_owned_tmp_file "$log6"
   remove_owned_tmp_file "$race_save_out"
   remove_owned_tmp_file "$race_save_err"
 }
@@ -303,6 +318,7 @@ mkproj "$tmp4"
 mkproj "$tmp5"
 mkproj "$tmp6"
 mk_setup_sensitive_proj "$tmp7"
+mkproj "$tmp8"
 
 (cd "$tmp1" && lake_build > /dev/null)
 edit_b "$tmp1"
@@ -369,6 +385,39 @@ fi
 if grep -Eq "Built SaveSmoke\\.B|Building SaveSmoke\\.B" "$log2"; then
   echo "expected broker save_olean path to leave SaveSmoke.B up to date for lake build" >&2
   cat "$log2" >&2
+  exit 1
+fi
+
+(cd "$tmp8" && lake_build SaveSmoke/ModuleB.lean > /dev/null)
+edit_module_b "$tmp8"
+(
+  cd "$tmp8"
+  beam --root "$tmp8" shutdown > /dev/null 2>&1 || true
+  module_save_json="$(beam --root "$tmp8" lean-close-save SaveSmoke/ModuleB.lean)"
+  for artifact_key in olean oleanServer oleanPrivate ir; do
+    artifact="$(BEAM_JSON_PAYLOAD="$module_save_json" BEAM_ARTIFACT_KEY="$artifact_key" python3 - <<'PY'
+import json, os
+saved = json.loads(os.environ["BEAM_JSON_PAYLOAD"])["result"]["saved"]
+print(saved[os.environ["BEAM_ARTIFACT_KEY"]])
+PY
+)"
+    if [ ! -f "$artifact" ]; then
+      echo "expected module save artifact $artifact_key at $artifact" >&2
+      exit 1
+    fi
+  done
+  beam --root "$tmp8" shutdown > /dev/null 2>&1 || true
+  lake_build -v SaveSmoke/ModuleB.lean >"$log6" 2>&1
+  LAKE_ARTIFACT_CACHE=false "$lake_cmd" env lean CheckModuleB.lean > /dev/null
+)
+if ! grep -Eq "Replayed SaveSmoke\\.ModuleB" "$log6"; then
+  echo "expected lake build to replay the complete saved module artifact family" >&2
+  cat "$log6" >&2
+  exit 1
+fi
+if grep -Eq "Built SaveSmoke\\.ModuleB|Building SaveSmoke\\.ModuleB" "$log6"; then
+  echo "expected complete module artifacts to remain current after broker save" >&2
+  cat "$log6" >&2
   exit 1
 fi
 

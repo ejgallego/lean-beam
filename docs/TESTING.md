@@ -80,7 +80,9 @@ Default Beam entrypoints:
 
 Additional Beam lanes:
 
-- [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`: supported-toolchain bundle validation and stale-import diagnostic wording compatibility
+- [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`:
+  supported-toolchain bundle validation, stale-import diagnostic wording compatibility, and
+  semantic `module` save coverage
 - [tests/test-beam-rocq.sh](../tests/test-beam-rocq.sh): Rocq broker and wrapper coverage
 - [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): external MCP conformance scenarios over the local Streamable HTTP bridge
 
@@ -90,7 +92,8 @@ Current Beam coverage includes:
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
-- zero-build save replay and stale-save race coverage in [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
+- zero-build save replay, complete `module` artifact-family replay, and stale-save race coverage in
+  [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
 - install flow, installed runtime layout, manifest metadata, `supported-toolchains`, `doctor`, and installed MCP wrapper coverage in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
 - MCP protocol, projection, stdio, HTTP bridge, self-check, and external conformance coverage
 - Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [tests/lean/BeamTest/Broker/RocqSmokeTest.lean](../tests/lean/BeamTest/Broker/RocqSmokeTest.lean)
@@ -130,10 +133,11 @@ BEAM_INSTALL_TEST_PRESEED_ELAN=require bash tests/test-beam-install.sh
 Use [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) to validate one
 supported bundle lane at a time. The lane also checks that Lean's stale-import diagnostic wording
 still matches Beam's temporary text-based detector while the structured Lean stale-dependency API is
-pending. If bundle installation stalls on a slow machine, raise
+pending, and saves and imports an experimental `module` fixture to verify the complete companion
+artifact family. If bundle installation stalls on a slow machine, raise
 `BEAM_TOOLCHAIN_COMPAT_TIMEOUT` from its default 600 seconds. On failure, the test prints the fake
-home, agent homes, bundle directory, platform, and captured build/bundle/stale-diagnostic
-log tails so the bundle or stale-diagnostic state can be diagnosed from the test log. Set
+home, agent homes, bundle directory, platform, and captured build, bundle, stale-diagnostic, and
+module-save log tails so the failing state can be diagnosed from the test log. Set
 `BEAM_TOOLCHAIN_COMPAT_KEEP_TMP_ON_FAILURE=1` to preserve the fake roots for local inspection after
 a failed run.
 

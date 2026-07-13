@@ -283,6 +283,14 @@ Lean-side save-artifact request. The broker uses the save-readiness metadata ret
 diagnostics barrier that already waited for the same document version. Streamed diagnostics and
 broker summaries are evidence attached to that verdict, not the authority for it.
 
+The saved environment is the accepted Lean server environment, not the result of a new batch
+elaboration. This is an intentional development-loop tradeoff: elaborators that inspect
+`Lean.Elab.inServer` or otherwise observe server mode can produce a different environment under
+`lake build`. Keep readiness and response text scoped to "server snapshot accepted and
+checkpointed"; do not describe a Beam save as authoritative batch validation. User and agent docs
+must retain the clean final-build boundary defined in
+[SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-authoritative-builds).
+
 Do not remove broker-side ordered file snapshots when thinning orchestration. Beam requests are
 path-based and may run concurrently, while LSP document updates are an ordered client stream. The LSP
 server can validate ordering only after the broker sends `didOpen` / `didChange`; it cannot know that

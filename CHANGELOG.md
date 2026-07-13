@@ -8,8 +8,19 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Fixed
 
+- Zero-build saves for `module` files now publish the complete `.olean`, `.olean.server`,
+  `.olean.private`, and `.ir` artifact family before writing the Lake trace.
+- Save-readiness response decoding now rejects missing verdict and evidence fields instead of
+  inferring a successful checkpoint.
 - `lean-beam-mcp --self-check` now waits long enough for valid first-use local bundle builds and
   documents the `LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS` override.
+
+### Documentation
+
+- Clarify that zero-build saves are development checkpoints from Lean's accepted server state, and
+  require a clean `lake build` as the final validation authority.
+- Align the status page with the current broker protocol, which requires explicit `ok` / `error`
+  response envelopes.
 
 ## 0.1.0 - 2026-07-07
 

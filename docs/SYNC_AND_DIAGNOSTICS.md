@@ -61,6 +61,33 @@ arguments, dynamic libraries, or plugins, `save` and `close-save` fail with `sav
 after the sync verdict is established. In that case, use `lake build` for the module or importer
 instead of expecting Beam to write Lake artifacts.
 
+## Development Checkpoints And Authoritative Builds
+
+`lean-beam save` writes a development checkpoint from the environment accepted by the Lean server.
+A successful save means that the synced server snapshot passed Beam's readiness checks and was
+written as a Lake module artifact. It does not mean that Lean batch elaboration was rerun, and it
+does not certify that the resulting artifact is identical to one produced by `lake build`.
+
+Most elaboration behaves the same in server and batch execution. However, custom elaboration code
+can observe server mode or otherwise choose different behavior in the two contexts. Beam
+intentionally accepts that distinction to make repeated one-module checkpoints much cheaper during
+the edit and proof-development loop.
+
+Treat Beam-produced artifacts as development checkpoints. Before merging, releasing, or declaring
+final validation complete in the same working tree, stop the Beam daemon, remove the development
+artifacts through Lake, and perform an authoritative batch build:
+
+```bash
+lean-beam shutdown
+lake clean
+lake build
+```
+
+In CI, run `lake build` from a clean checkout or clean Lake build directory. Do not restore
+Beam-produced module artifacts into the final-validation job. The clean batch build is the final
+authority for project build success; `saveReady` and successful Beam checkpointing are inner-loop
+signals only.
+
 ## Reporting Surfaces
 
 Progress, streamed diagnostics, and current summaries are separate typed concepts.
@@ -133,9 +160,10 @@ did Lean report?", while readiness answers "can this synced version be checkpoin
 readiness API is authoritative for `saveReady`; diagnostic severity summaries are evidence and
 counts, not a separate broker-side veto.
 
-Lean-side readiness follows Lean batch/Lake's artifact gate for the current synced snapshot:
-current save-blocking frontend errors block save. Diagnostic streams, diagnostic summaries, and
-message history are observations; clients should not reconstruct save readiness from them.
+Lean-side readiness applies the frontend artifact gate to the current synced snapshot: current
+save-blocking frontend errors block save. This verdict answers whether Beam may checkpoint that
+server snapshot; it is not a batch-equivalence verdict. Diagnostic streams, diagnostic summaries,
+and message history are observations; clients should not reconstruct save readiness from them.
 
 ## Current Summary
 

@@ -172,6 +172,23 @@ lean-beam refresh "MyPkg/Sub/Module.lean"
 lean-beam save "MyPkg/Sub/Module.lean"
 ```
 
+### Final Batch Validation
+
+`lean-beam save` is an inner-loop development checkpoint from Lean's accepted server state. It
+avoids repeated module builds, but it does not rerun batch elaboration and is not the final build
+authority. Once the edit/proof loop is complete, validate the project from clean Lake artifacts:
+
+```bash
+lean-beam shutdown
+lake clean
+lake build
+```
+
+Run this sequence once at the final validation boundary, not after every Beam checkpoint. A CI job
+can run `lake build` directly when it starts from a clean checkout or clean Lake build directory.
+The exact checkpoint contract and the reason for this boundary live in
+[SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-authoritative-builds).
+
 Detailed Lean workflow guidance lives in
 [../skills/lean-beam/SKILL.md](../skills/lean-beam/SKILL.md). The narrower Rocq surface is
 summarized in [ROCQ.md](ROCQ.md), with agent workflow details in

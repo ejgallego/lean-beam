@@ -38,6 +38,12 @@ stale_build_stdout="$tmp_env_root/stale-build.stdout"
 stale_build_stderr="$tmp_env_root/stale-build.stderr"
 stale_sync_stdout="$tmp_env_root/stale-sync.stdout"
 stale_sync_stderr="$tmp_env_root/stale-sync.stderr"
+module_build_stdout="$tmp_env_root/module-build.stdout"
+module_build_stderr="$tmp_env_root/module-build.stderr"
+module_save_stdout="$tmp_env_root/module-save.stdout"
+module_save_stderr="$tmp_env_root/module-save.stderr"
+module_check_stdout="$tmp_env_root/module-check.stdout"
+module_check_stderr="$tmp_env_root/module-check.stderr"
 toolchain_failed=false
 
 if [ -z "${ELAN_HOME:-}" ] && [ -d "$HOME/.elan" ]; then
@@ -105,6 +111,12 @@ print_toolchain_context() {
   tail_file "stale build stderr" "$stale_build_stderr"
   tail_file "stale sync stdout" "$stale_sync_stdout"
   tail_file "stale sync stderr" "$stale_sync_stderr"
+  tail_file "module build stdout" "$module_build_stdout"
+  tail_file "module build stderr" "$module_build_stderr"
+  tail_file "module save stdout" "$module_save_stdout"
+  tail_file "module save stderr" "$module_save_stderr"
+  tail_file "module check stdout" "$module_check_stdout"
+  tail_file "module check stderr" "$module_check_stderr"
 }
 
 run_build() {
@@ -162,7 +174,7 @@ run_bundle_install() {
   fi
 }
 
-prepare_stale_diagnostic_project() {
+prepare_compat_project() {
   rm -rf -- "$stale_project_root"
   mkdir -p "$stale_project_root"
   cp -R tests/save_olean_project/. "$stale_project_root"/
@@ -204,7 +216,7 @@ if expected not in messages:
 PY
 }
 
-run_stale_wrapper() {
+run_compat_wrapper() {
   env \
     HOME="$tmp_env_root/home" \
     CODEX_HOME="$tmp_env_root/codex" \
@@ -214,10 +226,10 @@ run_stale_wrapper() {
     ./scripts/lean-beam --root "$stale_project_root" "$@"
 }
 
-run_stale_wrapper_checked() {
+run_compat_wrapper_checked() {
   local label="$1"
   shift
-  if ! run_stale_wrapper "$@" > "$stale_sync_stdout" 2> "$stale_sync_stderr"; then
+  if ! run_compat_wrapper "$@" > "$stale_sync_stdout" 2> "$stale_sync_stderr"; then
     print_toolchain_context "$label"
     return 1
   fi
@@ -225,7 +237,7 @@ run_stale_wrapper_checked() {
 
 run_stale_diagnostic_compat() {
   local rc=0
-  prepare_stale_diagnostic_project
+  prepare_compat_project
   cat > "$stale_project_root/SaveSmoke/B.lean" <<'EOF'
 def old : Nat := 1
 EOF
@@ -243,10 +255,10 @@ EOF
     return "$rc"
   fi
 
-  if ! run_stale_wrapper_checked "initial dependency sync failed" sync SaveSmoke/B.lean; then
+  if ! run_compat_wrapper_checked "initial dependency sync failed" sync SaveSmoke/B.lean; then
     return 1
   fi
-  if ! run_stale_wrapper_checked "initial importer sync failed" sync SaveSmoke/A.lean; then
+  if ! run_compat_wrapper_checked "initial importer sync failed" sync SaveSmoke/A.lean; then
     return 1
   fi
 
@@ -258,10 +270,10 @@ import SaveSmoke.B
 
 def aVal : Nat := new
 EOF
-  if ! run_stale_wrapper_checked "changed dependency sync failed" sync SaveSmoke/B.lean; then
+  if ! run_compat_wrapper_checked "changed dependency sync failed" sync SaveSmoke/B.lean; then
     return 1
   fi
-  if ! run_stale_wrapper_checked "changed dependency save failed" save SaveSmoke/B.lean; then
+  if ! run_compat_wrapper_checked "changed dependency save failed" save SaveSmoke/B.lean; then
     return 1
   fi
   (
@@ -274,7 +286,7 @@ EOF
   fi
 
   rc=0
-  run_stale_wrapper sync SaveSmoke/A.lean > "$stale_sync_stdout" 2> "$stale_sync_stderr" || rc=$?
+  run_compat_wrapper sync SaveSmoke/A.lean > "$stale_sync_stdout" 2> "$stale_sync_stderr" || rc=$?
   if [ "$rc" -eq 0 ]; then
     print_toolchain_context "stale diagnostic sync unexpectedly succeeded"
     return 1
@@ -285,6 +297,49 @@ EOF
   fi
 }
 
+run_module_save_compat() {
+  local rc=0
+  prepare_compat_project
+  (
+    cd "$stale_project_root"
+    LAKE_ARTIFACT_CACHE=false lake --no-cache build SaveSmoke/ModuleB.lean \
+      > "$module_build_stdout" 2> "$module_build_stderr"
+  ) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    print_toolchain_context "module save fixture build failed"
+    return "$rc"
+  fi
+
+  python3 - "$stale_project_root/SaveSmoke/ModuleB.lean" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = "public def moduleBVal : Nat := 1"
+new = "public def moduleBVal : Nat := 2"
+if old not in text:
+    raise SystemExit(f"expected module fixture declaration {old!r} in {path}")
+path.write_text(text.replace(old, new))
+PY
+
+  if ! run_compat_wrapper save SaveSmoke/ModuleB.lean \
+      > "$module_save_stdout" 2> "$module_save_stderr"; then
+    print_toolchain_context "module save failed"
+    return 1
+  fi
+  (
+    cd "$stale_project_root"
+    LAKE_ARTIFACT_CACHE=false lake env lean CheckModuleB.lean \
+      > "$module_check_stdout" 2> "$module_check_stderr"
+  ) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    print_toolchain_context "saved module artifact family did not expose the new value"
+    return "$rc"
+  fi
+}
+
 run_step "build beam-cli" run_build
 run_step "bundle install $toolchain" run_bundle_install
 run_step "stale diagnostic wording $toolchain" run_stale_diagnostic_compat
+run_step "module save $toolchain" run_module_save_compat

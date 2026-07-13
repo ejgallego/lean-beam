@@ -93,6 +93,11 @@ apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `l
 Beam observes the edited file and reports the new version. Use `lean_sync` instead of `lean_update`
 when the client also needs the diagnostics/readiness barrier.
 
+`lean_save` and `lean_close_save` create development checkpoints from the accepted Lean server
+snapshot. MCP clients should not present their success as authoritative batch-build or CI success.
+After the interactive loop, final validation happens outside MCP with a clean `lake build`; see the
+[checkpoint contract](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-authoritative-builds).
+
 ## Public Tool Boundary
 
 Add MCP-facing Lean behavior through the shared operation layer first:

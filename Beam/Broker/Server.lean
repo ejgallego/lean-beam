@@ -1270,6 +1270,15 @@ private def saveOlean
     expectedVersion := started.version
     expectedTextHash := started.textHash
     oleanFile := spec.oleanPath.toString
+    moduleArtifacts? :=
+      match spec.oleanServerPath?, spec.oleanPrivatePath?, spec.irPath? with
+      | some oleanServerFile, some oleanPrivateFile, some irFile =>
+          some {
+            oleanServerFile := oleanServerFile.toString
+            oleanPrivateFile := oleanPrivateFile.toString
+            irFile := irFile.toString
+          }
+      | _, _, _ => none
     ileanFile := spec.ileanPath.toString
     cFile := spec.cPath.toString
     bcFile? := spec.bcPath?.map (fun bcPath => System.FilePath.toString bcPath)

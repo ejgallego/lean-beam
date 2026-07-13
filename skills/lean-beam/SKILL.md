@@ -1,11 +1,14 @@
 ---
 name: lean-beam
-description: Use this when an AI should work on an external Lean project through the installed `lean-beam` wrapper, giving it direct efficient access to Lean's proof engine to avoid rebuilds through cheap speculative checks and zero-build module checkpoints.
+description: Use this when an AI should work on an external Lean project through the installed `lean-beam` wrapper, giving it direct efficient access to Lean's proof engine to avoid repeated inner-loop rebuilds through cheap speculative checks and zero-build module checkpoints.
 ---
 
 # Lean Beam
 
-Use this skill for Lean projects when you want the AI to replace repeated `lake build` loops with cheap speculative Lean probes, optional follow-up handle execution, and targeted file checkpoints.
+Use this skill for Lean projects when you want the AI to replace repeated inner-loop `lake build`
+runs with cheap speculative Lean probes, optional follow-up handle execution, and targeted file
+checkpoints. Finish with one clean batch build; Beam checkpoints are development artifacts, not the
+final validation authority.
 
 This is the Lean-only skill. It should stay focused on Lean and should not require Rocq setup or Rocq concepts.
 Do not factor shared Lean/Rocq skill instructions into a common helper; duplicate short guidance if
@@ -94,8 +97,11 @@ Core workflow contract:
   next version-bound probe; run `lean-beam sync` when you need diagnostics/readiness
 - use `lean-beam save` only for a synced workspace module path in the current Lake workspace package
   graph, for example `MyPkg/Sub/Module.lean`
-- `lean-beam save` validates and checkpoints only the module you save; it does not validate importers of
-  that module
+- `lean-beam save` checks readiness and checkpoints only the module snapshot you save; it does not
+  validate importers of that module
+- `lean-beam save` writes the accepted Lean server environment; an elaborator can behave differently
+  in server and batch mode, so treat the result as a development checkpoint rather than final build
+  evidence
 - `lean-beam save` currently supports only Lake module setups Beam can replay from the LSP snapshot
   without custom batch setup; modules with custom Lean options, Lean arguments, dynamic libraries, or
   plugins fail with `saveUnsupportedSetup` and should be rebuilt with `lake build`
@@ -130,7 +136,8 @@ This changes the right agent behavior:
   keeping independent probe sequences in flight
 - after a real source edit, run `lean-beam update <file>` before later probes; run
   `lean-beam sync <file>` when you need diagnostics/readiness
-- use `lake build` for dependency-cone or final validation, not as the inner loop
+- use `lake build` for dependency-cone validation; for final validation after Beam saves, stop Beam,
+  run `lake clean`, and then run `lake build`
 - use scratch files only for context-free Lean syntax checks or Beam incident isolation
 
 ## Prompting Contract
@@ -179,10 +186,12 @@ Stop probing and change tactics when:
 
 - the speculative result now needs to become real source: edit the file, save it, then `lean-beam sync`
 - repeated `lean-beam run-at` probes are no longer clarifying the problem
-- you edited a dependency and now need trustworthy downstream results; `lean-beam save` only validates
-  the module you save, not downstream importers
+- you edited a dependency and now need trustworthy downstream results; `lean-beam save` only
+  checkpoints the module you save, not downstream importers
 - stale-state, `contentModified`, or rebuild trouble keeps appearing; inspect with `lean-beam open-files`
   and `lean-beam doctor`
+- the task has reached its final validation boundary; stop Beam and perform the clean batch build
+  instead of treating a successful checkpoint as final evidence
 - if `lean-beam sync` fails with `syncBarrierIncomplete`: inspect `error.data.staleDirectDeps`,
   `error.data.saveDeps`, and `error.data.recoveryPlan`; save only the listed direct deps that still
   need checkpointing, then `lean-beam refresh "Target.lean"` if the plan says to;
@@ -330,6 +339,11 @@ lean-beam refresh "MyPkg/Sub/Module.lean"
 
 # only for a synced workspace module path, after a successful sync
 lean-beam save "MyPkg/Sub/Module.lean"
+
+# once, at the final validation boundary rather than in the inner loop
+lean-beam shutdown
+lake clean
+lake build
 ```
 
 Read the save path as a progression, not as three unrelated commands:
@@ -337,11 +351,15 @@ Read the save path as a progression, not as three unrelated commands:
 - `lean-beam sync` establishes the synced, diagnostics-complete snapshot for the current on-disk file
 - `lean-beam refresh` is `lean-beam close` plus `lean-beam sync`; use it when a tracked file needs a fresh basis after upstream changes
 - `lean-beam save` is `lean-beam sync` plus a zero-build checkpoint for that synced workspace module
-- `lean-beam save` validates only that saved module; it does not validate downstream importers
+- `lean-beam save` checks and checkpoints only that module snapshot; it does not validate downstream
+  importers
 - `lean-beam save` is restricted to simple Lake module setups that do not require custom Lean
   options, Lean arguments, dynamic libraries, or plugins; unsupported setups fail with
   `saveUnsupportedSetup`, after which use `lake build`
 - `lean-beam close-save` is `lean-beam save` plus closing the tracked file afterward
+- a Beam save checkpoints the accepted Lean server environment; it does not rerun batch elaboration
+- the final `shutdown` / `lake clean` / `lake build` sequence discards development checkpoints and
+  makes the fresh batch build authoritative
 
 Diagnostic defaults on that path:
 
@@ -410,7 +428,8 @@ Open these only when the task needs the detail:
   recover the same internal basis by accident
 - prefer `lean-beam save` / `lean-beam close-save` over a full `lake build` when only one file needs checkpointing
 - treat `lean-beam save` as a single-module checkpoint, not as dependency-cone validation
-- use `lake build` for initial failure discovery, coarse checkpoints, and final validation
+- use `lake build` for initial failure discovery and coarse dependency checkpoints; after Beam saves,
+  use `lean-beam shutdown`, `lake clean`, and `lake build` for final validation
 - if you edit a dependency of the target file, `lean-beam save` is not enough for downstream trust;
   rebuild before trusting importers
 - if daemon/save-state behavior looks wrong, inspect `lean-beam open-files` and `lean-beam doctor`
