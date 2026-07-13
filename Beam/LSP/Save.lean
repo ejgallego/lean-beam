@@ -45,12 +45,20 @@ API.
 -/
 def saveReadinessMethod : String := "$/beam/saveReadiness"
 
+/-- Canonical Lake companion outputs required when saving a `module` environment. -/
+structure ModuleArtifactPaths where
+  oleanServerFile : String
+  oleanPrivateFile : String
+  irFile : String
+  deriving FromJson, Repr, ToJson
+
 /-- Internal request payload for artifact serialization from the current worker snapshot. -/
 structure SaveArtifactsParams where
   textDocument : Lean.Lsp.TextDocumentIdentifier
   expectedVersion : Nat
   expectedTextHash : UInt64
   oleanFile : String
+  moduleArtifacts? : Option ModuleArtifactPaths := none
   ileanFile : String
   cFile : String
   bcFile? : Option String := none
@@ -105,6 +113,15 @@ private def optionalField? [FromJson α] (json : Json) (field : String) : Except
   | .error _ =>
       pure none
 
+private def requiredField [FromJson α] (json : Json) (field : String) : Except String α := do
+  let value ←
+    match json.getObjVal? field with
+    | .ok value => pure value
+    | .error _ => throw s!"missing required '{field}'"
+  match fromJson? value with
+  | .ok decoded => pure decoded
+  | .error err => throw s!"invalid '{field}': {err}"
+
 /-- Internal success payload for save-readiness checks. -/
 structure SaveReadinessResult where
   version : Nat
@@ -121,28 +138,28 @@ structure SaveReadinessResult where
 
 instance : FromJson SaveReadinessResult where
   fromJson? json := do
-    let version ← json.getObjValAs? Nat "version"
-    let textHash ← json.getObjValAs? UInt64 "textHash"
-    let currentDiagnostics? ←
-      optionalField? (α := Array Lean.Lsp.Diagnostic) json "currentDiagnostics"
-    let currentWarningCount? ← optionalField? (α := Nat) json "currentWarningCount"
-    let saveReady? ← optionalField? (α := Bool) json "saveReady"
-    let saveReadyReason? ← optionalField? (α := String) json "saveReadyReason"
+    let version ← requiredField (α := Nat) json "version"
+    let textHash ← requiredField (α := UInt64) json "textHash"
+    let currentDiagnostics ←
+      requiredField (α := Array Lean.Lsp.Diagnostic) json "currentDiagnostics"
+    let currentWarningCount ← requiredField (α := Nat) json "currentWarningCount"
+    let saveReady ← requiredField (α := Bool) json "saveReady"
+    let saveReadyReason ← requiredField (α := String) json "saveReadyReason"
     let saveReadyMessage? ← optionalField? (α := String) json "saveReadyMessage"
-    let blockingDiagnostics? ←
-      optionalField? (α := Array SaveBlockingDiagnostic) json "blockingDiagnostics"
-    let blockingCommandMessages? ←
-      optionalField? (α := Array SaveBlockingCommandMessage) json "blockingCommandMessages"
+    let blockingDiagnostics ←
+      requiredField (α := Array SaveBlockingDiagnostic) json "blockingDiagnostics"
+    let blockingCommandMessages ←
+      requiredField (α := Array SaveBlockingCommandMessage) json "blockingCommandMessages"
     pure {
       version
       textHash
-      currentDiagnostics := currentDiagnostics?.getD #[]
-      currentWarningCount := currentWarningCount?.getD 0
-      saveReady := saveReady?.getD true
-      saveReadyReason := saveReadyReason?.getD "ok"
+      currentDiagnostics
+      currentWarningCount
+      saveReady
+      saveReadyReason
       saveReadyMessage?
-      blockingDiagnostics := blockingDiagnostics?.getD #[]
-      blockingCommandMessages := blockingCommandMessages?.getD #[]
+      blockingDiagnostics
+      blockingCommandMessages
     }
 
 private def oldIREmitCName : Name :=
@@ -186,8 +203,60 @@ private def withTempSibling (path : System.FilePath) (writeTemp : System.FilePat
 private def writeFileReplacing (path : System.FilePath) (content : String) : IO Unit :=
   withTempSibling path fun tmp => IO.FS.writeFile tmp content
 
-private def writeModuleReplacing (env : Environment) (path : System.FilePath) : IO Unit :=
-  withTempSibling path fun tmp => Lean.writeModule env tmp
+private def withTempSiblingDir
+    (path : System.FilePath)
+    (useDir : System.FilePath → IO α) : IO α := do
+  ensureParentDir path
+  let parent := path.parent.getD (System.FilePath.mk ".")
+  let tmpDir := parent / s!".beam-save-tmp-{← IO.monoNanosNow}"
+  IO.FS.createDirAll tmpDir
+  try
+    useDir tmpDir
+  finally
+    if ← tmpDir.pathExists then
+      IO.FS.removeDirAll tmpDir
+
+private def publishStagedFile
+    (staged target : System.FilePath) : IO Unit := do
+  unless ← staged.pathExists do
+    throw <| IO.userError s!"Lean did not write expected staged module artifact: {staged}"
+  ensureParentDir target
+  removeFileIfExists target
+  IO.FS.rename staged target
+
+private structure ModuleArtifactTargets where
+  oleanServerFile : System.FilePath
+  oleanPrivateFile : System.FilePath
+  irFile : System.FilePath
+
+private def writeModuleReplacing
+    (env : Environment)
+    (oleanFile : System.FilePath)
+    (moduleTargets? : Option ModuleArtifactTargets) : IO Unit := do
+  if env.header.isModule then
+    unless moduleTargets?.isSome do
+      throw <| IO.userError
+        "module artifact save requires oleanServerFile, oleanPrivateFile, and irFile"
+  else
+    unless moduleTargets?.isNone do
+      throw <| IO.userError
+        "non-module artifact save must not provide module companion output paths"
+  withTempSiblingDir oleanFile fun tmpDir => do
+    let some fileName := oleanFile.fileName
+      | throw <| IO.userError s!"module artifact path has no file name: {oleanFile}"
+    let stagedOlean := tmpDir / fileName
+    Lean.writeModule env stagedOlean
+    let mut outputs := #[(stagedOlean, oleanFile)]
+    if let some targets := moduleTargets? then
+      outputs := outputs.push (stagedOlean.addExtension "server", targets.oleanServerFile)
+      outputs := outputs.push (stagedOlean.addExtension "private", targets.oleanPrivateFile)
+      outputs := outputs.push (stagedOlean.withExtension "ir", targets.irFile)
+    -- Validate the complete family before replacing any canonical artifact.
+    for (staged, _) in outputs do
+      unless ← staged.pathExists do
+        throw <| IO.userError s!"Lean did not write expected staged module artifact: {staged}"
+    for (staged, target) in outputs do
+      publishStagedFile staged target
 
 private def emitLLVMReplacing (env : Environment) (mainModule : Name) (path : System.FilePath) : IO Unit :=
   withTempSibling path fun tmp => Lean.IR.emitLLVM env mainModule tmp.toString
@@ -397,9 +466,14 @@ def saveCurrentArtifacts
   let env := cmdState.env
   let mainModule := env.mainModule
   let oleanFile := mkFilePath p.oleanFile
+  let moduleTargets? := p.moduleArtifacts?.map fun paths => ({
+    oleanServerFile := mkFilePath paths.oleanServerFile
+    oleanPrivateFile := mkFilePath paths.oleanPrivateFile
+    irFile := mkFilePath paths.irFile
+  } : ModuleArtifactTargets)
   let ileanFile := mkFilePath p.ileanFile
   let cFile := mkFilePath p.cFile
-  writeModuleReplacing env oleanFile
+  writeModuleReplacing env oleanFile moduleTargets?
   let trees := snaps.toArray.map (·.infoTree)
   writeIlean doc.meta doc.initSnap.stx mainModule trees ileanFile
   let cOutput ← emitCForSavedModule(env, mainModule)

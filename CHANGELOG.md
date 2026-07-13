@@ -14,6 +14,10 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Fixed
 
+- Module-mode `lean-save` and `lean-close-save` now checkpoint the complete Lake artifact family,
+  preventing replay from reusing stale `.olean.server`, `.olean.private`, or `.ir` files.
+- Save-readiness decoding now rejects incomplete response envelopes instead of inferring that a
+  document is ready to save.
 - `lean-beam-mcp --self-check` now waits long enough for valid first-use local bundle builds and
   documents the `LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS` override.
 

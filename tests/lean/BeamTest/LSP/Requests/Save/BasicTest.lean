@@ -18,6 +18,9 @@ namespace BeamTest.LSP.Requests.Save.BasicTest
 private def depAFixture : String :=
   "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
 
+private def moduleArtifactsFixture : String :=
+  "tests/lean/BeamTest/Fixtures/Save/ModuleArtifacts.lean"
+
 private def staleTextHash (text : String) : UInt64 :=
   if hash text == 0 then 1 else 0
 
@@ -40,6 +43,25 @@ private def requireSavedArtifacts (label : String) (outDir : System.FilePath)
   expectFileExists s!"{label} olean" (outDir / "DepA.olean")
   expectFileExists s!"{label} ilean" (outDir / "DepA.ilean")
   expectFileExists s!"{label} c" (outDir / "DepA.c")
+
+def checkSaveReadinessDecoderRequiresVerdict : ScenarioM Unit := do
+  let json := Json.mkObj [
+    ("version", toJson 1),
+    ("textHash", toJson (0 : UInt64)),
+    ("currentDiagnostics", toJson (#[] : Array Lean.Lsp.Diagnostic)),
+    ("currentWarningCount", toJson 0),
+    ("saveReadyReason", toJson "ok"),
+    ("blockingDiagnostics", toJson (#[] : Array Beam.LSP.Save.SaveBlockingDiagnostic)),
+    ("blockingCommandMessages", toJson (#[] : Array Beam.LSP.Save.SaveBlockingCommandMessage))
+  ]
+  match (fromJson? json : Except String Beam.LSP.Save.SaveReadinessResult) with
+  | .ok readiness =>
+      throw <| IO.userError
+        s!"saveReadiness decoder accepted a missing verdict: {(toJson readiness).compress}"
+  | .error err =>
+      unless err.contains "saveReady" do
+        throw <| IO.userError
+          s!"saveReadiness decoder rejected a missing verdict without naming saveReady: {err}"
 
 def checkSaveReadinessOk : ScenarioM Unit := do
   let doc ← openDoc depAFixture
@@ -116,6 +138,40 @@ def checkSaveArtifactsWrite : ScenarioM Unit := do
   }
   let saved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs saveReq
   requireSavedArtifacts "saveArtifacts" outDir saved
+
+  closeDoc doc
+
+def checkSaveArtifactsWriteModuleFamily : ScenarioM Unit := do
+  let doc ← openDoc moduleArtifactsFixture
+  let text ← IO.FS.readFile moduleArtifactsFixture
+  let outDir ← mkTmpDir "beam-save-module-family"
+
+  let saveReq ← sendSaveArtifacts doc {
+    expectedVersionOverride? := some 1
+    expectedTextHashOverride? := some (hash text)
+    oleanFile := (outDir / "ModuleArtifacts.olean").toString
+    moduleArtifacts? := some {
+      oleanServerFile := (outDir / "ModuleArtifacts.olean.server").toString
+      oleanPrivateFile := (outDir / "ModuleArtifacts.olean.private").toString
+      irFile := (outDir / "ModuleArtifacts.ir").toString
+    }
+    ileanFile := (outDir / "ModuleArtifacts.ilean").toString
+    cFile := (outDir / "ModuleArtifacts.c").toString
+  }
+  let saved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs saveReq
+  if !saved.written then
+    throw <| IO.userError "saveArtifacts module family: expected written = true"
+  expectFileExists "saveArtifacts module exported olean" (outDir / "ModuleArtifacts.olean")
+  expectFileExists "saveArtifacts module server olean" (outDir / "ModuleArtifacts.olean.server")
+  expectFileExists "saveArtifacts module private olean" (outDir / "ModuleArtifacts.olean.private")
+  expectFileExists "saveArtifacts module IR" (outDir / "ModuleArtifacts.ir")
+  expectFileExists "saveArtifacts module ilean" (outDir / "ModuleArtifacts.ilean")
+  expectFileExists "saveArtifacts module C" (outDir / "ModuleArtifacts.c")
+  let entries ← outDir.readDir
+  if entries.any (fun entry =>
+      entry.fileName.contains ".beam-tmp-" || entry.fileName.contains ".beam-save-tmp-") then
+    throw <| IO.userError
+      s!"saveArtifacts module family: temporary artifacts leaked: {entries.map (·.fileName)}"
 
   closeDoc doc
 
@@ -273,12 +329,14 @@ def checkReportedOnlyErrorReadiness : ScenarioM Unit := do
   closeDoc doc
 
 def run : ScenarioM Unit := do
+  checkSaveReadinessDecoderRequiresVerdict
   checkSaveReadinessOk
   checkSaveReadinessStaleVersion
   checkSaveReadinessStaleHash
   checkSaveArtifactsStaleVersion
   checkSaveArtifactsStaleHash
   checkSaveArtifactsWrite
+  checkSaveArtifactsWriteModuleFamily
   checkSaveArtifactsRejectsSameDocumentEditRace
   checkSaveReadinessDocumentErrors
   checkSaveRequestsWithStandardLspInterference
