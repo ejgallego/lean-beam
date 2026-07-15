@@ -8,6 +8,7 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
+- Validated Lean `v4.32.0` support and made it the repository's default Lean toolchain.
 - Mistral Vibe skill installation and MCP registration support through `--vibe`, `--vibe-mcp`,
   `--vibe-home`, and `VIBE_HOME`
   ([#213](https://github.com/ejgallego/lean-beam/pull/213), @archiebrowne).
