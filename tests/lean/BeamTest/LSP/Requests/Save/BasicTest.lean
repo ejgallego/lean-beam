@@ -21,6 +21,9 @@ private def depAFixture : String :=
 private def moduleArtifactsFixture : String :=
   "tests/lean/BeamTest/Fixtures/Save/ModuleArtifacts.lean"
 
+private def requestCancelledJson : Json :=
+  Json.mkObj [("code", toJson "requestCancelled")]
+
 private def staleTextHash (text : String) : UInt64 :=
   if hash text == 0 then 1 else 0
 
@@ -43,6 +46,18 @@ private def requireSavedArtifacts (label : String) (outDir : System.FilePath)
   expectFileExists s!"{label} olean" (outDir / "DepA.olean")
   expectFileExists s!"{label} ilean" (outDir / "DepA.ilean")
   expectFileExists s!"{label} c" (outDir / "DepA.c")
+
+private def expectFileContents
+    (label : String) (path : System.FilePath) (expected : String) : ScenarioM Unit := do
+  unless (← IO.FS.readBinFile path) == expected.toUTF8 do
+    throw <| IO.userError s!"{label}: file contents changed: {path}"
+
+private def readArtifactSet
+    (outDir : System.FilePath) (stem : String) : ScenarioM (Array ByteArray) := do
+  let olean ← IO.FS.readBinFile (outDir / s!"{stem}.olean")
+  let ilean ← IO.FS.readBinFile (outDir / s!"{stem}.ilean")
+  let c ← IO.FS.readBinFile (outDir / s!"{stem}.c")
+  pure #[olean, ilean, c]
 
 def checkSaveReadinessDecoderRequiresVerdict : ScenarioM Unit := do
   let json := Json.mkObj [
@@ -172,6 +187,119 @@ def checkSaveArtifactsWriteModuleFamily : ScenarioM Unit := do
       entry.fileName.contains ".beam-tmp-" || entry.fileName.contains ".beam-save-tmp-") then
     throw <| IO.userError
       s!"saveArtifacts module family: temporary artifacts leaked: {entries.map (·.fileName)}"
+
+  closeDoc doc
+
+def checkSaveArtifactsFailurePreservesPriorArtifacts : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
+  let text ← IO.FS.readFile depAFixture
+  let outDir ← mkTmpDir "beam-save-atomic-failure"
+  let oleanFile := outDir / "DepA.olean"
+  let ileanFile := outDir / "DepA.ilean"
+  let cFile := outDir / "DepA.c"
+  let blockedParent := outDir / "blocked-parent"
+  let oldOlean := "prior olean artifact"
+  let oldIlean := "prior ilean artifact"
+  let oldC := "prior C artifact"
+  IO.FS.writeFile oleanFile oldOlean
+  IO.FS.writeFile ileanFile oldIlean
+  IO.FS.writeFile cFile oldC
+  IO.FS.writeFile blockedParent "not a directory"
+
+  let saveReq ← sendSaveArtifacts doc {
+    expectedVersionOverride? := some 1
+    expectedTextHashOverride? := some (hash text)
+    oleanFile := oleanFile.toString
+    ileanFile := ileanFile.toString
+    cFile := cFile.toString
+    bcFile? := some (blockedParent / "DepA.bc").toString
+  }
+  expectErrorContains saveReq (Json.mkObj [("code", toJson "internalError")])
+  expectFileContents "failed save replaced the prior olean artifact" oleanFile oldOlean
+  expectFileContents "failed save replaced the prior ilean artifact" ileanFile oldIlean
+  expectFileContents "failed save replaced the prior C artifact" cFile oldC
+  let entries ← outDir.readDir
+  if entries.any (fun entry =>
+      entry.fileName.contains ".beam-tmp-" || entry.fileName.contains ".beam-save-tmp-" ||
+        entry.fileName.contains ".beam-backup-") then
+    throw <| IO.userError
+      s!"failed save leaked staging artifacts: {entries.map (·.fileName)}"
+
+  closeDoc doc
+
+def checkSaveArtifactsCancellationPreservesPriorArtifacts : ScenarioM Unit := do
+  let doc ← openDoc "tests/scenario/docs/PartialProgress.lean"
+  let outDir ← mkTmpDir "beam-save-atomic-cancellation"
+  let oleanFile := outDir / "PartialProgress.olean"
+  let ileanFile := outDir / "PartialProgress.ilean"
+  let cFile := outDir / "PartialProgress.c"
+  let oldOlean := "prior olean artifact"
+  let oldIlean := "prior ilean artifact"
+  let oldC := "prior C artifact"
+  IO.FS.writeFile oleanFile oldOlean
+  IO.FS.writeFile ileanFile oldIlean
+  IO.FS.writeFile cFile oldC
+
+  let saveReq ← sendSaveArtifacts doc {
+    oleanFile := oleanFile.toString
+    ileanFile := ileanFile.toString
+    cFile := cFile.toString
+  }
+  cancelReq saveReq
+  expectErrorContains saveReq requestCancelledJson
+  expectFileContents "cancelled save replaced the prior olean artifact" oleanFile oldOlean
+  expectFileContents "cancelled save replaced the prior ilean artifact" ileanFile oldIlean
+  expectFileContents "cancelled save replaced the prior C artifact" cFile oldC
+  let entries ← outDir.readDir
+  if entries.any (fun entry =>
+      entry.fileName.contains ".beam-save-tmp-" || entry.fileName.contains ".beam-backup-") then
+    throw <| IO.userError
+      s!"cancelled save leaked staging artifacts: {entries.map (·.fileName)}"
+
+  closeDoc doc
+
+def checkConcurrentSameWorkerSavesPublishWholeSet : ScenarioM Unit := do
+  let doc ← openDoc depAFixture
+  let referenceDir ← mkTmpDir "beam-save-concurrent-reference"
+  let sharedDir ← mkTmpDir "beam-save-concurrent-shared"
+
+  let referenceReq ← sendSaveArtifacts doc {
+    oleanFile := (referenceDir / "Reference.olean").toString
+    ileanFile := (referenceDir / "Reference.ilean").toString
+    cFile := (referenceDir / "Reference.c").toString
+  }
+  let referenceSaved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs referenceReq
+  unless referenceSaved.written do
+    throw <| IO.userError "concurrent save reference was not written"
+  let reference ← readArtifactSet referenceDir "Reference"
+  let rotatedReference := #[reference[2]!, reference[0]!, reference[1]!]
+
+  let requests ← (List.range 8).mapM fun index =>
+    if index % 2 == 0 then
+      sendSaveArtifacts doc {
+        oleanFile := (sharedDir / "Shared.olean").toString
+        ileanFile := (sharedDir / "Shared.ilean").toString
+        cFile := (sharedDir / "Shared.c").toString
+      }
+    else
+      -- Use a distinct whole-set layout while keeping every request in this document's worker.
+      sendSaveArtifacts doc {
+        oleanFile := (sharedDir / "Shared.ilean").toString
+        ileanFile := (sharedDir / "Shared.c").toString
+        cFile := (sharedDir / "Shared.olean").toString
+      }
+  for request in requests do
+    let saved : Beam.LSP.Save.SaveArtifactsResult ← awaitResponseAs request
+    unless saved.written do
+      throw <| IO.userError "concurrent save request did not report written = true"
+  let shared ← readArtifactSet sharedDir "Shared"
+  unless shared == reference || shared == rotatedReference do
+    throw <| IO.userError "same-worker concurrent saves published a mixed artifact set"
+  let entries ← sharedDir.readDir
+  if entries.any (fun entry =>
+      entry.fileName.contains ".beam-save-tmp-" || entry.fileName.contains ".beam-backup-") then
+    throw <| IO.userError
+      s!"same-worker concurrent saves leaked staging artifacts: {entries.map (·.fileName)}"
 
   closeDoc doc
 
@@ -337,6 +465,9 @@ def run : ScenarioM Unit := do
   checkSaveArtifactsStaleHash
   checkSaveArtifactsWrite
   checkSaveArtifactsWriteModuleFamily
+  checkSaveArtifactsFailurePreservesPriorArtifacts
+  checkSaveArtifactsCancellationPreservesPriorArtifacts
+  checkConcurrentSameWorkerSavesPublishWholeSet
   checkSaveArtifactsRejectsSameDocumentEditRace
   checkSaveReadinessDocumentErrors
   checkSaveRequestsWithStandardLspInterference
