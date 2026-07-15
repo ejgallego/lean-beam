@@ -17,6 +17,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 - `lean-save` and `lean-close-save` now stage and commit complete artifact sets, preserving prior
   outputs on reported failure or cancellation and preventing same-worker saves from mixing files.
+- `lean-save` and `lean-close-save` now invalidate prior Lake trace metadata before publishing
+  artifacts and replace the new trace atomically, preventing prior metadata from describing newly
+  published artifacts after a trace-write failure.
 - Module-mode `lean-save` and `lean-close-save` now checkpoint the complete Lake artifact family,
   preventing replay from reusing stale `.olean.server`, `.olean.private`, or `.ir` files.
 - Save-readiness decoding now rejects incomplete response envelopes instead of inferring that a

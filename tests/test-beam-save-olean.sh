@@ -355,6 +355,59 @@ PY
     printf '%s\n' "$save_json" >&2
     exit 1
   fi
+  trace_path="$(BEAM_JSON_PAYLOAD="$save_json" python3 - <<'PY'
+import json, os
+print(json.loads(os.environ["BEAM_JSON_PAYLOAD"])["result"]["saved"]["trace"])
+PY
+)"
+  readonly_trace="${trace_path}.readonly"
+  mv "$trace_path" "$readonly_trace"
+  chmod 444 "$readonly_trace"
+  ln -s "$(basename "$readonly_trace")" "$trace_path"
+  if ! beam --root "$tmp2" lean-save SaveSmoke/B.lean > /dev/null; then
+    echo "expected lean-save to replace an unwritable trace symlink before artifact publication" >&2
+    exit 1
+  fi
+  if [ -L "$trace_path" ] || [ ! -f "$trace_path" ]; then
+    echo "expected lean-save to publish a regular replacement trace" >&2
+    exit 1
+  fi
+  chmod 644 "$readonly_trace"
+  rm -f "$readonly_trace"
+  ilean_path="$(BEAM_JSON_PAYLOAD="$save_json" python3 - <<'PY'
+import json, os
+print(json.loads(os.environ["BEAM_JSON_PAYLOAD"])["result"]["saved"]["ilean"])
+PY
+)"
+  saved_ilean="${ilean_path}.before-blocked-save"
+  mv "$ilean_path" "$saved_ilean"
+  mkdir "$ilean_path"
+  blocked_save_out="$(mktemp "$tmp2/blocked-save-out-XXXXXX")"
+  blocked_save_err="$(mktemp "$tmp2/blocked-save-err-XXXXXX")"
+  if beam --root "$tmp2" lean-save SaveSmoke/B.lean \
+      >"$blocked_save_out" 2>"$blocked_save_err"; then
+    echo "expected lean-save to reject an artifact target that is a directory" >&2
+    cat "$blocked_save_out" >&2
+    cat "$blocked_save_err" >&2
+    exit 1
+  fi
+  if [ -e "$trace_path" ] || [ -L "$trace_path" ]; then
+    echo "expected failed artifact publication to leave the prior trace invalidated" >&2
+    cat "$blocked_save_out" >&2
+    cat "$blocked_save_err" >&2
+    exit 1
+  fi
+  rmdir "$ilean_path"
+  mv "$saved_ilean" "$ilean_path"
+  rm -f "$blocked_save_out" "$blocked_save_err"
+  if ! beam --root "$tmp2" lean-save SaveSmoke/B.lean > /dev/null; then
+    echo "expected lean-save to republish the trace after the artifact target is restored" >&2
+    exit 1
+  fi
+  if [ ! -f "$trace_path" ]; then
+    echo "expected successful retry to publish a replacement trace" >&2
+    exit 1
+  fi
   beam --root "$tmp2" shutdown > /dev/null 2>&1 || true
   lake_build -v SaveSmoke/B.lean >"$log4" 2>&1
   rm -f .lake/build/lib/lean/SaveSmoke/A.olean .lake/build/lib/lean/SaveSmoke/A.ilean .lake/build/lib/lean/SaveSmoke/A.trace .lake/build/ir/SaveSmoke/A.c
