@@ -10,6 +10,7 @@ Use this reference as a short checklist of what not to assume in Lean `beam` wor
 - `lean-beam run-at` fills indentation, inserts missing newlines, or reformats text for you
 - `lean-beam sync` recovers speculative text that you never wrote into the file
 - `lean-beam save` is valid for any `.lean` file the daemon can open
+- a successful `lean-beam save` is equivalent to a fresh batch build
 - a downstream probe is trustworthy right after editing an imported dependency
 - wrapper `stderr` is the machine-readable surface
 - creating a `/tmp` scratch Lean file for a question that belongs at a real source position
@@ -29,4 +30,7 @@ Use this reference as a short checklist of what not to assume in Lean `beam` wor
 - use a real edit, save, then `lean-beam sync` when the speculative result should become source
 - use `lean-beam save` only for a synced workspace module
 - use `beam-client request-stream` for machine-readable streaming diagnostics or progress
-- use `lake build` when the task has become dependency freshness or final validation
+- use `lake build` when the task has become dependency freshness
+- rely on successful Beam checkpoints for ordinary local development, ensure CI runs `lake build`
+  from clean artifacts, and use local `lean-beam shutdown`, `lake clean`, and `lake build` once only
+  when no successful clean CI result is available or server-sensitive elaboration is suspected

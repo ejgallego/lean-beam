@@ -27,7 +27,7 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   document symbols, workspace symbols, and mode-based goal inspection, exposed through the broker,
   `lean-beam`, and MCP
 - explicit Lean `lean-beam sync` barrier with diagnostics wait and compact `fileProgress` reporting
-- zero-build `lean-beam save` checkpoint for one synced workspace module
+- zero-build `lean-beam save` development checkpoint for one synced workspace module
 - typed sync summaries with current diagnostic/readiness counts for the synced document version
 
 ### Local Beam Layer
@@ -37,8 +37,7 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   [docs/ROCQ.md](ROCQ.md)
 - experimental Lean wrapper commands for follow-up handle continuation and release
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows
-- explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers,
-  while still accepting older inferred-`ok` envelopes on input
+- explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers
 - `lean-beam open-files` daemon introspection for tracked documents, including saved/not-saved state,
   direct Lean deps when available, save preflight fields, checkpoint status, and the last compact
   `fileProgress`
@@ -102,8 +101,8 @@ a progression:
   version without waiting for diagnostics
 - `lean-beam sync` establishes the diagnostics-complete saved file snapshot for the current document
   version
-- `lean-beam save` checkpoints that snapshot for one module
-- `lean-beam close-save` does the same checkpoint and then closes the tracked file
+- `lean-beam save` creates a development checkpoint from that server snapshot for one module
+- `lean-beam close-save` creates the same checkpoint and then closes the tracked file
 
 Position/range/document operations are version-bound across the broker, MCP, and wrapper surfaces.
 Clients first update or sync a saved file, then pass the returned document version to later probes.
@@ -177,6 +176,12 @@ discriminator.
 
 - Zero-build `lean-beam save` helps checkpoint one module, but it is not a whole-workspace freshness
   solution.
+- A Beam checkpoint contains the Lean server's accepted environment. Elaborators can distinguish
+  server execution from batch execution, so exceptional custom elaboration can produce an artifact
+  that differs from a fresh `lake build` artifact. Successful checkpoints are normally sufficient
+  during local development. Final batch evidence should come from a clean CI `lake build`; if no
+  successful clean CI result is available, run the one-time local batch-validation sequence in
+  [SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
 - If you edit a dependency of the target file, downstream speculative results should be treated as
   stale until rebuild or checkpoint.
 - For open files in Lake workspaces, Beam uses Lean's native stale-dependency diagnostic when a synced

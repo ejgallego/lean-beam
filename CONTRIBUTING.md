@@ -75,8 +75,23 @@ Examples:
 - `fix: improve save readiness reporting`
 - `doc: split human-facing README from contributor workflow guidance`
 
-This repository does not yet enforce Lean's `changelog-*` label process, so adopt the message
-format now and add changelog policy later if the release process needs it.
+This repository does not yet enforce Lean's `changelog-*` label process.
+
+## Changelog Entries
+
+Add user-facing changes under the appropriate subsection of `CHANGELOG.md`'s `Unreleased` section.
+Keep each entry outcome-oriented and end it with the pull request number and primary author's GitHub
+handle in this form:
+
+```markdown
+- Describe the user-visible outcome
+  ([#216](https://github.com/ejgallego/lean-beam/pull/216), @ejgallego).
+```
+
+Use the pull request author unless the contributors agree that another primary author is more
+accurate. Related changes from one pull request may share one entry; unrelated user-visible changes
+should remain separate. Documentation-only maintenance does not need an entry unless it changes
+public guidance or records a compatibility or behavior correction.
 
 ## Pull Requests
 

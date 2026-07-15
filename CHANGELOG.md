@@ -8,7 +8,8 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
-- Validated Lean `v4.32.0` support and made it the repository's default Lean toolchain.
+- Validated Lean `v4.32.0` support and made it the repository's default Lean toolchain
+  ([#219](https://github.com/ejgallego/lean-beam/pull/219), @ejgallego).
 - Mistral Vibe skill installation and MCP registration support through `--vibe`, `--vibe-mcp`,
   `--vibe-home`, and `VIBE_HOME`
   ([#213](https://github.com/ejgallego/lean-beam/pull/213), @archiebrowne).
@@ -16,16 +17,31 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 ### Fixed
 
 - `lean-save` and `lean-close-save` now stage and commit complete artifact sets, preserving prior
-  outputs on reported failure or cancellation and preventing same-worker saves from mixing files.
+  outputs on reported failure or cancellation and preventing same-worker saves from mixing files
+  ([#217](https://github.com/ejgallego/lean-beam/pull/217), @ejgallego).
 - `lean-save` and `lean-close-save` now invalidate prior Lake trace metadata before publishing
   artifacts and replace the new trace atomically, preventing prior metadata from describing newly
-  published artifacts after a trace-write failure.
+  published artifacts after a trace-write failure
+  ([#218](https://github.com/ejgallego/lean-beam/pull/218), @ejgallego).
 - Module-mode `lean-save` and `lean-close-save` now checkpoint the complete Lake artifact family,
-  preventing replay from reusing stale `.olean.server`, `.olean.private`, or `.ir` files.
+  preventing replay from reusing stale `.olean.server`, `.olean.private`, or `.ir` files
+  ([#214](https://github.com/ejgallego/lean-beam/pull/214), @ejgallego).
 - Save-readiness decoding now rejects incomplete response envelopes instead of inferring that a
-  document is ready to save.
+  document is ready to save
+  ([#214](https://github.com/ejgallego/lean-beam/pull/214), @ejgallego).
 - `lean-beam-mcp --self-check` now waits long enough for valid first-use local bundle builds and
-  documents the `LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS` override.
+  documents the `LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS` override
+  ([#208](https://github.com/ejgallego/lean-beam/pull/208), @ejgallego).
+
+### Documentation
+
+- Clarify that zero-build saves are development checkpoints for the inner loop, make clean CI the
+  preferred final batch validation, and use one clean local build when no clean CI result is
+  available
+  ([#216](https://github.com/ejgallego/lean-beam/pull/216), @ejgallego).
+- Align the status page with the current broker protocol, which requires explicit `ok` / `error`
+  response envelopes
+  ([#216](https://github.com/ejgallego/lean-beam/pull/216), @ejgallego).
 
 ## 0.1.0 - 2026-07-07
 

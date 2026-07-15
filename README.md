@@ -82,7 +82,7 @@ The current development line includes support for:
   [`sync`](docs/SYNC_AND_DIAGNOSTICS.md#command-model)
 - actionable file information with [`todo`](docs/STATUS.md#core-lean-surface), including sorries,
   holes, diagnostics, code actions, and incomplete proofs
-- saving `.olean` artifacts from an interactive session with
+- creating development `.olean` checkpoints from an interactive session with
   [`save`](docs/SYNC_AND_DIAGNOSTICS.md#command-model)
 - selected Lean/LSP features through the same
   [CLI](docs/SETUP.md#use-beam-from-a-lean-project) and
@@ -93,6 +93,13 @@ The current development line includes support for:
 
 See [docs/STATUS.md](docs/STATUS.md) for the current supported surface, known limitations, and
 release direction.
+
+Beam checkpoints accelerate the development loop by writing the Lean server's accepted state. A
+successful checkpoint is normally sufficient while working; do not add an expensive clean build to
+every Beam loop. Final project validation should come from CI running `lake build` from clean Lake
+artifacts. If no successful clean CI result is available, or server-sensitive elaboration is
+suspected, use the one-time local batch check described in the
+[sync and diagnostics contract](docs/SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
 
 ## Install
 
