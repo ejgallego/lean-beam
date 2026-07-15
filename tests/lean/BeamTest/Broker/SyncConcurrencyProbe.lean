@@ -23,9 +23,9 @@ private def spawnTracedLeanBrokerWithPlugin
     (endpoint : Beam.Broker.Endpoint)
     (root leanPlugin : System.FilePath)
     (leanCmd : String := "lean") : IO (IO.Process.Child tracedBrokerStdio) := do
-  let port ←
+  let port :=
     match endpoint with
-    | .tcp port => pure port
+    | .tcp port => port
   IO.Process.spawn {
     toStdioConfig := tracedBrokerStdio
     cmd := (← daemonExe).toString

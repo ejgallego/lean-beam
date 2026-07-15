@@ -148,9 +148,9 @@ def spawnLeanBrokerWithPlugin
     (endpoint : Beam.Broker.Endpoint)
     (root leanPlugin : System.FilePath)
     (leanCmd : String := "lean") : IO (IO.Process.Child nullBrokerStdio) := do
-  let port ←
+  let port :=
     match endpoint with
-    | .tcp port => pure port
+    | .tcp port => port
   IO.Process.spawn {
     toStdioConfig := nullBrokerStdio
     cmd := (← daemonExe).toString
@@ -173,9 +173,9 @@ def spawnRocqBroker
     (endpoint : Beam.Broker.Endpoint)
     (root : System.FilePath)
     (rocqCmd : String := "coq-lsp") : IO (IO.Process.Child nullBrokerStdio) := do
-  let port ←
+  let port :=
     match endpoint with
-    | .tcp port => pure port
+    | .tcp port => port
   IO.Process.spawn {
     toStdioConfig := nullBrokerStdio
     cmd := (← daemonExe).toString

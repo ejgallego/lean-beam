@@ -166,7 +166,7 @@ private def oldIREmitCName : Name :=
   .str (.str (.str .anonymous "Lean") "IR") "emitC"
 
 -- Lean v4.30 moved C emission from `Lean.IR.emitC` to `Lean.Compiler.LCNF.emitC`.
--- Select the available API at elaboration time so one source tree still builds on v4.28-v4.31.
+-- Select the available API at elaboration time so one source tree still builds on v4.28-v4.32.
 elab "emitCForSavedModule(" env:term ", " modName:term ")" : term => do
   if (← getEnv).contains oldIREmitCName then
     Lean.Elab.Term.elabTerm (← `(term| IO.ofExcept <| Lean.IR.emitC $env $modName)) none
