@@ -14,15 +14,17 @@ The layering is:
   types.
 - [Beam/Broker/Protocol.lean](../Beam/Broker/Protocol.lean) owns the local broker request, response,
   and stream envelopes.
-- [Beam/Broker/Server.lean](../Beam/Broker/Server.lean) owns session lifecycle, document sync, save
-  barriers, cancellation, backend dispatch, and the shared in-process runtime used by both the daemon
-  transport and MCP server.
+- [Beam/Broker/Server.lean](../Beam/Broker/Server.lean) owns workspace and session lifecycle,
+  document sync, save barriers, cancellation, backend dispatch, and the shared in-process runtime
+  used by both the daemon transport and MCP server.
 - [Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) owns curated Lean operations, typed inputs,
   JSON schemas, and operation-to-broker adapters.
 - [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean) owns the matching CLI projection for
   public Lean operations.
-- [Beam/Workspace.lean](../Beam/Workspace.lean) owns shared workspace initialization policy,
-  active-root metadata, and reset semantics.
+- [Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean) owns typed workspace ids and the
+  shared workspace initialization input, mode, and result shapes.
+- [Beam/Workspace.lean](../Beam/Workspace.lean) owns shared workspace setup errors and active-root
+  metadata.
 - [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean) owns Lean/Lake project-root validation for
   CLI and MCP setup paths.
 - [Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean) owns MCP tool names, descriptors, and
@@ -60,9 +62,9 @@ directory. The `lean_init_workspace` tool intentionally accepts only absolute Le
 roots, because it is a client API and should not depend on the server process cwd.
 
 `lean_init_workspace` supports `mode: "set"`, `mode: "verify"`, and `mode: "reset"`. Reset replaces
-only the selected workspace id and invalidates handles from that workspace. Keep the shared
-input/result shape in [Beam.Workspace](../Beam/Workspace.lean) and the ownership policy in the
-broker workspace lifecycle; do not duplicate root-switching policy in the MCP server.
+only the selected workspace id and invalidates handles from that workspace. Keep the shared typed
+input/result shape in [Beam.Workspace.Protocol](../Beam/Workspace/Protocol.lean) and the ownership
+policy in the broker workspace lifecycle; do not duplicate root-switching policy in the MCP server.
 Successful initialization results include a `capabilities` array naming projected MCP tool names;
 derive those names from the operation/projection layer instead of maintaining a separate hand-written
 capability list.

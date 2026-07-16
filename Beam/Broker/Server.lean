@@ -220,7 +220,7 @@ private def mkInitialState (config : BrokerConfig) (startMonoNanos : Nat) : Stat
 }
 
 private def validWorkspaceId (workspaceId : WorkspaceId) : Bool :=
-  !workspaceId.isEmpty
+  Beam.Workspace.validWorkspaceId workspaceId
 
 private def getWorkspace? (state : State) (workspaceId : WorkspaceId) : Option WorkspaceState :=
   state.workspaces.get? workspaceId
@@ -916,6 +916,8 @@ def ServerRuntime.create
     (config : BrokerConfig)
     (workspaceId : WorkspaceId := defaultWorkspaceId)
     (endpoint : Transport.Endpoint := .tcp 0) : IO ServerRuntime := do
+  unless validWorkspaceId workspaceId do
+    throw <| IO.userError "workspace id must be non-empty"
   let startMonoNanos ← IO.monoNanosNow
   let state := {
     (mkInitialState config startMonoNanos) with
@@ -939,35 +941,20 @@ private def shutdownWorkspaceSessions (workspace : WorkspaceState) : IO Unit := 
     if let some session := session? then
       shutdownSession session
 
-def workspaceInitPayload
+def workspaceInitResult
     (workspaceId : WorkspaceId)
     (root : System.FilePath)
-    (mode : String)
+    (mode : Beam.Workspace.InitMode)
     (runtimeReused : Bool)
     (invalidatedHandles : Bool)
-    (previousRoot? : Option System.FilePath := none) : Json :=
-  Json.mkObj <|
-    [
-      ("workspace_id", toJson workspaceId),
-      ("root", toJson root.toString),
-      ("active_root", toJson root.toString),
-      ("initialized", toJson true),
-      ("mode", toJson mode),
-      ("runtime_reused", toJson runtimeReused),
-      ("invalidated_handles", toJson invalidatedHandles)
-    ] ++
-    match previousRoot? with
-    | some previousRoot => [("previous_root", toJson previousRoot.toString)]
-    | none => []
-
-private def normalizeWorkspaceMode? (mode? : Option String) : Except Response String := do
-  match mode?.getD "set" with
-  | "set" => pure "set"
-  | "verify" => pure "verify"
-  | "reset" => pure "reset"
-  | other =>
-      throw <| reqError "invalidParams"
-        s!"expected workspace mode 'set', 'verify', or 'reset', got {toJson other |>.compress}"
+    (previousRoot? : Option System.FilePath := none) : Beam.Workspace.InitResult := {
+  workspaceId
+  root
+  mode
+  runtimeReused
+  invalidatedHandles
+  previousRoot?
+}
 
 private def duplicateRootWorkspace?
     (state : State)
@@ -983,44 +970,42 @@ def ServerRuntime.initWorkspaceWithConfig
     (server : ServerRuntime)
     (workspaceId : WorkspaceId)
     (config : BrokerConfig)
-    (mode? : Option String := none) : IO Response := do
-  match normalizeWorkspaceMode? mode? with
-  | .error resp => pure resp
-  | .ok mode =>
-      if !validWorkspaceId workspaceId then
-        return reqError "invalidParams" "workspace id must be non-empty"
-      server.withState do
-        let state ← get
-        match getWorkspace? state workspaceId with
-        | some current =>
-            if mode == "reset" then
-              if let some otherId := duplicateRootWorkspace? state workspaceId config then
-                pure <| reqError "invalidParams" <|
-                  s!"workspace root {config.root} is already owned by workspace '{otherId}'"
-              else
-                shutdownWorkspaceSessions current
-                let replacement := mkWorkspaceState workspaceId config
-                modify fun state => setWorkspace state replacement
-                pure <| Response.success <|
-                  workspaceInitPayload workspaceId config.root mode false true (some current.config.root)
-            else if brokerConfigSame current.config config then
-              pure <| Response.success <|
-                workspaceInitPayload workspaceId current.config.root mode true false
-            else
-              pure <| reqError "invalidParams" <|
-                s!"workspace '{workspaceId}' is already initialized for {current.config.root}; " ++
-                s!"use workspaceMode=reset to switch it explicitly to {config.root}"
-        | none =>
-            if mode == "verify" then
-              pure <| reqError "invalidParams"
-                s!"workspace '{workspaceId}' is not initialized; use workspaceMode=set first"
-            else if let some otherId := duplicateRootWorkspace? state workspaceId config then
-              pure <| reqError "invalidParams" <|
-                s!"workspace root {config.root} is already owned by workspace '{otherId}'"
-            else
-              modify fun state => setWorkspace state (mkWorkspaceState workspaceId config)
-              pure <| Response.success <|
-                workspaceInitPayload workspaceId config.root mode false false
+    (mode? : Option Beam.Workspace.InitMode := none) : IO Response := do
+  if !validWorkspaceId workspaceId then
+    return reqError "invalidParams" "workspace id must be non-empty"
+  let mode := mode?.getD .set
+  server.withState do
+    let state ← get
+    match getWorkspace? state workspaceId with
+    | some current =>
+        if mode == .reset then
+          if let some otherId := duplicateRootWorkspace? state workspaceId config then
+            pure <| reqError "invalidParams" <|
+              s!"workspace root {config.root} is already owned by workspace '{otherId}'"
+          else
+            shutdownWorkspaceSessions current
+            let replacement := mkWorkspaceState workspaceId config
+            modify fun state => setWorkspace state replacement
+            pure <| Response.success <| toJson <|
+              workspaceInitResult workspaceId config.root mode false true (some current.config.root)
+        else if brokerConfigSame current.config config then
+          pure <| Response.success <| toJson <|
+            workspaceInitResult workspaceId current.config.root mode true false
+        else
+          pure <| reqError "invalidParams" <|
+            s!"workspace '{workspaceId}' is already initialized for {current.config.root}; " ++
+            s!"use workspaceMode=reset to switch it explicitly to {config.root}"
+    | none =>
+        if mode == .verify then
+          pure <| reqError "invalidParams"
+            s!"workspace '{workspaceId}' is not initialized; use workspaceMode=set first"
+        else if let some otherId := duplicateRootWorkspace? state workspaceId config then
+          pure <| reqError "invalidParams" <|
+            s!"workspace root {config.root} is already owned by workspace '{otherId}'"
+        else
+          modify fun state => setWorkspace state (mkWorkspaceState workspaceId config)
+          pure <| Response.success <| toJson <|
+            workspaceInitResult workspaceId config.root mode false false
 
 private def workspaceListPayload (state : State) : Json :=
   Json.mkObj [

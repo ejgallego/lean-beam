@@ -342,6 +342,21 @@ private def checkWorkspaceInitPolicy : IO Unit := do
     ]
   require "named init input should preserve workspace id" (namedInput.workspaceId == "fixture")
   require "named init input should preserve mode" (namedInput.mode == .verify)
+  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString),
+      ("workspace_id", toJson "")
+    ] with
+  | .ok _ => throw <| IO.userError "empty init workspace id decoded unexpectedly"
+  | .error err =>
+      require "empty init workspace id error should explain the constraint"
+        (err.contains "workspace_id must be non-empty")
+  let emptyRuntimeIdRejected ←
+    try
+      discard <| Beam.Broker.ServerRuntime.create ({ root } : Beam.Broker.BrokerConfig) ""
+      pure false
+    catch err =>
+      pure <| err.toString.contains "workspace id must be non-empty"
+  require "broker runtime constructor should reject an empty workspace id" emptyRuntimeIdRejected
 
   let resetResult : Beam.Workspace.InitResult := {
     workspaceId := "fixture"

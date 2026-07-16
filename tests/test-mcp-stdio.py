@@ -1869,6 +1869,20 @@ def run_named_workspace_matrix(repo_root, fixture_root, timeout):
         )
         try:
             client.initialize()
+            empty_workspace_id = client.request(
+                "tools/call",
+                {
+                    "name": "lean_init_workspace",
+                    "arguments": {"root": str(other_root), "workspace_id": ""},
+                },
+            )
+            empty_workspace_error = expect_tool_error_code(empty_workspace_id, "invalidInput")
+            require(
+                "workspace_id must be non-empty" in empty_workspace_error.get("message", ""),
+                f"empty first workspace id should be rejected explicitly: {empty_workspace_error}",
+            )
+            require_workspace_absent(client.call_tool("lean_list_workspaces"), "")
+
             named_init = init_workspace(client, other_root, workspace_id="other")
             require(named_init.get("runtime_reused") is False, f"named init should create runtime: {named_init}")
             initial_list = client.call_tool("lean_list_workspaces")
@@ -1885,6 +1899,52 @@ def run_named_workspace_matrix(repo_root, fixture_root, timeout):
             require(
                 Path(named_sync.get("active_root")).resolve() == other_root.resolve(),
                 f"named sync returned wrong active_root: {named_sync}",
+            )
+            named_version = named_sync.get("version")
+            require(isinstance(named_version, int), f"named sync did not return a version: {named_sync}")
+            named_minted = client.call_tool(
+                "lean_run_at_handle",
+                {
+                    "path": "PositionEmptyLine.lean",
+                    "version": named_version,
+                    "line": 1,
+                    "character": 0,
+                    "text": "def namedWorkspaceBase : Nat := 1",
+                    "workspace_id": "other",
+                },
+            )
+            require_success("named workspace handle mint", named_minted)
+            named_handle = named_minted.get("next_handle")
+            require(isinstance(named_handle, dict), f"named handle mint returned no handle: {named_minted}")
+            named_continued = client.call_tool(
+                "lean_run_with",
+                {
+                    "path": "PositionEmptyLine.lean",
+                    "handle": named_handle,
+                    "text": "def namedWorkspaceNext : Nat := namedWorkspaceBase + 1",
+                },
+            )
+            require_success("named workspace implicit handle routing", named_continued)
+            require(
+                named_continued.get("workspace_id") == "other",
+                f"handle-routed continuation returned wrong workspace: {named_continued}",
+            )
+            require(
+                Path(named_continued.get("active_root")).resolve() == other_root.resolve(),
+                f"handle-routed continuation returned wrong root: {named_continued}",
+            )
+            named_next_handle = named_continued.get("next_handle")
+            require(
+                isinstance(named_next_handle, dict),
+                f"named handle continuation returned no next handle: {named_continued}",
+            )
+            client.call_tool(
+                "lean_release",
+                {"path": "PositionEmptyLine.lean", "handle": named_next_handle},
+            )
+            client.call_tool(
+                "lean_release",
+                {"path": "PositionEmptyLine.lean", "handle": named_handle},
             )
 
             default_init = init_workspace(client, default_root)
@@ -1934,6 +1994,52 @@ def run_named_workspace_matrix(repo_root, fixture_root, timeout):
             require(
                 "workspace_id" in missing_error.get("message", ""),
                 f"drop without workspace_id should require explicit id: {missing_error}",
+            )
+
+            drop_workspace(client, "default")
+            after_default_drop = client.call_tool("lean_list_workspaces")
+            require_workspace_absent(after_default_drop, "default")
+            require_workspace_listed(after_default_drop, "other", other_root)
+            stats_after_default_drop = client.call_tool("beam_stats")
+            stats_workspaces = stats_after_default_drop.get("workspaces")
+            require(
+                isinstance(stats_workspaces, dict)
+                and "other" in stats_workspaces
+                and "default" not in stats_workspaces,
+                f"beam_stats should report remaining named workspaces after default drop: {stats_after_default_drop}",
+            )
+
+            named_reset = init_workspace(
+                client,
+                other_root,
+                workspace_id="other",
+                mode="reset",
+                invalidated_handles=True,
+                previous_root=other_root,
+            )
+            require(
+                named_reset.get("runtime_reused") is False,
+                f"named reset should replace its workspace runtime: {named_reset}",
+            )
+            default_after_named_reset = client.request(
+                "tools/call",
+                {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+            )
+            expect_error_message_contains(
+                default_after_named_reset,
+                -32600,
+                "default Beam workspace was dropped",
+            )
+            stats_after_named_reset = client.call_tool("beam_stats")
+            require(
+                "other" in stats_after_named_reset.get("workspaces", {}),
+                f"beam_stats should remain usable after named reset: {stats_after_named_reset}",
+            )
+
+            recreated_default = init_workspace(client, default_root)
+            require(
+                recreated_default.get("runtime_reused") is False,
+                f"explicit init should recreate the dropped default workspace: {recreated_default}",
             )
             drop_workspace(client, "other")
             after_drop = client.call_tool("lean_list_workspaces")

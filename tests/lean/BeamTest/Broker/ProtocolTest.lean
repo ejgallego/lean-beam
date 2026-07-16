@@ -562,6 +562,15 @@ private def checkWorkspaceRoutingFields : IO Unit := do
   require "explicit workspace id overrides handle for validation"
     (explicitHandleReq.workspaceId == "explicit")
 
+  match fromJson? (α := Request) <| Json.mkObj [
+      ("op", toJson "init_workspace"),
+      ("workspaceMode", toJson "unsupported")
+    ] with
+  | .ok _ => throw <| IO.userError "unsupported typed workspace mode decoded unexpectedly"
+  | .error err =>
+      require "unsupported workspace mode error should name accepted values"
+        (err.contains "'set', 'verify', or 'reset'")
+
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
