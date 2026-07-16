@@ -95,6 +95,7 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
   }
   let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID Beam.Broker.PendingRequest)
   let session : Beam.Broker.Session := {
+    workspaceId := Beam.Broker.defaultWorkspaceId
     backend := .lean
     root
     epoch := 1
@@ -132,6 +133,7 @@ private def fakeSessionWithSyncedDoc
     syncSnapshotSeq := 1
   }
   let session : Beam.Broker.Session := {
+    workspaceId := Beam.Broker.defaultWorkspaceId
     backend := .lean
     root
     epoch := 1
@@ -148,10 +150,16 @@ private def fakeSessionWithSyncedDoc
 private def fakeServerWithLeanSession
     (root : System.FilePath)
     (session : Beam.Broker.Session) : IO Beam.Broker.ServerRuntime := do
+  let config : Beam.Broker.BrokerConfig := { root }
+  let workspace : Beam.Broker.WorkspaceState := {
+    id := Beam.Broker.defaultWorkspaceId
+    config
+    lean := { nextEpoch := 1, session? := some session }
+  }
   pure {
     state := ← Std.Mutex.new {
-      config := { root }
-      lean := { nextEpoch := 1, session? := some session }
+      config
+      workspaces := Std.TreeMap.empty.insert Beam.Broker.defaultWorkspaceId workspace
     }
     endpoint := .tcp 0
     stop := ← IO.mkRef false
