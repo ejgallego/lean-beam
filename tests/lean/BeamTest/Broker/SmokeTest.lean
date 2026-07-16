@@ -970,6 +970,21 @@ private def runWorkspaceLifecycleSmoke
   }
   expectErrCode droppedEnsure "invalidParams"
 
+private def runDefaultDropDebugPayloadSmoke (endpoint : Beam.Broker.Endpoint) : IO Unit := do
+  let drop ← expectOk (← runClient endpoint {
+    op := .dropWorkspace
+    workspaceId? := some Beam.Broker.defaultWorkspaceId
+  })
+  requireJsonBool "drop default workspace" "dropped" true drop
+  let stats ← expectOk (← runClient endpoint { op := .stats })
+  for field in ["root", "sessions", "byBackend"] do
+    requireFieldAbsent "stats after default workspace drop" field stats
+  discard <| requireObjVal "stats after default workspace drop" "workspaces" stats
+  let openDocs ← expectOk (← runClient endpoint { op := .openDocs })
+  for field in ["root", "sessions"] do
+    requireFieldAbsent "open_docs after default workspace drop" field openDocs
+  discard <| requireObjVal "open_docs after default workspace drop" "workspaces" openDocs
+
 def smokeMain : IO Unit := do
   let endpoint ← freshTcpEndpoint
   let root ← repoRoot
@@ -998,6 +1013,7 @@ def smokeMain : IO Unit := do
     runWorkerExitSmoke endpoint root
     runHandleSmoke endpoint root
     runSaveAndStatsSmoke endpoint root
+    runDefaultDropDebugPayloadSmoke endpoint
 
     let shutdownResp ← runClient endpoint { op := .shutdown }
     discard <| expectOk shutdownResp
