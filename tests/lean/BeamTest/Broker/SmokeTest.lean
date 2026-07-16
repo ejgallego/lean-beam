@@ -899,7 +899,7 @@ private def runWorkspaceLifecycleSmoke
     op := .initWorkspace
     workspaceId? := some workspaceId
     root? := some otherRoot.toString
-    workspaceMode? := some "reset"
+    workspaceMode? := some .reset
     leanCmd? := some leanCmd
     leanPlugin? := some plugin.toString
   }

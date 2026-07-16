@@ -153,7 +153,7 @@ constructing broker requests directly in the command dispatcher.
 `Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
 owns the tool input schemas. `Beam/Mcp/Projection.lean` names the MCP tools and normalizes
 selected broker results. Workspace/session input and result shapes are shared Beam surfaces in
-[Beam/Workspace.lean](../Beam/Workspace.lean); MCP tools such as `lean_init_workspace`,
+[Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean); MCP tools such as `lean_init_workspace`,
 `lean_list_workspaces`, and `lean_drop_workspace` should project broker lifecycle behavior instead
 of inventing MCP-only root policy or pretending setup is a raw Lean operation. Lean/Lake root recognition belongs in
 [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean), not in the generic workspace state
@@ -171,8 +171,10 @@ The executable MCP path is split into importable runtime modules and tiny entry-
 - [Beam/Mcp/StdioServer.lean](../Beam/Mcp/StdioServer.lean): permanent stdin reader, concurrent
   request coordinator, cancellation and workspace-control barriers, serialized output, and process
   startup
-- [Beam/Workspace.lean](../Beam/Workspace.lean): shared workspace init input, result shape, and
-  explicit workspace-selection metadata and session binding policy
+- [Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean): typed workspace ids and shared
+  workspace init input, mode, and result shapes
+- [Beam/Workspace.lean](../Beam/Workspace.lean): shared setup errors, explicit workspace-selection
+  metadata, and session binding policy
 - [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean): Lean/Lake project-root validation for
   CLI and MCP setup paths
 - [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): `lean-beam-mcp` executable entry point

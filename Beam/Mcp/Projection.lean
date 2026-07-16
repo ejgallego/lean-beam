@@ -382,7 +382,7 @@ instance : FromJson DropWorkspaceInput where
       match fromJson? (α := Beam.Broker.WorkspaceId) rawWorkspaceId with
       | .ok workspaceId => pure workspaceId
       | .error err => throw s!"invalid 'workspace_id': {err}"
-    if workspaceId.isEmpty then
+    if !Beam.Workspace.validWorkspaceId workspaceId then
       throw "workspace_id must be non-empty"
     pure { workspaceId }
 

@@ -6,15 +6,16 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Beam.LSP.Todo
+import Beam.Workspace.Protocol
 
 open Lean
 
 namespace Beam.Broker
 
-abbrev WorkspaceId := String
+abbrev WorkspaceId := Beam.Workspace.WorkspaceId
 
 def defaultWorkspaceId : WorkspaceId :=
-  "default"
+  Beam.Workspace.defaultWorkspaceId
 
 instance : Repr Lsp.DiagnosticSeverity where
   reprPrec severity _ :=
@@ -181,7 +182,7 @@ structure Request where
   op : Op
   backend : Backend := .lean
   workspaceId? : Option WorkspaceId := none
-  workspaceMode? : Option String := none
+  workspaceMode? : Option Beam.Workspace.InitMode := none
   clientRequestId? : Option String := none
   cancelRequestId? : Option String := none
   root? : Option String := none
@@ -228,7 +229,7 @@ instance : FromJson Request where
       | some backend => pure backend
       | none => pure .lean
     let workspaceId? ← optionalField? (α := WorkspaceId) j "workspaceId"
-    let workspaceMode? ← optionalField? (α := String) j "workspaceMode"
+    let workspaceMode? ← optionalField? (α := Beam.Workspace.InitMode) j "workspaceMode"
     let clientRequestId? ← optionalField? (α := String) j "clientRequestId"
     let cancelRequestId? ← optionalField? (α := String) j "cancelRequestId"
     let root? ← optionalField? (α := String) j "root"
