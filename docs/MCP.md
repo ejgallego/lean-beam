@@ -92,7 +92,9 @@ Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-
 
 Dropping the default workspace does not stop remaining named workspaces. `lean_list_workspaces` and
 `beam_stats` remain available, while a Lean tool call that omits `workspace_id` fails until an
-explicit `lean_init_workspace` call recreates `"default"`.
+explicit `lean_init_workspace` call recreates `"default"`. In that state, `beam_stats.workspaces`
+contains the remaining named workspaces and the legacy default-workspace fields `root`, `sessions`,
+and `byBackend` are omitted.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,

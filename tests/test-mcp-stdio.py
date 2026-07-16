@@ -2008,6 +2008,11 @@ def run_named_workspace_matrix(repo_root, fixture_root, timeout):
                 and "default" not in stats_workspaces,
                 f"beam_stats should report remaining named workspaces after default drop: {stats_after_default_drop}",
             )
+            for legacy_field in ("root", "sessions", "byBackend"):
+                require(
+                    legacy_field not in stats_after_default_drop,
+                    f"beam_stats should not synthesize {legacy_field!r} after default drop: {stats_after_default_drop}",
+                )
 
             named_reset = init_workspace(
                 client,

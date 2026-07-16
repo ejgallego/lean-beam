@@ -232,9 +232,6 @@ private def setWorkspace (state : State) (workspace : WorkspaceState) : State :=
   else
     state
 
-private def getDefaultWorkspace (state : State) : WorkspaceState :=
-  (getWorkspace? state defaultWorkspaceId).getD (mkWorkspaceState defaultWorkspaceId state.config)
-
 private def getBackendState (workspace : WorkspaceState) (backend : Backend) : BackendState :=
   match backend with
   | .lean => workspace.lean
@@ -330,20 +327,24 @@ private def statsPayload : M Json := do
   let state ← get
   let now ← IO.monoNanosNow
   let uptimeMs := (now - state.startMonoNanos) / 1000000
-  let defaultWorkspace := getDefaultWorkspace state
   let workspaceFields := state.workspaces.toList.map fun (workspaceId, workspace) =>
     (workspaceId, workspaceStatsJson workspace)
-  pure <| Json.mkObj [
-    ("root", toJson defaultWorkspace.config.root.toString),
+  let defaultFields :=
+    match getWorkspace? state defaultWorkspaceId with
+    | some defaultWorkspace => [
+        ("root", toJson defaultWorkspace.config.root.toString),
+        ("sessions", Json.mkObj [
+          ("lean", sessionSnapshotJson defaultWorkspace.lean.session?),
+          ("rocq", sessionSnapshotJson defaultWorkspace.rocq.session?)
+        ]),
+        ("byBackend", Json.mkObj [
+          ("lean", backendMetricsJson defaultWorkspace.leanMetrics),
+          ("rocq", backendMetricsJson defaultWorkspace.rocqMetrics)
+        ])
+      ]
+    | none => []
+  pure <| Json.mkObj <| defaultFields ++ [
     ("uptimeMs", toJson uptimeMs),
-    ("sessions", Json.mkObj [
-      ("lean", sessionSnapshotJson defaultWorkspace.lean.session?),
-      ("rocq", sessionSnapshotJson defaultWorkspace.rocq.session?)
-    ]),
-    ("byBackend", Json.mkObj [
-      ("lean", backendMetricsJson defaultWorkspace.leanMetrics),
-      ("rocq", backendMetricsJson defaultWorkspace.rocqMetrics)
-    ]),
     ("workspaces", Json.mkObj workspaceFields)
   ]
 
@@ -797,11 +798,13 @@ private def openDocsSessionView (session : Session) : OpenDocs.SessionView := {
 
 private def openDocsPayload : M Json := do
   let state ← get
-  let defaultWorkspace := getDefaultWorkspace state
   let defaultPayload ←
-    OpenDocs.payload defaultWorkspace.config.root defaultWorkspace.config.leanCmd?
-      (defaultWorkspace.lean.session?.map openDocsSessionView)
-      (defaultWorkspace.rocq.session?.map openDocsSessionView)
+    match getWorkspace? state defaultWorkspaceId with
+    | some defaultWorkspace =>
+        OpenDocs.payload defaultWorkspace.config.root defaultWorkspace.config.leanCmd?
+          (defaultWorkspace.lean.session?.map openDocsSessionView)
+          (defaultWorkspace.rocq.session?.map openDocsSessionView)
+    | none => pure <| Json.mkObj []
   let workspaceFields ← state.workspaces.toList.mapM fun (workspaceId, workspace) => do
     let payload ←
       OpenDocs.payload workspace.config.root workspace.config.leanCmd?
@@ -2079,7 +2082,8 @@ private def initWorkspaceConfigFromRequest
       return .error (reqError "invalidParams" e.toString)
   if req.leanCmd?.isNone && leanPlugin?.isNone && req.rocqCmd?.isNone then
     let defaultConfig ← server.withState do
-      pure (getDefaultWorkspace (← get)).config
+      let state ← get
+      pure <| (getWorkspace? state defaultWorkspaceId).map (·.config) |>.getD state.config
     if root == defaultConfig.root then
       return .ok defaultConfig
   pure <| .ok {
