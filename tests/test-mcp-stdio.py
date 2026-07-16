@@ -730,7 +730,7 @@ def init_workspace(
         args["mode"] = mode
     structured = client.call_tool("lean_init_workspace", args)
     require(structured.get("initialized") is True, f"init workspace did not initialize: {structured}")
-    expected_workspace_id = workspace_id or "default"
+    expected_workspace_id = workspace_id if workspace_id is not None else "default"
     require(
         structured.get("workspace_id") == expected_workspace_id,
         f"init workspace returned wrong workspace_id {expected_workspace_id!r}: {structured}",

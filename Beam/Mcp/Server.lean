@@ -36,6 +36,24 @@ structure ProtocolState where
 def ProtocolState.create (root? : Option System.FilePath := none) : IO (IO.Ref ProtocolState) :=
   IO.mkRef { root? }
 
+private def ProtocolState.trackWorkspace
+    (state : ProtocolState)
+    (workspaceId : Beam.Broker.WorkspaceId)
+    (root : System.FilePath) : ProtocolState := {
+  state with
+  root? :=
+    if workspaceId == Beam.Broker.defaultWorkspaceId then
+      some root
+    else
+      state.root?
+  rootError? :=
+    if workspaceId == Beam.Broker.defaultWorkspaceId then
+      none
+    else
+      state.rootError?
+  workspaces := state.workspaces.insert workspaceId root
+}
+
 structure NotificationSink where
   send : Json → IO Unit := fun _ => pure ()
 
@@ -208,6 +226,15 @@ private def runtimeOptions (opts : Options) : Runtime.Options := {
   beamCli? := opts.beamCli?
 }
 
+private def createRuntimeWithConfig
+    (workspaceId : Beam.Broker.WorkspaceId)
+    (config : Beam.Broker.BrokerConfig) :
+    IO (Except RpcError Beam.Broker.ServerRuntime) := do
+  try
+    pure <| .ok (← Beam.Broker.ServerRuntime.create config workspaceId)
+  catch e =>
+    pure <| .error <| runtimeSetupError e.toString
+
 private def createRuntimeForRoot
     (opts : Options)
     (workspaceId : Beam.Broker.WorkspaceId)
@@ -217,11 +244,9 @@ private def createRuntimeForRoot
   | .error err =>
       pure <| .error err
   | .ok config =>
-      try
-        let runtime ← Beam.Broker.ServerRuntime.create config workspaceId
-        pure <| .ok (runtime, config.root)
-      catch e =>
-        pure <| .error <| runtimeSetupError e.toString
+      match ← createRuntimeWithConfig workspaceId config with
+      | .ok runtime => pure <| .ok (runtime, config.root)
+      | .error err => pure <| .error err
 
 private def ensureRoot
     (state : IO.Ref ProtocolState)
@@ -270,20 +295,7 @@ private def ensureBrokerWorkspace
       | .ok config =>
           let brokerResp ← runtime.initWorkspaceWithConfig workspaceId config (some .set)
           if brokerResp.ok then
-            state.modify fun state => {
-              state with
-              root? :=
-                if workspaceId == Beam.Broker.defaultWorkspaceId then
-                  some config.root
-                else
-                  state.root?
-              rootError? :=
-                if workspaceId == Beam.Broker.defaultWorkspaceId then
-                  none
-                else
-                  state.rootError?
-              workspaces := state.workspaces.insert workspaceId config.root
-            }
+            state.modify fun state => state.trackWorkspace workspaceId config.root
             pure <| .ok config.root
           else
             let message := (brokerResp.error?.map (·.message)).getD
@@ -311,10 +323,8 @@ private def ensureRuntime
               pure <| .error err
           | .ok (runtime, root) =>
               state.modify fun state => {
-                state with
-                root? := some root
+                state.trackWorkspace Beam.Broker.defaultWorkspaceId root with
                 runtime? := some runtime
-                workspaces := state.workspaces.insert Beam.Broker.defaultWorkspaceId root
               }
               pure <| .ok (runtime, root)
 
@@ -339,6 +349,13 @@ private def workspaceErrorToToolError (err : Beam.Workspace.InitError) : ToolErr
   let data? := err.activeRoot?.map fun activeRoot =>
     Json.mkObj [("active_root", toJson activeRoot.toString)]
   { ToolError.invalidInput err.message with data? }
+
+private def toolErrorOfBrokerResponse
+    (resp : Beam.Broker.Response)
+    (fallback : String) : ToolError :=
+  match resp.error? with
+  | some err => ToolError.fromBrokerError err
+  | none => ToolError.runtimeSetup fallback
 
 private def handleInitWorkspace
     (state : IO.Ref ProtocolState)
@@ -367,26 +384,9 @@ private def handleInitWorkspace
         return callToolErrorResult <| ToolError.runtimeSetup err.message
     | .ok config => pure config
   let finalizeSuccess (payload : Json) (root : System.FilePath) : IO Json := do
-    state.modify fun currentState => {
-      currentState with
-      root? :=
-        if workspaceId == Beam.Broker.defaultWorkspaceId then
-          some root
-        else
-          currentState.root?
-      rootError? :=
-        if workspaceId == Beam.Broker.defaultWorkspaceId then
-          none
-        else
-          currentState.rootError?
-      workspaces := currentState.workspaces.insert workspaceId root
-    }
+    state.modify fun currentState => currentState.trackWorkspace workspaceId root
     emitProgress? progress? "completed lean_init_workspace"
     pure <| callToolResult <| withCapabilities payload
-  let toolErrorOfBroker (resp : Beam.Broker.Response) : ToolError :=
-    match resp.error? with
-    | some err => ToolError.fromBrokerError err
-    | none => ToolError.runtimeSetup "workspace initialization failed without a typed broker error"
   match currentState.runtime? with
   | none =>
       if mode == .verify then
@@ -394,15 +394,15 @@ private def handleInitWorkspace
         return callToolErrorResult <| ToolError.invalidInput
           s!"workspace '{workspaceId}' is not initialized; use mode=set first"
       emitProgress? progress? "starting workspace runtime"
-      match ← createRuntimeForRoot opts workspaceId requestedRoot with
+      match ← createRuntimeWithConfig workspaceId config with
       | .error err =>
           emitProgress? progress? "lean_init_workspace failed"
           return callToolErrorResult <| ToolError.runtimeSetup err.message
-      | .ok (runtime, root) =>
+      | .ok runtime =>
           state.modify fun currentState => { currentState with runtime? := some runtime }
           finalizeSuccess
-            (toJson <| Beam.Broker.workspaceInitResult workspaceId root mode false false)
-            root
+            (toJson <| Beam.Broker.workspaceInitResult workspaceId config.root mode false false)
+            config.root
   | some runtime =>
       emitProgress? progress? "initializing workspace runtime"
       let brokerResp ← runtime.initWorkspaceWithConfig workspaceId config (some mode)
@@ -415,7 +415,8 @@ private def handleInitWorkspace
               "workspace initialization succeeded without a result payload"
       else
         emitProgress? progress? "lean_init_workspace failed"
-        return callToolErrorResult <| toolErrorOfBroker brokerResp
+        return callToolErrorResult <| toolErrorOfBrokerResponse brokerResp
+          "workspace initialization failed without a typed broker error"
 
 private def droppedDefaultWorkspaceMessage : String :=
   "default Beam workspace was dropped; call lean_init_workspace with workspace_id \"default\" to recreate it"
@@ -447,10 +448,8 @@ private def handleListWorkspaces
               ToolError.invalidResult "workspace listing succeeded without a result payload"
       else
         emitProgress? progress? "lean_list_workspaces failed"
-        let err :=
-          match brokerResp.error? with
-          | some err => ToolError.fromBrokerError err
-          | none => ToolError.runtimeSetup "workspace listing failed without a typed broker error"
+        let err := toolErrorOfBrokerResponse brokerResp
+          "workspace listing failed without a typed broker error"
         pure <| callToolErrorResult err
 
 private def handleBeamStats
@@ -542,10 +541,8 @@ private def handleDropWorkspace
               ToolError.invalidResult "workspace drop succeeded without a result payload"
       else
         emitProgress? progress? "lean_drop_workspace failed"
-        let err :=
-          match brokerResp.error? with
-          | some err => ToolError.fromBrokerError err
-          | none => ToolError.runtimeSetup "workspace drop failed without a typed broker error"
+        let err := toolErrorOfBrokerResponse brokerResp
+          "workspace drop failed without a typed broker error"
         pure <| callToolErrorResult err
 
 private def resolvedBeamHome? : IO (Option System.FilePath) := do

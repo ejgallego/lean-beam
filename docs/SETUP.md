@@ -265,7 +265,21 @@ or `mode: "reset"` to explicitly replace that workspace and invalidate its handl
 workspaces can be initialized with `workspace_id`, listed with `lean_list_workspaces`, dropped with
 `lean_drop_workspace`, and selected by passing the same `workspace_id` to later Lean tools; see
 [the MCP runtime setup notes](MCP.md#runtime-setup).
+
 Direct-client tool and version semantics live in the [MCP protocol notes](MCP.md#client-tool-semantics).
+
+For example, initialize a named workspace with these `lean_init_workspace` arguments:
+
+```json
+{"root":"/path/to/another/lean/project","workspace_id":"review"}
+```
+
+Later Lean tools add `"workspace_id":"review"` to their argument object. Drop it explicitly with
+these `lean_drop_workspace` arguments:
+
+```json
+{"workspace_id":"review"}
+```
 
 Direct single-project MCP registrations may still pass an explicit default workspace root:
 

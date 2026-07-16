@@ -152,11 +152,11 @@ constructing broker requests directly in the command dispatcher.
 `Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
 owns the tool input schemas. `Beam/Mcp/Projection.lean` names the MCP tools and normalizes
 selected broker results. Workspace/session input and result shapes are shared Beam surfaces in
-[Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean); MCP tools such as `lean_init_workspace`,
-`lean_list_workspaces`, and `lean_drop_workspace` should project broker lifecycle behavior instead
-of inventing MCP-only root policy or pretending setup is a raw Lean operation. Lean/Lake root recognition belongs in
-[Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean), not in the generic workspace state
-machine.
+[Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean); MCP tools such as
+`lean_init_workspace`, `lean_list_workspaces`, and `lean_drop_workspace` should project broker
+lifecycle behavior instead of inventing MCP-only root policy or pretending setup is a raw Lean
+operation. Lean/Lake root recognition belongs in
+[Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean), not in the generic workspace state machine.
 
 The executable MCP path is split into importable runtime modules and tiny entry-point modules:
 
@@ -221,15 +221,15 @@ When adding an MCP-facing operation, use this order:
 8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
    focused MCP test executables, `git diff --check`, and `bash tests/test-beam-fast.sh`.
 
-For setup tools that do not map to Lean execution, keep the tool projection in `Beam.Mcp`,
-put shared workspace/session policy in `Beam.Workspace`, and make the non-broker boundary explicit
-in tests.
+For setup tools that do not map to Lean execution, keep the tool projection in `Beam.Mcp`, shared
+input/result types in `Beam.Workspace.Protocol`, and lifecycle policy in the broker. Make the
+non-broker boundary explicit in tests.
 
 Lean/Lake root validation should stay shared between CLI and MCP. `lean_init_workspace` should keep
 using `Beam.Lean.Workspace.resolveRoot`, which requires an absolute root because it is a client API.
 Local startup paths such as `beam --root` and `lean-beam-mcp --root` should use
 `Beam.Lean.Workspace.resolveCliRoot`, which first resolves relative paths from the current working
-directory and then applies the same Lean/Lake project validation before `Beam.Workspace` session
+directory and then applies the same Lean/Lake project validation before broker workspace lifecycle
 policy.
 
 When a CLI command exposes the same Lean operation, add or update its request helper in

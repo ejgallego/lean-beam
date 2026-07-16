@@ -57,6 +57,9 @@ additional local workspaces by calling `lean_init_workspace` with `workspace_id`
 tools may pass the same optional `workspace_id` to route a request to that workspace. Omitting
 `workspace_id` means the default workspace.
 
+One resolved local root can belong to only one workspace id at a time. Initializing another
+workspace id for the same root is rejected; drop or reset the existing owner explicitly instead.
+
 The `--root` startup flag accepts absolute paths and paths relative to the server's current working
 directory. The `lean_init_workspace` tool intentionally accepts only absolute Lean/Lake project
 roots, because it is a client API and should not depend on the server process cwd.
@@ -87,6 +90,10 @@ Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-
 `lean_document_symbols`, `lean_workspace_symbols`, `lean_goals`, `lean_todo`, and
 `lean_code_action_resolve`.
 
+Dropping the default workspace does not stop remaining named workspaces. `lean_list_workspaces` and
+`beam_stats` remain available, while a Lean tool call that omits `workspace_id` fails until an
+explicit `lean_init_workspace` call recreates `"default"`.
+
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
 `lean_document_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`; those calls
@@ -94,9 +101,9 @@ require the `version` returned by a successful `lean_update` or `lean_sync` for 
 `lean_workspace_symbols` is workspace-scoped and does not take a file version. When multiple
 workspaces are initialized, pass `workspace_id` to select the symbol workspace. `lean_run_with`,
 `lean_run_with_linear`, and `lean_release` use an opaque handle returned by a previous handle tool
-result rather than a document version; handles carry their workspace identity and are rejected if a
-conflicting explicit `workspace_id` is supplied. `lean_goals` also requires `mode: "before"` or
-`mode: "after"`.
+result rather than a document version. Those tools route from the handle when `workspace_id` is
+omitted; a supplied `workspace_id` must match the identity carried by the handle. `lean_goals` also
+requires `mode: "before"` or `mode: "after"`.
 
 `lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
 apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so
