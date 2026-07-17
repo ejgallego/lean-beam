@@ -51,8 +51,9 @@ state.
 
 MCP workspace-bound tools carry an explicit local workspace descriptor on every call. Dropping that
 workspace only evicts its cached runtime and retained handles; it does not prove the MCP server
-binary itself was refreshed. Retain the canonical descriptor echoed by successful MCP calls so a
-cached runtime can still be dropped if the project path or its Lean/Lake markers become unavailable.
+binary itself was refreshed. Retain the canonical descriptor when a Lean operation,
+non-confidential feedback result, or drop result echoes it so a cached runtime can still be dropped
+if the project path or its Lean/Lake markers become unavailable.
 
 Restart active agent or MCP client sessions after installation.
 
@@ -129,6 +130,15 @@ Core workflow contract:
   fields `title`, `summary`, `reproduction`, `expected`, and `actual`
 - use optional feedback triage fields `kind` (`bug`, `ux`, `perf`, `docs`, `question`) and
   `severity` (`low`, `medium`, `high`, `critical`) when they help route the report
+- `lean-beam feedback` and `beam_feedback` return a local report and do not submit it; before posting
+  non-confidential output, review caller-authored narrative, request/response payloads, local paths,
+  Beam stats, open-file data, daemon logs/incidents, and bundle evidence
+- set feedback `confidential` to `true` for a non-public workspace; this forces HOME-path redaction
+  and omits automatically collected project debug context, request/response payloads, evidence, and
+  the echoed MCP workspace descriptor; requested bundles still return operational paths locally
+- confidential feedback retains other caller-authored narrative without scanning it for arbitrary
+  secrets; review those fields before sharing through an authorized private channel, and never post
+  the report publicly
 - do not assume hidden mutable session state carries across unrelated requests
 
 ## Agent Cost Model

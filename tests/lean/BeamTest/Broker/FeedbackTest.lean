@@ -17,6 +17,40 @@ private def homeFixture : IO String := do
   let home? ← IO.getEnv "HOME"
   pure <| home?.getD "/tmp/beam-feedback-home"
 
+private def removeTempDir (path : System.FilePath) : IO Unit := do
+  if ← path.pathExists then
+    IO.FS.removeDirAll path
+
+private def withTempPath
+    (stem : String)
+    (action : System.FilePath → IO α) : IO α := do
+  let path := System.FilePath.mk s!"/tmp/{stem}-{← IO.monoNanosNow}"
+  try
+    action path
+  finally
+    removeTempDir path
+
+private def withTempDir
+    (stem : String)
+    (action : System.FilePath → IO α) : IO α :=
+  withTempPath stem fun path => do
+    IO.FS.createDirAll path
+    action path
+
+private def expectFailureContaining
+    (label expected : String)
+    (action : IO α) : IO Unit := do
+  let failure? ←
+    try
+      discard <| action
+      pure none
+    catch e =>
+      pure (some e.toString)
+  let some failure := failure?
+    | throw <| IO.userError s!"{label}: expected failure"
+  require s!"{label}: expected error to contain '{expected}', got '{failure}'"
+    (failure.contains expected)
+
 private def sampleInput (home : String) : Beam.Feedback.Input := {
   title := "Daemon startup failure"
   summary := s!"Beam failed while reading {home}/project/Demo.lean"
@@ -58,10 +92,25 @@ private def sampleCollection (home : String) : Beam.Feedback.Collection := {
   warnings := #["fixture warning"]
 }
 
+private def minimalInputJson
+    (title : String)
+    (fields : List (String × Json) := []) : Json :=
+  Json.mkObj <| [
+    ("title", toJson title),
+    ("summary", toJson "Report."),
+    ("reproduction", toJson "Call feedback."),
+    ("expected", toJson "A report."),
+    ("actual", toJson "An error.")
+  ] ++ fields
+
 private def checkRenderAndRedaction : IO Unit := do
   let home ← homeFixture
-  let result ← Beam.Feedback.renderResult (sampleInput home) (sampleCollection home)
+  let result ← Beam.Feedback.buildResult (sampleInput home) (sampleCollection home)
   require "report card title" (result.markdown.contains "# Daemon startup failure")
+  require "non-confidential report card carries a public-sharing warning"
+    (result.markdown.contains "Review before posting publicly")
+  require "report card explains that feedback is not submitted automatically"
+    (result.markdown.contains "Beam does not submit feedback automatically")
   require "report card summary section" (result.markdown.contains "## Summary")
   require "report card summary includes kind" (result.markdown.contains "- Kind: `bug`")
   require "report card summary includes severity" (result.markdown.contains "- Severity: `high`")
@@ -72,8 +121,9 @@ private def checkRenderAndRedaction : IO Unit := do
     (result.markdown.contains "- runtime error: `invalid install manifest`")
   require "report card runtime section includes source" (result.markdown.contains "commit 0123456789ab")
   require "report card debug context section" (result.markdown.contains "## Beam Debug Context")
-  require "report card should render collection warnings"
-    (result.markdown.contains "Collection warnings:" && result.markdown.contains "fixture warning")
+  require "report card should render each collection warning once"
+    (result.markdown.contains "Collection warnings:" &&
+      (result.markdown.splitOn "fixture warning").length == 2)
   requireJsonString "feedback metadata" "schema" "beam.feedback.report-card.v1" result.metadata
   requireJsonString "feedback metadata" "kind" "bug" result.metadata
   requireJsonString "feedback metadata" "severity" "high" result.metadata
@@ -124,6 +174,73 @@ private def checkInputRoundTrip : IO Unit := do
   requireJsonString "feedback evidence json" "name" "trace.json" evidenceJson
   requireFieldAbsent "feedback evidence json" "content?" evidenceJson
 
+private def checkConfidentialOutput : IO Unit := do
+  let home ← homeFixture
+  let secretCode := "PRIVATE_LEAN_CODE_7f9d"
+  let privateRoot := "/srv/private/customer-project"
+  let input : Beam.Feedback.Input := {
+    sampleInput home with
+      confidential := true
+      clientRequestId? := some s!"request-{secretCode}"
+      request? := some <| Json.mkObj [("source", toJson secretCode)]
+      response? := some <| Json.mkObj [("diagnostic", toJson secretCode)]
+      evidence := #[{ name := "private.lean", content? := some <| toJson secretCode }]
+  }
+  let collection : Beam.Feedback.Collection := {
+    sampleCollection home with
+      activeRoot? := some privateRoot
+      data := Json.mkObj [
+        ("identity", Json.mkObj [
+          ("name", toJson "lean-beam-mcp"),
+          ("version", toJson "0.2.0-beta"),
+          ("mcp_protocol", toJson "2025-11-25"),
+          ("runtime_active", toJson true),
+          ("source_branch", toJson secretCode)
+        ]),
+        ("stats", Json.mkObj [("source", toJson secretCode)]),
+        ("openFiles", Json.arr #[Json.mkObj [("path", toJson s!"{privateRoot}/Secret.lean")]]),
+        ("daemon", Json.mkObj [("startupLogTail", toJson secretCode)])
+      ]
+      warnings := #[s!"private warning: {secretCode}"]
+  }
+  let result ← Beam.Feedback.buildResult input collection
+  let output := result.toJson.compress
+  require "confidential report is visibly marked"
+    (result.markdown.contains "Confidential report: do not post this report publicly")
+  require "confidential report does not render the non-confidential sharing warning"
+    (!result.markdown.contains "This non-confidential report may include")
+  require "confidential report explains retained caller narrative"
+    (result.markdown.contains
+      "Caller-authored narrative is retained except for HOME-path redaction")
+  require "confidential output omits caller-supplied request, response, evidence, and ids"
+    (!output.contains secretCode)
+  require "confidential output omits the active project root" (!output.contains privateRoot)
+  require "confidential output omits collected project context"
+    (!output.contains "openFiles" && !output.contains "startupLogTail")
+  require "confidential output retains safe runtime identity"
+    (output.contains "lean-beam-mcp" && output.contains "0.2.0-beta")
+  requireJsonBool "confidential feedback metadata" "confidential" true result.metadata
+  requireJsonBool "confidential feedback metadata" "redacted" true result.metadata
+  requireJsonNull "confidential feedback metadata" "active_root" result.metadata
+  requireJsonNull "confidential feedback metadata" "client_request_id" result.metadata
+  require "confidential output does not misuse collection warnings for policy notices"
+    result.collectionWarnings.isEmpty
+  let full ← Beam.Feedback.renderMcpMarkdown input collection true
+  require "confidential MCP include_collected cannot restore project context"
+    (!full.contains secretCode && !full.contains privateRoot && !full.contains "openFiles")
+
+  let json := toJson input
+  requireJsonBool "confidential feedback input json" "confidential" true json
+  let decoded ← expectOk "confidential feedback input round-trip" <|
+    fromJson? (α := Beam.Feedback.Input) json
+  require "decoded feedback confidential flag" decoded.confidential
+  let normalizedJson := toJson { input with redact := false }
+  requireFieldAbsent "confidential feedback normalized input json" "redact" normalizedJson
+  let normalized ← expectOk "confidential feedback normalized input round-trip" <|
+    fromJson? (α := Beam.Feedback.Input) normalizedJson
+  require "confidential feedback serialization should restore required redaction"
+    (normalized.confidential && normalized.redact)
+
 private def checkInputErrorMessages : IO Unit := do
   match fromJson? (α := Beam.Feedback.Input) Json.null with
   | .ok _ =>
@@ -148,12 +265,7 @@ private def checkInputErrorMessages : IO Unit := do
       require "wrong-type feedback title error should name the field"
         (err.contains "field 'title' must be a string")
 
-  match fromJson? (α := Beam.Feedback.Input) <| Json.mkObj [
-    ("title", toJson "Bad kind"),
-    ("summary", toJson "Report."),
-    ("reproduction", toJson "Call feedback."),
-    ("expected", toJson "A report."),
-    ("actual", toJson "An error."),
+  match fromJson? (α := Beam.Feedback.Input) <| minimalInputJson "Bad kind" [
     ("kind", toJson "incident")
   ] with
   | .ok _ =>
@@ -162,110 +274,217 @@ private def checkInputErrorMessages : IO Unit := do
       require "invalid feedback kind error should name allowed values"
         (err.contains "expected feedback kind")
 
-private def checkValidation : IO Unit := do
-  match Beam.Feedback.validateEvidenceName "trace.log" with
-  | .ok () => pure ()
-  | .error err => throw <| IO.userError s!"valid evidence name rejected: {err}"
-  match Beam.Feedback.validateEvidenceName "../trace.log" with
-  | .ok () => throw <| IO.userError "path-like evidence name accepted unexpectedly"
-  | .error err => require "path-like evidence name error" (err.contains "path separators")
+  match fromJson? (α := Beam.Feedback.Input) <| minimalInputJson "Conflicting privacy options" [
+    ("confidential", toJson true),
+    ("redact", toJson false)
+  ] with
+  | .ok _ =>
+      throw <| IO.userError "confidential feedback with disabled redaction decoded unexpectedly"
+  | .error err =>
+      require "confidential feedback should require redaction"
+        (err.contains "'confidential' requires redaction")
+
+  match fromJson? (α := Beam.Feedback.Input) <| minimalInputJson "Misspelled confidentiality" [
+    ("confidental", toJson true)
+  ] with
+  | .ok _ =>
+      throw <| IO.userError "unknown feedback input field decoded unexpectedly"
+  | .error err =>
+      require "unknown feedback input fields should fail closed"
+        (err.contains "feedback input accepts no undeclared fields: confidental")
+
+  match fromJson? (α := Beam.Feedback.EvidenceInput) <| Json.mkObj [
+    ("name", toJson "trace.log"),
+    ("path", toJson "trace.log"),
+    ("confidential", toJson true)
+  ] with
+  | .ok _ =>
+      throw <| IO.userError "unknown feedback evidence field decoded unexpectedly"
+  | .error err =>
+      require "unknown feedback evidence fields should be rejected"
+        (err.contains "feedback evidence entry accepts no undeclared fields: confidential")
+
+  match fromJson? (α := Beam.Feedback.Input) <| minimalInputJson "Invalid request payload" [
+    ("request", toJson "not-an-object")
+  ] with
+  | .ok _ =>
+      throw <| IO.userError "non-object feedback request decoded unexpectedly"
+  | .error err =>
+      require "feedback request should require a JSON object"
+        (err.contains "invalid 'request': expected a JSON object")
+
+  match fromJson? (α := Beam.Feedback.Input) <| minimalInputJson "Invalid response payload" [
+    ("response", Json.arr #[])
+  ] with
+  | .ok _ =>
+      throw <| IO.userError "non-object feedback response decoded unexpectedly"
+  | .error err =>
+      require "feedback response should require a JSON object"
+        (err.contains "invalid 'response': expected a JSON object")
 
 private def checkBundleWrite : IO Unit := do
   let home ← homeFixture
-  let root := System.FilePath.mk s!"/tmp/beam-feedback-test-{← IO.monoNanosNow}"
-  IO.FS.createDirAll root
-  IO.FS.writeFile (root / "trace.log") s!"raw trace from {home}/project\n"
-  let input : Beam.Feedback.Input := {
-    sampleInput home with
-      bundle := .dir
-      evidence := #[
-        { name := "trace.log", path? := some "trace.log" },
-        { name := "inline.json", content? := some <| Json.mkObj [("root", toJson s!"{home}/project")] }
-      ]
-  }
-  let result ← Beam.Feedback.buildResult input (sampleCollection home) {
-    root? := some root
-    allowedRoots := #[root]
-  }
-  let some bundleDirText := result.bundleDir?
-    | throw <| IO.userError "feedback bundle did not report bundle_dir"
-  let bundleDir := System.FilePath.mk bundleDirText
-  require "feedback bundle directory exists" (← bundleDir.pathExists)
-  let card ← IO.FS.readFile (bundleDir / "card.md")
-  require "bundle card contains report title" (card.contains "# Daemon startup failure")
-  let metadataText ← IO.FS.readFile (bundleDir / "metadata.json")
-  let metadata ← expectOk "parse feedback metadata bundle json" <| Json.parse metadataText
-  requireJsonString "feedback bundle metadata" "schema" "beam.feedback.report-card.v1" metadata
-  let collectedText ← IO.FS.readFile (bundleDir / "collected.json")
-  let collected ← expectOk "parse feedback collected bundle json" <| Json.parse collectedText
-  discard <| requireObjVal "feedback bundle collected" "daemon" collected
-  let reportText ← IO.FS.readFile (bundleDir / "report.json")
-  let report ← expectOk "parse feedback report bundle json" <| Json.parse reportText
-  discard <| requireObjVal "feedback bundle report" "collected" report
-  discard <| requireObjVal "feedback bundle report" "collection_warnings" report
-  let trace ← IO.FS.readFile (bundleDir / "evidence" / "trace.log")
-  if !home.isEmpty then
-    require "file evidence should be redacted" (!trace.contains home)
-  let inline ← IO.FS.readFile (bundleDir / "evidence" / "inline.json")
-  require "inline evidence is written" (inline.contains "project")
+  withTempDir "beam-feedback-test" fun root => do
+    IO.FS.writeFile (root / "trace.log") s!"raw trace from {home}/project\n"
+    let input : Beam.Feedback.Input := {
+      sampleInput home with
+        bundle := .dir
+        evidence := #[
+          { name := "trace.log", path? := some "trace.log" },
+          { name := "inline.json", content? := some <| Json.mkObj [("root", toJson s!"{home}/project")] }
+        ]
+    }
+    let result ← Beam.Feedback.buildResult input (sampleCollection home) {
+      root? := some root
+      allowedRoots := #[root]
+    }
+    let some bundleDirText := result.bundleDir?
+      | throw <| IO.userError "feedback bundle did not report bundle_dir"
+    let bundleDir := System.FilePath.mk bundleDirText
+    require "feedback bundle directory exists" (← bundleDir.pathExists)
+    let card ← IO.FS.readFile (bundleDir / "card.md")
+    require "bundle card contains report title" (card.contains "# Daemon startup failure")
+    let metadataText ← IO.FS.readFile (bundleDir / "metadata.json")
+    let metadata ← expectOk "parse feedback metadata bundle json" <| Json.parse metadataText
+    requireJsonString "feedback bundle metadata" "schema" "beam.feedback.report-card.v1" metadata
+    let collectedText ← IO.FS.readFile (bundleDir / "collected.json")
+    let collected ← expectOk "parse feedback collected bundle json" <| Json.parse collectedText
+    discard <| requireObjVal "feedback bundle collected" "daemon" collected
+    let reportText ← IO.FS.readFile (bundleDir / "report.json")
+    let report ← expectOk "parse feedback report bundle json" <| Json.parse reportText
+    discard <| requireObjVal "feedback bundle report" "collected" report
+    discard <| requireObjVal "feedback bundle report" "collection_warnings" report
+    let trace ← IO.FS.readFile (bundleDir / "evidence" / "trace.log")
+    if !home.isEmpty then
+      require "file evidence should be redacted" (!trace.contains home)
+    let inline ← IO.FS.readFile (bundleDir / "evidence" / "inline.json")
+    require "inline evidence is written" (inline.contains "project")
+
+private def checkEvidencePathBoundary : IO Unit := do
+  let home ← homeFixture
+  withTempDir "beam-feedback-allowed-root" fun root =>
+    withTempDir "beam-feedback-outside-root" fun outsideRoot => do
+      let invalidNameInput : Beam.Feedback.Input := {
+        sampleInput home with
+          bundle := .dir
+          evidence := #[{ name := "../private.txt", content? := some <| toJson "private" }]
+      }
+      expectFailureContaining "path-like evidence name rejection"
+          "use a simple filename without path separators" <|
+        Beam.Feedback.buildResult invalidNameInput (sampleCollection home) {
+            root? := some root
+            allowedRoots := #[root]
+          }
+
+      let outsidePath := outsideRoot / "private.txt"
+      IO.FS.writeFile outsidePath "outside allowed feedback roots\n"
+      let input : Beam.Feedback.Input := {
+        sampleInput home with
+          bundle := .dir
+          evidence := #[{ name := "private.txt", path? := some outsidePath.toString }]
+      }
+      expectFailureContaining "outside evidence rejection"
+          "feedback evidence path is outside the allowed roots" <|
+        Beam.Feedback.buildResult input (sampleCollection home) {
+            root? := some root
+            allowedRoots := #[root]
+          }
+
+private def checkConfidentialBundleWrite : IO Unit := do
+  let home ← homeFixture
+  let privatePath := "private-customer-project-4a2c"
+  withTempDir s!"beam-feedback-confidential-test-{privatePath}" fun root => do
+    let secretCode := "PRIVATE_BUNDLE_CODE_4a2c"
+    let input : Beam.Feedback.Input := {
+      sampleInput home with
+        confidential := true
+        bundle := .dir
+        request? := some <| Json.mkObj [("source", toJson secretCode)]
+        evidence := #[
+          { name := "private.lean", content? := some <| toJson secretCode },
+          { name := "outside.txt", path? := some "/etc/passwd" }
+        ]
+    }
+    let result ← Beam.Feedback.buildResult input (sampleCollection home) {
+      root? := some root
+      allowedRoots := #[root]
+    }
+    let some bundleDirText := result.bundleDir?
+      | throw <| IO.userError "confidential feedback bundle did not report bundle_dir"
+    require "confidential local result retains its operational bundle path"
+      (bundleDirText.contains privatePath)
+    let bundleDir := System.FilePath.mk bundleDirText
+    require "confidential bundle does not write caller-supplied evidence"
+      (!(← (bundleDir / "evidence").pathExists))
+    for name in #["card.md", "metadata.json", "collected.json", "report.json"] do
+      let text ← IO.FS.readFile (bundleDir / name)
+      require s!"confidential bundle {name} should omit private source" (!text.contains secretCode)
+      require s!"confidential bundle {name} should omit project debug context"
+        (!text.contains "openFiles")
+      require s!"confidential bundle {name} should omit its private project path"
+        (!text.contains privatePath)
+    let reportText ← IO.FS.readFile (bundleDir / "report.json")
+    let report ← expectOk "parse confidential feedback bundle report" <| Json.parse reportText
+    requireFieldAbsent "confidential feedback bundle report" "bundle_dir" report
+    requireFieldAbsent "confidential feedback bundle report" "zip_path" report
 
 private def checkZipBundleReportRoundTrip : IO Unit := do
   let home ← homeFixture
-  let root := System.FilePath.mk s!"/tmp/beam-feedback-zip-test-{← IO.monoNanosNow}"
-  IO.FS.createDirAll root
-  let input : Beam.Feedback.Input := {
-    sampleInput home with
-      bundle := .zip
-  }
-  let result ← Beam.Feedback.buildResult input (sampleCollection home) {
-    root? := some root
-    allowedRoots := #[root]
-  }
-  let some bundleDirText := result.bundleDir?
-    | throw <| IO.userError "feedback zip bundle did not report bundle_dir"
-  let bundleDir := System.FilePath.mk bundleDirText
-  let reportText ← IO.FS.readFile (bundleDir / "report.json")
-  let report ← expectOk "parse feedback zip report bundle json" <| Json.parse reportText
-  match result.zipPath? with
-  | some zipPath =>
-      requireJsonString "feedback zip bundle report" "zip_path" zipPath report
-      require "feedback zip archive exists" (← (System.FilePath.mk zipPath).pathExists)
-  | none =>
-      requireFieldAbsent "feedback zip bundle report" "zip_path" report
-      let warnings ← requireObjVal "feedback zip bundle report" "collection_warnings" report
-      require "feedback zip warning is recorded in report"
-        (warnings.compress.contains "zip")
+  withTempDir "beam-feedback-zip-test" fun root => do
+    let input : Beam.Feedback.Input := {
+      sampleInput home with
+        bundle := .zip
+    }
+    let result ← Beam.Feedback.buildResult input (sampleCollection home) {
+      root? := some root
+      allowedRoots := #[root]
+    }
+    let some bundleDirText := result.bundleDir?
+      | throw <| IO.userError "feedback zip bundle did not report bundle_dir"
+    let bundleDir := System.FilePath.mk bundleDirText
+    let reportText ← IO.FS.readFile (bundleDir / "report.json")
+    let report ← expectOk "parse feedback zip report bundle json" <| Json.parse reportText
+    match result.zipPath? with
+    | some zipPath =>
+        requireJsonString "feedback zip bundle report" "zip_path" zipPath report
+        require "feedback zip archive exists" (← (System.FilePath.mk zipPath).pathExists)
+    | none =>
+        requireFieldAbsent "feedback zip bundle report" "zip_path" report
+        let warnings ← requireObjVal "feedback zip bundle report" "collection_warnings" report
+        require "feedback zip warning is recorded in report"
+          (warnings.compress.contains "zip")
 
 private def checkUnredactedBundlePaths : IO Unit := do
   let home ← homeFixture
-  let root := System.FilePath.mk s!"/tmp/beam-feedback-unredacted-root-{← IO.monoNanosNow}"
-  let outputDir := System.FilePath.mk s!"/tmp/beam-feedback-unredacted-output-{← IO.monoNanosNow}"
-  IO.FS.createDirAll root
-  let input : Beam.Feedback.Input := {
-    sampleInput home with
-      bundle := .dir
-      redact := false
-  }
-  let result ← Beam.Feedback.buildResult input (sampleCollection home) {
-    root? := some root
-    outputDir? := some outputDir
-    allowedRoots := #[root]
-  }
-  let some bundleDirText := result.bundleDir?
-    | throw <| IO.userError "unredacted feedback bundle did not report bundle_dir"
-  require "unredacted bundle_dir should be the local output path"
-    (bundleDirText == outputDir.toString)
-  require "unredacted bundle_dir should not use home placeholder" (!bundleDirText.contains "~")
-  let reportText ← IO.FS.readFile (System.FilePath.mk bundleDirText / "report.json")
-  let report ← expectOk "parse unredacted feedback report bundle json" <| Json.parse reportText
-  requireJsonString "unredacted feedback bundle report" "bundle_dir" bundleDirText report
+  withTempDir "beam-feedback-unredacted-root" fun root =>
+    withTempPath "beam-feedback-unredacted-output" fun outputDir => do
+      let input : Beam.Feedback.Input := {
+        sampleInput home with
+          bundle := .dir
+          redact := false
+      }
+      let result ← Beam.Feedback.buildResult input (sampleCollection home) {
+        root? := some root
+        outputDir? := some outputDir
+        allowedRoots := #[root]
+      }
+      let some bundleDirText := result.bundleDir?
+        | throw <| IO.userError "unredacted feedback bundle did not report bundle_dir"
+      require "unredacted bundle_dir should be the local output path"
+        (bundleDirText == outputDir.toString)
+      require "unredacted bundle_dir should not use home placeholder" (!bundleDirText.contains "~")
+      let reportText ← IO.FS.readFile (System.FilePath.mk bundleDirText / "report.json")
+      let report ← expectOk "parse unredacted feedback report bundle json" <| Json.parse reportText
+      requireJsonString "unredacted feedback bundle report" "bundle_dir" bundleDirText report
 
 def main : IO Unit := do
   checkRenderAndRedaction
   checkInputRoundTrip
+  checkConfidentialOutput
   checkInputErrorMessages
-  checkValidation
   checkBundleWrite
+  checkEvidencePathBoundary
+  checkConfidentialBundleWrite
   checkZipBundleReportRoundTrip
   checkUnredactedBundlePaths
 

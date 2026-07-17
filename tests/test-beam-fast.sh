@@ -62,12 +62,23 @@ run_quiet_lake_build \
 .lake/build/bin/beam-sync-summary-test > /dev/null
 .lake/build/bin/beam-daemon-startup-handshake-test > /dev/null
 
-assert_version_output_contains() {
+assert_output_contains() {
   local label="$1"
   local output="$2"
   local expected="$3"
   if ! printf '%s\n' "$output" | grep -Fq "$expected"; then
     echo "expected $label to contain: $expected" >&2
+    printf '%s\n' "$output" >&2
+    exit 1
+  fi
+}
+
+assert_output_omits() {
+  local label="$1"
+  local output="$2"
+  local forbidden="$3"
+  if printf '%s\n' "$output" | grep -Fq "$forbidden"; then
+    echo "expected $label to omit: $forbidden" >&2
     printf '%s\n' "$output" >&2
     exit 1
   fi
@@ -85,41 +96,46 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 beam_cli_version="$(.lake/build/bin/beam-cli --version)"
-assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam-cli 0.2.0-beta"
-assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam home: "
-assert_version_output_contains "beam-cli --version" "$beam_cli_version" "beam cli: "
-assert_version_output_contains "beam-cli --version" "$beam_cli_version" ".lake/build/bin/beam-cli"
+assert_output_contains "beam-cli --version" "$beam_cli_version" "beam-cli 0.2.0-beta"
+assert_output_contains "beam-cli --version" "$beam_cli_version" "beam home: "
+assert_output_contains "beam-cli --version" "$beam_cli_version" "beam cli: "
+assert_output_contains "beam-cli --version" "$beam_cli_version" ".lake/build/bin/beam-cli"
 if [ -n "$source_tree_commit" ]; then
-  assert_version_output_contains "beam-cli --version" "$beam_cli_version" "source commit: $source_tree_commit"
+  assert_output_contains "beam-cli --version" "$beam_cli_version" "source commit: $source_tree_commit"
 fi
 if [ -n "$source_tree_branch" ] && [ "$source_tree_branch" != "HEAD" ]; then
-  assert_version_output_contains "beam-cli --version" "$beam_cli_version" "source branch: $source_tree_branch"
+  assert_output_contains "beam-cli --version" "$beam_cli_version" "source branch: $source_tree_branch"
 fi
 if [ -n "$source_tree_dirty" ]; then
-  assert_version_output_contains "beam-cli --version" "$beam_cli_version" "source dirty: $source_tree_dirty"
+  assert_output_contains "beam-cli --version" "$beam_cli_version" "source dirty: $source_tree_dirty"
 fi
 
 lean_beam_version="$(scripts/lean-beam --version)"
-assert_version_output_contains "lean-beam --version" "$lean_beam_version" "lean-beam 0.2.0-beta"
-assert_version_output_contains "lean-beam --version" "$lean_beam_version" "wrapper: "
-assert_version_output_contains "lean-beam --version" "$lean_beam_version" "scripts/lean-beam"
-assert_version_output_contains "lean-beam --version" "$lean_beam_version" ".lake/build/bin/beam-cli"
-assert_version_output_contains "lean-beam --version" "$lean_beam_version" "runtime payload: (source tree)"
+assert_output_contains "lean-beam --version" "$lean_beam_version" "lean-beam 0.2.0-beta"
+assert_output_contains "lean-beam --version" "$lean_beam_version" "wrapper: "
+assert_output_contains "lean-beam --version" "$lean_beam_version" "scripts/lean-beam"
+assert_output_contains "lean-beam --version" "$lean_beam_version" ".lake/build/bin/beam-cli"
+assert_output_contains "lean-beam --version" "$lean_beam_version" "runtime payload: (source tree)"
 if [ -n "$source_tree_commit" ]; then
-  assert_version_output_contains "lean-beam --version" "$lean_beam_version" "source commit: $source_tree_commit"
+  assert_output_contains "lean-beam --version" "$lean_beam_version" "source commit: $source_tree_commit"
 fi
 if [ -n "$source_tree_branch" ] && [ "$source_tree_branch" != "HEAD" ]; then
-  assert_version_output_contains "lean-beam --version" "$lean_beam_version" "source branch: $source_tree_branch"
+  assert_output_contains "lean-beam --version" "$lean_beam_version" "source branch: $source_tree_branch"
 fi
 if [ -n "$source_tree_dirty" ]; then
-  assert_version_output_contains "lean-beam --version" "$lean_beam_version" "source dirty: $source_tree_dirty"
+  assert_output_contains "lean-beam --version" "$lean_beam_version" "source dirty: $source_tree_dirty"
 fi
 
 feedback_help="$(scripts/lean-beam feedback --help)"
-assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "input must be a JSON object"
-assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "title, summary, reproduction, expected, actual"
-assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "kind values: bug, ux, perf, docs, question"
-assert_version_output_contains "lean-beam feedback --help" "$feedback_help" "severity values: low, medium, high, critical"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "input must be a JSON object"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "title, summary, reproduction, expected, actual"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "kind values: bug, ux, perf, docs, question"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "severity values: low, medium, high, critical"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "confidential"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "does not submit it"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "request and response must be JSON objects"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "retain narrative except for HOME-path redaction"
+assert_output_contains "lean-beam feedback --help" "$feedback_help" "requested bundle paths remain in the local result"
 
 feedback_invalid_err="$(mktemp /tmp/beam-feedback-invalid-XXXXXX)"
 if printf '%s\n' '{}' | scripts/lean-beam --root tests/save_olean_project feedback --stdin > /dev/null 2>"$feedback_invalid_err"; then
@@ -129,36 +145,69 @@ if printf '%s\n' '{}' | scripts/lean-beam --root tests/save_olean_project feedba
 fi
 feedback_invalid_output="$(cat "$feedback_invalid_err")"
 rm -f "$feedback_invalid_err"
-assert_version_output_contains "lean-beam feedback invalid input" "$feedback_invalid_output" "missing required string field 'title'"
+assert_output_contains "lean-beam feedback invalid input" "$feedback_invalid_output" "missing required string field 'title'"
+
+feedback_unknown_input='{"title":"Misspelled privacy field","summary":"Private report.","reproduction":"Call feedback.","expected":"A report.","actual":"An error.","confidental":true}'
+feedback_unknown_err="$(mktemp /tmp/beam-feedback-unknown-XXXXXX)"
+if printf '%s\n' "$feedback_unknown_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin > /dev/null 2>"$feedback_unknown_err"; then
+  echo "expected lean-beam feedback to reject unknown JSON fields" >&2
+  rm -f "$feedback_unknown_err"
+  exit 1
+fi
+feedback_unknown_output="$(cat "$feedback_unknown_err")"
+rm -f "$feedback_unknown_err"
+assert_output_contains "lean-beam feedback unknown input" "$feedback_unknown_output" "feedback input accepts no undeclared fields: confidental"
 
 feedback_smoke_input='{"title":"CLI feedback fixture","kind":"bug","severity":"medium","summary":"Smoke report.","reproduction":"scripts/lean-beam feedback --stdin","expected":"A report card is returned.","actual":"A report card is returned."}'
 feedback_smoke_output="$(printf '%s\n' "$feedback_smoke_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin)"
-assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"markdown"'
-assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" 'CLI feedback fixture'
-assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"kind": "bug"'
-assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"severity": "medium"'
-assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"daemon"'
+assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"markdown"'
+assert_output_contains "lean-beam feedback" "$feedback_smoke_output" 'CLI feedback fixture'
+assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"kind": "bug"'
+assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"severity": "medium"'
+assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"daemon"'
+assert_output_contains "lean-beam feedback" "$feedback_smoke_output" 'Review before posting publicly'
+assert_output_contains "lean-beam feedback" "$feedback_smoke_output" 'Beam does not submit feedback automatically'
+
+feedback_confidential_secret='PRIVATE_CLI_CODE_57de'
+feedback_confidential_input="{\"title\":\"CLI confidential feedback fixture\",\"summary\":\"Private workspace report.\",\"reproduction\":\"scripts/lean-beam feedback --stdin\",\"expected\":\"A confidential report card is returned.\",\"actual\":\"A confidential report card is returned.\",\"request\":{\"source\":\"$feedback_confidential_secret\"},\"confidential\":true}"
+feedback_confidential_output="$(printf '%s\n' "$feedback_confidential_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin)"
+assert_output_contains "lean-beam confidential feedback" "$feedback_confidential_output" '"confidential": true'
+assert_output_contains "lean-beam confidential feedback" "$feedback_confidential_output" 'do not post this report publicly'
+assert_output_contains "lean-beam confidential feedback" "$feedback_confidential_output" '"collection_warnings": []'
+assert_output_omits "lean-beam confidential feedback" "$feedback_confidential_output" "$feedback_confidential_secret"
+assert_output_omits "lean-beam confidential feedback" "$feedback_confidential_output" '"openFiles"'
+assert_output_omits "lean-beam confidential feedback" "$feedback_confidential_output" '"daemon"'
+
+feedback_confidential_err="$(mktemp /tmp/beam-feedback-confidential-XXXXXX)"
+if printf '%s\n' "$feedback_confidential_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin --no-redact > /dev/null 2>"$feedback_confidential_err"; then
+  echo "expected lean-beam confidential feedback to reject --no-redact" >&2
+  rm -f "$feedback_confidential_err"
+  exit 1
+fi
+feedback_confidential_error_output="$(cat "$feedback_confidential_err")"
+rm -f "$feedback_confidential_err"
+assert_output_contains "lean-beam confidential feedback --no-redact" "$feedback_confidential_error_output" "'confidential' cannot be combined with --no-redact"
 
 mcp_bin_version="$(.lake/build/bin/lean-beam-mcp --version)"
-assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "lean-beam-mcp 0.2.0-beta"
-assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "mcp protocol: 2026-07-28"
-assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "server binary: "
+assert_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "lean-beam-mcp 0.2.0-beta"
+assert_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "mcp protocol: 2026-07-28"
+assert_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "server binary: "
 
 mcp_wrapper_version="$(scripts/lean-beam-mcp --version)"
-assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "lean-beam-mcp 0.2.0-beta"
-assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "wrapper: "
-assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "scripts/lean-beam-mcp"
-assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "server binary: "
-assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" ".lake/build/bin/lean-beam-mcp"
-assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "runtime payload: (source tree)"
+assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "lean-beam-mcp 0.2.0-beta"
+assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "wrapper: "
+assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "scripts/lean-beam-mcp"
+assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "server binary: "
+assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" ".lake/build/bin/lean-beam-mcp"
+assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "runtime payload: (source tree)"
 if [ -n "$source_tree_commit" ]; then
-  assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source commit: $source_tree_commit"
+  assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source commit: $source_tree_commit"
 fi
 if [ -n "$source_tree_branch" ] && [ "$source_tree_branch" != "HEAD" ]; then
-  assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source branch: $source_tree_branch"
+  assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source branch: $source_tree_branch"
 fi
 if [ -n "$source_tree_dirty" ]; then
-  assert_version_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source dirty: $source_tree_dirty"
+  assert_output_contains "lean-beam-mcp wrapper --version" "$mcp_wrapper_version" "source dirty: $source_tree_dirty"
 fi
 
 mcp_stdio_timeout="${BEAM_MCP_STDIO_TIMEOUT:-60}"

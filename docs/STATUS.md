@@ -64,7 +64,9 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
 - feedback report-card surfaces: `lean-beam feedback` and MCP `beam_feedback` return structured
   JSON containing pasteable Markdown, metadata, collection warnings, and optional evidence bundle
   paths; CLI output and MCP `include_collected: true` include collected version/stats/open-file
-  context, daemon registry context, and recent daemon incident paths
+  context, daemon registry context, and recent daemon incident paths; `confidential: true` instead
+  omits automatically collected project debug context, request/response payloads, and evidence,
+  forces HOME-path redaction, and marks the report as unsuitable for public posting
 - `lean-beam-mcp --self-check <lean-file>` verification from a Lean project through a real
   descriptor-bound `lean_sync` call
 - request-stateless local MCP workspaces: every workspace-bound call carries

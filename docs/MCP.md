@@ -122,9 +122,9 @@ descriptor, not raw Lean commands or plugin paths. Direct developer runs may sti
 `lean_drop_workspace` is optional cache management, not context selection. It evicts the runtime
 for its descriptor and invalidates proof handles owned by that runtime. Drop is idempotent and
 returns `dropped: false` with `reason: "notFound"` when no cache exists. A later ordinary request
-with the same descriptor recreates the runtime lazily. Keep the canonical descriptor echoed by
-successful calls: cache eviction accepts that absolute descriptor even if the project directory or
-its Lean/Lake markers have since disappeared.
+with the same descriptor recreates the runtime lazily. Retain the canonical descriptor when a Lean
+operation, non-confidential feedback result, or drop result echoes it: cache eviction accepts that
+absolute descriptor even if the project directory or its Lean/Lake markers have since disappeared.
 
 After editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or
 dynamic libraries, drop that workspace or restart the MCP server before the next request. Re-syncing
@@ -217,9 +217,11 @@ one-time clean local check outside MCP. See the
 reports all currently cached broker workspaces for debugging; callers must not use it to establish
 context for a later operation.
 
-`beam_feedback` requires a descriptor because it collects project and runtime context for one
-workspace. It does not start a Lean runtime solely to collect feedback. If that descriptor is
-already cached, its in-process stats and open files are included; another workspace's state is not.
+`beam_feedback` requires a descriptor to validate its local workspace target. Non-confidential mode
+collects project context for that workspace without starting a Lean runtime solely for feedback; if
+the descriptor is already cached, its in-process stats and open files are included. Another
+workspace's state is not included. Confidential mode does not collect that project-derived context
+and does not echo the workspace descriptor in its result.
 
 ## Protocol Errors
 

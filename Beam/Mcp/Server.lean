@@ -513,6 +513,14 @@ private def feedbackIncludeCollected (arguments : Json) : Except String Bool := 
       | .error err => throw s!"invalid 'include_collected': {err}"
   | .error _ => pure false
 
+/-- Project schema-validated MCP arguments onto the transport-independent feedback input. -/
+private def feedbackCoreInputArguments (arguments : Json) : Json :=
+  match arguments with
+  | .obj fields =>
+      Json.mkObj <| (Std.TreeMap.Raw.toList fields).filter fun (field, _) =>
+        Beam.Feedback.inputFields.contains field
+  | other => other
+
 private def handleBeamFeedback
     (opts : Options)
     (descriptor : Beam.Workspace.Descriptor)
@@ -522,7 +530,7 @@ private def handleBeamFeedback
     (arguments : Json)
     (progress? : Option ProgressEmitter) : IO Json := do
   let input ←
-    match fromJson? (α := Beam.Feedback.Input) arguments with
+    match fromJson? (α := Beam.Feedback.Input) (feedbackCoreInputArguments arguments) with
     | .ok input => pure input
     | .error err =>
         emitProgress? progress? "beam_feedback failed"
@@ -536,22 +544,28 @@ private def handleBeamFeedback
   emitProgress? progress? "collecting beam_feedback context"
   let generatedAt ← Beam.utcTimestamp
   let identity ← serverIdentity opts (some root) (some runtime?.isSome)
-  let mut warnings := #[]
-  let daemon ← Beam.Daemon.daemonDebugContextJson root
-  let warningsWithDaemon := warnings ++ Beam.Daemon.daemonDebugWarnings daemon
-  let (stats, openDocs, warnings') ←
-    collectFeedbackRuntimePayload runtime? workspaceId root warningsWithDaemon
-  let collection : Beam.Feedback.Collection := {
-    generatedAt
-    activeRoot? := some root.toString
-    data := Json.mkObj [
-      ("identity", identity.asJson),
-      ("stats", stats),
-      ("openFiles", openDocs),
-      ("daemon", daemon)
-    ]
-    warnings := warnings'
-  }
+  let collection ←
+    if input.confidential then
+      pure ({
+        generatedAt
+        data := Json.mkObj [("identity", identity.asJson)]
+      } : Beam.Feedback.Collection).forConfidential
+    else do
+      let daemon ← Beam.Daemon.daemonDebugContextJson root
+      let warnings := Beam.Daemon.daemonDebugWarnings daemon
+      let (stats, openDocs, warnings') ←
+        collectFeedbackRuntimePayload runtime? workspaceId root warnings
+      pure {
+        generatedAt
+        activeRoot? := some root.toString
+        data := Json.mkObj [
+          ("identity", identity.asJson),
+          ("stats", stats),
+          ("openFiles", openDocs),
+          ("daemon", daemon)
+        ]
+        warnings := warnings'
+      }
   let allowedRoots ← feedbackAllowedRoots root
   try
     let result ← Beam.Feedback.buildResult input collection {
@@ -560,8 +574,10 @@ private def handleBeamFeedback
     }
     let markdown ← Beam.Feedback.renderMcpMarkdown input collection includeCollected
     emitProgress? progress? "completed beam_feedback"
-    let result := (Beam.Feedback.resultMcpJson result markdown includeCollected).setObjVal!
-      "workspace" (toJson descriptor)
+    let result := Beam.Feedback.resultMcpJson result markdown includeCollected
+    let result :=
+      if input.confidential then result
+      else result.setObjVal! "workspace" (toJson descriptor)
     pure <| callToolResult result
   catch e =>
     emitProgress? progress? "beam_feedback failed"

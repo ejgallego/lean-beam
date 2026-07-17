@@ -64,7 +64,9 @@ autoformalization experiments, and regular AI-assisted Lean editing.
 
 Feedback is welcome through GitHub issues or Lean Zulip. For structured bug reports from a local
 checkout, `lean-beam feedback --stdin` can produce a pasteable report card; see
-[docs/FEEDBACK.md](docs/FEEDBACK.md).
+[docs/FEEDBACK.md](docs/FEEDBACK.md). Review non-confidential cards before posting them publicly;
+set `"confidential": true` in the feedback input JSON for a non-public workspace and never post that
+report publicly.
 
 Lean Beam is experimental beta software. It is not an official Lean FRO product. Current
 scope, limitations, and release direction are tracked in [docs/STATUS.md](docs/STATUS.md).
