@@ -412,13 +412,20 @@ private def feedbackIncludeCollected (arguments : Json) : Except String Bool := 
       | .error err => throw s!"invalid 'include_collected': {err}"
   | .error _ => pure false
 
+private def feedbackInputArguments (arguments : Json) : Json :=
+  match arguments with
+  | .obj fields =>
+      Json.mkObj <| (Std.TreeMap.Raw.toList fields).filter fun (field, _) =>
+        field != "include_collected"
+  | other => other
+
 private def handleBeamFeedback
     (state : IO.Ref ProtocolState)
     (opts : Options)
     (arguments : Json)
     (progress? : Option ProgressEmitter) : IO Json := do
   let input ←
-    match fromJson? (α := Beam.Feedback.Input) arguments with
+    match fromJson? (α := Beam.Feedback.Input) (feedbackInputArguments arguments) with
     | .ok input => pure input
     | .error err =>
         emitProgress? progress? "beam_feedback failed"
@@ -433,27 +440,34 @@ private def handleBeamFeedback
   emitProgress? progress? "collecting beam_feedback context"
   let generatedAt ← Beam.utcTimestamp
   let identity ← serverIdentity opts currentState.root? (some currentState.runtime?.isSome)
-  let mut warnings := #[]
-  let daemon ←
-    match currentState.root? with
-    | some root => Beam.Daemon.daemonDebugContextJson root
-    | none =>
-        warnings := warnings.push "no active MCP root was available for daemon registry context"
-        pure Json.null
-  let warningsWithDaemon := warnings ++ Beam.Daemon.daemonDebugWarnings daemon
-  let (stats, openDocs, warnings') ←
-    collectFeedbackRuntimePayload currentState.runtime? currentState.root? warningsWithDaemon
-  let collection : Beam.Feedback.Collection := {
-    generatedAt
-    activeRoot? := currentState.root?.map (·.toString)
-    data := Json.mkObj [
-      ("identity", identity.asJson),
-      ("stats", stats),
-      ("openFiles", openDocs),
-      ("daemon", daemon)
-    ]
-    warnings := warnings'
-  }
+  let collection ←
+    if input.confidential then
+      pure ({
+        generatedAt
+        data := Json.mkObj [("identity", identity.asJson)]
+      } : Beam.Feedback.Collection).forConfidential
+    else do
+      let mut warnings := #[]
+      let daemon ←
+        match currentState.root? with
+        | some root => Beam.Daemon.daemonDebugContextJson root
+        | none =>
+            warnings := warnings.push "no active MCP root was available for daemon registry context"
+            pure Json.null
+      let warningsWithDaemon := warnings ++ Beam.Daemon.daemonDebugWarnings daemon
+      let (stats, openDocs, warnings') ←
+        collectFeedbackRuntimePayload currentState.runtime? currentState.root? warningsWithDaemon
+      pure {
+        generatedAt
+        activeRoot? := currentState.root?.map (·.toString)
+        data := Json.mkObj [
+          ("identity", identity.asJson),
+          ("stats", stats),
+          ("openFiles", openDocs),
+          ("daemon", daemon)
+        ]
+        warnings := warnings'
+      }
   let allowedRoots ← feedbackAllowedRoots currentState.root?
   try
     let result ← Beam.Feedback.buildResult input collection {

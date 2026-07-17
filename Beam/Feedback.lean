@@ -96,12 +96,30 @@ def reportSeverityKeys : Array String :=
 def requiredInputFields : Array String :=
   #["title", "summary", "reproduction", "expected", "actual"]
 
+def optionalInputFields : Array String :=
+  #[
+    "kind", "severity", "impact", "workaround", "tags", "client_request_id", "request",
+    "response", "evidence", "bundle", "redact", "confidential"
+  ]
+
+def inputFields : Array String :=
+  requiredInputFields ++ optionalInputFields
+
 def requiredInputFieldsText : String :=
   String.intercalate ", " requiredInputFields.toList
 
 private def requireObject (label : String) : Json → Except String Unit
   | Json.obj _ => pure ()
   | other => throw s!"{label}, got {other.compress}"
+
+private def rejectUnknownFields
+    (label : String)
+    (allowed : Array String)
+    (json : Json) : Except String Unit := do
+  let .obj fields := json | pure ()
+  for (field, _) in Std.TreeMap.Raw.toList fields do
+    unless allowed.any (· == field) do
+      throw s!"unknown {label} field '{field}'"
 
 private def optionalField? [FromJson α] (json : Json) (field : String) : Except String (Option α) := do
   match json.getObjVal? field with
@@ -111,6 +129,12 @@ private def optionalField? [FromJson α] (json : Json) (field : String) : Except
       | .error err => throw s!"invalid '{field}': {err}"
   | .error _ =>
       pure none
+
+private def optionalObjectField? (json : Json) (field : String) : Except String (Option Json) := do
+  match json.getObjVal? field with
+  | .ok value@(.obj _) => pure (some value)
+  | .ok other => throw s!"invalid '{field}': expected a JSON object, got {other.compress}"
+  | .error _ => pure none
 
 private def requiredString (json : Json) (field : String) : Except String String := do
   match json.getObjVal? field with
@@ -131,6 +155,7 @@ structure EvidenceInput where
 instance : FromJson EvidenceInput where
   fromJson? json := do
     requireObject "feedback evidence entry must be a JSON object" json
+    rejectUnknownFields "feedback evidence" #["name", "content", "path"] json
     let name ← requiredString json "name"
     let content? ← optionalField? (α := Json) json "content"
     let path? ← optionalField? (α := String) json "path"
@@ -168,12 +193,14 @@ structure Input where
   evidence : Array EvidenceInput := #[]
   bundle : BundleMode := .none
   redact : Bool := true
+  confidential : Bool := false
 
 instance : FromJson Input where
   fromJson? json := do
     requireObject
       s!"feedback input must be a JSON object with required string fields: {requiredInputFieldsText}"
       json
+    rejectUnknownFields "feedback input" inputFields json
     let title ← requiredString json "title"
     let summary ← requiredString json "summary"
     let reproduction ← requiredString json "reproduction"
@@ -186,18 +213,22 @@ instance : FromJson Input where
     let tags? ← optionalField? (α := Array String) json "tags"
     let tags := tags?.map (·.filter (fun tag => !tag.trimAscii.isEmpty)) |>.getD #[]
     let clientRequestId? ← optionalField? (α := String) json "client_request_id"
-    let request? ← optionalField? (α := Json) json "request"
-    let response? ← optionalField? (α := Json) json "response"
+    let request? ← optionalObjectField? json "request"
+    let response? ← optionalObjectField? json "response"
     let evidence? ← optionalField? (α := Array EvidenceInput) json "evidence"
     let evidence := evidence?.getD #[]
     let bundle? ← optionalField? (α := BundleMode) json "bundle"
     let bundle := bundle?.getD .none
     let redact? ← optionalField? (α := Bool) json "redact"
     let redact := redact?.getD true
+    let confidential? ← optionalField? (α := Bool) json "confidential"
+    let confidential := confidential?.getD false
+    if confidential && !redact then
+      throw "'confidential' requires redaction; remove 'redact': false"
     pure {
       title, summary, reproduction, expected, actual,
       kind?, severity?, impact?, workaround?, tags, clientRequestId?, request?, response?,
-      evidence, bundle, redact
+      evidence, bundle, redact, confidential
     }
 
 instance : ToJson Input where
@@ -234,7 +265,8 @@ instance : ToJson Input where
       | none => []) ++
       (if input.evidence.isEmpty then [] else [("evidence", toJson input.evidence)]) ++
       (if input.bundle == .none then [] else [("bundle", toJson input.bundle)]) ++
-      if input.redact then [] else [("redact", toJson false)]
+      (if input.redact || input.confidential then [] else [("redact", toJson false)]) ++
+      if input.confidential then [("confidential", toJson true)] else []
 
 def Input.withBundle (input : Input) (bundle? : Option BundleMode) : Input :=
   match bundle? with
@@ -243,14 +275,51 @@ def Input.withBundle (input : Input) (bundle? : Option BundleMode) : Input :=
 
 def Input.withRedactOverride (input : Input) (redact? : Option Bool) : Input :=
   match redact? with
-  | some redact => { input with redact }
+  | some redact => { input with redact := redact || input.confidential }
   | none => input
+
+private def Input.forConfidentialOutput (input : Input) : Input :=
+  if input.confidential then
+    {
+      input with
+        clientRequestId? := none
+        request? := none
+        response? := none
+        evidence := #[]
+        redact := true
+    }
+  else
+    input
 
 structure Collection where
   generatedAt : String
   activeRoot? : Option String := none
   data : Json := Json.mkObj []
   warnings : Array String := #[]
+
+private def confidentialJsonField (json : Json) (field : String) : Json :=
+  match json.getObjVal? field with
+  | .ok value => value
+  | .error _ => Json.null
+
+private def confidentialIdentity (data : Json) : Json :=
+  let identity := confidentialJsonField data "identity"
+  Json.mkObj [
+    ("name", confidentialJsonField identity "name"),
+    ("version", confidentialJsonField identity "version"),
+    ("mcp_protocol", confidentialJsonField identity "mcp_protocol"),
+    ("runtime_active", confidentialJsonField identity "runtime_active")
+  ]
+
+def Collection.forConfidential (collection : Collection) : Collection :=
+  {
+    generatedAt := collection.generatedAt
+    data := Json.mkObj [("identity", confidentialIdentity collection.data)]
+    warnings := #[]
+  }
+
+private def Collection.forInput (collection : Collection) (input : Input) : Collection :=
+  if input.confidential then collection.forConfidential else collection
 
 structure BundleWriteOptions where
   root? : Option System.FilePath := none
@@ -396,13 +465,27 @@ private def runtimeSummarySection (collection : Collection) : String :=
   mdSection "Beam Runtime" (String.intercalate "\n" lines)
 
 private def environmentSection (collection : Collection) : String :=
-  let warnings :=
-    if collection.warnings.isEmpty then
+  mdSection "Beam Debug Context" (jsonBlock collection.data)
+
+private def sharingNotice (input : Input) : String :=
+  if input.confidential then
+    String.intercalate "\n" [
+      "> [!IMPORTANT]",
+      "> Confidential report: do not post this report publicly.",
+      "> Project-derived debug context, request/response payloads, and evidence were omitted.",
+      "> Caller-authored narrative is retained verbatim; review it before sharing privately.",
+      "",
       ""
-    else
-      "\n\nCollection warnings:\n" ++
-        String.intercalate "\n" (collection.warnings.toList.map (fun warning => "- " ++ warning))
-  mdSection "Beam Debug Context" (jsonBlock collection.data ++ warnings)
+    ]
+  else
+    String.intercalate "\n" [
+      "> [!WARNING]",
+      "> Review before posting publicly. This non-confidential report may include caller-authored",
+      "> narrative, request/response payloads, local paths, Beam stats, open-file data, daemon",
+      "> logs or incidents, and bundle evidence. Beam does not submit feedback automatically.",
+      "",
+      ""
+    ]
 
 private def renderMarkdownWithDebugContext
     (input : Input)
@@ -414,6 +497,7 @@ private def renderMarkdownWithDebugContext
     else
       ""
   "# " ++ input.title ++ "\n\n" ++
+    sharingNotice input ++
     mdSection "Summary" (input.summary ++ reportRoutingText input) ++ "\n" ++
     runtimeSummarySection collection ++ "\n" ++
     mdSection "Reproduction" input.reproduction ++ "\n" ++
@@ -426,12 +510,16 @@ private def renderMarkdownWithDebugContext
     optSection "Workaround" input.workaround?
 
 def renderMarkdown (input : Input) (collection : Collection) : String :=
-  renderMarkdownWithDebugContext input collection true
+  let input := input.forConfidentialOutput
+  renderMarkdownWithDebugContext input (collection.forInput input) true
 
 def renderCompactMarkdown (input : Input) (collection : Collection) : String :=
-  renderMarkdownWithDebugContext input collection false
+  let input := input.forConfidentialOutput
+  renderMarkdownWithDebugContext input (collection.forInput input) false
 
 def metadataJson (input : Input) (collection : Collection) : Json :=
+  let input := input.forConfidentialOutput
+  let collection := collection.forInput input
   Json.mkObj [
     ("schema", toJson ("beam.feedback.report-card.v1" : String)),
     ("title", toJson input.title),
@@ -442,6 +530,7 @@ def metadataJson (input : Input) (collection : Collection) : Json :=
     ("tags", toJson input.tags),
     ("bundle", toJson input.bundle),
     ("redacted", toJson input.redact),
+    ("confidential", toJson input.confidential),
     ("client_request_id", match input.clientRequestId? with | some id => toJson id | none => Json.null)
   ]
 
@@ -474,6 +563,8 @@ def renderMcpMarkdown
     (input : Input)
     (collection : Collection)
     (includeCollected : Bool) : IO String := do
+  let input := input.forConfidentialOutput
+  let collection := collection.forInput input
   let markdown :=
     if includeCollected then
       renderMarkdown input collection
@@ -486,6 +577,8 @@ def renderMcpMarkdown
     pure markdown
 
 def renderResult (input : Input) (collection : Collection) : IO Result := do
+  let input := input.forConfidentialOutput
+  let collection := collection.forInput input
   let result : Result := {
     markdown := renderMarkdown input collection
     metadata := metadataJson input collection
@@ -694,17 +787,32 @@ private def zipBundle? (bundleDir : System.FilePath) : IO (Option System.FilePat
 private def writePrettyJsonFile (path : System.FilePath) (json : Json) : IO Unit :=
   IO.FS.writeFile path (Beam.orderedJsonPretty json ++ "\n")
 
-private def writeBundleFiles (bundleDir : System.FilePath) (result : Result) : IO Unit := do
+private def Result.withoutLocalPaths (result : Result) : Result :=
+  { result with bundleDir? := none, zipPath? := none }
+
+private def writeBundleFiles
+    (bundleDir : System.FilePath)
+    (result : Result)
+    (confidential : Bool) : IO Unit := do
   IO.FS.writeFile (bundleDir / "card.md") result.markdown
   writePrettyJsonFile (bundleDir / "metadata.json") result.metadata
   writePrettyJsonFile (bundleDir / "collected.json") result.collected
-  writePrettyJsonFile (bundleDir / "report.json") (Result.toJson result)
+  let report := if confidential then result.withoutLocalPaths else result
+  writePrettyJsonFile (bundleDir / "report.json") (Result.toJson report)
 
 def writeBundle
     (input : Input)
     (collection : Collection)
     (result : Result)
     (opts : BundleWriteOptions) : IO Result := do
+  let confidential := input.confidential
+  let input := input.forConfidentialOutput
+  let collection := collection.forInput input
+  let result ←
+    if confidential then
+      renderResult input collection
+    else
+      pure result
   if input.bundle == .none then
     pure result
   else
@@ -720,8 +828,9 @@ def writeBundle
     if input.bundle == .zip then
       let resultForZip :=
         { result with zipPath? := (expectedZipPath? bundleDir).map (·.toString) }
-      writeBundleFiles bundleDir <|
-        if input.redact then redactResult home? resultForZip else resultForZip
+      writeBundleFiles bundleDir
+        (if input.redact then redactResult home? resultForZip else resultForZip)
+        confidential
       let (zipPath?, warning?) ← zipBundle? bundleDir
       let updatedWarnings :=
         match warning? with
@@ -731,8 +840,9 @@ def writeBundle
         zipPath? := zipPath?.map (·.toString)
         collectionWarnings := updatedWarnings
       }
-    writeBundleFiles bundleDir <|
-      if input.redact then redactResult home? result else result
+    writeBundleFiles bundleDir
+      (if input.redact then redactResult home? result else result)
+      confidential
     if input.redact then
       let home? ← IO.getEnv "HOME"
       pure <| redactResult home? result
@@ -743,6 +853,8 @@ def buildResult
     (input : Input)
     (collection : Collection)
     (opts : BundleWriteOptions := {}) : IO Result := do
+  let input := input.forConfidentialOutput
+  let collection := collection.forInput input
   let result ← renderResult input collection
   writeBundle input collection result opts
 

@@ -8,6 +8,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
+- Confidential feedback report cards that omit project-derived debug context and caller-supplied
+  request, response, and evidence payloads from CLI, MCP, and bundle output
+  ([#220](https://github.com/ejgallego/lean-beam/pull/220), @ejgallego).
 - Validated Lean `v4.32.0` support and made it the repository's default Lean toolchain
   ([#219](https://github.com/ejgallego/lean-beam/pull/219), @ejgallego).
 - Mistral Vibe skill installation and MCP registration support through `--vibe`, `--vibe-mcp`,
@@ -16,6 +19,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Fixed
 
+- Feedback input now rejects unknown JSON fields so misspelled privacy controls cannot silently
+  produce a non-confidential report
+  ([#220](https://github.com/ejgallego/lean-beam/pull/220), @ejgallego).
 - `lean-save` and `lean-close-save` now stage and commit complete artifact sets, preserving prior
   outputs on reported failure or cancellation and preventing same-worker saves from mixing files
   ([#217](https://github.com/ejgallego/lean-beam/pull/217), @ejgallego).
