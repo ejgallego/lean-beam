@@ -53,6 +53,8 @@ notes:
   - set `BEAM_DEBUG_TEXT=1` to print the exact escaped text and UTF-8 bytes sent for text-carrying Lean probes
   - use `lean-beam --version` for bug reports and installed runtime identity checks
   - use `lean-beam feedback` with JSON object input to produce a pasteable Beam report card with debug context
+  - Beam returns feedback locally and does not submit it; review non-confidential output before posting it publicly
+  - set feedback `confidential` to true for non-public workspaces; confidential reports must not be posted publicly
 EOF
 }
 

@@ -147,7 +147,12 @@ def beamStatsDescription : String :=
   "Return debug Beam broker runtime statistics for the active MCP workspace."
 
 def beamFeedbackDescription : String :=
-  "Produce a pasteable Beam report card, optionally with a local evidence bundle, using available MCP debug context."
+  String.intercalate " " [
+    "Return a local Beam report card; this tool does not submit feedback.",
+    "Non-confidential output may contain project context and caller payloads, so review it before posting.",
+    "Set confidential for non-public workspaces; confidential results retain caller-authored narrative",
+    "verbatim and must not be posted publicly."
+  ]
 
 open Beam.JsonSchema in
 def emptyInputSchema : Json :=
@@ -197,6 +202,7 @@ def feedbackInputSchema : Json :=
     ("evidence", arraySchema "Optional evidence entries to include in a bundle." evidenceInputSchema),
     ("bundle", enumString "Optional evidence bundle mode. Defaults to none." Beam.Feedback.bundleModeKeys),
     ("redact", bool "Whether to redact the user's home directory from the rendered report. Defaults to true."),
+    ("confidential", bool "Set true for a non-public workspace. Forces redaction, omits project-derived debug context and attachments, retains caller-authored narrative verbatim, and marks the report as confidential. Defaults to false."),
     ("include_collected", bool "When true, include full collected Beam debug context inline in the MCP result. Defaults to false.")
   ] Beam.Feedback.requiredInputFields
 

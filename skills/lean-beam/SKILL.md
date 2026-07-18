@@ -114,6 +114,14 @@ Core workflow contract:
   fields `title`, `summary`, `reproduction`, `expected`, and `actual`
 - use optional feedback triage fields `kind` (`bug`, `ux`, `perf`, `docs`, `question`) and
   `severity` (`low`, `medium`, `high`, `critical`) when they help route the report
+- `lean-beam feedback` and `beam_feedback` return a local report and do not submit it; before posting
+  non-confidential output, review caller-authored narrative, request/response payloads, local paths,
+  Beam stats, open-file data, daemon logs/incidents, and bundle evidence
+- set feedback `confidential` to `true` for a non-public workspace; this omits project-derived
+  context, request/response payloads, and evidence, and the resulting report must not be posted
+  publicly
+- confidential feedback retains caller-authored narrative verbatim; review those fields for private
+  source or secrets before sharing the report through an authorized private channel
 - do not assume hidden mutable session state carries across unrelated requests
 
 ## Agent Cost Model

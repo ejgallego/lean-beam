@@ -39,9 +39,13 @@ def help : String :=
     usage,
     "",
     inputShapeHelp,
-    "optional fields: kind, severity, impact, workaround, tags, client_request_id, request, response, evidence, bundle, redact",
+    s!"optional fields: {String.intercalate ", " Beam.Feedback.optionalInputFields.toList}",
+    "request and response must be JSON objects when supplied",
     "kind values: bug, ux, perf, docs, question",
     "severity values: low, medium, high, critical",
+    "privacy: Beam returns the report locally and does not submit it; non-confidential output may contain project context and caller payloads, so review it before posting",
+    "confidential: set true for non-public workspaces; forces redaction and omits project-derived context, caller payloads, and evidence",
+    "confidential reports retain caller-authored narrative verbatim and must not be posted publicly",
     "example:",
     "  {\"title\":\"Daemon startup failure\",\"kind\":\"bug\",\"severity\":\"high\",\"summary\":\"Beam failed to start\",\"reproduction\":\"lean-beam run-at Demo.lean 1 0\",\"expected\":\"A response is returned.\",\"actual\":\"The daemon closed the connection.\"}"
   ]
@@ -101,9 +105,15 @@ private def collectDaemonPayload
 private def collect
     (home : System.FilePath)
     (root? : Option System.FilePath)
-    (warnings : Array String) : IO Beam.Feedback.Collection := do
+    (warnings : Array String)
+    (confidential : Bool) : IO Beam.Feedback.Collection := do
   let generatedAt ← utcTimestamp
   let identity ← versionIdentityJson home
+  if confidential then
+    return ({
+      generatedAt
+      data := Json.mkObj [("identity", identity)]
+    } : Beam.Feedback.Collection).forConfidential
   let (stats, openDocs, daemon, warnings) ←
     match root? with
     | none =>
@@ -145,13 +155,15 @@ def run (home : System.FilePath) (cliOpts : CliOptions) (args : List String) : I
     | .ok input => pure input
     | .error err => throw <| IO.userError s!"invalid feedback input: {err}"
   let input := (input.withBundle opts.bundle?).withRedactOverride opts.redact?
+  if input.confidential && opts.redact? == some false then
+    throw <| IO.userError "invalid feedback input: 'confidential' cannot be combined with --no-redact"
   let (root?, warnings) ←
     try
       let root ← projectRootAny cliOpts
       pure (some root, #[])
     catch e =>
       pure (none, #[e.toString])
-  let collection ← collect home root? warnings
+  let collection ← collect home root? warnings input.confidential
   let allowedRoots ←
     match root? with
     | some root => do

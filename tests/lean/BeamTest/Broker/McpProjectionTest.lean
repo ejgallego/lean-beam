@@ -190,13 +190,32 @@ private def checkToolDescriptors : IO Unit := do
   require "beam stats schema should have no input properties" (statsSchemaProperties == Json.mkObj [])
   let some feedbackDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamFeedback)
     | throw <| IO.userError "beam feedback descriptor is missing"
+  require "beam feedback description states that the tool does not submit reports"
+    (feedbackDesc.description.contains "does not submit feedback")
+  require "beam feedback description warns before public posting"
+    (feedbackDesc.description.contains "review it before posting")
+  require "beam feedback description explains retained confidential narrative"
+    (feedbackDesc.description.contains "retain caller-authored narrative")
   let feedbackSchemaProperties ← requireObjVal "beam feedback schema" "properties" feedbackDesc.inputSchema
-  discard <| requireObjVal "beam feedback schema properties" "title" feedbackSchemaProperties
-  discard <| requireObjVal "beam feedback schema properties" "kind" feedbackSchemaProperties
-  discard <| requireObjVal "beam feedback schema properties" "severity" feedbackSchemaProperties
-  discard <| requireObjVal "beam feedback schema properties" "bundle" feedbackSchemaProperties
-  discard <| requireObjVal "beam feedback schema properties" "evidence" feedbackSchemaProperties
-  discard <| requireObjVal "beam feedback schema properties" "include_collected" feedbackSchemaProperties
+  let expectedFeedbackProperties := Beam.Feedback.inputFields ++ #["include_collected"]
+  let .obj feedbackFields := feedbackSchemaProperties
+    | throw <| IO.userError "beam feedback schema properties must be an object"
+  let actualFeedbackProperties :=
+    (Std.TreeMap.Raw.toList feedbackFields).map (fun (field, _) => field) |>.toArray
+  require "beam feedback schema and runtime decoder should expose the same field count"
+    (actualFeedbackProperties.size == expectedFeedbackProperties.size)
+  for field in expectedFeedbackProperties do
+    require s!"beam feedback schema is missing runtime field {field}"
+      (actualFeedbackProperties.contains field)
+  for field in actualFeedbackProperties do
+    require s!"beam feedback schema exposes unsupported runtime field {field}"
+      (expectedFeedbackProperties.contains field)
+  let confidentialSchema ←
+    requireObjVal "beam feedback schema properties" "confidential" feedbackSchemaProperties
+  let confidentialDescription ← expectOk "beam feedback confidential schema description" <|
+    confidentialSchema.getObjValAs? String "description"
+  require "beam feedback confidential schema explains retained caller narrative"
+    (confidentialDescription.contains "retains caller-authored narrative verbatim")
   let some initDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanInitWorkspace)
     | throw <| IO.userError "init workspace descriptor is missing"
   let schemaProperties ← requireObjVal "init workspace schema" "properties" initDesc.inputSchema
