@@ -182,7 +182,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
 
 This scenario covers out-of-order tool responses, exact string/numeric request-ID separation,
 request-ID reuse after a terminal response, broker cancellation, per-request progress ordering,
-single-flight first use, roots/reset overlap, reset of active work, and shutdown draining.
+single-flight first use, non-cancellable reset while root discovery is pending, reset of active work,
+and shutdown draining.
 
 If this scheduler-sensitive timeout appears on an unrelated CI PR, copy the timeout headline and
 diagnostic excerpt to [#110](https://github.com/ejgallego/lean-beam/issues/110) so repeated

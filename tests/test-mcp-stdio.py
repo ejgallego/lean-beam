@@ -1692,11 +1692,19 @@ def run_root_discovery_reset_overlap(repo_root, fixture_root, timeout, server_tr
                 {
                     "name": "lean_init_workspace",
                     "arguments": {"root": str(other_root), "mode": "reset"},
+                    "_meta": {"progressToken": "cancelled-workspace-reset"},
                 },
                 request_id="reset-during-root-discovery",
             )
+            client.notify(
+                "notifications/cancelled",
+                {
+                    "requestId": reset_id,
+                    "reason": "workspace control must still report its committed state",
+                },
+            )
             roots_response_gate.set()
-            reset_response = client.read_response(reset_id)
+            reset_response = client.read_response(reset_id, timeout=min(timeout, 5.0))
             reset_result = expect_result(reset_response)
             require(reset_result.get("isError") is not True, f"root-discovery reset failed: {reset_result}")
             reset_structured = reset_result.get("structuredContent")
@@ -1704,6 +1712,11 @@ def run_root_discovery_reset_overlap(repo_root, fixture_root, timeout, server_tr
             require(
                 Path(reset_structured.get("active_root")).resolve() == other_root.resolve(),
                 f"root-discovery reset activated the wrong root: {reset_structured}",
+            )
+            require_progress_sequence(
+                client.progress_notifications("cancelled-workspace-reset"),
+                "cancelled-workspace-reset",
+                "non-cancellable workspace reset progress",
             )
             first_result = expect_result(client.read_response(first_id))
             first_structured = first_result.get("structuredContent")

@@ -116,6 +116,11 @@ private inductive RequestPhase where
   | completed
   deriving BEq
 
+private inductive ClientCancellationPolicy where
+  | cooperative
+  | nonCancellable
+  deriving BEq
+
 private structure InFlightState where
   phase : RequestPhase := .active
   runtime? : Option Beam.Broker.ServerRuntime := none
@@ -124,6 +129,7 @@ private structure InFlightState where
 private structure InFlightRequest where
   id : RequestId
   brokerId : String
+  cancellationPolicy : ClientCancellationPolicy
   state : Std.Mutex InFlightState
   done : IO.Promise Unit
 
@@ -161,10 +167,12 @@ private def Coordinator.create (root? : Option System.FilePath) : IO Coordinator
 
 private def Coordinator.registerRequest
     (coordinator : Coordinator)
-    (id : RequestId) : IO (Except RpcError InFlightRequest) := do
+    (id : RequestId)
+    (cancellationPolicy : ClientCancellationPolicy) : IO (Except RpcError InFlightRequest) := do
   let request : InFlightRequest := {
     id
     brokerId := ""
+    cancellationPolicy
     state := ← Std.Mutex.new {}
     done := ← IO.Promise.new
   }
@@ -280,6 +288,8 @@ private def Coordinator.finishRequest
 
 private def InFlightRequest.markClientCancelled
     (request : InFlightRequest) : IO (Bool × Option (Beam.Broker.ServerRuntime × System.FilePath)) := do
+  if request.cancellationPolicy == .nonCancellable then
+    return (false, none)
   request.state.atomically do
     let current ← get
     match current.phase with
@@ -1000,7 +1010,9 @@ def handleJson
 
 private def Coordinator.admitToolRequest
     (coordinator : Coordinator)
-    (req : Request) : IO (Except Json InFlightRequest) := do
+    (req : Request)
+    (cancellationPolicy : ClientCancellationPolicy) :
+    IO (Except Json InFlightRequest) := do
   let currentState ← coordinator.protocol.get
   if !currentState.initializeComplete then
     return .error <| errorResponse req.id <|
@@ -1008,7 +1020,7 @@ private def Coordinator.admitToolRequest
   if !currentState.initializedNotificationSeen then
     return .error <| errorResponse req.id <|
         RpcError.invalidRequest "notifications/initialized is required before MCP operation requests"
-  match ← coordinator.registerRequest req.id with
+  match ← coordinator.registerRequest req.id cancellationPolicy with
   | .ok request => pure <| .ok request
   | .error err => pure <| .error <| errorResponse req.id err
 
@@ -1058,7 +1070,7 @@ private def Coordinator.spawnToolRequest
     (opts : Options)
     (req : Request) : IO Unit := do
   let request ←
-    match ← coordinator.admitToolRequest req with
+    match ← coordinator.admitToolRequest req .cooperative with
     | .ok request => pure request
     | .error response =>
         coordinator.output.send response
@@ -1076,7 +1088,7 @@ private def Coordinator.handleControlToolRequest
     (coordinator : Coordinator)
     (opts : Options)
     (req : Request) : IO Unit := do
-  match ← coordinator.admitToolRequest req with
+  match ← coordinator.admitToolRequest req .nonCancellable with
   | .error response => coordinator.output.send response
   | .ok request =>
       let (previous?, done) ← coordinator.pushControlBarrier

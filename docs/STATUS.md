@@ -173,7 +173,8 @@ discriminator.
   interleave; clients should use distinct tokens for concurrently active requests.
 - MCP `notifications/cancelled` cooperatively cancels active broker work. Initialization, workspace
   setup/reset, and shutdown remain serialized; concurrent first use shares one root discovery and
-  runtime setup.
+  runtime setup. Once admitted, `lean_init_workspace` ignores client cancellation and returns its
+  terminal result because workspace initialization or reset cannot be rolled back safely.
 - Incremental Lean diagnostics are forwarded as MCP log notifications.
 - The Streamable HTTP bridge is test-only; the product entry point remains stdio.
 - Exact protocol behavior and conformance notes live in [MCP.md](MCP.md).

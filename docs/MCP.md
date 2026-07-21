@@ -152,7 +152,12 @@ A client can send `notifications/cancelled` with the request ID from an active t
 that notification to cooperative broker cancellation. If client cancellation wins the request's
 terminal-state race, the server does not send a final response for that request. Late or unknown
 cancellation notifications are ignored. Cancellation is cooperative and does not roll back an
-update, save, reset, or other state change that has already committed.
+update, save, or other state change that has already committed.
+
+`lean_init_workspace` is non-cancellable once admitted. Workspace initialization or reset can
+replace the active runtime and cannot be rolled back safely, so the server ignores a cancellation
+notification for that request and always sends its terminal result. Clients can therefore use that
+result as the authoritative active-root and runtime state before issuing later work.
 
 Lifecycle and workspace-control operations remain serialized. Initialization, first-use root and
 runtime setup, `lean_init_workspace`, workspace reset, and shutdown cannot race each other. Concurrent
@@ -208,7 +213,8 @@ Use the MCP checks as layered gates:
   Lean fixture project, including explicit `--root`, relative `--root`, `lean_init_workspace`,
   concurrent same-process tool calls, out-of-order response demultiplexing, exact string/numeric ID
   identity, cancellation, progress ordering, single-flight roots/runtime setup, reset, shutdown, and
-  handle invalidation paths, including reset while a client roots response is pending.
+  handle invalidation paths, including non-cancellable reset while a client roots response is
+  pending.
 - [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py): deterministic Streamable HTTP
   bridge behavior over a stdio child.
 - [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): pinned external conformance
