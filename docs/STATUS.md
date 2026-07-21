@@ -166,9 +166,15 @@ discriminator.
   not advertised or tested.
 - MCP workspace reset invalidates handles minted by the old runtime; discard saved handle files
   after `lean_init_workspace` with `mode: "reset"`.
-- `lean-beam-mcp` emits live MCP progress notifications for tool calls that include
-  `_meta.progressToken`, forwards incremental Lean diagnostics as MCP log notifications, and still
-  leaves MCP cancellation notifications as future work.
+- `lean-beam-mcp` can execute ordinary tool calls concurrently in one process. Responses may arrive
+  out of request order and are routed by exact JSON-RPC ID, with string and numeric IDs kept distinct.
+- Tool calls that include `_meta.progressToken` receive live MCP progress notifications. Updates for
+  one request remain strictly ordered before its final response, while different requests may
+  interleave; clients should use distinct tokens for concurrently active requests.
+- MCP `notifications/cancelled` cooperatively cancels active broker work. Initialization, workspace
+  setup/reset, and shutdown remain serialized; concurrent first use shares one root discovery and
+  runtime setup.
+- Incremental Lean diagnostics are forwarded as MCP log notifications.
 - The Streamable HTTP bridge is test-only; the product entry point remains stdio.
 - Exact protocol behavior and conformance notes live in [MCP.md](MCP.md).
 

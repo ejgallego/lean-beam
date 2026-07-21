@@ -15,15 +15,13 @@ import urllib.request
 from pathlib import Path
 
 from mcp_test_util import (
+    MCP_PROTOCOL_VERSION,
     fail,
     require,
     require_file_progress_range,
     save_warning_text,
     shared_lib_name,
 )
-
-
-PROTOCOL_VERSION = "2025-11-25"
 
 
 def load_bridge_module(repo_root):
@@ -73,7 +71,7 @@ def wait_for_ready(ready_file, timeout):
     fail(f"timed out waiting for bridge ready file {ready_file}")
 
 
-def http_json(url, payload, *, protocol_version=PROTOCOL_VERSION, origin=None, content_type="application/json", timeout=30):
+def http_json(url, payload, *, protocol_version=MCP_PROTOCOL_VERSION, origin=None, content_type="application/json", timeout=30):
     headers = {
         "Accept": "application/json, text/event-stream",
     }
@@ -271,7 +269,7 @@ def main():
                     "id": 1,
                     "method": "initialize",
                     "params": {
-                        "protocolVersion": PROTOCOL_VERSION,
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
                         "capabilities": {},
                         "clientInfo": {"name": "lean-beam-http-bridge-test", "version": "0"},
                     },
@@ -279,7 +277,7 @@ def main():
                 protocol_version=None,
                 timeout=args.timeout,
             ))
-            require(init.get("protocolVersion") == PROTOCOL_VERSION, f"unexpected initialized version: {init}")
+            require(init.get("protocolVersion") == MCP_PROTOCOL_VERSION, f"unexpected initialized version: {init}")
 
             initialized_status, initialized_body = http_json(
                 url,

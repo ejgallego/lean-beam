@@ -15,8 +15,8 @@ The layering is:
 - [Beam/Broker/Protocol.lean](../Beam/Broker/Protocol.lean) owns the local broker request, response,
   and stream envelopes.
 - [Beam/Broker/Server.lean](../Beam/Broker/Server.lean) owns session lifecycle, document sync, save
-  barriers, cancellation, backend dispatch, and the shared in-process runtime used by both the daemon
-  transport and MCP server.
+  barriers, cancellation, backend dispatch, and the in-process runtime implementation instantiated
+  separately by the daemon transport and MCP server.
 - [Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) owns curated Lean operations, typed inputs,
   JSON schemas, and operation-to-broker adapters.
 - [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean) owns the matching CLI projection for
@@ -133,6 +133,39 @@ The product entry point is stdio. The local Streamable HTTP bridge in
 [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) is a test/conformance adapter over the stdio
 server, not a separate product transport.
 
+## Concurrency, Ordering, And Cancellation
+
+The MCP server has one permanent stdin reader. It routes client requests, notifications, and
+responses to in-flight operations by their exact JSON-RPC ID; string and numeric IDs are distinct.
+Ordinary `tools/call` requests can overlap in one server process, and their final responses may be
+written in a different order from their requests. Clients must demultiplex responses by ID instead
+of relying on arrival order. Request IDs must be unique while active; a normally completed ID can be
+reused after its terminal response has arrived.
+
+The server serializes complete stdout messages so concurrent responses and notifications cannot
+interleave at the byte level. Progress notifications for one request are strictly ordered and are
+written before that request's final response. Clients should use a distinct progress token for each
+active request; the server does not impose global ordering when active requests reuse a token. No
+ordering is promised between different requests or progress tokens.
+
+A client can send `notifications/cancelled` with the request ID from an active tool call. Beam maps
+that notification to cooperative broker cancellation. If client cancellation wins the request's
+terminal-state race, the server does not send a final response for that request. Late or unknown
+cancellation notifications are ignored. Cancellation is cooperative and does not roll back an
+update, save, reset, or other state change that has already committed.
+
+Lifecycle and workspace-control operations remain serialized. Initialization, first-use root and
+runtime setup, `lean_init_workspace`, workspace reset, and shutdown cannot race each other. Concurrent
+first-use calls share one roots request and one runtime setup. Reset stops the old runtime and makes
+unfinished in-flight requests fail with structured tool errors; later tool calls wait behind the
+reset before using the new root. The stdin reader remains available to route a concurrent roots
+response or cancellation while a workspace control operation is waiting. Shutdown stops accepting
+work, cancels and drains active requests, and only then returns its response.
+
+This concurrency coordinator belongs to the MCP stdio transport and embeds the broker runtime in the
+MCP process. It does not share the `beam-daemon` transport loop or turn the MCP server into a daemon
+client.
+
 ## Progress And Diagnostic Logs
 
 The MCP server advertises logging and progress capabilities. Client-facing reporting surfaces stay
@@ -168,11 +201,14 @@ Use the MCP checks as layered gates:
   boundary, public tool names, raw-LSP rejection, typed operation adapters, root-free Lean operation
   inputs, setup tools, and normalized output fields.
 - [BeamTest/Broker/McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean): JSON-RPC shapes,
-  generated schemas, lifecycle gating, roots helpers, `lean_init_workspace` setup policy, setup
-  errors, and tool input validation.
+  exact typed request IDs, cancellation parameters, response routing shapes, generated schemas,
+  lifecycle gating, roots helpers, `lean_init_workspace` setup policy, setup errors, and tool input
+  validation.
 - [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py): real stdio process behavior over a copied
   Lean fixture project, including explicit `--root`, relative `--root`, `lean_init_workspace`,
-  roots discovery, reset, and handle invalidation paths.
+  concurrent same-process tool calls, out-of-order response demultiplexing, exact string/numeric ID
+  identity, cancellation, progress ordering, single-flight roots/runtime setup, reset, shutdown, and
+  handle invalidation paths, including reset while a client roots response is pending.
 - [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py): deterministic Streamable HTTP
   bridge behavior over a stdio child.
 - [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): pinned external conformance
@@ -198,7 +234,6 @@ the server exposes compatible tools or carries an expected-failure baseline.
 
 Current known MCP follow-ups:
 
-- MCP cancellation notification handling
 - richer progress percentages or bounded work-unit totals if Lean exposes them
 - broader conformance scenarios when the server exposes the corresponding capabilities
 - a first-class HTTP transport only if real users need HTTP

@@ -6,7 +6,6 @@ import concurrent.futures
 import json
 import os
 import platform
-import queue
 import shutil
 import subprocess
 import sys
@@ -16,6 +15,7 @@ import time
 from pathlib import Path
 
 from mcp_test_util import (
+    MCP_PROTOCOL_VERSION,
     fail,
     notification_params,
     notifications_by_method,
@@ -27,7 +27,6 @@ from mcp_test_util import (
 )
 
 
-SUPPORTED_PROTOCOL_VERSION = "2025-11-25"
 CI_TIMEOUT_TRACKER = "https://github.com/ejgallego/lean-beam/issues/110"
 CI_TIMEOUT_TRACKER_NOTE = "\n".join(
     [
@@ -152,6 +151,14 @@ def notification_summary(notification):
     return compact_json(notification, limit=300)
 
 
+def request_id_key(request_id):
+    if isinstance(request_id, str):
+        return ("string", request_id)
+    if isinstance(request_id, bool) or not isinstance(request_id, (int, float)):
+        fail(f"MCP request id must be a string or number, got {request_id!r}")
+    return ("number", json.dumps(request_id, separators=(",", ":")))
+
+
 class McpClient:
     def __init__(
         self,
@@ -168,6 +175,8 @@ class McpClient:
         label="mcp-client",
         server_trace=False,
         drain_stdout=True,
+        extra_env=None,
+        roots_response_gate=None,
     ):
         self.repo_root = repo_root
         self.project_root = project_root
@@ -175,24 +184,30 @@ class McpClient:
         self.label = label
         self.server_trace = server_trace or env_enabled("BEAM_MCP_SERVER_TRACE")
         self.runtime_context = runtime_context_lines()
+        self.state_changed = threading.Condition(threading.RLock())
+        self.stdin_lock = threading.Lock()
         self.next_id = 0
         self.use_root_arg = use_root_arg
         self.advertise_roots = advertise_roots
         self.roots = [Path(root) for root in (roots if roots is not None else [project_root])]
         self.roots_payload = roots_payload
         self.roots_response = roots_response
+        self.roots_response_gate = roots_response_gate
         self.root_arg = root_arg if root_arg is not None else project_root
         self.roots_request_count = 0
         self.server_requests = collections.deque(maxlen=20)
         self.pending_extra_response_ids = set()
         self.extra_responses = []
         self.pending_requests = {}
+        self.responses = {}
+        self.stdout_error = None
+        self.stdout_eof = False
+        self.shutdown_complete = False
         self.completed_requests = collections.deque(maxlen=20)
         self.notifications = []
         self.event_log = collections.deque(maxlen=80)
         self.started_at = time.monotonic()
         self.last_notification_at = None
-        self.stdout_lines = queue.Queue()
         self.stderr_lines = collections.deque(maxlen=80)
         exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
         plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
@@ -211,6 +226,8 @@ class McpClient:
             ]
         )
         env = os.environ.copy()
+        if extra_env is not None:
+            env.update({str(key): str(value) for key, value in extra_env.items()})
         if self.server_trace:
             env["LEAN_BEAM_MCP_TRACE"] = "1"
             env["LEAN_BEAM_BROKER_TRACE"] = "1"
@@ -236,10 +253,48 @@ class McpClient:
     def _drain_stdout(self):
         try:
             for line in self.proc.stdout:
-                self.stdout_lines.put(("line", line))
-            self.stdout_lines.put(("eof", None))
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError as err:
+                    raise RuntimeError(f"stdout line is not valid JSON: {err}: {line!r}") from err
+                require(message.get("jsonrpc") == "2.0", f"bad JSON-RPC message: {message}")
+                if "method" in message and "id" in message:
+                    self.handle_server_request(message)
+                    continue
+                with self.state_changed:
+                    if "method" in message:
+                        self.last_notification_at = time.monotonic()
+                        self.notifications.append(message)
+                        self._record_event_locked(
+                            f"server notification: {notification_summary(message)}"
+                        )
+                    else:
+                        response_id = message.get("id")
+                        response_key = request_id_key(response_id)
+                        if response_key in self.pending_extra_response_ids:
+                            self.extra_responses.append(message)
+                            self.pending_extra_response_ids.remove(response_key)
+                            self._record_event_locked(
+                                f"extra response id {response_id}: {compact_json(message, 240)}"
+                            )
+                        else:
+                            require(
+                                response_key in self.pending_requests,
+                                f"received response for unknown request id {response_id}: {message}",
+                            )
+                            require(
+                                response_key not in self.responses,
+                                f"received duplicate response id {response_id}: {message}",
+                            )
+                            self.responses[response_key] = message
+                        self.state_changed.notify_all()
+            with self.state_changed:
+                self.stdout_eof = True
+                self.state_changed.notify_all()
         except Exception as err:
-            self.stdout_lines.put(("error", str(err)))
+            with self.state_changed:
+                self.stdout_error = str(err)
+                self.state_changed.notify_all()
 
     def _drain_stderr(self):
         try:
@@ -249,6 +304,10 @@ class McpClient:
             self.stderr_lines.append(f"<stderr drain failed: {err}>")
 
     def _record_event(self, label):
+        with self.state_changed:
+            self._record_event_locked(label)
+
+    def _record_event_locked(self, label):
         self.event_log.append({"at": time.monotonic(), "label": label})
 
     def close(self):
@@ -272,23 +331,26 @@ class McpClient:
     def send_message(self, message):
         require(self.proc.poll() is None, "lean-beam-mcp exited before request")
         line = json.dumps(message, separators=(",", ":"))
-        self.proc.stdin.write(line + "\n")
-        self.proc.stdin.flush()
+        with self.stdin_lock:
+            self.proc.stdin.write(line + "\n")
+            self.proc.stdin.flush()
 
     def handle_server_request(self, request):
         method = request.get("method")
         request_id = request.get("id")
-        self._record_event(f"server request id {request_id}: {method}")
-        self.server_requests.append(
-            {
-                "id": request_id,
-                "method": method,
-                "params": request.get("params"),
-                "received": time.monotonic(),
-            }
-        )
+        with self.state_changed:
+            self._record_event_locked(f"server request id {request_id}: {method}")
+            self.server_requests.append(
+                {
+                    "id": request_id,
+                    "method": method,
+                    "params": request.get("params"),
+                    "received": time.monotonic(),
+                }
+            )
         if method == "roots/list":
-            self.roots_request_count += 1
+            with self.state_changed:
+                self.roots_request_count += 1
             if self.roots_response == "error":
                 self.send_message(
                     {
@@ -300,8 +362,15 @@ class McpClient:
                 return
             if self.roots_response == "unrelated_then_normal":
                 extra_id = "during-roots"
-                self.pending_extra_response_ids.add(extra_id)
+                with self.state_changed:
+                    self.pending_extra_response_ids.add(request_id_key(extra_id))
                 self.send_message({"jsonrpc": "2.0", "id": extra_id, "method": "ping"})
+            if self.roots_response == "gated":
+                require(self.roots_response_gate is not None, "gated roots response needs an event")
+                require(
+                    self.roots_response_gate.wait(timeout=self.timeout),
+                    "timed out waiting to release gated roots response",
+                )
             if self.roots_payload is not None:
                 roots = self.roots_payload
             else:
@@ -320,7 +389,7 @@ class McpClient:
         )
 
     def _request_label(self, request_id):
-        pending = self.pending_requests.get(request_id)
+        pending = self.pending_requests.get(request_id_key(request_id))
         if pending is None:
             return "<unknown request>"
         return pending["label"]
@@ -348,7 +417,8 @@ class McpClient:
     def _pending_requests_summary(self):
         now = time.monotonic()
         lines = []
-        for request_id, pending in sorted(self.pending_requests.items()):
+        for _request_key, pending in sorted(self.pending_requests.items()):
+            request_id = pending["id"]
             age = now - pending["started"]
             lines.append(
                 f"  id {request_id}: {pending['label']} age={age:.3f}s "
@@ -422,7 +492,7 @@ class McpClient:
 
     def _timeout_message(self, expected_id):
         label = self._request_label(expected_id)
-        pending = self.pending_requests.get(expected_id)
+        pending = self.pending_requests.get(request_id_key(expected_id))
         elapsed = time.monotonic() - pending["started"] if pending is not None else 0.0
         stderr_tail = "\n".join(self.stderr_lines)
         process_snapshot = self._process_snapshot()
@@ -441,47 +511,25 @@ class McpClient:
             f"process snapshot:\n{process_snapshot}"
         )
 
-    def read_response(self, expected_id):
+    def read_response(self, expected_id, timeout=None):
         require(self.stdout_thread is not None, "MCP stdout reader is disabled")
-        deadline = time.monotonic() + self.timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                fail(self._timeout_message(expected_id))
-            try:
-                kind, payload = self.stdout_lines.get(timeout=min(remaining, 0.1))
-            except queue.Empty:
+        response_key = request_id_key(expected_id)
+        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
+        with self.state_changed:
+            while response_key not in self.responses:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    fail(self._timeout_message(expected_id))
+                if self.stdout_error is not None:
+                    fail(f"failed reading lean-beam-mcp stdout: {self.stdout_error}")
+                if self.stdout_eof:
+                    fail(f"lean-beam-mcp closed stdout before response id {expected_id}")
                 if self.proc.poll() is not None:
-                    self.stdout_thread.join(timeout=1)
-                    self.stderr_thread.join(timeout=1)
                     stderr = "\n".join(self.stderr_lines)
                     fail(f"lean-beam-mcp exited early with code {self.proc.returncode}\n{stderr}")
-                continue
-            if kind == "error":
-                fail(f"failed reading lean-beam-mcp stdout: {payload}")
-            if kind == "eof":
-                fail(f"lean-beam-mcp closed stdout before response id {expected_id}")
-            line = payload
-            try:
-                response = json.loads(line)
-            except json.JSONDecodeError as err:
-                fail(f"stdout line is not valid JSON: {err}: {line!r}")
-            require(response.get("jsonrpc") == "2.0", f"bad JSON-RPC response: {response}")
-            if "method" in response and "id" in response:
-                self.handle_server_request(response)
-                continue
-            if "method" in response:
-                self.last_notification_at = time.monotonic()
-                self.notifications.append(response)
-                self._record_event(f"server notification: {notification_summary(response)}")
-                continue
-            if response.get("id") in self.pending_extra_response_ids:
-                self.extra_responses.append(response)
-                self.pending_extra_response_ids.remove(response.get("id"))
-                self._record_event(f"extra response id {response.get('id')}: {compact_json(response, 240)}")
-                continue
-            require(response.get("id") == expected_id, f"expected response id {expected_id}, got {response}")
-            pending = self.pending_requests.pop(expected_id, None)
+                self.state_changed.wait(timeout=min(remaining, 0.1))
+            response = self.responses.pop(response_key)
+            pending = self.pending_requests.pop(response_key, None)
             if pending is not None:
                 elapsed = time.monotonic() - pending["started"]
                 self.completed_requests.append(
@@ -491,24 +539,52 @@ class McpClient:
                         "elapsed": elapsed,
                     }
                 )
-                self._record_event(f"response id {expected_id}: {pending['label']} elapsed={elapsed:.3f}s")
+                self._record_event_locked(
+                    f"response id {expected_id}: {pending['label']} elapsed={elapsed:.3f}s"
+                )
             return response
 
-    def request(self, method, params=None):
-        self.next_id += 1
-        message = {"jsonrpc": "2.0", "id": self.next_id, "method": method}
+    def send_request(self, method, params=None, *, request_id=None):
+        with self.state_changed:
+            if request_id is None:
+                self.next_id += 1
+                request_id = self.next_id
+            request_key = request_id_key(request_id)
+            require(
+                request_key not in self.pending_requests and request_key not in self.responses,
+                f"duplicate pending MCP request id {request_id!r}",
+            )
+            label = request_label(method, params)
+            self.pending_requests[request_key] = {
+                "id": request_id,
+                "label": label,
+                "method": method,
+                "params": params,
+                "started": time.monotonic(),
+            }
+            self._record_event_locked(f"request id {request_id}: {label}")
+        message = {"jsonrpc": "2.0", "id": request_id, "method": method}
         if params is not None:
             message["params"] = params
-        label = request_label(method, params)
-        self.pending_requests[self.next_id] = {
-            "label": label,
-            "method": method,
-            "params": params,
-            "started": time.monotonic(),
-        }
-        self._record_event(f"request id {self.next_id}: {label}")
         self.send_message(message)
-        return self.read_response(self.next_id)
+        return request_id
+
+    def request(self, method, params=None, *, request_id=None):
+        request_id = self.send_request(method, params, request_id=request_id)
+        return self.read_response(request_id)
+
+    def response_ready(self, request_id):
+        with self.state_changed:
+            return request_id_key(request_id) in self.responses
+
+    def forget_request(self, request_id):
+        request_key = request_id_key(request_id)
+        with self.state_changed:
+            require(
+                request_key not in self.responses,
+                f"request id {request_id!r} unexpectedly received a response",
+            )
+            self.pending_requests.pop(request_key, None)
 
     def notify(self, method, params=None):
         message = {"jsonrpc": "2.0", "method": method}
@@ -524,14 +600,14 @@ class McpClient:
         response = self.request(
             "initialize",
             {
-                "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
+                "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": capabilities,
                 "clientInfo": {"name": "lean-beam-mcp-test", "version": "0"},
             },
         )
         result = expect_result(response)
         require(
-            result.get("protocolVersion") == SUPPORTED_PROTOCOL_VERSION,
+            result.get("protocolVersion") == MCP_PROTOCOL_VERSION,
             f"server negotiated unexpected protocol version: {result}",
         )
         tools = result.get("capabilities", {}).get("tools")
@@ -541,9 +617,10 @@ class McpClient:
         self.notify("notifications/initialized")
 
     def shutdown(self):
-        if self.proc.poll() is None:
+        if self.proc.poll() is None and not self.shutdown_complete:
             response = self.request("shutdown")
             expect_result(response)
+            self.shutdown_complete = True
         if self.proc.stdin and not self.proc.stdin.closed:
             self.proc.stdin.close()
 
@@ -562,8 +639,10 @@ class McpClient:
         return structured
 
     def progress_notifications(self, token):
+        with self.state_changed:
+            notifications = list(self.notifications)
         rows = []
-        for notification in notifications_by_method(self.notifications, "notifications/progress"):
+        for notification in notifications_by_method(notifications, "notifications/progress"):
             params = notification_params(notification, "notifications/progress", "progress notification")
             if params.get("progressToken") == token:
                 rows.append(notification)
@@ -684,10 +763,10 @@ def require_roots_requests(client, expected, label):
     )
 
 
-def expect_extra_error_code(client, response_id, code, label):
+def expect_extra_result(client, response_id, label):
     for response in client.extra_responses:
         if response.get("id") == response_id:
-            expect_error_code(response, code)
+            expect_result(response)
             return
     fail(f"{label}: missing extra response id {response_id}; saw {client.extra_responses}")
 
@@ -698,6 +777,24 @@ def require_success(label, structured):
 
 def require_failure(label, structured):
     require(structured.get("success") is False, f"{label} should fail semantically: {structured}")
+
+
+def wait_for_file(path, timeout, label):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.02)
+    fail(f"timed out waiting for {label} at {path}")
+
+
+def wait_until(predicate, timeout, label):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    fail(f"timed out waiting for {label}")
 
 
 def require_message_contains(label, structured, needle):
@@ -1051,7 +1148,7 @@ def run_cycle(
             version = client.call_tool("beam_version")
             require(version.get("name") == "lean-beam-mcp", f"beam_version returned wrong name: {version}")
             require(version.get("version") == "0.2.0-beta", f"beam_version returned wrong version: {version}")
-            require(version.get("mcp_protocol") == SUPPORTED_PROTOCOL_VERSION, f"beam_version returned wrong protocol: {version}")
+            require(version.get("mcp_protocol") == MCP_PROTOCOL_VERSION, f"beam_version returned wrong protocol: {version}")
             require(isinstance(version.get("server_binary"), str) and version["server_binary"], f"beam_version missing server_binary: {version}")
             require(version.get("runtime_active") is False, f"beam_version should not start runtime: {version}")
 
@@ -1366,6 +1463,359 @@ def run_focused_sync_repro(repo_root, fixture_root, timeout, runs, slow_threshol
 
 
 PARALLEL_PROGRESS_SMOKE_SCENARIO = "progress-smoke-parallel"
+CONCURRENT_DISPATCH_SCENARIO = "concurrent-dispatch"
+
+
+def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-dispatch-") as tmp:
+        tmp_root = Path(tmp)
+        project_root = tmp_root / "project"
+        started_path = tmp_root / "gate-started"
+        release_path = tmp_root / "gate-release"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            label="concurrent-dispatch",
+            server_trace=server_trace,
+            extra_env={
+                "BEAM_MCP_GATE_STARTED": started_path,
+                "BEAM_MCP_GATE_RELEASE": release_path,
+            },
+        )
+        slow_id = "77"
+        try:
+            client.initialize()
+            update = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
+            version = update.get("version")
+            require(isinstance(version, int), f"concurrency update missing version: {update}")
+            source_lines = (project_root / "McpConcurrency.lean").read_text(encoding="utf-8").splitlines()
+            line = source_lines.index("  trivial")
+            slow_params = {
+                "name": "lean_run_at",
+                "arguments": {
+                    "path": "McpConcurrency.lean",
+                    "version": version,
+                    "line": line,
+                    "character": 2,
+                    "text": "mcp_concurrency_gate",
+                },
+            }
+            fast_params = {
+                "name": "lean_run_at",
+                "arguments": {
+                    "path": "McpConcurrency.lean",
+                    "version": version,
+                    "line": line,
+                    "character": 2,
+                    "text": "exact trivial",
+                },
+            }
+            client.send_request("tools/call", slow_params, request_id=slow_id)
+            wait_for_file(started_path, timeout, "slow runAt gate sentinel")
+            fast_id = client.send_request("tools/call", fast_params, request_id=77)
+            fast_response = client.read_response(fast_id, timeout=min(timeout, 5.0))
+            fast_result = expect_result(fast_response)
+            require(fast_result.get("isError") is not True, f"fast runAt returned a tool error: {fast_result}")
+            fast_structured = fast_result.get("structuredContent")
+            require(isinstance(fast_structured, dict), f"fast runAt missing structured content: {fast_result}")
+            require_success("fast concurrent runAt", fast_structured)
+            require(
+                not client.response_ready(slow_id),
+                "slow gated runAt completed before its release sentinel",
+            )
+            release_path.write_text("release\n", encoding="utf-8")
+            slow_response = client.read_response(slow_id)
+            slow_result = expect_result(slow_response)
+            require(slow_result.get("isError") is not True, f"slow runAt returned a tool error: {slow_result}")
+            slow_structured = slow_result.get("structuredContent")
+            require(isinstance(slow_structured, dict), f"slow runAt missing structured content: {slow_result}")
+            require_success("slow concurrent runAt", slow_structured)
+            expect_result(client.request("ping", request_id=slow_id))
+
+            started_path.unlink()
+            release_path.unlink()
+            cancel_id = "cancelled-run-at"
+            client.send_request("tools/call", slow_params, request_id=cancel_id)
+            wait_for_file(started_path, timeout, "cancelled runAt gate sentinel")
+            client.notify(
+                "notifications/cancelled",
+                {
+                    "requestId": cancel_id,
+                    "reason": "concurrency regression no longer needs the result",
+                },
+            )
+            cancel_deadline = time.monotonic() + timeout
+            cancelled_count = 0
+            while time.monotonic() < cancel_deadline:
+                stats = client.call_tool("beam_stats")
+                lean_stats = stats.get("byBackend", {}).get("lean", {})
+                cancelled_count = lean_stats.get("cancelledCount", 0)
+                if isinstance(cancelled_count, int) and cancelled_count >= 1:
+                    break
+                time.sleep(0.02)
+            require(
+                isinstance(cancelled_count, int) and cancelled_count >= 1,
+                f"broker did not record cancelled MCP runAt: {stats}",
+            )
+            client.forget_request(cancel_id)
+            expect_result(client.request("ping", request_id="after-cancellation"))
+
+            burst = []
+            for index in range(6):
+                token = f"concurrent-progress-{index}"
+                params = {
+                    "name": "lean_run_at",
+                    "arguments": dict(fast_params["arguments"]),
+                    "_meta": {"progressToken": token},
+                }
+                request_id = f"burst-{index}"
+                client.send_request("tools/call", params, request_id=request_id)
+                burst.append((request_id, token))
+            for request_id, token in reversed(burst):
+                response = client.read_response(request_id)
+                result = expect_result(response)
+                require(result.get("isError") is not True, f"burst runAt failed: {result}")
+                structured = result.get("structuredContent")
+                require(isinstance(structured, dict), f"burst runAt missing structured content: {result}")
+                require_success(f"burst runAt {request_id}", structured)
+                require_progress_sequence(
+                    client.progress_notifications(token),
+                    token,
+                    f"burst progress {request_id}",
+                )
+            expect_result(client.request("ping", request_id="after-burst"))
+
+            started_path.unlink()
+            shutdown_id = "shutdown-inflight"
+            client.send_request("tools/call", slow_params, request_id=shutdown_id)
+            wait_for_file(started_path, timeout, "shutdown runAt gate sentinel")
+            client.shutdown()
+            client.forget_request(shutdown_id)
+        finally:
+            if not release_path.exists():
+                release_path.write_text("release\n", encoding="utf-8")
+            client.close()
+
+
+def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=False):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-first-use-") as tmp:
+        project_root = Path(tmp) / "project"
+        shutil.copytree(fixture_root, project_root)
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            use_root_arg=False,
+            advertise_roots=True,
+            label="concurrent-first-use",
+            server_trace=server_trace,
+        )
+        try:
+            client.initialize()
+            requests = [
+                (
+                    "first-use-position",
+                    {
+                        "name": "lean_update",
+                        "arguments": {"path": "PositionEmptyLine.lean"},
+                    },
+                ),
+                (
+                    "first-use-command",
+                    {
+                        "name": "lean_update",
+                        "arguments": {"path": "CommandA.lean"},
+                    },
+                ),
+            ]
+            for request_id, params in requests:
+                client.send_request("tools/call", params, request_id=request_id)
+            for request_id, _params in reversed(requests):
+                response = client.read_response(request_id)
+                result = expect_result(response)
+                require(result.get("isError") is not True, f"concurrent first-use update failed: {result}")
+                structured = result.get("structuredContent")
+                require(isinstance(structured, dict), f"concurrent first-use update missing content: {result}")
+                require(
+                    isinstance(structured.get("version"), int),
+                    f"concurrent first-use update missing version: {structured}",
+                )
+            require_roots_requests(client, 1, "concurrent first use")
+            stats = client.call_tool("beam_stats")
+            lean_stats = stats.get("byBackend", {}).get("lean", {})
+            require(
+                lean_stats.get("sessionStarts") == 1,
+                f"concurrent first use should start one Lean session: {stats}",
+            )
+        finally:
+            client.close()
+
+
+def run_root_discovery_reset_overlap(repo_root, fixture_root, timeout, server_trace=False):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-root-reset-overlap-") as tmp:
+        tmp_root = Path(tmp)
+        project_root = tmp_root / "project"
+        other_root = tmp_root / "other-project"
+        shutil.copytree(fixture_root, project_root)
+        shutil.copytree(fixture_root, other_root)
+        roots_response_gate = threading.Event()
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            use_root_arg=False,
+            advertise_roots=True,
+            roots_response="gated",
+            label="root-discovery-reset-overlap",
+            server_trace=server_trace,
+            roots_response_gate=roots_response_gate,
+        )
+        try:
+            client.initialize()
+            first_id = client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_update",
+                    "arguments": {"path": "PositionEmptyLine.lean"},
+                },
+                request_id="root-discovery-before-reset",
+            )
+            wait_until(
+                lambda: client.roots_request_count == 1,
+                timeout,
+                "gated roots/list request",
+            )
+            reset_id = client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_init_workspace",
+                    "arguments": {"root": str(other_root), "mode": "reset"},
+                },
+                request_id="reset-during-root-discovery",
+            )
+            roots_response_gate.set()
+            reset_response = client.read_response(reset_id)
+            reset_result = expect_result(reset_response)
+            require(reset_result.get("isError") is not True, f"root-discovery reset failed: {reset_result}")
+            reset_structured = reset_result.get("structuredContent")
+            require(isinstance(reset_structured, dict), f"root-discovery reset missing content: {reset_result}")
+            require(
+                Path(reset_structured.get("active_root")).resolve() == other_root.resolve(),
+                f"root-discovery reset activated the wrong root: {reset_structured}",
+            )
+            first_result = expect_result(client.read_response(first_id))
+            first_structured = first_result.get("structuredContent")
+            require(
+                isinstance(first_structured, dict),
+                f"pre-reset first-use request should have structured content: {first_result}",
+            )
+            if first_result.get("isError") is True:
+                require(
+                    isinstance(first_structured.get("code"), str),
+                    f"pre-reset first-use failure should remain structured: {first_result}",
+                )
+            else:
+                require(
+                    Path(first_structured.get("active_root")).resolve() == project_root.resolve(),
+                    f"pre-reset first-use success used the wrong root: {first_structured}",
+                )
+            update_after = client.call_tool("lean_update", {"path": "PositionEmptyLine.lean"})
+            require(
+                Path(update_after.get("active_root")).resolve() == other_root.resolve(),
+                f"request after root-discovery reset used the wrong root: {update_after}",
+            )
+            require_roots_requests(client, 1, "root discovery overlapping reset")
+        finally:
+            roots_response_gate.set()
+            client.close()
+
+
+def run_concurrent_reset(repo_root, fixture_root, timeout, server_trace=False):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-reset-") as tmp:
+        tmp_root = Path(tmp)
+        project_root = tmp_root / "project"
+        other_root = tmp_root / "other-project"
+        started_path = tmp_root / "gate-started"
+        release_path = tmp_root / "gate-release"
+        shutil.copytree(fixture_root, project_root)
+        shutil.copytree(fixture_root, other_root)
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            label="concurrent-reset",
+            server_trace=server_trace,
+            extra_env={
+                "BEAM_MCP_GATE_STARTED": started_path,
+                "BEAM_MCP_GATE_RELEASE": release_path,
+            },
+        )
+        try:
+            client.initialize()
+            update = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
+            version = update.get("version")
+            require(isinstance(version, int), f"concurrent reset update missing version: {update}")
+            source_lines = (project_root / "McpConcurrency.lean").read_text(encoding="utf-8").splitlines()
+            line = source_lines.index("  trivial")
+            slow_id = "reset-old-generation"
+            client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_run_at",
+                    "arguments": {
+                        "path": "McpConcurrency.lean",
+                        "version": version,
+                        "line": line,
+                        "character": 2,
+                        "text": "mcp_concurrency_gate",
+                    },
+                },
+                request_id=slow_id,
+            )
+            wait_for_file(started_path, timeout, "reset old-generation runAt gate sentinel")
+            reset_id = client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_init_workspace",
+                    "arguments": {"root": str(other_root), "mode": "reset"},
+                },
+                request_id="reset-workspace",
+            )
+            reset_response = client.read_response(reset_id)
+            reset_result = expect_result(reset_response)
+            require(reset_result.get("isError") is not True, f"concurrent reset failed: {reset_result}")
+            reset_structured = reset_result.get("structuredContent")
+            require(isinstance(reset_structured, dict), f"concurrent reset missing content: {reset_result}")
+            require(
+                Path(reset_structured.get("active_root")).resolve() == other_root.resolve(),
+                f"concurrent reset activated the wrong root: {reset_structured}",
+            )
+            slow_response = client.read_response(slow_id)
+            slow_result = expect_result(slow_response)
+            require(
+                slow_result.get("isError") is True,
+                f"old-generation runAt should fail when reset shuts its runtime down: {slow_result}",
+            )
+            slow_error = slow_result.get("structuredContent")
+            require(
+                isinstance(slow_error, dict) and isinstance(slow_error.get("code"), str),
+                f"old-generation reset failure should remain structured: {slow_result}",
+            )
+            require(
+                not release_path.exists(),
+                "old-generation runAt required its release sentinel instead of being stopped by reset",
+            )
+            update_after = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
+            require(
+                Path(update_after.get("active_root")).resolve() == other_root.resolve(),
+                f"post-reset request used the wrong root: {update_after}",
+            )
+        finally:
+            if not release_path.exists():
+                release_path.write_text("release\n", encoding="utf-8")
+            client.close()
 
 
 def run_parallel_progress_smoke_repro(
@@ -1513,7 +1963,7 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
             "roots_response": "unrelated_then_normal",
             "expected_roots_requests": 1,
             "expect_success": True,
-            "extra_error_id": "during-roots",
+            "extra_result_id": "during-roots",
         },
     ]
     for case in cases:
@@ -1574,8 +2024,8 @@ def run_root_setup_matrix(repo_root, fixture_root, timeout):
                 else:
                     expect_error_message_contains(response, -32600, case["error_needle"])
                 require_roots_requests(client, case["expected_roots_requests"], case["name"])
-                if "extra_error_id" in case:
-                    expect_extra_error_code(client, case["extra_error_id"], -32600, case["name"])
+                if "extra_result_id" in case:
+                    expect_extra_result(client, case["extra_result_id"], case["name"])
             finally:
                 client.close()
 
@@ -1791,7 +2241,7 @@ def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
 
 def initialize_params(capabilities=None):
     return {
-        "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
+        "protocolVersion": MCP_PROTOCOL_VERSION,
         "capabilities": capabilities if capabilities is not None else {},
         "clientInfo": {"name": "lean-beam-mcp-lifecycle-test", "version": "0"},
     }
@@ -1966,7 +2416,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument(
         "--scenario",
-        choices=["full", PARALLEL_PROGRESS_SMOKE_SCENARIO] + sorted(FOCUSED_SYNC_SCENARIOS),
+        choices=["full", CONCURRENT_DISPATCH_SCENARIO, PARALLEL_PROGRESS_SMOKE_SCENARIO]
+        + sorted(FOCUSED_SYNC_SCENARIOS),
         default="full",
         help="run the full smoke suite or a focused repro scenario",
     )
@@ -2019,6 +2470,32 @@ def main():
             args.server_trace,
         )
         return
+    if args.scenario == CONCURRENT_DISPATCH_SCENARIO:
+        run_concurrent_dispatch(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            server_trace=args.server_trace,
+        )
+        run_concurrent_first_use(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            server_trace=args.server_trace,
+        )
+        run_root_discovery_reset_overlap(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            server_trace=args.server_trace,
+        )
+        run_concurrent_reset(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            server_trace=args.server_trace,
+        )
+        return
     for cycle in range(args.restart_cycles):
         run_cycle(repo_root, fixture_root, cycle, args.iterations, args.timeout)
         run_cycle(
@@ -2034,6 +2511,15 @@ def main():
     run_relative_root_arg(repo_root, fixture_root, args.timeout)
     run_diagnostic_logging(repo_root, fixture_root, args.timeout)
     run_progress_notification_smoke(repo_root, fixture_root, args.timeout)
+    run_concurrent_dispatch(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
+    run_concurrent_first_use(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
+    run_root_discovery_reset_overlap(
+        repo_root,
+        fixture_root,
+        args.timeout,
+        server_trace=args.server_trace,
+    )
+    run_concurrent_reset(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
     run_root_setup_matrix(repo_root, fixture_root, args.timeout)
     run_init_workspace_mode_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)

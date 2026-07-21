@@ -52,23 +52,58 @@ def internalError (message : String) : RpcError :=
 
 end RpcError
 
-def validRequestId : Json → Bool
-  | .str _ => true
-  | .num _ => true
-  | _ => false
+inductive RequestId where
+  | string (value : String)
+  | number (value : JsonNumber)
+  deriving BEq, Repr
 
-def requestIdLabel : Json → String
-  | .str s => s
-  | id => id.compress
+namespace RequestId
+
+def fromJson? : Json → Except String RequestId
+  | .str value => pure <| .string value
+  | .num value => pure <| .number value
+  | _ => throw "request id must be a string or number"
+
+def json : RequestId → Json
+  | .string value => .str value
+  | .number value => .num value
+
+instance : Coe RequestId Json where
+  coe := json
+
+def label : RequestId → String
+  | .string value => value
+  | id => id.json.compress
+
+def compare : RequestId → RequestId → Ordering
+  | .string left, .string right => Ord.compare left right
+  | .string _, .number _ => .lt
+  | .number _, .string _ => .gt
+  | .number left, .number right =>
+      (Ord.compare left.mantissa right.mantissa).then <| Ord.compare left.exponent right.exponent
+
+instance : Ord RequestId where
+  compare := compare
+
+end RequestId
 
 structure Request where
-  id : Json
+  id : RequestId
   method : String
   params? : Option Json := none
 
 structure Notification where
   method : String
   params? : Option Json := none
+
+structure IncomingResponse where
+  id : RequestId
+  result? : Option Json := none
+  error? : Option Json := none
+
+structure CancelledParams where
+  requestId : RequestId
+  reason? : Option String := none
 
 structure ClientRoot where
   uri : String
@@ -92,21 +127,32 @@ instance : FromJson ListRootsResult where
 inductive Incoming where
   | request (request : Request)
   | notification (notification : Notification)
+  | response (response : IncomingResponse)
 
 def Incoming.fromJson? (json : Json) : Except String Incoming := do
   let version ← json.getObjValAs? String "jsonrpc"
   if version != "2.0" then
     throw "expected jsonrpc=\"2.0\""
-  let method ← json.getObjValAs? String "method"
-  let params? ← optionalField? (α := Json) json "params"
-  match json.getObjVal? "id" with
-  | .ok id =>
-      if validRequestId id then
-        pure <| .request { id, method, params? }
-      else
-        throw "request id must be a string or number"
+  match json.getObjVal? "method" with
+  | .ok _ =>
+      let method ← json.getObjValAs? String "method"
+      let params? ← optionalField? (α := Json) json "params"
+      match json.getObjVal? "id" with
+      | .ok id =>
+          pure <| .request { id := ← RequestId.fromJson? id, method, params? }
+      | .error _ =>
+          pure <| .notification { method, params? }
   | .error _ =>
-      pure <| .notification { method, params? }
+      let id ← RequestId.fromJson? (← json.getObjVal? "id")
+      let result? ← optionalField? (α := Json) json "result"
+      let error? ← optionalField? (α := Json) json "error"
+      match result?, error? with
+      | some _, none | none, some _ =>
+          pure <| .response { id, result?, error? }
+      | none, none =>
+          throw "JSON-RPC response must contain exactly one of result or error"
+      | some _, some _ =>
+          throw "JSON-RPC response must not contain both result and error"
 
 def clientSupportsRoots (params? : Option Json) : Bool :=
   match params? with
@@ -132,6 +178,15 @@ def rootsListRequest : Json :=
 def requireObject (label : String) : Json → Except String Json
   | obj@(.obj _) => pure obj
   | other => throw s!"{label} must be an object, got {other.compress}"
+
+def parseCancelledParams (params? : Option Json) : Except String CancelledParams := do
+  let params ←
+    match params? with
+    | some params => requireObject "notifications/cancelled params" params
+    | none => throw "notifications/cancelled params are required"
+  let requestId ← RequestId.fromJson? (← params.getObjVal? "requestId")
+  let reason? ← optionalField? (α := String) params "reason"
+  pure { requestId, reason? }
 
 inductive LogLevel where
   | debug
@@ -207,21 +262,6 @@ def logMessageNotification (level : LogLevel) (logger : String) (data : Json) : 
     ("logger", toJson logger),
     ("data", data)
   ]
-
-def parseRootsListResponse (json : Json) : Except String ListRootsResult := do
-  let version ← json.getObjValAs? String "jsonrpc"
-  if version != "2.0" then
-    throw "expected jsonrpc=\"2.0\""
-  let id ← json.getObjValAs? String "id"
-  if id != rootsListRequestId then
-    throw s!"expected roots/list response id {rootsListRequestId}, got {id}"
-  match json.getObjVal? "error" with
-  | .ok err =>
-      throw s!"roots/list failed: {err.compress}"
-  | .error _ =>
-      pure ()
-  let result ← json.getObjVal? "result"
-  fromJson? result
 
 def successResponse (id : Json) (result : Json) : Json :=
   Json.mkObj [

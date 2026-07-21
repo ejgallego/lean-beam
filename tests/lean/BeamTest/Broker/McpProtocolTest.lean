@@ -47,6 +47,8 @@ private def checkIncoming : IO Unit := do
       require "decoded request method" (req.method == "tools/list")
   | .notification _ =>
       throw <| IO.userError "request decoded as notification"
+  | .response _ =>
+      throw <| IO.userError "request decoded as response"
 
   let notificationJson := Json.mkObj [
     ("jsonrpc", toJson "2.0"),
@@ -57,6 +59,8 @@ private def checkIncoming : IO Unit := do
       require "decoded notification method" (notification.method == "notifications/initialized")
   | .request _ =>
       throw <| IO.userError "notification decoded as request"
+  | .response _ =>
+      throw <| IO.userError "notification decoded as response"
 
   match Beam.Mcp.Incoming.fromJson? <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
@@ -67,6 +71,55 @@ private def checkIncoming : IO Unit := do
       throw <| IO.userError "null request id decoded successfully"
   | .error _ =>
       pure ()
+
+  let responseJson := Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("id", toJson "server-request"),
+    ("result", Json.mkObj [("ok", toJson true)])
+  ]
+  match ← expectOk "decode response" <| Beam.Mcp.Incoming.fromJson? responseJson with
+  | .response response =>
+      require "decoded response id" (response.id == .string "server-request")
+      require "decoded response should have result" response.result?.isSome
+      require "decoded response should not have error" response.error?.isNone
+  | .request _ | .notification _ =>
+      throw <| IO.userError "response decoded as request or notification"
+
+  let stringId ← expectOk "decode string request id" <|
+    Beam.Mcp.RequestId.fromJson? (toJson "1")
+  let numberId ← expectOk "decode numeric request id" <|
+    Beam.Mcp.RequestId.fromJson? (toJson (1 : Nat))
+  require "string and numeric request ids are distinct" (stringId != numberId)
+  let keyed :=
+    ({} : Std.TreeMap Beam.Mcp.RequestId String)
+      |>.insert stringId "string"
+      |>.insert numberId "number"
+  require "request id map preserves string key" (keyed.get? stringId == some "string")
+  require "request id map preserves numeric key" (keyed.get? numberId == some "number")
+
+  let cancelled ← expectOk "decode cancellation params" <|
+    Beam.Mcp.parseCancelledParams <| some <| Json.mkObj [
+      ("requestId", toJson "slow-request"),
+      ("reason", toJson "client no longer needs the result")
+    ]
+  require "cancellation request id" (cancelled.requestId == .string "slow-request")
+  require "cancellation reason" (cancelled.reason? == some "client no longer needs the result")
+
+  for invalidResponse in #[
+      Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "invalid-response")
+      ],
+      Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "invalid-response"),
+        ("result", Json.mkObj []),
+        ("error", Json.mkObj [])
+      ]
+    ] do
+    match Beam.Mcp.Incoming.fromJson? invalidResponse with
+    | .ok _ => throw <| IO.userError s!"invalid response decoded: {invalidResponse.compress}"
+    | .error _ => pure ()
 
 private def requireJsonArray (label : String) : Json → IO (Array Json)
   | Json.arr values => pure values
@@ -211,7 +264,9 @@ private def checkRootsProtocol : IO Unit := do
   require "roots client capability should be detected"
     (Beam.Mcp.clientSupportsRoots (some initWithRoots))
 
-  let rootUri := (System.Uri.pathToUri (System.FilePath.mk "/tmp/lean-beam-mcp-root") : String)
+  let projectRoot ← IO.currentDir
+  let resolvedProjectRoot ← IO.FS.realPath projectRoot
+  let rootUri := (System.Uri.pathToUri resolvedProjectRoot : String)
   let rootsResponse (id : String) (result : Json) : Json := Json.mkObj [
     ("jsonrpc", toJson "2.0"),
     ("id", toJson id),
@@ -228,6 +283,15 @@ private def checkRootsProtocol : IO Unit := do
       ("message", toJson "client roots failure")
     ])
   ]
+  let decodeRootsResponse (json : Json) : IO (Except String System.FilePath) := do
+    match Beam.Mcp.Incoming.fromJson? json with
+    | .ok (.response response) =>
+        if response.id == .string Beam.Mcp.rootsListRequestId then
+          Beam.Mcp.Roots.selectClientRootResponse response
+        else
+          pure <| .error s!"unexpected roots/list response id {response.id.label}"
+    | .ok _ => pure <| .error "roots/list reply decoded as a request or notification"
+    | .error err => pure <| .error err
   let cases : Array (String × Json × Bool) := #[
     (
       "single root",
@@ -239,7 +303,7 @@ private def checkRootsProtocol : IO Unit := do
       ],
       true
     ),
-    ("empty roots", rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[], true),
+    ("empty roots", rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[], false),
     ("missing roots field", rootsResponse Beam.Mcp.rootsListRequestId <| Json.mkObj [], false),
     (
       "non-string root uri",
@@ -254,18 +318,15 @@ private def checkRootsProtocol : IO Unit := do
     ("JSON-RPC roots error", rpcErrorResponse, false)
   ]
   for (label, response, shouldDecode) in cases do
-    match Beam.Mcp.parseRootsListResponse response, shouldDecode with
-    | .ok roots, true =>
+    match ← decodeRootsResponse response with
+    | .ok root =>
+        unless shouldDecode do
+          throw <| IO.userError s!"{label}: roots/list response decoded unexpectedly"
         if label == "single root" then
-          require "roots/list should decode one root" (roots.roots.size == 1)
-          require "roots/list should preserve root uri" (roots.roots[0]!.uri == rootUri)
-          require "roots/list should preserve root name" (roots.roots[0]!.name? == some "fixture")
-    | .error _, false =>
-        pure ()
-    | .ok _, false =>
-        throw <| IO.userError s!"{label}: roots/list response decoded unexpectedly"
-    | .error err, true =>
-        throw <| IO.userError s!"{label}: roots/list response failed to decode: {err}"
+          require "roots/list should resolve the selected project root" (root == resolvedProjectRoot)
+    | .error err =>
+        if shouldDecode then
+          throw <| IO.userError s!"{label}: roots/list response failed to decode: {err}"
 
   let clientRoot (uri : String) (name? : Option String := none) : Beam.Mcp.ClientRoot := {
     uri
@@ -273,8 +334,7 @@ private def checkRootsProtocol : IO Unit := do
   }
   match Beam.Mcp.Roots.selectClientRoot #[clientRoot rootUri (some "fixture")] with
   | .ok root =>
-      require "single client root should select /tmp root"
-        (root.toString == (System.FilePath.mk "/tmp/lean-beam-mcp-root").toString)
+      require "single client root should select the project root" (root == resolvedProjectRoot)
   | .error err =>
       throw <| IO.userError s!"single client root was rejected: {err}"
   let selectCases : Array (String × Array Beam.Mcp.ClientRoot) := #[
@@ -472,25 +532,23 @@ private def checkProgressProtocol : IO Unit := do
 private def handleRpcRequest
     (state : IO.Ref Beam.Mcp.Server.ProtocolState)
     (opts : Beam.Mcp.Server.Options)
-    (stdin : IO.FS.Stream)
     (label : String)
     (id : Nat)
     (method : String)
     (params? : Option Json := none) : IO Json := do
   expectResponse label =<<
-    Beam.Mcp.Server.handleJson state opts stdin (rpcRequest id method params?)
+    Beam.Mcp.Server.handleJson state opts (rpcRequest id method params?)
 
 private def handleRpcRequestWithNotifications
     (state : IO.Ref Beam.Mcp.Server.ProtocolState)
     (opts : Beam.Mcp.Server.Options)
-    (stdin : IO.FS.Stream)
     (notifications : Beam.Mcp.Server.NotificationSink)
     (label : String)
     (id : Nat)
     (method : String)
     (params? : Option Json := none) : IO Json := do
   expectResponse label =<<
-    Beam.Mcp.Server.handleJson state opts stdin (rpcRequest id method params?) notifications
+    Beam.Mcp.Server.handleJson state opts (rpcRequest id method params?) notifications
 
 private def expectRpcErrorCode (label : String) (expected : Int) (resp : Json) : IO Json := do
   let err ← requireObjVal label "error" resp
@@ -507,13 +565,12 @@ private def expectToolErrorCode (label expectedCode : String) (resp : Json) : IO
 private def checkServerBasics : IO Unit := do
   let root ← IO.currentDir
   let state ← Beam.Mcp.Server.ProtocolState.create (some root)
-  let stdin ← IO.getStdin
   let opts : Beam.Mcp.Server.Options := {}
 
-  let preInitResp ← handleRpcRequest state opts stdin "pre-initialize tools/list rejection" 0 "tools/list"
+  let preInitResp ← handleRpcRequest state opts "pre-initialize tools/list rejection" 0 "tools/list"
   discard <| expectRpcErrorCode "pre-initialize tools/list response" (-32600) preInitResp
 
-  let initResp ← handleRpcRequest state opts stdin "initialize" 1 "initialize" <| some <|
+  let initResp ← handleRpcRequest state opts "initialize" 1 "initialize" <| some <|
     Json.mkObj [
         ("protocolVersion", toJson Beam.Mcp.protocolVersion),
         ("capabilities", Json.mkObj [])
@@ -528,24 +585,24 @@ private def checkServerBasics : IO Unit := do
   let toolsCapability ← requireObjVal "initialize capabilities" "tools" capabilities
   requireJsonBool "initialize tools capability" "listChanged" false toolsCapability
 
-  let setLogLevelResp ← handleRpcRequest state opts stdin "set log level" 12 "logging/setLevel" <| some <|
+  let setLogLevelResp ← handleRpcRequest state opts "set log level" 12 "logging/setLevel" <| some <|
     Json.mkObj [
       ("level", toJson "warning")
     ]
   discard <| requireObjVal "set log level response" "result" setLogLevelResp
   require "set log level should update protocol state" ((← state.get).logLevel == .warning)
 
-  let badLogLevelResp ← handleRpcRequest state opts stdin "bad log level" 13 "logging/setLevel" <| some <|
+  let badLogLevelResp ← handleRpcRequest state opts "bad log level" 13 "logging/setLevel" <| some <|
     Json.mkObj [
       ("level", toJson "verbose")
     ]
   discard <| expectRpcErrorCode "bad log level response" (-32602) badLogLevelResp
 
-  let preReadyResp ← handleRpcRequest state opts stdin "pre-ready tools/list rejection" 11 "tools/list"
+  let preReadyResp ← handleRpcRequest state opts "pre-ready tools/list rejection" 11 "tools/list"
   discard <| expectRpcErrorCode "pre-ready tools/list response" (-32600) preReadyResp
 
   let initializedResp ←
-    Beam.Mcp.Server.handleJson state opts stdin (rpcNotification "notifications/initialized")
+    Beam.Mcp.Server.handleJson state opts (rpcNotification "notifications/initialized")
   match initializedResp with
   | (none, false) => pure ()
   | (some json, stop) =>
@@ -553,11 +610,11 @@ private def checkServerBasics : IO Unit := do
   | (none, true) =>
       throw <| IO.userError "initialized notification should not stop the server"
 
-  let listResp ← handleRpcRequest state opts stdin "tools/list" 2 "tools/list"
+  let listResp ← handleRpcRequest state opts "tools/list" 2 "tools/list"
   let listResult ← requireObjVal "tools/list response" "result" listResp
   discard <| requireObjVal "tools/list response" "tools" listResult
 
-  let versionResp ← handleRpcRequest state opts stdin "beam version" 21 "tools/call" <|
+  let versionResp ← handleRpcRequest state opts "beam version" 21 "tools/call" <|
     some <| toolCallParams "beam_version"
   let versionResult ← requireObjVal "beam version response" "result" versionResp
   requireJsonBool "beam version result" "isError" false versionResult
@@ -567,7 +624,7 @@ private def checkServerBasics : IO Unit := do
   requireJsonString "beam version structured" "mcp_protocol" Beam.Mcp.protocolVersion versionStructured
   requireJsonBool "beam version structured" "runtime_active" false versionStructured
 
-  let feedbackResp ← handleRpcRequest state opts stdin "beam feedback" 22 "tools/call" <|
+  let feedbackResp ← handleRpcRequest state opts "beam feedback" 22 "tools/call" <|
     some <| toolCallParams "beam_feedback" <|
       Json.mkObj [
         ("title", toJson "MCP feedback fixture"),
@@ -594,7 +651,7 @@ private def checkServerBasics : IO Unit := do
   requireFieldAbsent "beam feedback compact structured" "collected" feedbackStructured
   requireFieldPresent "beam feedback compact structured" "collection_warnings" feedbackStructured
 
-  let feedbackFullResp ← handleRpcRequest state opts stdin "beam feedback include_collected" 23 "tools/call" <|
+  let feedbackFullResp ← handleRpcRequest state opts "beam feedback include_collected" 23 "tools/call" <|
     some <| toolCallParams "beam_feedback" <|
       Json.mkObj [
         ("title", toJson "MCP feedback fixture full"),
@@ -616,15 +673,15 @@ private def checkServerBasics : IO Unit := do
   discard <| requireObjVal "beam feedback collected" "identity" feedbackCollected
   discard <| requireObjVal "beam feedback collected" "daemon" feedbackCollected
 
-  let rawToolResp ← handleRpcRequest state opts stdin "raw tool rejection" 3 "tools/call" <|
+  let rawToolResp ← handleRpcRequest state opts "raw tool rejection" 3 "tools/call" <|
     some <| toolCallParams Beam.LSP.RunAt.method
   discard <| expectRpcErrorCode "raw tool response" (-32602) rawToolResp
 
-  let badInitResp ← handleRpcRequest state opts stdin "bad init workspace input" 31 "tools/call" <|
+  let badInitResp ← handleRpcRequest state opts "bad init workspace input" 31 "tools/call" <|
     some <| toolCallParams "lean_init_workspace"
   discard <| expectToolErrorCode "bad init workspace" "invalidInput" badInitResp
 
-  let relativeInitResp ← handleRpcRequest state opts stdin "relative init workspace input" 32 "tools/call" <|
+  let relativeInitResp ← handleRpcRequest state opts "relative init workspace input" 32 "tools/call" <|
     some <| toolCallParams "lean_init_workspace" <|
       Json.mkObj [
           ("root", toJson "relative/project")
@@ -633,7 +690,7 @@ private def checkServerBasics : IO Unit := do
   let relativeMessage ← IO.ofExcept <| relativeInitStructured.getObjValAs? String "message"
   require "relative init workspace error should require absolute path" (relativeMessage.contains "absolute")
 
-  let badArgsResp ← handleRpcRequest state opts stdin "bad args rejection" 4 "tools/call" <|
+  let badArgsResp ← handleRpcRequest state opts "bad args rejection" 4 "tools/call" <|
     some <| toolCallParams "lean_run_at" <|
       Json.mkObj [
           ("path", toJson "Demo.lean"),
@@ -724,15 +781,14 @@ private def mcpOptionsWithPlugin : IO Beam.Mcp.Server.Options := do
 private def initMcpSession
     (state : IO.Ref Beam.Mcp.Server.ProtocolState)
     (opts : Beam.Mcp.Server.Options)
-    (stdin : IO.FS.Stream)
     (notifications : Beam.Mcp.Server.NotificationSink) : IO Unit := do
-  let _ ← handleRpcRequestWithNotifications state opts stdin notifications "initialize" 1 "initialize" <| some <|
+  let _ ← handleRpcRequestWithNotifications state opts notifications "initialize" 1 "initialize" <| some <|
     Json.mkObj [
       ("protocolVersion", toJson Beam.Mcp.protocolVersion),
       ("capabilities", Json.mkObj [])
     ]
   let initializedResp ←
-    Beam.Mcp.Server.handleJson state opts stdin (rpcNotification "notifications/initialized") notifications
+    Beam.Mcp.Server.handleJson state opts (rpcNotification "notifications/initialized") notifications
   match initializedResp with
   | (none, false) => pure ()
   | (some json, stop) =>
@@ -743,7 +799,6 @@ private def initMcpSession
 private def callLeanSync
     (state : IO.Ref Beam.Mcp.Server.ProtocolState)
     (opts : Beam.Mcp.Server.Options)
-    (stdin : IO.FS.Stream)
     (notifications : Beam.Mcp.Server.NotificationSink)
     (id : Nat)
     (path : String)
@@ -758,7 +813,7 @@ private def callLeanSync
       [("include_diagnostics", toJson true)]
     else
       []
-  handleRpcRequestWithNotifications state opts stdin notifications s!"lean_sync {path}" id "tools/call" <|
+  handleRpcRequestWithNotifications state opts notifications s!"lean_sync {path}" id "tools/call" <|
     some <| toolCallParams "lean_sync" arguments
 
 private def shutdownMcpRuntime (state : IO.Ref Beam.Mcp.Server.ProtocolState) : IO Unit := do
@@ -774,17 +829,16 @@ private def checkDiagnosticLogForwarding : IO Unit := do
   try
     copySaveProjectFixture root
     let expectedRoot ← Beam.resolveExistingPath root
-    let stdin ← IO.getStdin
     let opts ← mcpOptionsWithPlugin
     let notificationsRef ← IO.mkRef #[]
     let notifications : Beam.Mcp.Server.NotificationSink := {
       send := fun notification =>
         notificationsRef.modify fun seen => seen.push notification
     }
-    initMcpSession state opts stdin notifications
+    initMcpSession state opts notifications
 
     writeSaveWarningFile root "-- mcp diagnostic log default"
-    let defaultSyncResp ← callLeanSync state opts stdin notifications 2 "SaveSmoke/B.lean"
+    let defaultSyncResp ← callLeanSync state opts notifications 2 "SaveSmoke/B.lean"
       (fullDiagnostics := false)
       (includeDiagnostics := true)
     let defaultSyncResult ← requireObjVal "default lean_sync response" "result" defaultSyncResp
@@ -802,7 +856,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
     notificationsRef.set #[]
     writeSaveWarningFile root "-- mcp diagnostic log full"
-    let syncResp ← callLeanSync state opts stdin notifications 3 "SaveSmoke/B.lean"
+    let syncResp ← callLeanSync state opts notifications 3 "SaveSmoke/B.lean"
       (fullDiagnostics := true)
       (includeDiagnostics := true)
     let syncResult ← requireObjVal "lean_sync response" "result" syncResp
@@ -828,20 +882,20 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let message ← IO.ofExcept <| data.getObjValAs? String "message"
     require "warning log should preserve diagnostic message" (!message.isEmpty)
 
-    let _ ← handleRpcRequestWithNotifications state opts stdin notifications "set error log level" 4
+    let _ ← handleRpcRequestWithNotifications state opts notifications "set error log level" 4
       "logging/setLevel" <| some <| Json.mkObj [
         ("level", toJson "error")
       ]
     notificationsRef.set #[]
     writeSaveWarningFile root "-- mcp warning suppressed"
-    let suppressedResp ← callLeanSync state opts stdin notifications 5 "SaveSmoke/B.lean"
+    let suppressedResp ← callLeanSync state opts notifications 5 "SaveSmoke/B.lean"
     let suppressedResult ← requireObjVal "suppressed lean_sync response" "result" suppressedResp
     requireJsonBool "suppressed lean_sync result" "isError" false suppressedResult
     let suppressedStructured ← requireObjVal "suppressed lean_sync result" "structuredContent" suppressedResult
     requireFieldAbsent "suppressed lean_sync result" "diagnostics" suppressedStructured
     expectNoDiagnosticLogs "warning-only after error log level" (← notificationsRef.get)
 
-    let statsResp ← handleRpcRequestWithNotifications state opts stdin notifications "beam stats" 40
+    let statsResp ← handleRpcRequestWithNotifications state opts notifications "beam stats" 40
       "tools/call" <| some <| toolCallParams "beam_stats"
     let statsResult ← requireObjVal "beam stats response" "result" statsResp
     requireJsonBool "beam stats result" "isError" false statsResult
@@ -856,7 +910,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let syncCount ← IO.ofExcept <| syncStats.getObjValAs? Nat "count"
     require "beam stats should include prior sync_file calls" (syncCount >= 1)
 
-    let refreshResp ← handleRpcRequestWithNotifications state opts stdin notifications "lean refresh" 41
+    let refreshResp ← handleRpcRequestWithNotifications state opts notifications "lean refresh" 41
       "tools/call" <| some <| toolCallParams "lean_refresh" <|
         Json.mkObj [
           ("path", toJson "SaveSmoke/B.lean"),
@@ -870,7 +924,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     discard <| requireObjVal "lean_refresh structured result" "diagnostics" refreshStructured
     requireJsonString "lean_refresh structured result" "active_root" expectedRoot.toString refreshStructured
 
-    let closeSaveResp ← handleRpcRequestWithNotifications state opts stdin notifications "lean close-save" 42
+    let closeSaveResp ← handleRpcRequestWithNotifications state opts notifications "lean close-save" 42
       "tools/call" <| some <| toolCallParams "lean_close_save" <|
         Json.mkObj [
           ("path", toJson "SaveSmoke/B.lean")
@@ -886,7 +940,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
     notificationsRef.set #[]
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
-    let errorResp ← callLeanSync state opts stdin notifications 6 "SaveSmoke/B.lean"
+    let errorResp ← callLeanSync state opts notifications 6 "SaveSmoke/B.lean"
     let errorResult ← requireObjVal "error lean_sync response" "result" errorResp
     requireJsonBool "error lean_sync result" "isError" false errorResult
     let errorLog ← requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"

@@ -13,8 +13,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-
-PROTOCOL_VERSION = "2025-11-25"
+from mcp_test_util import MCP_PROTOCOL_VERSION
 
 
 class BridgeError(Exception):
@@ -214,7 +213,7 @@ class McpBridgeHandler(BaseHTTPRequestHandler):
 
     def _check_protocol_version_header(self):
         version = self.headers.get("MCP-Protocol-Version")
-        if version is not None and version != PROTOCOL_VERSION:
+        if version is not None and version != MCP_PROTOCOL_VERSION:
             self._send_empty(HTTPStatus.BAD_REQUEST)
             return False
         return True
