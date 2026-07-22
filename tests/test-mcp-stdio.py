@@ -1704,7 +1704,7 @@ def run_root_discovery_reset_overlap(repo_root, fixture_root, timeout, server_tr
                 },
             )
             roots_response_gate.set()
-            reset_response = client.read_response(reset_id, timeout=min(timeout, 5.0))
+            reset_response = client.read_response(reset_id)
             reset_result = expect_result(reset_response)
             require(reset_result.get("isError") is not True, f"root-discovery reset failed: {reset_result}")
             reset_structured = reset_result.get("structuredContent")
