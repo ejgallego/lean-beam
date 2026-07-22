@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Mcp.Server
+import Beam.Mcp.Stdio
 import BeamTest.Broker.JsonAssert
 import BeamTest.Broker.TestUtil
 import BeamTest.TestHarness
