@@ -171,6 +171,20 @@ That scenario repeats the path that negotiates workspace roots through MCP `root
 timeout report includes the client label, pending request parameters, recent completed requests,
 recent server requests received from `lean-beam-mcp`, recent notifications, runner CPU/platform
 context, relevant CI and Lean thread env vars, the stderr tail, and a Beam/Lean process snapshot.
+
+For the same-process concurrency contract, run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
+  --scenario concurrent-dispatch \
+  --timeout 40
+```
+
+This scenario covers out-of-order tool responses, exact string/numeric request-ID separation,
+request-ID reuse after a terminal response, broker cancellation, per-request progress ordering,
+single-flight first use, non-cancellable reset while root discovery is pending, reset of active work,
+and shutdown draining.
+
 If this scheduler-sensitive timeout appears on an unrelated CI PR, copy the timeout headline and
 diagnostic excerpt to [#110](https://github.com/ejgallego/lean-beam/issues/110) so repeated
 occurrences can be correlated in one place. Include the PR URL and branch, failing run URL, failing

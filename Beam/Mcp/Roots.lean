@@ -7,7 +7,6 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Lean.Workspace
 import Beam.Mcp.Protocol
-import Beam.Mcp.Stdio
 
 open Lean
 
@@ -27,47 +26,23 @@ def selectClientRoot (roots : Array ClientRoot) : Except String System.FilePath 
     | some path => pure path
     | none => throw s!"MCP client root URI must be a file:// URI, got {root.uri}"
 
-partial def requestClientRoot
-    (stdin : IO.FS.Stream)
-    (writeJsonLine : Json → IO Unit) : IO (Except String System.FilePath) := do
-  try
-    writeJsonLine rootsListRequest
-    let rec waitForResponse : IO (Except String System.FilePath) := do
-      let line := Beam.Mcp.Stdio.stripLineEnding (← stdin.getLine)
-      if line.isEmpty then
-        pure <| .error "MCP client closed stdin before answering roots/list"
-      else
-        match Json.parse line with
-        | .error err =>
-            pure <| .error s!"MCP client roots/list response is not valid JSON: {err}"
-        | .ok json =>
-            match json.getObjVal? "method" with
-            | .ok _ =>
-                match Incoming.fromJson? json with
-                | .ok (.request req) =>
-                    writeJsonLine <|
-                      errorResponse req.id <|
-                        RpcError.invalidRequest "cannot process client request while waiting for roots/list response"
-                    waitForResponse
-                | .ok (.notification notification) =>
-                    if notification.method == "exit" then
-                      pure <| .error "MCP client exited before answering roots/list"
-                    else
-                      waitForResponse
-                | .error err =>
-                    pure <| .error err
-            | .error _ =>
-                match parseRootsListResponse json with
-                | .error err => pure <| .error err
-                | .ok result =>
-                    match selectClientRoot result.roots with
-                    | .error err => pure <| .error err
-                    | .ok root =>
-                        match ← Beam.Lean.Workspace.resolveRoot root.toString with
-                        | .ok root => pure <| .ok root
-                        | .error err => pure <| .error err.message
-    waitForResponse
-  catch e =>
-    pure <| .error e.toString
+def selectClientRootResponse (response : IncomingResponse) : IO (Except String System.FilePath) := do
+  match response.error? with
+  | some err =>
+      pure <| .error s!"roots/list failed: {err.compress}"
+  | none =>
+      let result ←
+        match response.result? with
+        | none => return .error "roots/list response is missing result"
+        | some result =>
+            match fromJson? (α := ListRootsResult) result with
+            | .ok result => pure result
+            | .error err => return .error err
+      match selectClientRoot result.roots with
+      | .error err => pure <| .error err
+      | .ok root =>
+          match ← Beam.Lean.Workspace.resolveRoot root.toString with
+          | .ok root => pure <| .ok root
+          | .error err => pure <| .error err.message
 
 end Beam.Mcp.Roots

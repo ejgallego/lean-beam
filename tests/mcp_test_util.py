@@ -3,6 +3,9 @@
 import platform
 
 
+MCP_PROTOCOL_VERSION = "2025-11-25"
+
+
 def fail(message):
     raise RuntimeError(message)
 
