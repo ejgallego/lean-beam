@@ -1539,6 +1539,16 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             cancel_id = "cancelled-run-at"
             client.send_request("tools/call", slow_params, request_id=cancel_id)
             wait_for_file(started_path, timeout, "cancelled runAt gate sentinel")
+            client.send_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": cancel_id,
+                    "method": "tools/call",
+                    "params": [],
+                }
+            )
+            duplicate_response = client.read_response(cancel_id, timeout=min(timeout, 5.0))
+            expect_error_message_contains(duplicate_response, -32600, "already active")
             client.notify(
                 "notifications/cancelled",
                 {

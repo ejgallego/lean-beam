@@ -411,6 +411,7 @@ private def Coordinator.executeToolRequest
     (coordinator : Coordinator)
     (opts : Options)
     (req : Request)
+    (parsedParams : Except String CallToolParams)
     (request : InFlightRequest) : IO Json := do
   let notifications : NotificationSink := {
     send := fun json => request.sendIfActive coordinator.output json
@@ -424,6 +425,7 @@ private def Coordinator.executeToolRequest
         request.brokerId
         request.bindRuntime
         req
+        parsedParams
         notifications with
     | .ok result => pure <| successResponse req.id result
     | .error err => pure <| errorResponse req.id err
@@ -434,13 +436,14 @@ private def Coordinator.runToolRequest
     (coordinator : Coordinator)
     (opts : Options)
     (req : Request)
+    (parsedParams : Except String CallToolParams)
     (request : InFlightRequest)
     (barrier? : Option (IO.Promise Unit)) : IO Unit := do
   let response ←
     try
       awaitControlBarrier barrier?
       if ← request.isActive then
-        coordinator.executeToolRequest opts req request
+        coordinator.executeToolRequest opts req parsedParams request
       else
         pure <| errorResponse req.id <|
           RpcError.invalidRequest "request was cancelled before execution"
@@ -451,7 +454,8 @@ private def Coordinator.runToolRequest
 private def Coordinator.spawnToolRequest
     (coordinator : Coordinator)
     (opts : Options)
-    (req : Request) : IO Unit := do
+    (req : Request)
+    (parsedParams : Except String CallToolParams) : IO Unit := do
   let request ←
     match ← coordinator.admitToolRequest req .cooperative with
     | .ok request => pure request
@@ -461,7 +465,7 @@ private def Coordinator.spawnToolRequest
   let barrier? ← coordinator.currentControlBarrier?
   let _ ← IO.asTask (prio := Task.Priority.dedicated) do
     try
-      coordinator.runToolRequest opts req request barrier?
+      coordinator.runToolRequest opts req parsedParams request barrier?
     catch e =>
       if !Beam.Mcp.Stdio.isBrokenPipeError e then
         Internal.traceMcp s!"request completion failed id={req.id.label}: {e.toString}"
@@ -470,14 +474,15 @@ private def Coordinator.spawnToolRequest
 private def Coordinator.handleControlToolRequest
     (coordinator : Coordinator)
     (opts : Options)
-    (req : Request) : IO Unit := do
+    (req : Request)
+    (parsedParams : Except String CallToolParams) : IO Unit := do
   match ← coordinator.admitToolRequest req .nonCancellable with
   | .error response => coordinator.output.send response
   | .ok request =>
       let (previous?, done) ← coordinator.pushControlBarrier
       let _ ← IO.asTask (prio := Task.Priority.dedicated) do
         try
-          coordinator.runToolRequest opts req request previous?
+          coordinator.runToolRequest opts req parsedParams request previous?
         catch e =>
           if !Beam.Mcp.Stdio.isBrokenPipeError e then
             Internal.traceMcp s!"workspace control completion failed id={req.id.label}: {e.toString}"
@@ -485,13 +490,9 @@ private def Coordinator.handleControlToolRequest
           resolvePromise done
       pure ()
 
-private def isWorkspaceInit (req : Request) : Bool :=
-  if req.method != "tools/call" then
-    false
-  else
-    match parseCallToolParams req.params? with
-    | .ok params => params.name == .leanInitWorkspace
-    | .error _ => false
+private def isWorkspaceInit : Except String CallToolParams → Bool
+  | .ok params => params.name == .leanInitWorkspace
+  | .error _ => false
 
 private def Coordinator.handleNotification
     (coordinator : Coordinator)
@@ -533,11 +534,12 @@ private def Coordinator.handleIncoming
       if req.method == "shutdown" then
         coordinator.handleShutdown req
         pure true
-      else if isWorkspaceInit req then
-        coordinator.handleControlToolRequest opts req
-        pure false
       else if req.method == "tools/call" then
-        coordinator.spawnToolRequest opts req
+        let parsedParams := parseCallToolParams req.params?
+        if isWorkspaceInit parsedParams then
+          coordinator.handleControlToolRequest opts req parsedParams
+        else
+          coordinator.spawnToolRequest opts req parsedParams
         pure false
       else
         let (response, stop) ← handleRequest coordinator.protocol opts req {
