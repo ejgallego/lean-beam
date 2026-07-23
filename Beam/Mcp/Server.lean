@@ -459,10 +459,11 @@ def Internal.handleToolCall
     (brokerClientRequestId : String)
     (beforeDispatch : Beam.Broker.ServerRuntime → System.FilePath → IO Bool)
     (req : Request)
+    (parsedParams : Except String CallToolParams)
     (notifications : NotificationSink) : IO (Except RpcError Json) := do
   let notifier : Notifier := { state, sink := notifications }
   let params ←
-    match parseCallToolParams req.params? with
+    match parsedParams with
     | .ok params => pure params
     | .error err => return .error <| RpcError.invalidParams err
   let progress? ← ProgressEmitter.create? params.progressToken? notifier.send
@@ -543,8 +544,9 @@ private def handleReadyOperationRequest
   | "tools/list" =>
       pure (successResponse req.id toolsListResult, false)
   | "tools/call" =>
+      let parsedParams := parseCallToolParams req.params?
       match ← Internal.handleToolCall state opts setupMutex requestRoot brokerClientRequestId
-          (fun _ _ => pure true) req notifications with
+          (fun _ _ => pure true) req parsedParams notifications with
       | .ok result => pure (successResponse req.id result, false)
       | .error err => pure (errorResponse req.id err, false)
   | method =>
