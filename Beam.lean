@@ -20,6 +20,6 @@ import Beam.Lean.Operation
 import Beam.Lean.Workspace
 import Beam.Mcp.Protocol
 import Beam.Mcp.Projection
-import Beam.Mcp.Server
+import Beam.Mcp.StdioServer
 import Beam.System
 import Beam.Version

@@ -165,13 +165,29 @@ The executable MCP path is split into importable runtime modules and tiny entry-
 - [Beam/Mcp/Roots.lean](../Beam/Mcp/Roots.lean): MCP `roots/list` negotiation and root selection
 - [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): project-root to broker-runtime setup
 - [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check driver
-- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): broker-backed stdio MCP server logic
+- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): typed MCP lifecycle, tool dispatch, runtime setup,
+  and the synchronous `handleJson` protocol-test seam
+- [Beam/Mcp/StdioServer.lean](../Beam/Mcp/StdioServer.lean): permanent stdin reader, concurrent
+  request coordinator, cancellation and workspace-control barriers, serialized output, and process
+  startup
 - [Beam/Workspace.lean](../Beam/Workspace.lean): shared workspace init input, result shape,
   active-root metadata, and session binding policy
 - [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean): Lean/Lake project-root validation for
   CLI and MCP setup paths
 - [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): `lean-beam-mcp` executable entry point
 - [Beam/Broker/ServerMain.lean](../Beam/Broker/ServerMain.lean): `beam-daemon` executable entry point
+
+Keep these stdio coordination invariants explicit:
+
+- only `runStdio` reads stdin; client responses such as `roots/list` results return through the
+  coordinator's request-ID table
+- every stdout message passes through `OutputSink`, including progress, server requests, tool
+  results, and JSON-RPC errors
+- request IDs preserve their exact JSON-RPC string-or-number type when used as routing keys
+- ordinary tool calls may overlap, while workspace initialization and shutdown use explicit
+  lifecycle barriers
+- nested locks flow toward routing and output locks; routing and output code must not acquire setup,
+  progress, or per-request locks
 
 Keep executable `main` declarations out of importable runtime modules. Otherwise test and adapter
 modules that import a runtime accidentally inherit the wrong root-level `main`.
