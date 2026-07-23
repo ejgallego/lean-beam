@@ -31,7 +31,10 @@ The layering is:
 - [Beam/Mcp/Options.lean](../Beam/Mcp/Options.lean), [Beam/Mcp/Roots.lean](../Beam/Mcp/Roots.lean),
   [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean), and
   [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean) own executable setup boundaries.
-- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean) owns the broker-backed stdio MCP server.
+- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean) owns typed lifecycle validation, tool dispatch,
+  runtime setup, and the synchronous protocol-test seam.
+- [Beam/Mcp/StdioServer.lean](../Beam/Mcp/StdioServer.lean) owns the permanent stdin reader,
+  concurrent request coordination, cancellation and lifecycle barriers, and serialized output.
 - [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean) owns the `lean-beam-mcp` executable entry
   point.
 
