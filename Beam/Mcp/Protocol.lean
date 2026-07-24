@@ -31,7 +31,7 @@ structure RpcError where
   code : Int
   message : String
   data? : Option Json := none
-  deriving ToJson
+  deriving FromJson, ToJson
 
 namespace RpcError
 
@@ -96,10 +96,13 @@ structure Notification where
   method : String
   params? : Option Json := none
 
+inductive IncomingResponseOutcome where
+  | result (value : Json)
+  | error (value : RpcError)
+
 structure IncomingResponse where
   id : RequestId
-  result? : Option Json := none
-  error? : Option Json := none
+  outcome : IncomingResponseOutcome
 
 structure CancelledParams where
   requestId : RequestId
@@ -145,10 +148,12 @@ def Incoming.fromJson? (json : Json) : Except String Incoming := do
   | .error _ =>
       let id ← RequestId.fromJson? (← json.getObjVal? "id")
       let result? ← optionalField? (α := Json) json "result"
-      let error? ← optionalField? (α := Json) json "error"
+      let error? ← optionalField? (α := RpcError) json "error"
       match result?, error? with
-      | some _, none | none, some _ =>
-          pure <| .response { id, result?, error? }
+      | some result, none =>
+          pure <| .response { id, outcome := .result result }
+      | none, some error =>
+          pure <| .response { id, outcome := .error error }
       | none, none =>
           throw "JSON-RPC response must contain exactly one of result or error"
       | some _, some _ =>

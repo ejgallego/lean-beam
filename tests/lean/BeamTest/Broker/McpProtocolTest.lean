@@ -81,10 +81,33 @@ private def checkIncoming : IO Unit := do
   match ← expectOk "decode response" <| Beam.Mcp.Incoming.fromJson? responseJson with
   | .response response =>
       require "decoded response id" (response.id == .string "server-request")
-      require "decoded response should have result" response.result?.isSome
-      require "decoded response should not have error" response.error?.isNone
+      match response.outcome with
+      | .result result =>
+          require "decoded response result" (result == Json.mkObj [("ok", toJson true)])
+      | .error _ =>
+          throw <| IO.userError "result response decoded as an error"
   | .request _ | .notification _ =>
       throw <| IO.userError "response decoded as request or notification"
+
+  let errorResponseJson := Json.mkObj [
+    ("jsonrpc", toJson "2.0"),
+    ("id", toJson "server-request-error"),
+    ("error", Json.mkObj [
+      ("code", toJson (-32603 : Int)),
+      ("message", toJson "server request failed")
+    ])
+  ]
+  match ← expectOk "decode error response" <| Beam.Mcp.Incoming.fromJson? errorResponseJson with
+  | .response response =>
+      require "decoded error response id" (response.id == .string "server-request-error")
+      match response.outcome with
+      | .error error =>
+          require "decoded response error code" (error.code == -32603)
+          require "decoded response error message" (error.message == "server request failed")
+      | .result _ =>
+          throw <| IO.userError "error response decoded as a result"
+  | .request _ | .notification _ =>
+      throw <| IO.userError "error response decoded as request or notification"
 
   let stringId ← expectOk "decode string request id" <|
     Beam.Mcp.RequestId.fromJson? (toJson "1")

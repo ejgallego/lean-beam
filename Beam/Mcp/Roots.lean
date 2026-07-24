@@ -27,17 +27,14 @@ def selectClientRoot (roots : Array ClientRoot) : Except String System.FilePath 
     | none => throw s!"MCP client root URI must be a file:// URI, got {root.uri}"
 
 def selectClientRootResponse (response : IncomingResponse) : IO (Except String System.FilePath) := do
-  match response.error? with
-  | some err =>
-      pure <| .error s!"roots/list failed: {err.compress}"
-  | none =>
+  match response.outcome with
+  | .error err =>
+      pure <| .error s!"roots/list failed: {(toJson err).compress}"
+  | .result rawResult =>
       let result ←
-        match response.result? with
-        | none => return .error "roots/list response is missing result"
-        | some result =>
-            match fromJson? (α := ListRootsResult) result with
-            | .ok result => pure result
-            | .error err => return .error err
+        match fromJson? (α := ListRootsResult) rawResult with
+        | .ok result => pure result
+        | .error err => return .error err
       match selectClientRoot result.roots with
       | .error err => pure <| .error err
       | .ok root =>
