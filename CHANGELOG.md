@@ -14,6 +14,11 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
   `--vibe-home`, and `VIBE_HOME`
   ([#213](https://github.com/ejgallego/lean-beam/pull/213), @archiebrowne).
 
+### Documentation
+
+- Added a descriptive related-tools comparison for `lean-lsp-mcp`, Pantograph, and Beam's
+  saved-file probe layer.
+
 ### Fixed
 
 - `lean-save` and `lean-close-save` now stage and commit complete artifact sets, preserving prior
