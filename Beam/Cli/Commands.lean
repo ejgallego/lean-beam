@@ -167,8 +167,10 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
             pure <| roots.headD (beamStateDir home / installBundlesDirName)
       let _ ← ensureToolchainBundleIn cacheRoot home toolchain
       pure ()
-  | "supported-toolchains" :: backend :: [] =>
-      printSupportedToolchains home backend
+  | "validated-toolchains" :: backend :: [] =>
+      printValidatedToolchains home backend
+  | "compatible-release-lines" :: [] =>
+      printCompatibleReleaseLines home
   | "install-layout" :: [] =>
       printInstallLayout
   | "install-manifest" :: payloadHash :: sourceCommitArg :: toolchains =>

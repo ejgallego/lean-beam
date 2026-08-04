@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle.Source
+import Beam.Cli.RuntimeBundle.ToolchainPolicy
 
 open Lean
 
@@ -62,9 +63,20 @@ def toolchainFingerprintKey (fingerprint : ToolchainFingerprint) : String :=
 def toolchainFingerprintHash (fingerprint : ToolchainFingerprint) : String :=
   s!"{hashString (toolchainFingerprintKey fingerprint) |>.toNat}"
 
+def expectedCanonicalLeanVersionPrefix? (toolchain : String) : Option String := do
+  let canonical ← parseCanonicalLeanToolchain? toolchain
+  some s!"Lean (version {canonical.versionText},"
+
 def toolchainFingerprint (toolchain : String) : IO ToolchainFingerprint := do
   ensureElan
   let leanVersion ← readRequiredToolchainCmdTrim toolchain "lean" #["--version"]
+  if let some expectedPrefix := expectedCanonicalLeanVersionPrefix? toolchain then
+    unless leanVersion.startsWith expectedPrefix do
+      throw <| IO.userError <| String.intercalate "\n" [
+        s!"Lean toolchain name/version mismatch: {toolchain}",
+        s!"expected `lean --version` to start with: {expectedPrefix}",
+        s!"actual `lean --version`: {leanVersion}"
+      ]
   let leanPrefix ← readRequiredToolchainCmdTrim toolchain "lean" #["--print-prefix"]
   let leanLibDir ← readRequiredToolchainCmdTrim toolchain "lean" #["--print-libdir"]
   let lakeVersion ← readRequiredToolchainCmdTrim toolchain "lake" #["--version"]

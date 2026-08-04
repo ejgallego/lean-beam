@@ -8,11 +8,19 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
+- Canonical Lean RC and patch toolchains from declared compatible release lines can now build
+  exact-fingerprint bundles that pass a local plugin qualification probe before use.
+- Validated Lean `v4.33.0-rc2` support.
 - Validated Lean `v4.32.0` support and made it the repository's default Lean toolchain
   ([#219](https://github.com/ejgallego/lean-beam/pull/219), @ejgallego).
 - Mistral Vibe skill installation and MCP registration support through `--vibe`, `--vibe-mcp`,
   `--vibe-home`, and `VIBE_HOME`
   ([#213](https://github.com/ejgallego/lean-beam/pull/213), @archiebrowne).
+
+### Changed
+
+- The exact-validation registry and CLI command are now named `validated-lean-toolchains` and
+  `validated-toolchains`; `--all-validated` prebuilds that finite exact matrix.
 
 ### Fixed
 
@@ -65,7 +73,7 @@ Initial public release.
 ### Compatibility And Reliability
 
 - Validated Lean toolchains are listed in
-  [`supported-lean-toolchains`](supported-lean-toolchains); the repository-pinned default is
+  [`validated-lean-toolchains`](validated-lean-toolchains); the repository-pinned default is
   recorded in [`lean-toolchain`](lean-toolchain).
 - Repo-local and CI coverage exercise isolation, stale edits, cancellation, invalid positions,
   handle invalidation, sync/save readiness, MCP protocol behavior, installer behavior, and supported

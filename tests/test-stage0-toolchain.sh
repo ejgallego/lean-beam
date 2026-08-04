@@ -56,8 +56,9 @@ printf '%s\n' "$toolchain" > "$project_root/lean-toolchain"
 doctor_out="$(ELAN_HOME="$host_elan_home" \
   "$install_home/.local/bin/lean-beam" --root "$project_root" doctor)"
 
-assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain supported: false'
-assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain custom: true'
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain admission: custom'
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain validated: false'
+assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain release line: (not applicable)'
 assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'project toolchain accepted: true'
 assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'bundle source: installed'
 assert_output_contains "stage0 custom toolchain doctor output" "$doctor_out" 'bundle toolchain fingerprint: '

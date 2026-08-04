@@ -5,7 +5,6 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Beam.Cli.Lock
 import Beam.LSP.Lib.NativeLib
 
 open Lean
@@ -97,76 +96,14 @@ def runtimeBundleCacheRoot (root : System.FilePath) : IO System.FilePath := do
   | some path => pure (System.FilePath.mk path)
   | none => pure (beamStateDir root / runtimeBundlesDirName)
 
-def supportedLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
-  home / "supported-lean-toolchains"
+def validatedLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
+  home / "validated-lean-toolchains"
+
+def compatibleLeanReleaseLinesPath (home : System.FilePath) : System.FilePath :=
+  home / "compatible-lean-release-lines"
 
 def customLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
   home / "custom-lean-toolchains"
-
-def nonCommentLines (text : String) : List String :=
-  (text.splitOn "\n").filterMap fun raw =>
-    let line := trimLine raw
-    if line.isEmpty || line.startsWith "#" then none else some line
-
-def supportedLeanToolchains (home : System.FilePath) : IO (System.FilePath × List String) := do
-  let path := supportedLeanToolchainsPath home
-  unless ← path.pathExists do
-    throw <| IO.userError s!"missing supported Lean toolchain registry at {path}"
-  pure (path, nonCommentLines (← IO.FS.readFile path))
-
-def customLeanToolchains (home : System.FilePath) : IO (System.FilePath × List String) := do
-  let path := customLeanToolchainsPath home
-  unless ← path.pathExists do
-    return (path, [])
-  pure (path, nonCommentLines (← IO.FS.readFile path))
-
-inductive LeanToolchainAcceptance where
-  | supported
-  | custom
-  | unsupported
-  deriving BEq, Repr
-
-def LeanToolchainAcceptance.accepted : LeanToolchainAcceptance → Bool
-  | .supported => true
-  | .custom => true
-  | .unsupported => false
-
-structure LeanToolchainSupport where
-  supportedPath : System.FilePath
-  supportedToolchains : List String
-  customPath : System.FilePath
-  customToolchains : List String
-  acceptance : LeanToolchainAcceptance
-  deriving Repr
-
-def leanToolchainSupport (home : System.FilePath) (toolchain : String) : IO LeanToolchainSupport := do
-  let (supportedPath, supportedToolchains) ← supportedLeanToolchains home
-  let (customPath, customToolchains) ← customLeanToolchains home
-  let acceptance :=
-    if supportedToolchains.elem toolchain then
-      .supported
-    else if customToolchains.elem toolchain then
-      .custom
-    else
-      .unsupported
-  pure {
-    supportedPath
-    supportedToolchains
-    customPath
-    customToolchains
-    acceptance
-  }
-
-def ensureAcceptedLeanToolchain (home : System.FilePath) (toolchain : String) : IO Unit := do
-  let support ← leanToolchainSupport home toolchain
-  unless support.acceptance.accepted do
-    throw <| IO.userError <| String.intercalate "\n" [
-      s!"unsupported Lean toolchain: {toolchain}",
-      s!"supported toolchain registry: {support.supportedPath}",
-      s!"custom toolchain registry: {support.customPath}",
-      "run `lean-beam supported-toolchains` to list the validated toolchains",
-      "for local Lean development toolchains, reinstall Beam with `./scripts/install-beam.sh --custom-toolchain TOOLCHAIN`"
-    ]
 
 def boolText (value : Bool) : String :=
   if value then "true" else "false"

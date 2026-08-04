@@ -92,9 +92,10 @@ private def acceptedLeanBundleDoctorInfo
 private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
   let toolchain ← leanToolchain root
   let support ← leanToolchainSupport home toolchain
-  let toolchainSupported := support.acceptance == .supported
-  let toolchainCustom := support.acceptance == .custom
+  let toolchainValidated := support.acceptance == .validated
   let toolchainAccepted := support.acceptance.accepted
+  let releaseLine :=
+    support.acceptance.releaseLine?.map (·.versionText) |>.getD "(not applicable)"
   let leanCmd? ←
     if toolchainAccepted then
       let leanCmd ← leanBin root
@@ -110,10 +111,12 @@ private def printLeanDoctorInfo (home root : System.FilePath) : IO Unit := do
     else
       pure rejectedLeanBundleDoctorInfo
   IO.println s!"project toolchain: {toolchain}"
-  IO.println s!"project toolchain supported: {boolText toolchainSupported}"
-  IO.println s!"project toolchain custom: {boolText toolchainCustom}"
+  IO.println s!"project toolchain admission: {support.acceptance.label}"
+  IO.println s!"project toolchain validated: {boolText toolchainValidated}"
+  IO.println s!"project toolchain release line: {releaseLine}"
   IO.println s!"project toolchain accepted: {boolText toolchainAccepted}"
-  IO.println s!"supported toolchains registry: {support.supportedPath}"
+  IO.println s!"validated toolchains registry: {support.validatedPath}"
+  IO.println s!"compatible release lines registry: {support.compatiblePath}"
   IO.println s!"custom toolchains registry: {support.customPath}"
   IO.println s!"lean binary: {leanCmd?.getD rejectedToolchainDiagnosticText}"
   IO.println s!"bundle platform: {platform}"
@@ -180,14 +183,19 @@ def doctor (home : System.FilePath) (opts : CliOptions) (backend : Backend) : IO
         IO.println "daemon status: absent"
   printDaemonFailureIncidentDoctorInfo root
 
-def printSupportedToolchains (home : System.FilePath) (backendName : String) : IO Unit := do
+def printValidatedToolchains (home : System.FilePath) (backendName : String) : IO Unit := do
   match backendName with
   | "lean" =>
-      let (_, toolchains) ← supportedLeanToolchains home
+      let (_, toolchains) ← validatedLeanToolchains home
       for toolchain in toolchains do
         IO.println toolchain
   | _ =>
-      throw <| IO.userError "usage: lean-beam supported-toolchains"
+      throw <| IO.userError "usage: lean-beam validated-toolchains"
+
+def printCompatibleReleaseLines (home : System.FilePath) : IO Unit := do
+  let (_, lines) ← compatibleLeanReleaseLines home
+  for line in lines do
+    IO.println line.registryEntry
 
 def printInstallLayout : IO Unit := do
   printJsonLine (toJson installLayout)

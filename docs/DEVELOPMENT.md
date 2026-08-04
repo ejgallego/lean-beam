@@ -75,8 +75,9 @@ Preferred maintainer entrypoints:
 - [docs/MCP.md](MCP.md) owns MCP implementation, protocol, tool-list, and conformance notes
 - [docs/SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md) owns the exact sync, save, progress,
   diagnostics, readiness, and stale-version contract
-- [docs/COMPATIBILITY.md](COMPATIBILITY.md) and
-  [supported-lean-toolchains](../supported-lean-toolchains) own compatibility targets
+- [docs/COMPATIBILITY.md](COMPATIBILITY.md),
+  [validated-lean-toolchains](../validated-lean-toolchains), and
+  [compatible-lean-release-lines](../compatible-lean-release-lines) own compatibility targets
 - skills document the installed workflow surface that agents should follow
 - `AGENTS.md` carries repo-specific agent instructions
 - this document is for maintainers working locally, whether the operator is a human or an AI; do not
@@ -454,10 +455,11 @@ support lands, prefer deleting the workaround over preserving compatibility bran
 
 ## Lean Compatibility Shims
 
-The supported Lean allowlist lives in
-[supported-lean-toolchains](../supported-lean-toolchains). Use that file, not this maintainer note,
-as the source of truth for supported Lean releases. The shims below exist because the current
-allowlist spans Lean/Lake API changes; when the allowlist changes, re-check these spots and prefer
+Exact validated Lean toolchains live in
+[validated-lean-toolchains](../validated-lean-toolchains), while canonical RC and patch admission
+lives in [compatible-lean-release-lines](../compatible-lean-release-lines). Use those registries,
+not this maintainer note, as the source of truth. The shims below exist because the current release
+window spans Lean/Lake API changes; when that window changes, re-check these spots and prefer
 deleting obsolete compatibility code over preserving stale branches.
 
 - `Beam/LSP/RunAt.lean`, `Beam/LSP/Goals.lean`, `Beam/LSP/Todo.lean`, and

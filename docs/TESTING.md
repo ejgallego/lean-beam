@@ -80,7 +80,9 @@ Default Beam entrypoints:
 
 Additional Beam lanes:
 
-- [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`: supported-toolchain bundle validation and stale-import diagnostic wording compatibility
+- [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`: exact
+  validated or release-line-compatible bundle qualification, admission diagnostics, and stale-import
+  diagnostic wording compatibility
 - [tests/test-beam-rocq.sh](../tests/test-beam-rocq.sh): Rocq broker and wrapper coverage
 - [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): external MCP conformance scenarios over the local Streamable HTTP bridge
 
@@ -91,11 +93,13 @@ Current Beam coverage includes:
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 - zero-build save replay and stale-save race coverage in [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
-- install flow, installed runtime layout, manifest metadata, `supported-toolchains`, `doctor`, and installed MCP wrapper coverage in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
+- install flow, installed runtime layout, manifest metadata, exact/compatible toolchain selection,
+  `validated-toolchains`, `compatible-release-lines`, `doctor`, and installed MCP wrapper coverage
+  in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
 - MCP protocol, projection, stdio, HTTP bridge, self-check, and external conformance coverage
 - Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [tests/lean/BeamTest/Broker/RocqSmokeTest.lean](../tests/lean/BeamTest/Broker/RocqSmokeTest.lean)
 
-Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `supported-toolchains`, save replay, save barriers, MCP, or Rocq integration.
+Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `validated-toolchains`, save replay, save barriers, MCP, or Rocq integration.
 
 The user-facing installer behavior, write locations, MCP registration paths, and toolchain options
 are documented in [SETUP.md](SETUP.md). The notes below cover maintainer test fixtures and
@@ -106,7 +110,7 @@ toolchains repeatedly. By default it opportunistically pre-seeds each fake `ELAN
 to matching toolchains already present in the host elan cache. Set
 `BEAM_INSTALL_TEST_PRESEED_ELAN=0` to force fully fresh fake homes, or set
 `BEAM_INSTALL_TEST_PRESEED_ELAN=require` when working on a slow/offline connection and you want the
-test to fail fast if a supported toolchain is missing from the host cache.
+test to fail fast if an exact validated toolchain is missing from the host cache.
 
 Installer tests should keep filesystem side effects inside their fake homes and owned temp roots.
 Use [tests/lib/install-fixtures.sh](../tests/lib/install-fixtures.sh) for installer-specific
@@ -119,7 +123,7 @@ For slow or offline validation, pre-seed the host elan cache before running inst
 typical setup is:
 
 ```bash
-grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d' |
+grep -v '^[[:space:]]*#' validated-lean-toolchains | sed '/^[[:space:]]*$/d' |
   while IFS= read -r toolchain; do
     elan toolchain install "$toolchain"
   done
@@ -252,6 +256,8 @@ The current GitHub Actions workflow maps to the testing surfaces like this:
 - `beam-slow`: [tests/test-beam-slow.sh](../tests/test-beam-slow.sh)
 - `beam-install`: [tests/test-beam-install.sh](../tests/test-beam-install.sh)
 - `beam-toolchain-compat`: [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`
+- `beam-release-line-compat`: the same compatibility suite for one representative canonical RC
+  admitted only through `compatible-lean-release-lines`
 - `beam-rocq`: [tests/test-beam-rocq.sh](../tests/test-beam-rocq.sh)
 - `shell-lint`: [scripts/lint-shell.sh](../scripts/lint-shell.sh)
 

@@ -3,9 +3,10 @@
 Custom toolchains are for local Lean development workflows, especially using Beam against a Lean
 source checkout through an elan-linked toolchain such as `lean4-stage0` or `lean4-dev`.
 
-They are explicit opt-ins, not validated release targets. Beam treats a custom toolchain as
-"accepted for this install", while `lean-beam supported-toolchains` continues to report only the
-validated release allowlist.
+They are explicit opt-ins, not validated release targets. Canonical official RC and patch
+toolchains from lines in `compatible-lean-release-lines` do not need this opt-in. Custom admission
+accepts an explicitly named toolchain outside those policy registries, typically a linked name,
+nightly, other vendor, or other noncanonical toolchain.
 
 ## Install
 
@@ -17,9 +18,10 @@ elan toolchain link lean4-dev /path/to/lean/build/release/stage1
 ```
 
 The installer records the name in the installed runtime's `custom-lean-toolchains` registry and
-prebuilds an installed bundle for it. Runtime requests accept only supported toolchains from
-`supported-lean-toolchains` or explicit custom names from that installed registry.
-General installer locations and supported-toolchain prebuild options are documented in
+prebuilds an installed bundle for it. Runtime requests accept exact validated toolchains from
+`validated-lean-toolchains`, canonical RC/patch variants from `compatible-lean-release-lines`, or
+explicit custom names from the installed custom registry. General installer locations and
+toolchain prebuild options are documented in
 [SETUP.md](SETUP.md).
 
 ## Bundle Resolution
@@ -28,7 +30,7 @@ When a project requests a Lean toolchain, Beam resolves helpers in this order:
 
 1. an installed bundle cache under the Beam install state
 2. a project-local runtime fallback under `.beam/bundles/`
-3. failure for toolchains that are neither supported nor explicitly custom
+3. failure for toolchains that are neither validated, release-line-compatible, nor explicitly custom
 
 The installed bundle path avoids rebuilding inside each project. The fallback path exists so an
 accepted toolchain can still run when no matching installed bundle is available, but it may need a
@@ -55,8 +57,8 @@ name to a different local build, or changing the reported Lean/Lake identity, pr
 bundle key instead of silently reusing stale helpers.
 
 The Beam source hash includes the runtime source tree plus `lean-toolchain`, `lake-manifest.json`,
-`supported-lean-toolchains`, and `custom-lean-toolchains`. It intentionally excludes the full
-`.lake/packages` checkout tree.
+`validated-lean-toolchains`, `compatible-lean-release-lines`, and `custom-lean-toolchains`. It
+intentionally excludes the full `.lake/packages` checkout tree.
 
 ## Doctor Output
 
@@ -64,8 +66,9 @@ Use `lean-beam doctor` from the target project when bundle resolution is unclear
 toolchain installed correctly, the Lean doctor output should show:
 
 ```text
-project toolchain supported: false
-project toolchain custom: true
+project toolchain admission: custom
+project toolchain validated: false
+project toolchain release line: (not applicable)
 project toolchain accepted: true
 bundle source: installed
 bundle toolchain fingerprint: ...

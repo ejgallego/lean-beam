@@ -110,13 +110,14 @@ Install or update Beam from a Lean Beam checkout:
 ```
 
 Run the installer again when you update the checkout and want the installed runtime to match it.
-Setup details, supported toolchains, agent-skill installation, MCP registration, direct CLI
-examples, installer locations, overrides, and offline advice live in
+Setup details, validated and compatible toolchains, agent-skill installation, MCP registration,
+direct CLI examples, installer locations, overrides, and offline advice live in
 [docs/SETUP.md](docs/SETUP.md).
 
-Lean Beam serves validated Lean toolchains listed in
-[`supported-lean-toolchains`](supported-lean-toolchains). See
-[docs/SETUP.md](docs/SETUP.md#supported-toolchains-and-bundles) for bundle setup and
+Lean Beam fully validates exact toolchains listed in
+[`validated-lean-toolchains`](validated-lean-toolchains) and locally qualifies canonical RC/patch
+variants from [`compatible-lean-release-lines`](compatible-lean-release-lines). See
+[docs/SETUP.md](docs/SETUP.md#validated-and-compatible-toolchains) for bundle setup and
 [docs/CUSTOM_TOOLCHAINS.md](docs/CUSTOM_TOOLCHAINS.md) for explicitly accepted local Lean builds.
 
 ## Documentation Map
