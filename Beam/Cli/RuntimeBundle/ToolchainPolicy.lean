@@ -5,8 +5,8 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
-import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle.Paths
+import Beam.System
 
 open Lean
 
@@ -14,7 +14,7 @@ namespace Beam.Cli
 
 def nonCommentLines (text : String) : List String :=
   (text.splitOn "\n").filterMap fun raw =>
-    let line := trimLine raw
+    let line := Beam.trimLine raw
     if line.isEmpty || line.startsWith "#" then none else some line
 
 def validatedLeanToolchains (home : System.FilePath) : IO (System.FilePath × List String) := do

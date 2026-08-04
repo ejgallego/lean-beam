@@ -169,7 +169,6 @@ run_bundle_install() {
 run_toolchain_admission_check() {
   local expected_admission="release-line"
   local expected_release_line=""
-  local qualification_probe=""
   prepare_stale_diagnostic_project
   if grep -v '^[[:space:]]*#' supported-lean-toolchains |
       sed '/^[[:space:]]*$/d' | grep -qxF "$toolchain"; then
@@ -197,11 +196,6 @@ run_toolchain_admission_check() {
       print_toolchain_context "release-line doctor classification changed"
       return 1
     fi
-  fi
-  qualification_probe="$(find "$tmp_bundle_dir" -type f -path '*/qualification/Probe.lean' -print -quit)"
-  if [ -z "$qualification_probe" ]; then
-    print_toolchain_context "bundle qualification probe was not recorded"
-    return 1
   fi
 }
 

@@ -64,6 +64,7 @@ approved_write_home_count=0
 prepared_repo_toolchain=""
 prepared_selected_toolchains=()
 prepared_custom_toolchains=()
+prepared_release_line_toolchains=()
 prepared_payload_id=""
 prepared_version_root=""
 prepared_source_commit=""
@@ -644,26 +645,27 @@ validate_install_config() {
   require_path_within "$install_bundles_root" "$state_root" "install bundle root"
 }
 
+read_registry_entries() {
+  local registry="$1"
+  awk '
+    {
+      sub(/\r$/, "")
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      if (line != "" && substr(line, 1, 1) != "#") {
+        print line
+      }
+    }
+  ' "$registry"
+}
+
 read_supported_toolchains() {
   local registry="$repo_root/supported-lean-toolchains"
-  if [ -f "$registry" ]; then
-    awk '
-      {
-        sub(/\r$/, "")
-        line = $0
-        sub(/^[[:space:]]+/, "", line)
-        sub(/[[:space:]]+$/, "", line)
-        if (line != "" && substr(line, 1, 1) != "#") {
-          print line
-        }
-      }
-    ' "$registry"
-  else
-    if [ ! -x "$beam_cli" ]; then
-      die "missing supported Lean toolchain registry at $registry"
-    fi
-    "$beam_cli" supported-toolchains lean
+  if [ ! -f "$registry" ]; then
+    die "missing supported Lean toolchain registry at $registry"
   fi
+  read_registry_entries "$registry"
 }
 
 load_supported_toolchains() {
@@ -680,17 +682,7 @@ read_compatible_release_lines() {
   if [ ! -f "$registry" ]; then
     die "missing compatible Lean release-line registry at $registry"
   fi
-  awk '
-    {
-      sub(/\r$/, "")
-      line = $0
-      sub(/^[[:space:]]+/, "", line)
-      sub(/[[:space:]]+$/, "", line)
-      if (line != "" && substr(line, 1, 1) != "#") {
-        print line
-      }
-    }
-  ' "$registry"
+  read_registry_entries "$registry"
 }
 
 load_compatible_release_lines() {
@@ -969,6 +961,14 @@ resolve_prepared_toolchain_selection() {
     fi
   done
   prepared_custom_toolchains=(${custom_selected[@]+"${custom_selected[@]}"})
+  prepared_release_line_toolchains=()
+  for toolchain in ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}; do
+    if ! array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"} \
+      && ! toolchain_is_validated "$toolchain" \
+      && toolchain_is_release_line_compatible "$toolchain"; then
+      prepared_release_line_toolchains+=("$toolchain")
+    fi
+  done
 }
 
 runtime_artifacts_ready() {
@@ -982,9 +982,6 @@ runtime_artifacts_ready() {
 print_install_plan() {
   local toolchain=""
   local display_toolchain=""
-  local supported_toolchains=()
-  local compatible_release_lines=()
-  load_toolchain_policy
   print_section "$style_blue" "Install Plan"
   print_field "runtime" "$install_root"
   print_field "commands" "$bin_home/{lean-beam,lean-beam-search,lean-beam-mcp}"
@@ -1362,7 +1359,7 @@ display_prepared_toolchain() {
   local toolchain="$1"
   if array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
     printf '%s (custom)\n' "$toolchain"
-  elif ! toolchain_is_validated "$toolchain" && toolchain_is_release_line_compatible "$toolchain"; then
+  elif array_contains "$toolchain" ${prepared_release_line_toolchains[@]+"${prepared_release_line_toolchains[@]}"}; then
     printf '%s (release-line compatible)\n' "$toolchain"
   else
     printf '%s\n' "$toolchain"
@@ -1375,9 +1372,6 @@ print_prebuilt_toolchain_summary() {
     print_field "prebuilt toolchains" "none"
     return 0
   fi
-  local supported_toolchains=()
-  local compatible_release_lines=()
-  load_toolchain_policy
   print_field "prebuilt toolchains" "$(display_prepared_toolchain "$1")"
   shift
   for toolchain in "$@"; do
