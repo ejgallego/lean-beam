@@ -170,7 +170,7 @@ run_toolchain_admission_check() {
   local expected_admission="release-line"
   local expected_release_line=""
   prepare_stale_diagnostic_project
-  if grep -v '^[[:space:]]*#' supported-lean-toolchains |
+  if grep -v '^[[:space:]]*#' validated-lean-toolchains |
       sed '/^[[:space:]]*$/d' | grep -qxF "$toolchain"; then
     expected_admission="validated"
   fi

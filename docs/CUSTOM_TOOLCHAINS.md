@@ -4,8 +4,9 @@ Custom toolchains are for local Lean development workflows, especially using Bea
 source checkout through an elan-linked toolchain such as `lean4-stage0` or `lean4-dev`.
 
 They are explicit opt-ins, not validated release targets. Canonical official RC and patch
-toolchains from lines in `compatible-lean-release-lines` do not need this opt-in; custom admission
-is reserved for linked names, nightlies, other vendors, and other noncanonical toolchains.
+toolchains from lines in `compatible-lean-release-lines` do not need this opt-in. Custom admission
+accepts an explicitly named toolchain outside those policy registries, typically a linked name,
+nightly, other vendor, or other noncanonical toolchain.
 
 ## Install
 
@@ -18,7 +19,7 @@ elan toolchain link lean4-dev /path/to/lean/build/release/stage1
 
 The installer records the name in the installed runtime's `custom-lean-toolchains` registry and
 prebuilds an installed bundle for it. Runtime requests accept exact validated toolchains from
-`supported-lean-toolchains`, canonical RC/patch variants from `compatible-lean-release-lines`, or
+`validated-lean-toolchains`, canonical RC/patch variants from `compatible-lean-release-lines`, or
 explicit custom names from the installed custom registry. General installer locations and
 toolchain prebuild options are documented in
 [SETUP.md](SETUP.md).
@@ -56,7 +57,7 @@ name to a different local build, or changing the reported Lean/Lake identity, pr
 bundle key instead of silently reusing stale helpers.
 
 The Beam source hash includes the runtime source tree plus `lean-toolchain`, `lake-manifest.json`,
-`supported-lean-toolchains`, `compatible-lean-release-lines`, and `custom-lean-toolchains`. It
+`validated-lean-toolchains`, `compatible-lean-release-lines`, and `custom-lean-toolchains`. It
 intentionally excludes the full `.lake/packages` checkout tree.
 
 ## Doctor Output

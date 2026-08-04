@@ -17,6 +17,11 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
   `--vibe-home`, and `VIBE_HOME`
   ([#213](https://github.com/ejgallego/lean-beam/pull/213), @archiebrowne).
 
+### Changed
+
+- The exact-validation registry and CLI command are now named `validated-lean-toolchains` and
+  `validated-toolchains`; `--all-validated` prebuilds that finite exact matrix.
+
 ### Fixed
 
 - `lean-save` and `lean-close-save` now stage and commit complete artifact sets, preserving prior
@@ -68,7 +73,7 @@ Initial public release.
 ### Compatibility And Reliability
 
 - Validated Lean toolchains are listed in
-  [`supported-lean-toolchains`](supported-lean-toolchains); the repository-pinned default is
+  [`validated-lean-toolchains`](validated-lean-toolchains); the repository-pinned default is
   recorded in [`lean-toolchain`](lean-toolchain).
 - Repo-local and CI coverage exercise isolation, stale edits, cancellation, invalid positions,
   handle invalidation, sync/save readiness, MCP protocol behavior, installer behavior, and supported

@@ -94,12 +94,12 @@ Current Beam coverage includes:
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 - zero-build save replay and stale-save race coverage in [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
 - install flow, installed runtime layout, manifest metadata, exact/compatible toolchain selection,
-  `supported-toolchains`, `compatible-release-lines`, `doctor`, and installed MCP wrapper coverage
+  `validated-toolchains`, `compatible-release-lines`, `doctor`, and installed MCP wrapper coverage
   in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
 - MCP protocol, projection, stdio, HTTP bridge, self-check, and external conformance coverage
 - Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [tests/lean/BeamTest/Broker/RocqSmokeTest.lean](../tests/lean/BeamTest/Broker/RocqSmokeTest.lean)
 
-Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `supported-toolchains`, save replay, save barriers, MCP, or Rocq integration.
+Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `validated-toolchains`, save replay, save barriers, MCP, or Rocq integration.
 
 The user-facing installer behavior, write locations, MCP registration paths, and toolchain options
 are documented in [SETUP.md](SETUP.md). The notes below cover maintainer test fixtures and
@@ -123,7 +123,7 @@ For slow or offline validation, pre-seed the host elan cache before running inst
 typical setup is:
 
 ```bash
-grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d' |
+grep -v '^[[:space:]]*#' validated-lean-toolchains | sed '/^[[:space:]]*$/d' |
   while IFS= read -r toolchain; do
     elan toolchain install "$toolchain"
   done

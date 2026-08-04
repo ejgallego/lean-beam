@@ -865,7 +865,7 @@ private def checkLeanToolchainAdmission : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/beam-toolchain-admission-test-{← IO.monoNanosNow}"
   try
     IO.FS.createDirAll root
-    IO.FS.writeFile (Beam.Cli.supportedLeanToolchainsPath root)
+    IO.FS.writeFile (Beam.Cli.validatedLeanToolchainsPath root)
       "leanprover/lean4:v4.31.0\n"
     IO.FS.writeFile (Beam.Cli.compatibleLeanReleaseLinesPath root)
       "leanprover/lean4:v4.31\n"
@@ -893,6 +893,23 @@ private def checkLeanToolchainAdmission : IO Unit := do
       let support ← Beam.Cli.leanToolchainSupport root unsupported
       require s!"expected unsupported admission for {unsupported}"
         (support.acceptance == .unsupported)
+
+    IO.FS.writeFile (Beam.Cli.validatedLeanToolchainsPath root)
+      "leanprover/lean4:v4.31.0-rc01\n"
+    expectIoErrorContains
+      "invalid validated registry"
+      "invalid validated Lean toolchain"
+      (Beam.Cli.leanToolchainSupport root "leanprover/lean4:v4.31.0")
+
+    IO.FS.writeFile (Beam.Cli.validatedLeanToolchainsPath root)
+      "leanprover/lean4:v4.31.0\nleanprover/lean4:v4.31.0\n"
+    expectIoErrorContains
+      "duplicate validated registry"
+      "duplicate validated Lean toolchain"
+      (Beam.Cli.leanToolchainSupport root "leanprover/lean4:v4.31.0")
+
+    IO.FS.writeFile (Beam.Cli.validatedLeanToolchainsPath root)
+      "leanprover/lean4:v4.31.0\n"
 
     IO.FS.writeFile (Beam.Cli.compatibleLeanReleaseLinesPath root)
       "leanprover/lean4:v4.31.0\n"

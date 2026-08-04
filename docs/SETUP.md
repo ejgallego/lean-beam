@@ -1,8 +1,8 @@
 # Setup
 
 Use this document as the single path from a Lean Beam checkout to a working `lean-beam` command.
-It covers installation, supported Lean toolchains, first CLI use, MCP registration, installer
-locations, and offline setup notes.
+It covers installation, validated and compatible Lean toolchains, first CLI use, MCP registration,
+installer locations, and offline setup notes.
 
 Lean Beam setup has two separate locations:
 
@@ -29,7 +29,7 @@ From a Lean Beam checkout, run one installer command that matches how you plan t
 ./scripts/install-beam.sh --all-skills # wrappers plus every supported agent skill
 ```
 
-The default installer is interactive: it asks which supported Lean toolchains, agent skills, and
+The default installer is interactive: it asks which Lean toolchains, agent skills, and
 MCP client registrations to set up. It then shows a compact write summary and asks once for the Beam
 runtime/wrapper install area, selected skill locations, and selected MCP config locations. For
 non-interactive scripts, pass `--dont-ask`; this only skips prompts for requested Beam-owned
@@ -40,7 +40,7 @@ These forms install:
 - `lean-beam`, `lean-beam-search`, and `lean-beam-mcp` into `~/.local/bin`
 - an immutable runtime under `BEAM_INSTALL_ROOT`, default `~/.local/share/beam`
 - a bundle cache under `~/.local/share/beam/state/install-bundles`
-- a prebuilt bundle for the repo-pinned supported Lean toolchain
+- a prebuilt bundle for the repo-pinned validated Lean toolchain
 
 Each install rebuilds the runtime binaries from the current source checkout before staging the
 immutable runtime. After reinstalling, restart active MCP client sessions so they launch the new
@@ -62,14 +62,14 @@ documented in [ROCQ.md](ROCQ.md).
 The installer requires `elan` on `PATH`. Make sure `~/.local/bin` is on `PATH` before using the
 installed wrappers directly.
 
-## Supported Toolchains And Bundles
+## Validated And Compatible Toolchains
 
 Lean Beam distinguishes exact validated toolchains from compatible release lines. Exact toolchains
-listed in [`supported-lean-toolchains`](../supported-lean-toolchains) receive the full CI matrix.
+listed in [`validated-lean-toolchains`](../validated-lean-toolchains) receive the full CI matrix.
 The wrapper reports that validated allowlist with:
 
 ```bash
-lean-beam supported-toolchains
+lean-beam validated-toolchains
 ```
 
 [`compatible-lean-release-lines`](../compatible-lean-release-lines) lists canonical Lean release
@@ -94,10 +94,10 @@ RC/patch variant, prebuild those bundles by exact name:
 ```bash
 ./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0
 ./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0-rc1
-./scripts/install-beam.sh --all-supported
+./scripts/install-beam.sh --all-validated
 ```
 
-`--all-supported` prebuilds the finite exact validated allowlist; it does not attempt every possible
+`--all-validated` prebuilds the finite exact validated allowlist; it does not attempt every possible
 RC or patch version from compatible release lines.
 
 If you are working on Lean itself or another local Lean build through an elan-linked toolchain, use
@@ -354,11 +354,11 @@ travelling or working on a slow connection, install the exact validated Lean too
 host elan cache ahead of time:
 
 ```bash
-grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d' |
+grep -v '^[[:space:]]*#' validated-lean-toolchains | sed '/^[[:space:]]*$/d' |
   while IFS= read -r toolchain; do
     elan toolchain install "$toolchain"
   done
 ```
 
 Then run the installer with `--toolchain <toolchain>` for the target releases you need, or
-`--all-supported` for the full validated allowlist.
+`--all-validated` for the full validated allowlist.

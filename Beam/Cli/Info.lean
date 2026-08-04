@@ -183,14 +183,14 @@ def doctor (home : System.FilePath) (opts : CliOptions) (backend : Backend) : IO
         IO.println "daemon status: absent"
   printDaemonFailureIncidentDoctorInfo root
 
-def printSupportedToolchains (home : System.FilePath) (backendName : String) : IO Unit := do
+def printValidatedToolchains (home : System.FilePath) (backendName : String) : IO Unit := do
   match backendName with
   | "lean" =>
       let (_, toolchains) ← validatedLeanToolchains home
       for toolchain in toolchains do
         IO.println toolchain
   | _ =>
-      throw <| IO.userError "usage: lean-beam supported-toolchains"
+      throw <| IO.userError "usage: lean-beam validated-toolchains"
 
 def printCompatibleReleaseLines (home : System.FilePath) : IO Unit := do
   let (_, lines) ← compatibleLeanReleaseLines home

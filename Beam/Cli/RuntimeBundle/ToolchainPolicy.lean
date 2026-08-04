@@ -17,12 +17,6 @@ def nonCommentLines (text : String) : List String :=
     let line := Beam.trimLine raw
     if line.isEmpty || line.startsWith "#" then none else some line
 
-def validatedLeanToolchains (home : System.FilePath) : IO (System.FilePath × List String) := do
-  let path := supportedLeanToolchainsPath home
-  unless ← path.pathExists do
-    throw <| IO.userError s!"missing supported Lean toolchain registry at {path}"
-  pure (path, nonCommentLines (← IO.FS.readFile path))
-
 def canonicalLeanToolchainPrefix : String :=
   "leanprover/lean4:v"
 
@@ -96,6 +90,19 @@ def parseCanonicalLeanToolchain? (text : String) : Option CanonicalLeanToolchain
         parseCanonicalLeanVersion? stable (some rc)
     | _ => none
   if parsed.name == text then some parsed else none
+
+def validatedLeanToolchains (home : System.FilePath) : IO (System.FilePath × List String) := do
+  let path := validatedLeanToolchainsPath home
+  unless ← path.pathExists do
+    throw <| IO.userError s!"missing validated Lean toolchain registry at {path}"
+  let mut toolchains := []
+  for entry in nonCommentLines (← IO.FS.readFile path) do
+    unless (parseCanonicalLeanToolchain? entry).isSome do
+      throw <| IO.userError s!"invalid validated Lean toolchain in {path}: {entry}"
+    if toolchains.elem entry then
+      throw <| IO.userError s!"duplicate validated Lean toolchain in {path}: {entry}"
+    toolchains := toolchains ++ [entry]
+  pure (path, toolchains)
 
 def compatibleLeanReleaseLines (home : System.FilePath) : IO (System.FilePath × List LeanReleaseLine) := do
   let path := compatibleLeanReleaseLinesPath home
@@ -179,7 +186,7 @@ def ensureAcceptedLeanToolchain (home : System.FilePath) (toolchain : String) : 
       s!"validated toolchain registry: {support.validatedPath}",
       s!"compatible release-line registry: {support.compatiblePath}",
       s!"custom toolchain registry: {support.customPath}",
-      "run `lean-beam supported-toolchains` to list the validated toolchains",
+      "run `lean-beam validated-toolchains` to list the validated toolchains",
       "run `lean-beam compatible-release-lines` to list canonical RC and patch release lines",
       "for local Lean development toolchains, reinstall Beam with `./scripts/install-beam.sh --custom-toolchain TOOLCHAIN`"
     ]

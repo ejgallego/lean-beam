@@ -46,7 +46,7 @@ register_codex_mcp=0
 register_claude_mcp=0
 register_opencode_mcp=0
 register_vibe_mcp=0
-install_all_supported=0
+install_all_validated=0
 dont_ask=0
 toolchain_selection_explicit=0
 skill_selection_explicit=0
@@ -140,7 +140,7 @@ runtime_payload_spec=(
   "copy|rootFiles|lakefile.toml|lakefile.toml"
   "copy|rootFiles|lake-manifest.json|lake-manifest.json"
   "copy|rootFiles|lean-toolchain|lean-toolchain"
-  "copy|rootFiles|supported-lean-toolchains|supported-lean-toolchains"
+  "copy|rootFiles|validated-lean-toolchains|validated-lean-toolchains"
   "copy|rootFiles|compatible-lean-release-lines|compatible-lean-release-lines"
   "generated|rootFiles|custom-lean-toolchains|custom-lean-toolchains"
   "copy|sourceDirs|Beam|Beam"
@@ -180,7 +180,7 @@ Optional flags:
   --toolchain    prebuild one validated or release-line-compatible Lean toolchain; may be repeated
   --custom-toolchain
                 prebuild and accept one explicit custom Lean toolchain; may be repeated
-  --all-supported
+  --all-validated
                 prebuild every exact validated Lean toolchain
   --codex       install bundled Lean skill into $codex_skills_home
   --claude      install bundled Lean skill into $claude_skills_home
@@ -526,9 +526,9 @@ parse_args() {
         requested_custom_toolchains+=("$2")
         shift
         ;;
-      --all-supported)
+      --all-validated)
         toolchain_selection_explicit=1
-        install_all_supported=1
+        install_all_validated=1
         ;;
       --codex)
         skill_selection_explicit=1
@@ -660,21 +660,27 @@ read_registry_entries() {
   ' "$registry"
 }
 
-read_supported_toolchains() {
-  local registry="$repo_root/supported-lean-toolchains"
+read_validated_toolchains() {
+  local registry="$repo_root/validated-lean-toolchains"
   if [ ! -f "$registry" ]; then
-    die "missing supported Lean toolchain registry at $registry"
+    die "missing validated Lean toolchain registry at $registry"
   fi
   read_registry_entries "$registry"
 }
 
-load_supported_toolchains() {
-  supported_toolchains=()
+load_validated_toolchains() {
+  validated_toolchains=()
   local toolchain=""
   while IFS= read -r toolchain; do
     [ -n "$toolchain" ] || continue
-    supported_toolchains+=("$toolchain")
-  done < <(read_supported_toolchains)
+    if [[ ! "$toolchain" =~ ^leanprover/lean4:v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc([1-9][0-9]*))?$ ]]; then
+      die "invalid validated Lean toolchain: $toolchain"
+    fi
+    if array_contains "$toolchain" ${validated_toolchains[@]+"${validated_toolchains[@]}"}; then
+      die "duplicate validated Lean toolchain: $toolchain"
+    fi
+    validated_toolchains+=("$toolchain")
+  done < <(read_validated_toolchains)
 }
 
 read_compatible_release_lines() {
@@ -701,7 +707,7 @@ load_compatible_release_lines() {
 }
 
 load_toolchain_policy() {
-  load_supported_toolchains
+  load_validated_toolchains
   load_compatible_release_lines
 }
 
@@ -715,7 +721,7 @@ canonical_release_line_for_toolchain() {
 }
 
 toolchain_is_validated() {
-  array_contains "$1" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
+  array_contains "$1" ${validated_toolchains[@]+"${validated_toolchains[@]}"}
 }
 
 toolchain_is_release_line_compatible() {
@@ -728,9 +734,9 @@ toolchain_is_validated_or_compatible() {
   toolchain_is_validated "$1" || toolchain_is_release_line_compatible "$1"
 }
 
-require_supported_toolchains_loaded() {
-  if [ "${#supported_toolchains[@]}" -eq 0 ]; then
-    die "beam CLI reported no supported Lean toolchains"
+require_validated_toolchains_loaded() {
+  if [ "${#validated_toolchains[@]}" -eq 0 ]; then
+    die "validated-lean-toolchains contains no validated Lean toolchains"
   fi
 }
 
@@ -762,7 +768,7 @@ validate_custom_toolchain_name() {
 
 prompt_toolchain_selection() {
   local repo_toolchain="$1"
-  local supported_toolchains=()
+  local validated_toolchains=()
   local compatible_release_lines=()
   local selected=()
   local custom_selected=()
@@ -774,11 +780,11 @@ prompt_toolchain_selection() {
   local ordinal=1
 
   load_toolchain_policy
-  require_supported_toolchains_loaded
+  require_validated_toolchains_loaded
 
   print_section "$style_blue" "Lean Toolchains"
   printf 'Validated toolchains:\n' >&2
-  for toolchain in ${supported_toolchains[@]+"${supported_toolchains[@]}"}; do
+  for toolchain in ${validated_toolchains[@]+"${validated_toolchains[@]}"}; do
     if [ "$toolchain" = "$repo_toolchain" ]; then
       printf '  %d) %s (default)\n' "$ordinal" "$toolchain" >&2
     else
@@ -792,13 +798,13 @@ prompt_toolchain_selection() {
   if [ -z "$reply" ]; then
     requested_toolchains=("$repo_toolchain")
     requested_custom_toolchains=()
-    install_all_supported=0
+    install_all_validated=0
     return 0
   fi
   for token in $reply; do
     case "$(normalize_choice "$token")" in
       all)
-        install_all_supported=1
+        install_all_validated=1
         ;;
       custom:*)
         custom_toolchain="${token#*:}"
@@ -812,16 +818,16 @@ prompt_toolchain_selection() {
         append_unique_selected_toolchain "$token"
         ;;
       *)
-        if [ "$token" -lt 1 ] || [ "$token" -gt "${#supported_toolchains[@]}" ]; then
+        if [ "$token" -lt 1 ] || [ "$token" -gt "${#validated_toolchains[@]}" ]; then
           die "toolchain selection out of range: $token"
         fi
         index=$((token - 1))
-        toolchain="${supported_toolchains[$index]}"
+        toolchain="${validated_toolchains[$index]}"
         append_unique_selected_toolchain "$toolchain"
         ;;
     esac
   done
-  if [ "$install_all_supported" -eq 1 ]; then
+  if [ "$install_all_validated" -eq 1 ]; then
     requested_toolchains=()
   elif [ "${#selected[@]}" -gt 0 ]; then
     requested_toolchains=(${selected[@]+"${selected[@]}"})
@@ -903,21 +909,21 @@ maybe_prompt_interactive_choices() {
 
 resolve_prepared_toolchain_selection() {
   local repo_toolchain="$1"
-  local supported_toolchains=()
+  local validated_toolchains=()
   local compatible_release_lines=()
   local selected=()
   local custom_selected=()
   local toolchain=""
 
-  if [ "$install_all_supported" -eq 1 ] && [ "${#requested_toolchains[@]}" -gt 0 ]; then
-    die "cannot combine --all-supported with --toolchain"
+  if [ "$install_all_validated" -eq 1 ] && [ "${#requested_toolchains[@]}" -gt 0 ]; then
+    die "cannot combine --all-validated with --toolchain"
   fi
 
   load_toolchain_policy
-  require_supported_toolchains_loaded
+  require_validated_toolchains_loaded
 
-  if [ "$install_all_supported" -eq 1 ]; then
-    selected=(${supported_toolchains[@]+"${supported_toolchains[@]}"})
+  if [ "$install_all_validated" -eq 1 ]; then
+    selected=(${validated_toolchains[@]+"${validated_toolchains[@]}"})
   elif [ "${#requested_toolchains[@]}" -gt 0 ]; then
     for toolchain in ${requested_toolchains[@]+"${requested_toolchains[@]}"}; do
       if ! toolchain_is_validated_or_compatible "$toolchain"; then
@@ -932,8 +938,8 @@ resolve_prepared_toolchain_selection() {
       fi
     done
   else
-    if ! array_contains "$repo_toolchain" ${supported_toolchains[@]+"${supported_toolchains[@]}"}; then
-      die "pinned Lean toolchain is not in supported-lean-toolchains: $repo_toolchain"
+    if ! array_contains "$repo_toolchain" ${validated_toolchains[@]+"${validated_toolchains[@]}"}; then
+      die "pinned Lean toolchain is not in validated-lean-toolchains: $repo_toolchain"
     fi
     selected=("$repo_toolchain")
   fi

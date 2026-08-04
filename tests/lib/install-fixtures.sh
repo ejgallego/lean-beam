@@ -5,7 +5,7 @@
 # Author: Emilio J. Gallego Arias
 
 # Shared helper functions for installer tests. Callers provide the install-test
-# globals such as tmp_root, host_elan_home, source_checkout, and supported_toolchains.
+# globals such as tmp_root, host_elan_home, source_checkout, and validated_toolchains.
 # shellcheck disable=SC2154
 
 # shellcheck source=tests/lib/tmp-guards.sh
@@ -123,7 +123,7 @@ beam_install_run_with_mcp_stubs() {
   local stub_bin="$1"
   local log_path="$2"
   shift 2
-  preseed_elan_home "$HOME/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
+  preseed_elan_home "$HOME/.elan" ${validated_toolchains[@]+"${validated_toolchains[@]}"}
   (
     cd "$source_checkout" || exit
     BEAM_TEST_MCP_STUB_LOG="$log_path" PATH="$stub_bin:$PATH" \
@@ -137,7 +137,7 @@ beam_install_run_interactive_from_source() {
   local install_root="$3"
   local input_text="$4"
   shift 4
-  preseed_elan_home "$install_home/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
+  preseed_elan_home "$install_home/.elan" ${validated_toolchains[@]+"${validated_toolchains[@]}"}
   (
     cd "$source_checkout" || exit
     python3 - "$transcript" "$install_home" "$install_root" "$input_text" "$@" <<'PY'

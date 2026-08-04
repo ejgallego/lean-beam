@@ -12,7 +12,7 @@ A Lean release line is the canonical `major.minor` family recorded in
 
 - The core product goal is still the small Lean request shaped like `runAt(pos, "lean text")`,
   with typed request and response data.
-- Exact CI-validated Lean toolchains listed in `supported-lean-toolchains`, plus canonical RC and
+- Exact CI-validated Lean toolchains listed in `validated-lean-toolchains`, plus canonical RC and
   patch toolchains admitted by release lines in `compatible-lean-release-lines`. Release-line
   variants must build and pass the local plugin qualification probe for their exact fingerprint.
   Shims must name the Lean/Lake API boundary they support and should be removed when the support

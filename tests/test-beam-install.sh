@@ -40,18 +40,18 @@ export BEAM_INSTALL_ROOT="$tmp_root/install-root"
 
 mkdir -p "$HOME" "$BEAM_INSTALL_ROOT"
 
-supported_toolchains=()
+validated_toolchains=()
 while IFS= read -r line; do
   [ -n "$line" ] || continue
-  supported_toolchains+=("$line")
-done < <(grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d')
+  validated_toolchains+=("$line")
+done < <(grep -v '^[[:space:]]*#' validated-lean-toolchains | sed '/^[[:space:]]*$/d')
 toolchain="$(awk 'NR==1 {print $1}' lean-toolchain)"
 if [ -z "$toolchain" ]; then
   echo "missing pinned Lean toolchain in lean-toolchain" >&2
   exit 1
 fi
-if ! printf '%s\n' ${supported_toolchains[@]+"${supported_toolchains[@]}"} | grep -qxF "$toolchain"; then
-  echo "pinned Lean toolchain is not in supported-lean-toolchains: $toolchain" >&2
+if ! printf '%s\n' ${validated_toolchains[@]+"${validated_toolchains[@]}"} | grep -qxF "$toolchain"; then
+  echo "pinned Lean toolchain is not in validated-lean-toolchains: $toolchain" >&2
   exit 1
 fi
 source_checkout="$tmp_root/source-checkout"
@@ -89,7 +89,7 @@ assert_runtime_layout() {
   assert_file "$runtime_root/Beam/Broker/Server.lean"
   assert_file "$runtime_root/Beam/LSP/Save.lean"
   assert_file "$runtime_root/Beam/LSP/DiagnosticsBarrier.lean"
-  assert_file "$runtime_root/supported-lean-toolchains"
+  assert_file "$runtime_root/validated-lean-toolchains"
   assert_file "$runtime_root/compatible-lean-release-lines"
   assert_file "$runtime_root/custom-lean-toolchains"
   assert_file "$runtime_root/libexec/beam-cli"
@@ -244,7 +244,7 @@ assert_bundle_layout() {
 }
 
 run_install_from_source() {
-  preseed_elan_home "$HOME/.elan" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
+  preseed_elan_home "$HOME/.elan" ${validated_toolchains[@]+"${validated_toolchains[@]}"}
   (
     cd "$source_checkout"
     bash scripts/install-beam.sh --dont-ask "$@" > /dev/null
@@ -322,6 +322,22 @@ remove_tmp_file "$unsupported_install_err"
 assert_not_exists "$BEAM_INSTALL_ROOT/current"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 0
 assert_not_exists "$BEAM_INSTALL_ROOT/state"
+
+invalid_validated_err="$(mktemp "$tmp_root/install-invalid-validated-XXXXXX")"
+printf '%s\n' 'leanprover/lean4:v4.32.0-rc01' > "$source_checkout/validated-lean-toolchains"
+if (
+  cd "$source_checkout"
+  bash scripts/install-beam.sh --toolchain "$toolchain" < /dev/null > /dev/null 2>"$invalid_validated_err"
+); then
+  cp validated-lean-toolchains "$source_checkout/validated-lean-toolchains"
+  echo "expected install to reject a noncanonical validated toolchain registry entry" >&2
+  cat "$invalid_validated_err" >&2
+  remove_tmp_file "$invalid_validated_err"
+  exit 1
+fi
+cp validated-lean-toolchains "$source_checkout/validated-lean-toolchains"
+assert_contains "$invalid_validated_err" 'invalid validated Lean toolchain: leanprover/lean4:v4.32.0-rc01'
+remove_tmp_file "$invalid_validated_err"
 
 compatible_plan_home="$tmp_root/compatible-plan-home"
 compatible_plan_install_root="$tmp_root/compatible-plan-install-root"
@@ -694,7 +710,7 @@ run_custom_toolchain_install_test() (
 
 run_step "install custom toolchain runtime" run_custom_toolchain_install_test
 
-release_pre_all_supported_disk() {
+release_pre_all_validated_disk() {
   remove_tmp_tree "$blocked_bundle_root"
   remove_tmp_tree "$tmp_root/custom-elan"
   remove_tmp_tree "$tmp_root/custom-home"
@@ -702,13 +718,13 @@ release_pre_all_supported_disk() {
   remove_tmp_tree "$tmp_root/custom-project"
 }
 
-run_step "release install temp trees before all-supported" release_pre_all_supported_disk
+run_step "release install temp trees before all-validated" release_pre_all_validated_disk
 
-run_step "prebuild all supported bundles" run_install_from_source --all-supported
+run_step "prebuild all validated bundles" run_install_from_source --all-validated
 
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
-assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" ${supported_toolchains[@]+"${supported_toolchains[@]}"}
+assert_bundle_layout "$BEAM_INSTALL_ROOT/state/install-bundles" ${validated_toolchains[@]+"${validated_toolchains[@]}"}
 
 rocq_no_target_err="$(mktemp "$tmp_root/rocq-skill-no-target-XXXXXX")"
 if (
@@ -1057,10 +1073,10 @@ if [ -z "$project_toolchain" ]; then
   exit 1
 fi
 
-supported_out="$("$installed_lean_beam" supported-toolchains)"
-if ! printf '%s\n' "$supported_out" | grep -qx "$toolchain"; then
-  echo "expected supported-toolchains to include the pinned repo toolchain" >&2
-  printf '%s\n' "$supported_out" >&2
+validated_out="$("$installed_lean_beam" validated-toolchains)"
+if ! printf '%s\n' "$validated_out" | grep -qx "$toolchain"; then
+  echo "expected validated-toolchains to include the pinned repo toolchain" >&2
+  printf '%s\n' "$validated_out" >&2
   exit 1
 fi
 
@@ -1080,7 +1096,7 @@ assert_doctor_contains "installed wrapper" "$doctor_out" 'compatible release lin
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle source inputs: '
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle key inputs: toolchain, toolchain fingerprint, platform, source hash'
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle toolchain fingerprint: '
-assert_doctor_contains "installed wrapper" "$doctor_out" 'supported-lean-toolchains'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'validated-lean-toolchains'
 assert_doctor_contains "installed wrapper" "$doctor_out" 'compatible-lean-release-lines'
 assert_doctor_contains "installed wrapper" "$doctor_out" 'custom-lean-toolchains'
 assert_doctor_not_contains "installed wrapper" "$doctor_out" '.lake/packages'
@@ -1277,7 +1293,7 @@ if ! grep -q 'unsupported Lean toolchain: leanprover/lean4:v4.26.0' "$unsupporte
   exit 1
 fi
 # shellcheck disable=SC2016
-if ! grep -q 'run `lean-beam supported-toolchains` to list the validated toolchains' "$unsupported_err"; then
+if ! grep -q 'run `lean-beam validated-toolchains` to list the validated toolchains' "$unsupported_err"; then
   echo "expected unsupported toolchain failure to advertise the support registry command" >&2
   cat "$unsupported_err" >&2
   remove_tmp_file "$unsupported_err"

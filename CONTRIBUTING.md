@@ -138,7 +138,7 @@ Use the smallest relevant suite first:
 - `bash tests/test-lsp.sh`: the full LSP/plugin surface, including all registered LSP methods
 - `bash tests/test-beam-fast.sh`: Beam broker stream, barrier, and request-contract changes
 - `bash tests/test-beam-slow.sh`: Beam wrapper, save replay, and bundle-resolution changes
-- `bash tests/test-beam-install.sh`: installer, runtime layout, and `doctor` / `supported-toolchains`
+- `bash tests/test-beam-install.sh`: installer, runtime layout, and `doctor` / `validated-toolchains`
 - `bash tests/test-beam-toolchain-compat.sh <toolchain>`: supported-toolchain bundle validation
 - `bash tests/test-beam-rocq.sh`: Rocq broker and wrapper changes
 - `bash tests/test-beam.sh`: aggregate default Beam surface

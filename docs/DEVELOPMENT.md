@@ -76,7 +76,7 @@ Preferred maintainer entrypoints:
 - [docs/SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md) owns the exact sync, save, progress,
   diagnostics, readiness, and stale-version contract
 - [docs/COMPATIBILITY.md](COMPATIBILITY.md),
-  [supported-lean-toolchains](../supported-lean-toolchains), and
+  [validated-lean-toolchains](../validated-lean-toolchains), and
   [compatible-lean-release-lines](../compatible-lean-release-lines) own compatibility targets
 - skills document the installed workflow surface that agents should follow
 - `AGENTS.md` carries repo-specific agent instructions
@@ -456,7 +456,7 @@ support lands, prefer deleting the workaround over preserving compatibility bran
 ## Lean Compatibility Shims
 
 Exact validated Lean toolchains live in
-[supported-lean-toolchains](../supported-lean-toolchains), while canonical RC and patch admission
+[validated-lean-toolchains](../validated-lean-toolchains), while canonical RC and patch admission
 lives in [compatible-lean-release-lines](../compatible-lean-release-lines). Use those registries,
 not this maintainer note, as the source of truth. The shims below exist because the current release
 window spans Lean/Lake API changes; when that window changes, re-check these spots and prefer

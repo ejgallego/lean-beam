@@ -96,8 +96,8 @@ def runtimeBundleCacheRoot (root : System.FilePath) : IO System.FilePath := do
   | some path => pure (System.FilePath.mk path)
   | none => pure (beamStateDir root / runtimeBundlesDirName)
 
-def supportedLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
-  home / "supported-lean-toolchains"
+def validatedLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
+  home / "validated-lean-toolchains"
 
 def compatibleLeanReleaseLinesPath (home : System.FilePath) : System.FilePath :=
   home / "compatible-lean-release-lines"

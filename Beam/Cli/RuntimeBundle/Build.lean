@@ -192,6 +192,7 @@ private def qualifyToolchainBundle
   if out.exitCode != 0 then
     throw <| IO.userError <|
       bundleQualificationFailureMessage toolchain workspace probe out.stdout out.stderr
+  IO.FS.removeDirAll qualificationDir
 
 def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
     (fingerprint : ToolchainFingerprint)

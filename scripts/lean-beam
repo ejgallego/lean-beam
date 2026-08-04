@@ -34,7 +34,7 @@ usage:
   lean-beam [--root PATH] [--port N] rocq-goals-after <path> <line> <character> [text...]
   lean-beam [--root PATH] [--port N] rocq-goals-prev <path> <line> <character> [text...]
   lean-beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]
-  lean-beam supported-toolchains [lean]
+  lean-beam validated-toolchains [lean]
   lean-beam compatible-release-lines
   lean-beam [--root PATH] doctor [lean|rocq]
   lean-beam [--root PATH] open-files
@@ -53,7 +53,7 @@ notes:
   - use `ensure --hold` when a PID-isolated command runner needs one foreground process to keep a newly-started daemon alive
   - set `BEAM_DEBUG_TEXT=1` to print the exact escaped text and UTF-8 bytes sent for text-carrying Lean probes
   - use `lean-beam --version` for bug reports and installed runtime identity checks
-  - supported-toolchains lists exact CI-validated versions; compatible-release-lines lists canonical RC/patch families qualified locally
+  - validated-toolchains lists exact CI-validated versions; compatible-release-lines lists canonical RC/patch families qualified locally
   - use `lean-beam feedback` with JSON object input to produce a pasteable Beam report card with debug context
 EOF
 }
@@ -241,12 +241,12 @@ case "$cmd" in
       mapped=("doctor")
     fi
     ;;
-  supported-toolchains)
+  validated-toolchains)
     if [ "${#rest[@]}" -eq 0 ]; then
-      mapped=("supported-toolchains" "lean")
+      mapped=("validated-toolchains" "lean")
       rest=()
     else
-      mapped=("supported-toolchains")
+      mapped=("validated-toolchains")
     fi
     ;;
   feedback)
