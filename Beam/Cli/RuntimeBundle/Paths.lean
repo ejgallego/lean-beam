@@ -100,6 +100,9 @@ def runtimeBundleCacheRoot (root : System.FilePath) : IO System.FilePath := do
 def supportedLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
   home / "supported-lean-toolchains"
 
+def compatibleLeanReleaseLinesPath (home : System.FilePath) : System.FilePath :=
+  home / "compatible-lean-release-lines"
+
 def customLeanToolchainsPath (home : System.FilePath) : System.FilePath :=
   home / "custom-lean-toolchains"
 
@@ -114,6 +117,93 @@ def supportedLeanToolchains (home : System.FilePath) : IO (System.FilePath × Li
     throw <| IO.userError s!"missing supported Lean toolchain registry at {path}"
   pure (path, nonCommentLines (← IO.FS.readFile path))
 
+def canonicalLeanToolchainPrefix : String :=
+  "leanprover/lean4:v"
+
+private def canonicalNat? (text : String) : Option Nat := do
+  let value ← text.toNat?
+  if s!"{value}" == text then some value else none
+
+structure LeanReleaseLine where
+  major : Nat
+  minor : Nat
+  deriving BEq, Repr
+
+def LeanReleaseLine.versionText (line : LeanReleaseLine) : String :=
+  s!"{line.major}.{line.minor}"
+
+def LeanReleaseLine.registryEntry (line : LeanReleaseLine) : String :=
+  canonicalLeanToolchainPrefix ++ line.versionText
+
+def parseLeanReleaseLine? (text : String) : Option LeanReleaseLine := do
+  unless text.startsWith canonicalLeanToolchainPrefix do
+    none
+  let versionText := (text.drop canonicalLeanToolchainPrefix.length).toString
+  let [majorText, minorText] := versionText.splitOn "."
+    | none
+  let major ← canonicalNat? majorText
+  let minor ← canonicalNat? minorText
+  let line : LeanReleaseLine := { major, minor }
+  if line.registryEntry == text then some line else none
+
+structure CanonicalLeanToolchain where
+  releaseLine : LeanReleaseLine
+  patch : Nat
+  rc? : Option Nat := none
+  deriving BEq, Repr
+
+def CanonicalLeanToolchain.versionText (toolchain : CanonicalLeanToolchain) : String :=
+  let stable := s!"{toolchain.releaseLine.versionText}.{toolchain.patch}"
+  match toolchain.rc? with
+  | some rc => s!"{stable}-rc{rc}"
+  | none => stable
+
+def CanonicalLeanToolchain.name (toolchain : CanonicalLeanToolchain) : String :=
+  canonicalLeanToolchainPrefix ++ toolchain.versionText
+
+private def parseLeanPrerelease? (text : String) : Option Nat := do
+  unless text.startsWith "rc" do
+    none
+  let numberText := (text.drop 2).toString
+  let rc ← canonicalNat? numberText
+  if rc > 0 && s!"rc{rc}" == text then some rc else none
+
+private def parseCanonicalLeanVersion?
+    (versionText : String)
+    (rc? : Option Nat) : Option CanonicalLeanToolchain := do
+  let [majorText, minorText, patchText] := versionText.splitOn "."
+    | none
+  let major ← canonicalNat? majorText
+  let minor ← canonicalNat? minorText
+  let patch ← canonicalNat? patchText
+  some { releaseLine := { major, minor }, patch, rc? }
+
+def parseCanonicalLeanToolchain? (text : String) : Option CanonicalLeanToolchain := do
+  unless text.startsWith canonicalLeanToolchainPrefix do
+    none
+  let versionText := (text.drop canonicalLeanToolchainPrefix.length).toString
+  let parsed ←
+    match versionText.splitOn "-" with
+    | [stable] => parseCanonicalLeanVersion? stable none
+    | [stable, prerelease] => do
+        let rc ← parseLeanPrerelease? prerelease
+        parseCanonicalLeanVersion? stable (some rc)
+    | _ => none
+  if parsed.name == text then some parsed else none
+
+def compatibleLeanReleaseLines (home : System.FilePath) : IO (System.FilePath × List LeanReleaseLine) := do
+  let path := compatibleLeanReleaseLinesPath home
+  unless ← path.pathExists do
+    throw <| IO.userError s!"missing compatible Lean release-line registry at {path}"
+  let mut lines := []
+  for entry in nonCommentLines (← IO.FS.readFile path) do
+    let some line := parseLeanReleaseLine? entry
+      | throw <| IO.userError s!"invalid compatible Lean release line in {path}: {entry}"
+    if lines.elem line then
+      throw <| IO.userError s!"duplicate compatible Lean release line in {path}: {entry}"
+    lines := lines ++ [line]
+  pure (path, lines)
+
 def customLeanToolchains (home : System.FilePath) : IO (System.FilePath × List String) := do
   let path := customLeanToolchainsPath home
   unless ← path.pathExists do
@@ -121,37 +211,61 @@ def customLeanToolchains (home : System.FilePath) : IO (System.FilePath × List 
   pure (path, nonCommentLines (← IO.FS.readFile path))
 
 inductive LeanToolchainAcceptance where
-  | supported
+  | validated
+  | releaseLine (line : LeanReleaseLine)
   | custom
   | unsupported
   deriving BEq, Repr
 
 def LeanToolchainAcceptance.accepted : LeanToolchainAcceptance → Bool
-  | .supported => true
+  | .validated => true
+  | .releaseLine _ => true
   | .custom => true
   | .unsupported => false
 
+def LeanToolchainAcceptance.label : LeanToolchainAcceptance → String
+  | .validated => "validated"
+  | .releaseLine _ => "release-line"
+  | .custom => "custom"
+  | .unsupported => "unsupported"
+
+def LeanToolchainAcceptance.releaseLine? : LeanToolchainAcceptance → Option LeanReleaseLine
+  | .releaseLine line => some line
+  | _ => none
+
 structure LeanToolchainSupport where
-  supportedPath : System.FilePath
-  supportedToolchains : List String
+  validatedPath : System.FilePath
+  validatedToolchains : List String
+  compatiblePath : System.FilePath
+  compatibleReleaseLines : List LeanReleaseLine
   customPath : System.FilePath
   customToolchains : List String
   acceptance : LeanToolchainAcceptance
   deriving Repr
 
 def leanToolchainSupport (home : System.FilePath) (toolchain : String) : IO LeanToolchainSupport := do
-  let (supportedPath, supportedToolchains) ← supportedLeanToolchains home
+  let (validatedPath, validatedToolchains) ← supportedLeanToolchains home
+  let (compatiblePath, compatibleReleaseLines) ← compatibleLeanReleaseLines home
   let (customPath, customToolchains) ← customLeanToolchains home
   let acceptance :=
-    if supportedToolchains.elem toolchain then
-      .supported
-    else if customToolchains.elem toolchain then
-      .custom
+    if validatedToolchains.elem toolchain then
+      .validated
     else
-      .unsupported
+      match parseCanonicalLeanToolchain? toolchain with
+      | some canonical =>
+          if compatibleReleaseLines.elem canonical.releaseLine then
+            .releaseLine canonical.releaseLine
+          else if customToolchains.elem toolchain then
+            .custom
+          else
+            .unsupported
+      | none =>
+          if customToolchains.elem toolchain then .custom else .unsupported
   pure {
-    supportedPath
-    supportedToolchains
+    validatedPath
+    validatedToolchains
+    compatiblePath
+    compatibleReleaseLines
     customPath
     customToolchains
     acceptance
@@ -162,9 +276,11 @@ def ensureAcceptedLeanToolchain (home : System.FilePath) (toolchain : String) : 
   unless support.acceptance.accepted do
     throw <| IO.userError <| String.intercalate "\n" [
       s!"unsupported Lean toolchain: {toolchain}",
-      s!"supported toolchain registry: {support.supportedPath}",
+      s!"validated toolchain registry: {support.validatedPath}",
+      s!"compatible release-line registry: {support.compatiblePath}",
       s!"custom toolchain registry: {support.customPath}",
       "run `lean-beam supported-toolchains` to list the validated toolchains",
+      "run `lean-beam compatible-release-lines` to list canonical RC and patch release lines",
       "for local Lean development toolchains, reinstall Beam with `./scripts/install-beam.sh --custom-toolchain TOOLCHAIN`"
     ]
 

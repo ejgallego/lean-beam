@@ -265,15 +265,16 @@ Use `lean-beam`, not raw JSON and not raw LSP.
   - in sandboxed or read-only project trees, set `BEAM_CONTROL_DIR` to a writable directory; `lean-beam` uses a per-root subdirectory there
 - resolves a toolchain-keyed Lean bundle, preferring the installed beam bundle cache and
   falling back to a project-local runtime bundle under `<root>/.beam/bundles` or `BEAM_BUNDLE_DIR`
-- serves Lean toolchains listed in `supported-lean-toolchains` plus exact custom names recorded by
-  the installer in `custom-lean-toolchains`
+- fully validates exact Lean toolchains listed in `supported-lean-toolchains`, locally qualifies
+  canonical RC/patch variants from `compatible-lean-release-lines`, and accepts exact custom names
+  recorded by the installer in `custom-lean-toolchains`
 - owns Beam daemon startup, shutdown, and registry handling
 - resolves Lean with `elan which lean`
-- builds a local fallback bundle only when no matching installed bundle exists for the target
-  supported or explicitly custom Lean toolchain
-- fails early on Lean toolchains that are neither supported nor explicitly custom; use
-  `lean-beam supported-toolchains` to inspect the validated allowlist and `lean-beam doctor` to
-  inspect custom acceptance state
+- builds and plugin-qualifies a local fallback bundle only when no matching installed bundle exists
+  for the exact accepted toolchain fingerprint
+- fails early on toolchains that are neither validated, canonical members of a compatible release
+  line, nor explicitly custom; use `lean-beam supported-toolchains`,
+  `lean-beam compatible-release-lines`, and `lean-beam doctor` to inspect the decision
 - restarts the Beam daemon if the effective Lean startup configuration for that root changes
 - `lean-beam shutdown`, `lean-beam stats`, and `lean-beam reset-stats` apply to the current project only
 - wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Lean calls

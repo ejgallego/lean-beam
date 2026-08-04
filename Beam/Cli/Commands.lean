@@ -169,6 +169,8 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       pure ()
   | "supported-toolchains" :: backend :: [] =>
       printSupportedToolchains home backend
+  | "compatible-release-lines" :: [] =>
+      printCompatibleReleaseLines home
   | "install-layout" :: [] =>
       printInstallLayout
   | "install-manifest" :: payloadHash :: sourceCommitArg :: toolchains =>

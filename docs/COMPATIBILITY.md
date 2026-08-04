@@ -8,8 +8,11 @@ hypothetical clients.
 
 - The core product goal is still the small Lean request shaped like `runAt(pos, "lean text")`,
   with typed request and response data.
-- Supported Lean toolchains listed in `supported-lean-toolchains`. Shims must name the Lean/Lake API
-  boundary they support and should be removed when the support window no longer needs them.
+- Exact CI-validated Lean toolchains listed in `supported-lean-toolchains`, plus canonical RC and
+  patch toolchains admitted by release lines in `compatible-lean-release-lines`. Release-line
+  variants must build and pass the local plugin qualification probe for their exact fingerprint.
+  Shims must name the Lean/Lake API boundary they support and should be removed when the support
+  window no longer needs them.
 - Versioned runtime bundle metadata and install-layout schemas.
 - The MCP protocol revision currently advertised by `lean-beam-mcp` and its conformance baseline.
 - Documented real client requirements, when they name an owner and removal condition.

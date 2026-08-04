@@ -105,17 +105,17 @@ private def prepareNonstandardLakeHome
       symlinkForce entry.path (lakeLibDir / name)
   pure lakeHome
 
-private structure LakeBuildInvocation where
+private structure LakeInvocation where
   cmd : String
   args : Array String
   env : Array (String × Option String) := #[]
 
-private def lakeBuildInvocationFor (bundleDir : System.FilePath) (toolchain : String)
+private def lakeInvocationFor (bundleDir : System.FilePath) (toolchain : String)
     (fingerprint : ToolchainFingerprint) :
-    IO LakeBuildInvocation := do
+    IO LakeInvocation := do
   let default := {
     cmd := "elan",
-    args := #["run", toolchain, "lake", "build", "Beam.LSP:shared", "beam-daemon", "beam-client"]
+    args := #["run", toolchain, "lake"]
   }
   let leanPrefix := System.FilePath.mk fingerprint.leanPrefix
   let libDir := System.FilePath.mk fingerprint.leanLibDir
@@ -126,7 +126,7 @@ private def lakeBuildInvocationFor (bundleDir : System.FilePath) (toolchain : St
     let lakeHome ← prepareNonstandardLakeHome bundleDir leanPrefix libDir
     pure {
       cmd := (lakeHome / ".lake" / "build" / "bin" / "lake").toString
-      args := #["build", "Beam.LSP:shared", "beam-daemon", "beam-client"]
+      args := #[]
       env := #[
         ("LAKE_HOME", some lakeHome.toString),
         ("LEAN", some (leanPrefix / "bin" / "lean").toString)
@@ -149,21 +149,69 @@ private def fallbackBuildFailureMessage (toolchain : String) (cacheRoot bundleDi
     if stderr.trimAscii.isEmpty then "(empty)" else stderr
   ]
 
+private def bundleQualificationFailureMessage
+    (toolchain : String)
+    (workspace probe : System.FilePath)
+    (stdout stderr : String) : String :=
+  String.intercalate "\n" [
+    s!"failed to qualify beam bundle for toolchain {toolchain}",
+    "the bundle compiled, but its freshly built Lean plugin did not pass the local load/elaboration probe",
+    s!"bundle workspace: {workspace}",
+    s!"qualification source: {probe}",
+    "the bundle was not marked ready and will not be reused",
+    "",
+    "qualification stdout:",
+    if stdout.trimAscii.isEmpty then "(empty)" else stdout,
+    "",
+    "qualification stderr:",
+    if stderr.trimAscii.isEmpty then "(empty)" else stderr
+  ]
+
+private def qualifyToolchainBundle
+    (bundleDir workspace : System.FilePath)
+    (toolchain : String)
+    (lake : LakeInvocation) : IO Unit := do
+  let qualificationDir := bundleDir / "qualification"
+  let probe := qualificationDir / "Probe.lean"
+  IO.FS.createDirAll qualificationDir
+  IO.FS.writeFile probe "example : True := by\n  trivial\n"
+  let plugin ← Beam.resolveExistingPath (bundlePathsFor workspace).plugin
+  let probe ← Beam.resolveExistingPath probe
+  let out ← IO.Process.output {
+    cmd := lake.cmd
+    args := lake.args ++ #[
+      "env",
+      "lean",
+      s!"--plugin={plugin}",
+      "-Dexperimental.module=true",
+      probe.toString
+    ]
+    env := lake.env
+    cwd := workspace.toString
+  }
+  if out.exitCode != 0 then
+    throw <| IO.userError <|
+      bundleQualificationFailureMessage toolchain workspace probe out.stdout out.stderr
+
 def buildToolchainBundle (home : System.FilePath) (toolchain srcHash : String)
     (fingerprint : ToolchainFingerprint)
     (cacheRoot bundleDir workspace : System.FilePath) : IO Unit := do
   ensureElan
+  let metadata := bundleMetadataPath bundleDir
+  if ← metadata.pathExists then
+    IO.FS.removeFile metadata
   syncBundleWorkspace home bundleDir workspace
   IO.eprintln s!"building beam bundle for {toolchain}"
-  let lakeBuild ← lakeBuildInvocationFor bundleDir toolchain fingerprint
+  let lake ← lakeInvocationFor bundleDir toolchain fingerprint
   let out ← IO.Process.output {
-    cmd := lakeBuild.cmd
-    args := lakeBuild.args
-    env := lakeBuild.env
+    cmd := lake.cmd
+    args := lake.args ++ #["build", "Beam.LSP:shared", "beam-daemon", "beam-client"]
+    env := lake.env
     cwd := workspace.toString
   }
   if out.exitCode != 0 then
     throw <| IO.userError <| fallbackBuildFailureMessage toolchain cacheRoot bundleDir out.stdout out.stderr
+  qualifyToolchainBundle bundleDir workspace toolchain lake
   writeBundleMetadata bundleDir toolchain srcHash fingerprint workspace
 
 def existingToolchainBundleForFingerprint? (cacheRoot home : System.FilePath) (toolchain : String)

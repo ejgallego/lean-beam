@@ -90,6 +90,7 @@ assert_runtime_layout() {
   assert_file "$runtime_root/Beam/LSP/Save.lean"
   assert_file "$runtime_root/Beam/LSP/DiagnosticsBarrier.lean"
   assert_file "$runtime_root/supported-lean-toolchains"
+  assert_file "$runtime_root/compatible-lean-release-lines"
   assert_file "$runtime_root/custom-lean-toolchains"
   assert_file "$runtime_root/libexec/beam-cli"
   assert_file "$runtime_root/libexec/beam-daemon"
@@ -321,6 +322,26 @@ remove_tmp_file "$unsupported_install_err"
 assert_not_exists "$BEAM_INSTALL_ROOT/current"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 0
 assert_not_exists "$BEAM_INSTALL_ROOT/state"
+
+compatible_plan_home="$tmp_root/compatible-plan-home"
+compatible_plan_install_root="$tmp_root/compatible-plan-install-root"
+compatible_plan_err="$(mktemp "$tmp_root/install-compatible-plan-XXXXXX")"
+mkdir -p "$compatible_plan_home"
+if (
+  cd "$source_checkout"
+  HOME="$compatible_plan_home" BEAM_INSTALL_ROOT="$compatible_plan_install_root" \
+    bash scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0-rc1 \
+      < /dev/null > /dev/null 2>"$compatible_plan_err"
+); then
+  echo "expected compatible release-line install plan to stop without write confirmation" >&2
+  remove_tmp_file "$compatible_plan_err"
+  exit 1
+fi
+assert_contains "$compatible_plan_err" 'leanprover/lean4:v4.31.0-rc1 (release-line compatible)'
+assert_contains "$compatible_plan_err" 'without confirmation'
+assert_not_contains "$compatible_plan_err" 'unsupported Lean toolchain requested for install'
+remove_tmp_file "$compatible_plan_err"
+assert_not_exists "$compatible_plan_install_root"
 
 no_prompt_home="$tmp_root/no-prompt-home"
 no_prompt_install_root="$tmp_root/no-prompt-install-root"
@@ -661,8 +682,9 @@ run_custom_toolchain_install_test() (
   rsync -a tests/save_olean_project/ "$custom_project_root"/
   printf '%s\n' "$custom_toolchain" > "$custom_project_root/lean-toolchain"
   custom_doctor_out="$(ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" doctor)"
-  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain supported: false'
-  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain custom: true'
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain admission: custom'
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain validated: false'
+  assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain release line: (not applicable)'
   assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain accepted: true'
   assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'bundle source: installed'
   assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'bundle toolchain fingerprint: '
@@ -1042,13 +1064,24 @@ if ! printf '%s\n' "$supported_out" | grep -qx "$toolchain"; then
   exit 1
 fi
 
+compatible_lines_out="$("$installed_lean_beam" compatible-release-lines)"
+if ! printf '%s\n' "$compatible_lines_out" | grep -qx 'leanprover/lean4:v4.31'; then
+  echo "expected compatible-release-lines to include Lean 4.31" >&2
+  printf '%s\n' "$compatible_lines_out" >&2
+  exit 1
+fi
+
 doctor_out="$("$installed_lean_beam" --root "$project_root" doctor)"
-assert_doctor_contains "installed wrapper" "$doctor_out" 'project toolchain supported: true'
-assert_doctor_contains "installed wrapper" "$doctor_out" 'supported toolchains registry: '
+assert_doctor_contains "installed wrapper" "$doctor_out" 'project toolchain admission: validated'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'project toolchain validated: true'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'project toolchain release line: (not applicable)'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'validated toolchains registry: '
+assert_doctor_contains "installed wrapper" "$doctor_out" 'compatible release lines registry: '
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle source inputs: '
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle key inputs: toolchain, toolchain fingerprint, platform, source hash'
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle toolchain fingerprint: '
 assert_doctor_contains "installed wrapper" "$doctor_out" 'supported-lean-toolchains'
+assert_doctor_contains "installed wrapper" "$doctor_out" 'compatible-lean-release-lines'
 assert_doctor_contains "installed wrapper" "$doctor_out" 'custom-lean-toolchains'
 assert_doctor_not_contains "installed wrapper" "$doctor_out" '.lake/packages'
 assert_doctor_contains "installed wrapper" "$doctor_out" 'bundle source: installed'
@@ -1214,8 +1247,13 @@ rsync -a tests/save_olean_project/ "$unsupported_project_root"/
 printf 'leanprover/lean4:v4.26.0\n' > "$unsupported_project_root/lean-toolchain"
 
 unsupported_doctor_out="$("$installed_lean_beam" --root "$unsupported_project_root" doctor)"
-if ! printf '%s\n' "$unsupported_doctor_out" | grep -q 'project toolchain supported: false'; then
+if ! printf '%s\n' "$unsupported_doctor_out" | grep -q 'project toolchain admission: unsupported'; then
   echo "expected doctor lean to report unsupported toolchains explicitly" >&2
+  printf '%s\n' "$unsupported_doctor_out" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$unsupported_doctor_out" | grep -q 'project toolchain accepted: false'; then
+  echo "expected doctor lean to reject unsupported toolchains explicitly" >&2
   printf '%s\n' "$unsupported_doctor_out" >&2
   exit 1
 fi

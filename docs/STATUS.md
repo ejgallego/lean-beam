@@ -129,23 +129,27 @@ discriminator.
 
 - Lean plugin loading currently depends on `-Dexperimental.module=true`.
 - Lean plugin loading is toolchain-keyed, not toolchain-agnostic.
-- Supported Lean toolchains are listed in
-  [supported-lean-toolchains](../supported-lean-toolchains).
+- Exact CI-validated Lean toolchains are listed in
+  [supported-lean-toolchains](../supported-lean-toolchains). Canonical RC and patch variants from
+  [compatible-lean-release-lines](../compatible-lean-release-lines) are admitted separately and
+  must build and pass a local plugin load/elaboration probe for their exact fingerprint.
 - The supported fast path is the Lean toolchain pinned by this repository's `lean-toolchain`, because
   the plugin uses internal Lean APIs.
-- The installer prebuilds the pinned supported toolchain by default and can prebuild additional
-  supported or explicitly custom toolchains; setup flags and offline notes live in
+- The installer prebuilds the pinned validated toolchain by default and can prebuild additional
+  validated, release-line-compatible, or explicitly custom toolchains; setup flags and offline notes live in
   [SETUP.md](SETUP.md).
 - Runtime requests first try that installed-skill bundle cache, then fall back to a project-local
-  runtime bundle under `.beam/bundles/` for supported or explicitly custom toolchains.
-- Unsupported Lean toolchains that are not explicitly custom fail early instead of attempting an
-  opportunistic build.
+  runtime bundle under `.beam/bundles/` for validated, release-line-compatible, or explicitly custom
+  toolchains.
+- Toolchains outside the validated exact list and compatible canonical release lines that are not
+  explicitly custom fail early instead of attempting an opportunistic build.
 - Bundle rebuild keys intentionally exclude the full `.lake/packages` checkout tree and instead use
   the resolved toolchain fingerprint, the runtime source tree, `lean-toolchain`,
-  `lake-manifest.json`, and `supported-lean-toolchains` / `custom-lean-toolchains`. See
+  `lake-manifest.json`, `supported-lean-toolchains`, `compatible-lean-release-lines`, and
+  `custom-lean-toolchains`. See
   [CUSTOM_TOOLCHAINS.md](CUSTOM_TOOLCHAINS.md) for the custom toolchain and runtime-bundle model.
-- The first use of a supported or explicitly custom but not-yet-prebuilt toolchain must still build
-  a matching local fallback bundle.
+- The first use of an accepted but not-yet-prebuilt toolchain must still build and qualify a matching
+  local fallback bundle.
 - On a cold machine, that local fallback build may need network access to fetch dependencies.
 
 ### Runtime And Sandbox Behavior

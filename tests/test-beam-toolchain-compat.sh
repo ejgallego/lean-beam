@@ -33,6 +33,8 @@ build_stdout="$tmp_env_root/build.stdout"
 build_stderr="$tmp_env_root/build.stderr"
 bundle_stdout="$tmp_env_root/bundle-install.stdout"
 bundle_stderr="$tmp_env_root/bundle-install.stderr"
+admission_stdout="$tmp_env_root/admission.stdout"
+admission_stderr="$tmp_env_root/admission.stderr"
 stale_project_root="$tmp_env_root/stale-diagnostic-project"
 stale_build_stdout="$tmp_env_root/stale-build.stdout"
 stale_build_stderr="$tmp_env_root/stale-build.stderr"
@@ -101,6 +103,8 @@ print_toolchain_context() {
   tail_file "build stderr" "$build_stderr"
   tail_file "bundle stdout" "$bundle_stdout"
   tail_file "bundle stderr" "$bundle_stderr"
+  tail_file "admission stdout" "$admission_stdout"
+  tail_file "admission stderr" "$admission_stderr"
   tail_file "stale build stdout" "$stale_build_stdout"
   tail_file "stale build stderr" "$stale_build_stderr"
   tail_file "stale sync stdout" "$stale_sync_stdout"
@@ -159,6 +163,41 @@ run_bundle_install() {
   if [ "$rc" -ne 0 ]; then
     print_toolchain_context "bundle install failed"
     return "$rc"
+  fi
+}
+
+run_toolchain_admission_check() {
+  local expected_admission="release-line"
+  local expected_release_line=""
+  local qualification_probe=""
+  prepare_stale_diagnostic_project
+  if grep -v '^[[:space:]]*#' supported-lean-toolchains |
+      sed '/^[[:space:]]*$/d' | grep -qxF "$toolchain"; then
+    expected_admission="validated"
+  fi
+  if ! run_stale_wrapper doctor > "$admission_stdout" 2> "$admission_stderr"; then
+    print_toolchain_context "toolchain admission doctor failed"
+    return 1
+  fi
+  if ! grep -q "project toolchain admission: $expected_admission" "$admission_stdout"; then
+    print_toolchain_context "toolchain admission classification changed"
+    return 1
+  fi
+  if ! grep -q 'project toolchain accepted: true' "$admission_stdout"; then
+    print_toolchain_context "accepted toolchain was rejected by doctor"
+    return 1
+  fi
+  if [ "$expected_admission" = "release-line" ]; then
+    expected_release_line="$(printf '%s\n' "$toolchain" | sed -E 's#^leanprover/lean4:v([0-9]+\.[0-9]+)\..*$#\1#')"
+    if ! grep -q "project toolchain release line: $expected_release_line" "$admission_stdout"; then
+      print_toolchain_context "release-line doctor classification changed"
+      return 1
+    fi
+  fi
+  qualification_probe="$(find "$tmp_bundle_dir" -type f -path '*/qualification/Probe.lean' -print -quit)"
+  if [ -z "$qualification_probe" ]; then
+    print_toolchain_context "bundle qualification probe was not recorded"
+    return 1
   fi
 }
 
@@ -287,4 +326,5 @@ EOF
 
 run_step "build beam-cli" run_build
 run_step "bundle install $toolchain" run_bundle_install
+run_step "toolchain admission $toolchain" run_toolchain_admission_check
 run_step "stale diagnostic wording $toolchain" run_stale_diagnostic_compat

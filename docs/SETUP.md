@@ -64,23 +64,41 @@ installed wrappers directly.
 
 ## Supported Toolchains And Bundles
 
-Lean Beam serves validated Lean toolchains listed in
-[`supported-lean-toolchains`](../supported-lean-toolchains). Check that file before install if you
-need a specific Lean release. After install, the wrapper reports the same validated allowlist with:
+Lean Beam distinguishes exact validated toolchains from compatible release lines. Exact toolchains
+listed in [`supported-lean-toolchains`](../supported-lean-toolchains) receive the full CI matrix.
+The wrapper reports that validated allowlist with:
 
 ```bash
 lean-beam supported-toolchains
 ```
 
+[`compatible-lean-release-lines`](../compatible-lean-release-lines) lists canonical Lean release
+lines whose other patch and release-candidate toolchains Beam may build and qualify locally. Inspect
+those lines after install with:
+
+```bash
+lean-beam compatible-release-lines
+```
+
+For example, a `leanprover/lean4:v4.31` entry admits canonical immutable names such as
+`leanprover/lean4:v4.31.0-rc1` and `leanprover/lean4:v4.31.2`. It does not admit nightlies, mutable
+aliases, linked toolchains, other vendors, or malformed version spellings. Release-line admission is
+not the same claim as exact CI validation: Beam builds a bundle for the exact resolved toolchain
+fingerprint and loads the resulting plugin in a small Lean elaboration probe before marking that
+bundle ready.
+
 The repository's [`lean-toolchain`](../lean-toolchain) is the default toolchain prebuilt by the
-installer. The allowlist may include adjacent Lean releases for compatibility testing; the file
-above and `lean-beam supported-toolchains` are the source of truth. If your target projects use
-other supported Lean releases, prebuild those bundles too:
+installer. If your target projects use another validated toolchain or a compatible canonical
+RC/patch variant, prebuild those bundles by exact name:
 
 ```bash
 ./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0
+./scripts/install-beam.sh --toolchain leanprover/lean4:v4.31.0-rc1
 ./scripts/install-beam.sh --all-supported
 ```
+
+`--all-supported` prebuilds the finite exact validated allowlist; it does not attempt every possible
+RC or patch version from compatible release lines.
 
 If you are working on Lean itself or another local Lean build through an elan-linked toolchain, use
 `--custom-toolchain <toolchain>` to explicitly accept and prebuild that toolchain for this Beam
@@ -96,9 +114,9 @@ installed runtime's `custom-lean-toolchains` registry and includes the resolved 
 in bundle keys, so relinking a local toolchain creates a different bundle rather than reusing stale
 helpers. See [CUSTOM_TOOLCHAINS.md](CUSTOM_TOOLCHAINS.md) for the full model.
 
-If a supported or explicitly custom target toolchain was not prebuilt, first use can still build a
-project-local fallback bundle under that project's Beam state. On a cold machine, that fallback may
-need network access to fetch dependencies.
+If a validated, release-line-compatible, or explicitly custom target toolchain was not prebuilt,
+first use can still build and qualify a project-local fallback bundle under that project's Beam
+state. On a cold machine, that fallback may need network access to fetch dependencies.
 
 If you are unsure which runtime bundle is active or why a toolchain is rejected, use:
 
@@ -332,8 +350,8 @@ write-location prompt before approving writes.
 ## Slow Or Offline Installs
 
 On a cold machine, first bundle builds may need network access to fetch dependencies. When
-travelling or working on a slow connection, install the supported Lean toolchains into the host
-elan cache ahead of time:
+travelling or working on a slow connection, install the exact validated Lean toolchains into the
+host elan cache ahead of time:
 
 ```bash
 grep -v '^[[:space:]]*#' supported-lean-toolchains | sed '/^[[:space:]]*$/d' |

@@ -38,6 +38,7 @@ def usage : String :=
     "  beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]",
     "  beam bundle-install <toolchain>",
     "  beam supported-toolchains lean",
+    "  beam compatible-release-lines",
     "  beam [--root PATH] doctor lean|rocq",
     "  beam [--root PATH] open-files",
     "  beam [--root PATH] cancel <request-id>",
