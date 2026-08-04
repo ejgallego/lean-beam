@@ -251,7 +251,9 @@ def ensureToolchainBundleInForFingerprint (cacheRoot home : System.FilePath) (to
     (fingerprint : ToolchainFingerprint) : IO (BundlePaths × String) := do
   let (bundleDir, bundleId, srcHash) ← bundleDirForFingerprint cacheRoot home toolchain fingerprint
   let workspace := bundleWorkspaceFor bundleDir
-  withLock (bundleDir / "lock") do
+  let some platformRoot := bundleDir.parent
+    | throw <| IO.userError s!"bundle directory has no platform root: {bundleDir}"
+  withLock (bundleBuildLockPath platformRoot bundleId) do
     unless ← bundleReady bundleDir toolchain srcHash fingerprint do
       buildToolchainBundle home toolchain srcHash fingerprint cacheRoot bundleDir workspace
   pure (bundlePathsFor workspace, bundleId)

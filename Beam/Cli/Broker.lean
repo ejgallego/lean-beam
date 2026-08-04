@@ -93,8 +93,8 @@ private def mkInterruptWatcher? (clientRequestId? : Option String) : IO (Option 
   | none => pure none
   | some _ =>
       let signal ← Std.Internal.UV.Signal.mk 2 false
+      let promise ← Std.Internal.UV.Signal.next signal
       let task ← IO.asTask (prio := Task.Priority.dedicated) do
-        let promise ← Std.Internal.UV.Signal.next signal
         let some _ ← IO.wait promise.result?
           | throw <| IO.userError "SIGINT watcher promise dropped"
         pure ()

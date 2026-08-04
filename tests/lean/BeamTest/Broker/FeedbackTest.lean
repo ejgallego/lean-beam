@@ -42,7 +42,9 @@ private def sampleCollection (home : String) : Beam.Feedback.Collection := {
       ("source_commit", toJson "0123456789abcdef"),
       ("source_branch", toJson "feedback"),
       ("source_dirty", toJson true),
-      ("runtime_active", toJson true)
+      ("runtime_active", toJson true),
+      ("runtime_current", toJson false),
+      ("runtime_error", toJson "invalid install manifest")
     ]),
     ("stats", Json.mkObj [("requests", toJson (3 : Nat))]),
     ("openFiles", Json.arr #[Json.mkObj [("path", toJson s!"{home}/project/Demo.lean")]]),
@@ -63,6 +65,10 @@ private def checkRenderAndRedaction : IO Unit := do
   require "report card summary includes kind" (result.markdown.contains "- Kind: `bug`")
   require "report card summary includes severity" (result.markdown.contains "- Severity: `high`")
   require "report card runtime section" (result.markdown.contains "## Beam Runtime")
+  require "report card runtime section includes stale installed runtime"
+    (result.markdown.contains "- runtime current: `false`")
+  require "report card runtime section includes installed runtime error"
+    (result.markdown.contains "- runtime error: `invalid install manifest`")
   require "report card runtime section includes source" (result.markdown.contains "commit 0123456789ab")
   require "report card debug context section" (result.markdown.contains "## Beam Debug Context")
   require "report card should render collection warnings"

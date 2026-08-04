@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Path
 import Beam.System
 
 open Lean
@@ -31,8 +32,9 @@ private def lockPollMs : Nat :=
 
 private def readLockPid? (lockDir : System.FilePath) : IO (Option Nat) := do
   try
-    if ← (lockDir / "pid").pathExists then
-      let text ← IO.FS.readFile (lockDir / "pid")
+    let pidPath := lockDir / "pid"
+    if ← Beam.regularNonSymlinkFile pidPath then
+      let text ← IO.FS.readFile pidPath
       pure <| trimLine text |>.toNat?
     else
       pure none
@@ -69,10 +71,29 @@ private partial def acquireLockCore
   if let some parent := lockDir.parent then
     IO.FS.createDirAll parent
   let selfPid ← IO.Process.getPID
-  try
-    IO.FS.createDir lockDir
-    IO.FS.writeFile (lockDir / "pid") s!"{selfPid}\n"
-  catch _ =>
+  let acquired ←
+    try
+      IO.FS.createDir lockDir
+      pure true
+    catch
+    | .alreadyExists .. =>
+      pure false
+    | error =>
+      throw error
+  if acquired then
+    try
+      IO.FS.writeFile (lockDir / "pid") s!"{selfPid}\n"
+      return
+    catch error =>
+      try
+        if ← lockDir.pathExists then
+          IO.FS.removeDirAll lockDir
+      catch cleanupError =>
+        throw <| IO.userError <|
+          s!"failed to publish Beam lock owner at {lockDir}: {error}; " ++
+            s!"also failed to remove the acquired lock: {cleanupError}"
+      throw error
+  else
     let ownerPid? ← readLockPid? lockDir
     if ← removeStaleLock? lockDir ownerPid? then
       acquireLockCore lockDir timeoutMs? waitedMs

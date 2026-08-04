@@ -37,10 +37,6 @@ beam_wrapper_require_bins() {
   fi
 }
 
-beam_wrapper_realpath() {
-  python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"
-}
-
 read_json_field() {
   python3 - "$1" "$2" <<'PY'
 import json, sys

@@ -4,6 +4,10 @@
 # Released under Apache 2.0 license as described in the file LICENSE.
 # Author: Emilio J. Gallego Arias
 
+beam_test_realpath() {
+  python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
 beam_test_tmp_prefix_matches() {
   if [ "$#" -lt 2 ]; then
     return 1

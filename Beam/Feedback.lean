@@ -389,6 +389,8 @@ private def runtimeSummarySection (collection : Collection) : String :=
     optionalLine "MCP protocol" (jsonStringField? identity "mcp_protocol") ++
     optionalLine "active root" activeRoot? ++
     optionalLine "runtime active" ((jsonBoolField? identity "runtime_active").map boolText) ++
+    optionalLine "runtime current" ((jsonBoolField? identity "runtime_current").map boolText) ++
+    optionalLine "runtime error" (jsonStringField? identity "runtime_error") ++
     optionalLine "source" source? ++
     optionalLine "daemon registry pid" (jsonStringField? daemon "registryPidStatus") ++
     optionalLine "daemon endpoint" (jsonStringField? daemon "registryEndpoint") ++

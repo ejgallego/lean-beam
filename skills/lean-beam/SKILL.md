@@ -38,7 +38,17 @@ Use `lean-beam --version` for CLI bug reports and installed runtime identity che
 `lean-beam-mcp --version` to verify which installed MCP server wrapper, server binary, runtime
 payload hash, manifest, and source commit a client command resolves. Source checkout runs also
 report git commit/branch/dirty state when available. From a live MCP session, call `beam_version`
-to report the running server process identity as structured content.
+to report the running server process identity as structured content. Installed identities include
+`runtime_current`; if a live session reports `false` after reinstalling, restart the agent or MCP
+client so it launches the current runtime. If a newly resolved installed wrapper still reports
+`false`, the install root's `current` link is missing or broken; stop normal Beam work and reinstall.
+If an installed identity reports `runtime_error`, do not treat it as a source checkout or try to
+clean it with `lean-beam prune`. After stopping active Beam agents and MCP clients, move an invalid
+manifest runtime out of `BEAM_INSTALL_ROOT/versions`, preserve it for inspection, and rerun the
+installer. For an invalid install-root marker, preserve and rename the exact `BEAM_INSTALL_ROOT` as
+a unit before reinstalling; do not recreate its ownership marker in place or delete the preserved
+state.
+
 `lean_init_workspace` with `mode: "reset"` restarts the Lean runtime inside the current MCP server
 process; it does not prove the MCP server binary itself was refreshed.
 
@@ -280,6 +290,8 @@ Use `lean-beam`, not raw JSON and not raw LSP.
   `lean-beam compatible-release-lines`, and `lean-beam doctor` to inspect the decision
 - restarts the Beam daemon if the effective Lean startup configuration for that root changes
 - `lean-beam shutdown`, `lean-beam stats`, and `lean-beam reset-stats` apply to the current project only
+- `lean-beam prune` previews old installed runtimes; restart active agents and MCP clients before
+  any `--apply`, and add `--bundles` when stale installed bundle caches should also be removed
 - wrapper commands talk to the per-project Beam daemon over localhost TCP; they are not direct in-process Lean calls
 - `lean-beam ensure --hold` prints the usual JSON ensure response on stdout, keeps the wrapper
   process alive until interrupted, and is only for environments that reap background daemons when

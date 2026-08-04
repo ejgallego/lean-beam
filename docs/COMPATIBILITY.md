@@ -17,7 +17,9 @@ A Lean release line is the canonical `major.minor` family recorded in
   variants must build and pass the local plugin qualification probe for their exact fingerprint.
   Shims must name the Lean/Lake API boundary they support and should be removed when the support
   window no longer needs them.
-- Versioned runtime bundle metadata and install-layout schemas.
+- Runtime bundle metadata schema 2 and install manifest schema 3. Install manifest schema 2 is
+  cleanup-only compatibility during the 0.2 release line: identity and `lean-beam prune` may read it,
+  but the installer does not reuse it. Remove the schema-2 decoder when 0.3 development opens.
 - The MCP protocol revision currently advertised by `lean-beam-mcp` and its conformance baseline.
 - Documented real client requirements, when they name an owner and removal condition.
 

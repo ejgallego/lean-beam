@@ -34,6 +34,7 @@ usage:
   lean-beam [--root PATH] [--port N] rocq-goals-after <path> <line> <character> [text...]
   lean-beam [--root PATH] [--port N] rocq-goals-prev <path> <line> <character> [text...]
   lean-beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]
+  lean-beam prune [--apply] [--bundles]
   lean-beam validated-toolchains [lean]
   lean-beam compatible-release-lines
   lean-beam [--root PATH] doctor [lean|rocq]
@@ -54,6 +55,8 @@ notes:
   - set `BEAM_DEBUG_TEXT=1` to print the exact escaped text and UTF-8 bytes sent for text-carrying Lean probes
   - use `lean-beam --version` for bug reports and installed runtime identity checks
   - validated-toolchains lists exact CI-validated versions; compatible-release-lines lists canonical RC/patch families qualified locally
+  - prune previews old installed runtimes; restart active agents and MCP clients before using --apply
+  - prune --bundles also selects stale installed bundle-cache entries
   - use `lean-beam feedback` with JSON object input to produce a pasteable Beam report card with debug context
 EOF
 }
@@ -224,6 +227,9 @@ case "$cmd" in
   close-save)
     mapped=("lean-close-save")
     display_cmd="$cmd"
+    ;;
+  prune)
+    mapped=("install-prune")
     ;;
   ensure)
     if [ "${#rest[@]}" -eq 0 ]; then

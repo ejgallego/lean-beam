@@ -57,9 +57,10 @@ daemon registry status, startup log tail, and recent daemon incident records.
 Call `beam_feedback` with the same required fields plus the `workspace_id` whose project and runtime
 context should be collected. MCP returns compact report-card JSON in
 `structuredContent`: `markdown`, `metadata`, `collection_warnings`, and any bundle paths. The
-default Markdown includes a short Beam runtime summary instead of the full collected debug JSON.
-Pass `include_collected: true` to include the full collected Beam debug context inline and render
-the full debug-context section in Markdown.
+default Markdown includes a short Beam runtime summary instead of the full collected debug JSON,
+including stale-runtime or invalid-install identity when available. Pass `include_collected: true`
+to include the full collected Beam debug context inline and render the full debug-context section in
+Markdown.
 
 MCP does not start a Lean runtime just to collect feedback. For the selected workspace, it includes
 daemon registry and recent daemon incident context. When a runtime is active, it also includes

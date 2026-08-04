@@ -88,7 +88,9 @@ Additional Beam lanes:
 
 Current Beam coverage includes:
 
-- fast Beam daemon smoke, request-stream, save-stream, startup-handshake, tracked-diagnostic dedup, protocol tests, and supported-toolchain CI matrix consistency through [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
+- fast Beam daemon smoke, request-stream, save-stream, startup-handshake, tracked-diagnostic dedup,
+  protocol tests, and validated-toolchain/release-line CI policy consistency through
+  [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
@@ -96,8 +98,12 @@ Current Beam coverage includes:
   race coverage in
   [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
 - install flow, installed runtime layout, manifest metadata, exact/compatible toolchain selection,
-  `validated-toolchains`, `compatible-release-lines`, `doctor`, and installed MCP wrapper coverage
-  in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
+  shell/Lean owned-root marker parity, required artifact and executable-mode validation,
+  content-addressed runtime reuse, schema-2 reuse rejection and cleanup compatibility,
+  `validated-toolchains`,
+  `compatible-release-lines`, `doctor`, installed-state pruning, and installed MCP wrapper coverage
+  in [tests/test-beam-install.sh](../tests/test-beam-install.sh), with focused prune safety and
+  invalid-runtime identity cases in [tests/test-beam-prune.sh](../tests/test-beam-prune.sh)
 - MCP protocol, projection, stdio, HTTP bridge, self-check, and external conformance coverage
 - Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [tests/lean/BeamTest/Broker/RocqSmokeTest.lean](../tests/lean/BeamTest/Broker/RocqSmokeTest.lean)
 
@@ -233,7 +239,9 @@ to `BEAM_MCP_STDIO_WAIT_DIAGNOSTICS_WATCHDOG_MS=10000`. Set `BEAM_MCP_STDIO_SERV
 when intentionally checking the quiet stderr path. The fast suite's installed-wrapper self-check uses
 `BEAM_MCP_SELF_CHECK_TIMEOUT_MS`, defaulting to 120 seconds, because first-time bundle setup may
 build the local fixture under CI contention. Keep `--timeout 30` for local repro attempts unless you
-are specifically checking the CI budget.
+are specifically checking the CI budget. The focused daemon lifecycle fixture explicitly prebuilds
+its toolchain into one owned shared cache before timing daemon startup, so cold bundle compilation
+is not misdiagnosed as a daemon-readiness timeout.
 
 The focused harness also accepts `progress-explicit-sync`, `no-progress-roots-sync`, and
 `no-progress-explicit-sync` as `--scenario` values. Use those variants to isolate whether a timeout

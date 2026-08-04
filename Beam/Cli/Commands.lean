@@ -10,6 +10,7 @@ import Beam.Cli.Broker
 import Beam.Cli.DaemonManager
 import Beam.Cli.Feedback
 import Beam.Cli.Info
+import Beam.Cli.InstallPrune
 import Beam.Cli.LeanOperation
 import Beam.Cli.Lock
 import Beam.Cli.Project
@@ -128,13 +129,18 @@ private def shutdownProjectDaemon (opts : CliOptions) : IO Unit := do
 private def backendOfName (name : String) : Backend :=
   if name == "rocq" then .rocq else .lean
 
-private def holdUntilInterrupted : IO Unit := do
+private def runThenHoldUntilInterrupted (act : IO Unit) : IO Unit := do
   let signal ← Std.Internal.UV.Signal.mk 2 false
-  try
-    let promise ← Std.Internal.UV.Signal.next signal
+  let promise ← Std.Internal.UV.Signal.next signal
+  let task ← IO.asTask (prio := Task.Priority.dedicated) do
     let some _ ← IO.wait promise.result?
       | throw <| IO.userError "SIGINT watcher promise dropped"
     pure ()
+  try
+    act
+    match ← IO.wait task with
+    | .ok () => pure ()
+    | .error err => throw err
   finally
     Std.Internal.UV.Signal.stop signal
 
@@ -146,11 +152,15 @@ private def ensureBackend
   let root ← projectRoot opts backend
   let daemon ← ensureProjectDaemon home root backend opts
   withWrapperLease root daemon.startedNew do
-    callBroker root daemon.endpoint { op := .ensure, backend := backend, root? := some root.toString }
     if hold then
-      (← IO.getStdout).flush
-      IO.eprintln "beam: holding ensured daemon; interrupt this wrapper process when finished"
-      holdUntilInterrupted
+      runThenHoldUntilInterrupted do
+        callBroker root daemon.endpoint {
+          op := .ensure, backend := backend, root? := some root.toString
+        }
+        (← IO.getStdout).flush
+        IO.eprintln "beam: holding ensured daemon; interrupt this wrapper process when finished"
+    else
+      callBroker root daemon.endpoint { op := .ensure, backend := backend, root? := some root.toString }
 
 def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   match opts.args with
@@ -167,14 +177,18 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
             pure <| roots.headD (beamStateDir home / installBundlesDirName)
       let _ ← ensureToolchainBundleIn cacheRoot home toolchain
       pure ()
+  | "install-prune" :: args =>
+      runInstallPrune home args
   | "validated-toolchains" :: backend :: [] =>
       printValidatedToolchains home backend
   | "compatible-release-lines" :: [] =>
       printCompatibleReleaseLines home
   | "install-layout" :: [] =>
       printInstallLayout
-  | "install-manifest" :: payloadHash :: sourceCommitArg :: toolchains =>
-      printInstallManifest payloadHash sourceCommitArg toolchains
+  | "install-manifest" :: payloadHash :: sourceCommitArg :: createdWithToolchains =>
+      printInstallManifest payloadHash sourceCommitArg createdWithToolchains
+  | "install-runtime-validate" :: path :: [] =>
+      validateInstalledRuntimeForReuse (System.FilePath.mk path)
   | "mcp-config" :: [] =>
       printMcpConfig home opts
   | "feedback" :: args =>

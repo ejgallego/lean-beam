@@ -5,7 +5,9 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import Beam.Cli.InstallLayout
 import Beam.Git
+import Beam.Path
 
 open Lean
 
@@ -33,32 +35,12 @@ private def optionalBoolField (key : String) (value? : Option Bool) : List (Stri
   | some value => [(key, toJson value)]
   | none => []
 
-private def runtimePayload? (home : System.FilePath) : Option String := do
-  let parent ← home.parent
-  let parentName ← parent.fileName
-  if parentName == "versions" then
-    home.fileName
-  else
-    none
-
-private def manifestPath? (home : System.FilePath) : IO (Option System.FilePath) := do
-  let path := home / "manifest.json"
-  if ← path.pathExists then
-    pure (some path)
-  else
-    pure none
-
-private def manifestSourceCommit? (manifest? : Option System.FilePath) : IO (Option String) := do
-  match manifest? with
-  | none => pure none
-  | some manifest =>
-      try
-        let json ← IO.ofExcept <| Json.parse (← IO.FS.readFile manifest)
-        match json.getObjVal? "sourceCommit" with
-        | .ok (.str commit) => pure (some commit)
-        | _ => pure none
-      catch _ =>
-        pure none
+private def installedRuntimeCurrent
+    (home : System.FilePath) (location : Beam.Cli.InstalledRuntimeLocation) : IO Bool := do
+  let current := location.installRoot / "current"
+  unless ← current.pathExists do
+    return false
+  Beam.sameFilePath current home
 
 structure Identity where
   name : String
@@ -75,6 +57,8 @@ structure Identity where
   sourceDirty? : Option Bool := none
   activeRoot? : Option String := none
   runtimeActive? : Option Bool := none
+  runtimeCurrent? : Option Bool := none
+  runtimeError? : Option String := none
 
 def Identity.asJson (identity : Identity) : Json :=
   Json.mkObj <|
@@ -93,7 +77,9 @@ def Identity.asJson (identity : Identity) : Json :=
     optionalField "source_branch" identity.sourceBranch? ++
     optionalBoolField "source_dirty" identity.sourceDirty? ++
     optionalField "active_root" identity.activeRoot? ++
-    optionalBoolField "runtime_active" identity.runtimeActive?
+    optionalBoolField "runtime_active" identity.runtimeActive? ++
+    optionalBoolField "runtime_current" identity.runtimeCurrent? ++
+    optionalField "runtime_error" identity.runtimeError?
 
 def Identity.textLines (identity : Identity) : List String :=
   [s!"{identity.name} {identity.version}"] ++
@@ -134,6 +120,12 @@ def Identity.textLines (identity : Identity) : List String :=
   | none => []) ++
   (match identity.runtimeActive? with
   | some active => [s!"runtime active: {active}"]
+  | none => []) ++
+  (match identity.runtimeCurrent? with
+  | some current => [s!"runtime current: {current}"]
+  | none => []) ++
+  (match identity.runtimeError? with
+  | some error => [s!"runtime error: {error}"]
   | none => [])
 
 def Identity.text (identity : Identity) : String :=
@@ -148,24 +140,50 @@ def mkRuntimeIdentity
     (mcpProtocol? : Option String := none)
     (activeRoot? : Option System.FilePath := none)
     (runtimeActive? : Option Bool := none) : IO Identity := do
-  let manifest? ←
+  let runtimeResolution? ←
     match home? with
-    | some home => manifestPath? home
+    | some home => pure <| some (← Beam.Cli.resolveRuntimeHome home)
     | none => pure none
-  let manifestCommit? ← manifestSourceCommit? manifest?
+  let installedRuntime? :=
+    match runtimeResolution? with
+    | some (.installed runtime) => some runtime
+    | _ => none
+  let invalidRuntime? :=
+    match runtimeResolution? with
+    | some (.invalidInstalled runtime) => some runtime
+    | _ => none
+  let sourceHome? :=
+    match runtimeResolution? with
+    | some (.source home) => some home
+    | _ => none
+  let manifest? := installedRuntime?.map (·.manifestPath)
+    |>.orElse (fun _ => invalidRuntime?.bind (·.manifestPath?))
+  let manifestCommit? := installedRuntime?.bind (fun runtime => runtime.manifest.sourceCommit)
   let sourceCommit? ←
-    match home?, manifestCommit? with
-    | _, some commit => pure (some commit)
-    | some home, none => Beam.Git.fullCommitAt? home
+    match manifestCommit?, sourceHome? with
+    | some commit, _ => pure (some commit)
+    | none, some home => Beam.Git.fullCommitAt? home
     | none, none => pure none
   let sourceBranch? ←
-    match home?, manifest? with
-    | some home, none => Beam.Git.branchAt? home
-    | _, some _ | none, none => pure none
+    match sourceHome? with
+    | some home => Beam.Git.branchAt? home
+    | none => pure none
   let sourceDirty? ←
-    match home?, manifest? with
-    | some home, none => Beam.Git.dirtyAt? home
-    | _, some _ | none, none => pure none
+    match sourceHome? with
+    | some home => Beam.Git.dirtyAt? home
+    | none => pure none
+  let runtimeCurrent? ←
+    match installedRuntime?, invalidRuntime? with
+    | some runtime, _ =>
+        pure <| some (← installedRuntimeCurrent runtime.home runtime.location)
+    | none, some runtime =>
+        pure <| some (← installedRuntimeCurrent runtime.home runtime.location)
+    | none, none => pure none
+  let runtimePayload? :=
+    installedRuntime?.map (·.location.payload)
+      |>.orElse (fun _ => invalidRuntime?.map (·.location.payload))
+  let runtimeError? :=
+    invalidRuntime?.map Beam.Cli.describeInstalledRuntimeError
   pure {
     name
     mcpProtocol?
@@ -173,13 +191,15 @@ def mkRuntimeIdentity
     beamHome? := home?.map (·.toString)
     beamCli?
     serverBinary?
-    runtimePayload? := home?.bind runtimePayload?
+    runtimePayload?
     manifest? := manifest?.map (·.toString)
     sourceCommit?
     sourceBranch?
     sourceDirty?
     activeRoot? := activeRoot?.map (·.toString)
     runtimeActive?
+    runtimeCurrent?
+    runtimeError?
   }
 
 def mcpServerIdentity
