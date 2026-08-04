@@ -187,6 +187,10 @@ run_toolchain_admission_check() {
     print_toolchain_context "accepted toolchain was rejected by doctor"
     return 1
   fi
+  if ! grep -q 'bundle ready: true' "$admission_stdout"; then
+    print_toolchain_context "qualified bundle was not marked ready"
+    return 1
+  fi
   if [ "$expected_admission" = "release-line" ]; then
     expected_release_line="$(printf '%s\n' "$toolchain" | sed -E 's#^leanprover/lean4:v([0-9]+\.[0-9]+)\..*$#\1#')"
     if ! grep -q "project toolchain release line: $expected_release_line" "$admission_stdout"; then

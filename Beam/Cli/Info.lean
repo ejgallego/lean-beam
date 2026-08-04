@@ -186,7 +186,7 @@ def doctor (home : System.FilePath) (opts : CliOptions) (backend : Backend) : IO
 def printSupportedToolchains (home : System.FilePath) (backendName : String) : IO Unit := do
   match backendName with
   | "lean" =>
-      let (_, toolchains) ← supportedLeanToolchains home
+      let (_, toolchains) ← validatedLeanToolchains home
       for toolchain in toolchains do
         IO.println toolchain
   | _ =>

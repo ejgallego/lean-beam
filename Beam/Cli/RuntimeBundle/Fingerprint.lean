@@ -6,8 +6,8 @@ Author: Emilio J. Gallego Arias
 
 import Lean
 import Beam.Cli.Lock
-import Beam.Cli.RuntimeBundle.Paths
 import Beam.Cli.RuntimeBundle.Source
+import Beam.Cli.RuntimeBundle.ToolchainPolicy
 
 open Lean
 

@@ -6,6 +6,10 @@ hypothetical clients.
 
 ## Current Targets
 
+A Lean release line is the canonical `major.minor` family recorded in
+`compatible-lean-release-lines`. An exact toolchain variant is a canonical immutable
+`major.minor.patch` or `major.minor.patch-rcN` name within that family.
+
 - The core product goal is still the small Lean request shaped like `runAt(pos, "lean text")`,
   with typed request and response data.
 - Exact CI-validated Lean toolchains listed in `supported-lean-toolchains`, plus canonical RC and

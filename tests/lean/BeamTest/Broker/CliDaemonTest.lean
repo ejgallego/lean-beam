@@ -900,6 +900,13 @@ private def checkLeanToolchainAdmission : IO Unit := do
       "invalid release-line registry"
       "invalid compatible Lean release line"
       (Beam.Cli.leanToolchainSupport root "leanprover/lean4:v4.31.0-rc2")
+
+    IO.FS.writeFile (Beam.Cli.compatibleLeanReleaseLinesPath root)
+      "leanprover/lean4:v4.31\nleanprover/lean4:v4.31\n"
+    expectIoErrorContains
+      "duplicate release-line registry"
+      "duplicate compatible Lean release line"
+      (Beam.Cli.leanToolchainSupport root "leanprover/lean4:v4.31.0-rc2")
   finally
     try
       if ← root.pathExists then

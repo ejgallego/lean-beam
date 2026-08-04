@@ -56,7 +56,6 @@ bin_writes_approved=0
 source_build_approved=0
 requested_toolchains=()
 requested_custom_toolchains=()
-compatible_release_lines=()
 installed_skill_targets=()
 registered_mcp_targets=()
 manual_mcp_targets=()
@@ -993,12 +992,7 @@ print_install_plan() {
   if [ "${#prepared_selected_toolchains[@]}" -gt 0 ]; then
     local first_toolchain=1
     for toolchain in ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}; do
-      display_toolchain="$toolchain"
-      if array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
-        display_toolchain="$toolchain (custom)"
-      elif ! toolchain_is_validated "$toolchain" && toolchain_is_release_line_compatible "$toolchain"; then
-        display_toolchain="$toolchain (release-line compatible)"
-      fi
+      display_toolchain="$(display_prepared_toolchain "$toolchain")"
       if [ "$first_toolchain" -eq 1 ]; then
         print_field "toolchains" "$display_toolchain"
         first_toolchain=0
@@ -1364,10 +1358,12 @@ install_path_status() {
   fi
 }
 
-display_toolchain_for_summary() {
+display_prepared_toolchain() {
   local toolchain="$1"
   if array_contains "$toolchain" ${prepared_custom_toolchains[@]+"${prepared_custom_toolchains[@]}"}; then
     printf '%s (custom)\n' "$toolchain"
+  elif ! toolchain_is_validated "$toolchain" && toolchain_is_release_line_compatible "$toolchain"; then
+    printf '%s (release-line compatible)\n' "$toolchain"
   else
     printf '%s\n' "$toolchain"
   fi
@@ -1379,10 +1375,13 @@ print_prebuilt_toolchain_summary() {
     print_field "prebuilt toolchains" "none"
     return 0
   fi
-  print_field "prebuilt toolchains" "$(display_toolchain_for_summary "$1")"
+  local supported_toolchains=()
+  local compatible_release_lines=()
+  load_toolchain_policy
+  print_field "prebuilt toolchains" "$(display_prepared_toolchain "$1")"
   shift
   for toolchain in "$@"; do
-    print_field "" "$(display_toolchain_for_summary "$toolchain")"
+    print_field "" "$(display_prepared_toolchain "$toolchain")"
   done
 }
 
