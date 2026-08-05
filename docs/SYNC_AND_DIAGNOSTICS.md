@@ -53,13 +53,20 @@ they established before checkpointing: `save` under `result.sync`, and `close-sa
 `result.saved.sync`. Document-error save failures include the blocking verdict under
 `error.data.sync`.
 
-Zero-build checkpointing is restricted to Lake module setups Beam can replay from the LSP snapshot
-without custom batch setup. Save target resolution delegates to Lake's workspace loader for the
+Zero-build checkpointing supports structured Lake `leanOptions`, dynamic libraries, and plugins
+already applied to the accepted file-worker snapshot. Strong `moreLeanArgs` are batch-only and fail
+with `saveUnsupportedSetup` after the sync verdict is established.
+Move shared `-D` settings from `moreLeanArgs` to `leanOptions`, or use `lake build` when the arguments
+are intentionally batch-only. Save target resolution delegates to Lake's workspace loader for the
 project's real `lakefile.lean` or `lakefile.toml`; the broker does not synthesize fallback Lake
-configuration from `lakefile.lean` text. If Lake setup for a module uses custom Lean options, Lean
-arguments, dynamic libraries, or plugins, `save` and `close-save` fail with `saveUnsupportedSetup`
-after the sync verdict is established. In that case, use `lake build` for the module or importer
-instead of expecting Beam to write Lake artifacts.
+configuration from `lakefile.lean` text and never batch-builds as part of `save`.
+
+Beam assumes Lake workspace configuration remains unchanged for the lifetime of the running Lean
+server. The server and existing file workers are not guaranteed to pick up edits to a lakefile,
+manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic libraries. After any
+such change, run `lean-beam shutdown` before the next `sync` or `save`; `lean-beam refresh` only
+reopens the file within the current server and is not sufficient. Beam does not detect this
+configuration drift, so reusing a running session after such an edit is unsupported.
 
 ## Development Checkpoints And Batch Validation
 

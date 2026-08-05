@@ -94,11 +94,16 @@ The current development line includes support for:
 See [docs/STATUS.md](docs/STATUS.md) for the current supported surface, known limitations, and
 release direction.
 
-Beam checkpoints accelerate the development loop by writing the Lean server's accepted state. A
-successful checkpoint is normally sufficient while working; do not add an expensive clean build to
-every Beam loop. Final project validation should come from CI running `lake build` from clean Lake
-artifacts. If no successful clean CI result is available, or server-sensitive elaboration is
-suspected, use the one-time local batch check described in the
+Beam checkpoints accelerate the development loop by writing the Lean server's accepted state,
+including structured Lake options, dynamic libraries, and plugins already applied by the file
+worker. Modules with batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`: move shared `-D`
+settings to `leanOptions`, or use `lake build` when the arguments are intentionally batch-only. A
+running Lean server is not guaranteed to pick up Lake workspace configuration changes; after such a
+change, run `lean-beam shutdown` before syncing or saving again. A successful checkpoint is normally
+sufficient while working; do not add an expensive clean build to every Beam loop. Final project
+validation should come from CI running `lake build` from clean Lake artifacts. If no successful
+clean CI result is available, or server-sensitive elaboration is suspected, use the one-time local
+batch check described in the
 [sync and diagnostics contract](docs/SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
 
 ## Install
