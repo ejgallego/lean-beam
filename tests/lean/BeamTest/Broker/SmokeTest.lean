@@ -641,7 +641,6 @@ private def runCancelSmoke
   IO.sleep 200
   let cancelResp ← runClient endpoint {
     op := .cancel
-    root? := some root.toString
     cancelRequestId? := slowRequestId
   }
   let cancelPayload ← expectOk cancelResp
@@ -806,6 +805,12 @@ private def runSaveAndStatsSmoke
   expectOpCountAtLeast stats "lean" "refresh_file" 1
   expectOpCountAtLeast stats "lean" "update_file" 1
   expectOpCountAtLeast stats "lean" "run_at" 3
+
+  let unrelatedFieldResp ← runClient endpoint {
+    op := .stats
+    query? := some "must-not-be-ignored"
+  }
+  expectErrCode unrelatedFieldResp "invalidParams"
   expectOpCountAtLeast stats "lean" "hover" 4
   expectOpCountAtLeast stats "lean" "goals" 2
   expectOpCountAtLeast stats "lean" "code_action_resolve" 1

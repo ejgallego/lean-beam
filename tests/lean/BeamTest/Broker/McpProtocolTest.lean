@@ -31,6 +31,15 @@ private def checkJsonHelpers : IO Unit := do
     Beam.Mcp.optionalField? (α := String) withField "missing"
   require "missing optional string field decodes as none" missingName.isNone
 
+  discard <| expectOk "closed object fields" <|
+    Beam.Mcp.requireOnlyFields "fixture" #["name"] withField
+  match Beam.Mcp.requireOnlyFields "fixture" #["name"] <|
+      Json.mkObj [("name", toJson "fixture"), ("extra", toJson true)] with
+  | .ok _ => throw <| IO.userError "closed object accepted an undeclared field"
+  | .error err =>
+      require "closed object error identifies its undeclared field"
+        (err.contains "undeclared fields" && err.contains "extra")
+
   match Beam.Mcp.optionalField? (α := String) (Json.mkObj [("name", toJson (1 : Nat))]) "name" with
   | .ok value =>
       throw <| IO.userError s!"invalid optional field decoded unexpectedly: {repr value}"
@@ -144,6 +153,44 @@ private def checkIncoming : IO Unit := do
     match Beam.Mcp.Incoming.fromJson? invalidResponse with
     | .ok _ => throw <| IO.userError s!"invalid response decoded: {invalidResponse.compress}"
     | .error _ => pure ()
+
+  for (label, ambiguous) in #[
+      ("request with response result", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "mixed-request"),
+        ("method", toJson "tools/list"),
+        ("result", Json.mkObj [])
+      ]),
+      ("notification with response error", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("method", toJson "notifications/initialized"),
+        ("error", Json.mkObj [])
+      ]),
+      ("response with request method", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "mixed-response"),
+        ("method", toJson "tools/list"),
+        ("result", Json.mkObj [])
+      ]),
+      ("request with undeclared envelope field", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "extra-request"),
+        ("method", toJson "tools/list"),
+        ("unexpected", toJson true)
+      ])
+    ] do
+    match Beam.Mcp.Incoming.fromJson? ambiguous with
+    | .ok _ => throw <| IO.userError s!"{label} decoded unexpectedly: {ambiguous.compress}"
+    | .error err =>
+        require s!"{label} should report a closed JSON-RPC envelope"
+          (err.contains "undeclared fields")
+
+  match Beam.Mcp.parseCancelledParams <| some <| Json.mkObj [
+      ("requestId", toJson "slow-request"),
+      ("workspace", Json.mkObj [])
+    ] with
+  | .ok _ => throw <| IO.userError "cancellation params accepted an unrelated workspace"
+  | .error err => require "cancellation rejects undeclared fields" (err.contains "workspace")
 
 private def checkVersionIdentityJson : IO Unit := do
   let current := Beam.Version.Identity.asJson {
@@ -459,6 +506,16 @@ private def checkProgressProtocol : IO Unit := do
       toolCallParamsWithProgress "lean_sync" numberToken <|
         Json.mkObj [("path", toJson "Demo.lean")]
   require "numeric progressToken should decode" (numberParams.progressToken? == some numberToken)
+
+  match Beam.Mcp.parseCallToolParams <| some <| Json.mkObj [
+      ("name", toJson "lean_sync"),
+      ("arguments", Json.mkObj [("path", toJson "Demo.lean")]),
+      ("workspace", Json.mkObj [])
+    ] with
+  | .ok _ => throw <| IO.userError "tools/call accepted an undeclared outer workspace field"
+  | .error err =>
+      require "tools/call rejects undeclared outer fields"
+        (err.contains "undeclared fields" && err.contains "workspace")
 
   match Beam.Mcp.parseCallToolParams <| some <|
       toolCallParamsWithProgress "lean_sync" (toJson true) <|

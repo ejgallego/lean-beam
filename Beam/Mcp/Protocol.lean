@@ -122,11 +122,14 @@ def Incoming.fromJson? (json : Json) : Except String Incoming := do
       let method ← json.getObjValAs? String "method"
       let params? ← optionalField? (α := Json) json "params"
       match json.getObjVal? "id" with
-      | .ok id =>
+      | .ok id => do
+          requireOnlyFields "JSON-RPC request" #["jsonrpc", "id", "method", "params"] json
           pure <| .request { id := ← RequestId.fromJson? id, method, params? }
-      | .error _ =>
+      | .error _ => do
+          requireOnlyFields "JSON-RPC notification" #["jsonrpc", "method", "params"] json
           pure <| .notification { method, params? }
   | .error _ =>
+      requireOnlyFields "JSON-RPC response" #["jsonrpc", "id", "result", "error"] json
       let id ← RequestId.fromJson? (← json.getObjVal? "id")
       let result? ← optionalField? (α := Json) json "result"
       let error? ← optionalField? (α := RpcError) json "error"
@@ -149,6 +152,7 @@ def parseCancelledParams (params? : Option Json) : Except String CancelledParams
     match params? with
     | some params => requireObject "notifications/cancelled params" params
     | none => throw "notifications/cancelled params are required"
+  requireOnlyFields "notifications/cancelled params" #["requestId", "reason"] params
   let requestId ← RequestId.fromJson? (← params.getObjVal? "requestId")
   let reason? ← optionalField? (α := String) params "reason"
   pure { requestId, reason? }
@@ -211,6 +215,7 @@ def parseSetLogLevelParams (params? : Option Json) : Except String LogLevel := d
     match params? with
     | some params => requireObject "logging/setLevel params" params
     | none => throw "logging/setLevel params are required"
+  requireOnlyFields "logging/setLevel params" #["level"] params
   let decoded ← fromJson? (α := SetLogLevelParams) params
   pure decoded.level
 
@@ -301,6 +306,7 @@ def parseCallToolParams (params? : Option Json) : Except String CallToolParams :
     match params? with
     | some params => requireObject "tools/call params" params
     | none => throw "tools/call params are required"
+  requireOnlyFields "tools/call params" #["name", "arguments", "_meta"] params
   let rawName ← params.getObjVal? "name"
   let name ← fromJson? (α := ToolName) rawName
   let progressToken? ← parseProgressToken? params

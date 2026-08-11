@@ -109,7 +109,6 @@ private def sendBrokerCancellation
     (req : Request) : IO (Option Bool) := do
   let cancelReq : Request := {
     op := .cancel
-    root? := req.root?
     cancelRequestId? := req.clientRequestId?
   }
   try

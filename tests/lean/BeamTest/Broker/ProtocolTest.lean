@@ -532,6 +532,12 @@ private def checkRequestArgsBoundary : IO Unit := do
     codeActionResolveRocqUnsupported.codeActionResolveArgs
 
 private def checkWorkspaceRoutingFields : IO Unit := do
+  for op in Op.all do
+    let request : Request := { op }
+    let decoded ← expectOk s!"minimal {op.key} request round trip" <|
+      fromJson? (α := Request) (toJson request)
+    require s!"minimal {op.key} request lost its operation" (decoded.op == op)
+
   let defaultReq : Request := { op := .stats }
   require "missing workspace id defaults to default" (defaultReq.workspaceId == defaultWorkspaceId)
 
@@ -562,6 +568,48 @@ private def checkWorkspaceRoutingFields : IO Unit := do
   }
   require "explicit workspace id overrides handle for validation"
     (explicitHandleReq.workspaceId == "explicit")
+
+  let unrelatedStats : Request := {
+    op := .stats
+    query? := some "ignored-before-strict-validation"
+  }
+  match unrelatedStats.validateFields with
+  | .ok _ => throw <| IO.userError "stats accepted an unrelated query field"
+  | .error err =>
+      require "broker request field validation identifies the operation and field"
+        (err.contains "stats" && err.contains "query")
+
+  let rootOnlyStats : Request := {
+    op := .stats
+    root? := some "/workspace"
+  }
+  match rootOnlyStats.validateFields with
+  | .ok _ => throw <| IO.userError "stats accepted a root without a workspace id"
+  | .error err =>
+      require "scoped stats requires an explicit workspace id"
+        (err.contains "workspaceId" && err.contains "root")
+
+  for (label, json, field) in #[
+      ("unknown broker field", Json.mkObj [
+        ("op", toJson "stats"),
+        ("backend", toJson "lean"),
+        ("mystery", toJson true)
+      ], "mystery"),
+      ("known field owned by another operation", Json.mkObj [
+        ("op", toJson "stats"),
+        ("backend", toJson "lean"),
+        ("query", toJson "ignored-before-strict-validation")
+      ], "query"),
+      ("backend on process operation", Json.mkObj [
+        ("op", toJson "stats"),
+        ("backend", toJson "rocq")
+      ], "backend")
+    ] do
+    match fromJson? (α := Request) json with
+    | .ok _ => throw <| IO.userError s!"{label} decoded unexpectedly"
+    | .error err =>
+        require s!"{label} error should identify '{field}'"
+          (err.contains field || (field == "backend" && err.contains "does not select a backend"))
 
   match fromJson? (α := Request) <| Json.mkObj [
       ("op", toJson "init_workspace"),

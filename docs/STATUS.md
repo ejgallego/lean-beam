@@ -194,6 +194,9 @@ discriminator.
   returns its terminal result because partial eviction cannot be rolled back safely. Previously
   admitted calls drain first; later calls wait for eviction to finish and may recreate the same
   descriptor.
+- MCP JSON-RPC envelopes, `tools/call` parameters, and broker operation fields are closed at their
+  current protocol boundaries; undeclared or operation-irrelevant fields are rejected rather than
+  ignored. MCP `_meta` remains open for protocol-defined metadata.
 - Incremental Lean diagnostics are forwarded as MCP log notifications.
 - The Streamable HTTP bridge is test-only; the product entry point remains stdio.
 - Exact protocol behavior and conformance notes live in [MCP.md](MCP.md).

@@ -64,6 +64,12 @@ This is deliberately a local-only descriptor. Remote workspaces and same-source 
 mirrors need a broader Source/Workspace split and a transport-safe descriptor; they are not modeled
 as client-chosen aliases for local roots.
 
+The descriptor selects the Lean runtime and toolchain; it is not a filesystem authorization
+boundary. Relative `path` values resolve under the canonical workspace root, while absolute paths
+are canonicalized independently of that root and may name dependency sources outside it. A remote
+transport must add an explicit Source model and authorization policy rather than treating this
+local descriptor as a sandbox.
+
 ## Runtime Setup
 
 The installed `bin/lean-beam-mcp` wrapper is the public setup path. It pairs the MCP executable with
@@ -185,6 +191,9 @@ already cached, its in-process stats and open files are included; another worksp
 For MCP `2025-11-25`:
 
 - malformed or unknown tools are JSON-RPC errors
+- request, notification, and response envelopes reject mixed or undeclared top-level members
+- `tools/call` accepts only `name`, `arguments`, and `_meta`; `_meta` remains the protocol extension
+  point
 - invalid inputs for known tools are MCP tool errors with `isError=true`
 - undeclared tool-input fields, including undeclared workspace selector aliases, are rejected as
   structured `invalidInput` errors rather than ignored

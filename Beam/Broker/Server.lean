@@ -2209,6 +2209,14 @@ def ServerRuntime.dispatchRequest
   let startedAt ← IO.monoNanosNow
   traceBroker
     s!"dispatch start op={req.op.key} clientRequestId={optionLabel req.clientRequestId?}"
+  match req.validateFields with
+  | .error err =>
+      let resp := (reqError "invalidParams" err).withClientRequestId req.clientRequestId?
+      traceBroker
+        s!"dispatch rejected op={req.op.key} clientRequestId={optionLabel req.clientRequestId?} error={err}"
+      recordDispatchMetrics server req resp startedAt
+      return (resp, false)
+  | .ok () => pure ()
   try
     let active? ←
       if requestTracksActiveRequest req.op then
@@ -2242,22 +2250,30 @@ private def handleClient (server : ServerRuntime) (client : Transport.Connection
   let clientRequestIdRef ← IO.mkRef (none : Option String)
   try
     let msg ← Transport.recvMsg client
-    let req : Request ←
+    let request : Except Response Request ←
       match Json.parse msg with
-      | .error err => throw <| IO.userError s!"invalid request json: {err}"
+      | .error err =>
+          pure <| Except.error <| reqError "invalidParams" s!"invalid request json: {err}"
       | .ok json =>
           match fromJson? json with
-          | .ok req => pure req
-          | .error err => throw <| IO.userError s!"invalid request payload: {err}"
-    clientRequestIdRef.set req.clientRequestId?
-    let emitProgress : SyncFileProgress → IO Unit := fun progress =>
-      Transport.sendMsg client (toJson (StreamMessage.mkFileProgress req.clientRequestId? progress)).compress
-    let emitDiagnostic : StreamDiagnostic → IO Unit := fun diagnostic =>
-      Transport.sendMsg client (toJson (StreamMessage.mkDiagnostic req.clientRequestId? diagnostic)).compress
-    let (resp, shouldStop) ← server.dispatchRequest req (some emitProgress) (some emitDiagnostic)
-    Transport.sendMsg client (toJson (StreamMessage.mkResponse resp)).compress
-    if shouldStop then
-      requestStop server
+          | .ok req => pure <| Except.ok req
+          | .error err =>
+              pure <| Except.error <| reqError "invalidParams" s!"invalid request payload: {err}"
+    match request with
+    | Except.error resp =>
+        Transport.sendMsg client (toJson (StreamMessage.mkResponse resp)).compress
+    | Except.ok req =>
+        clientRequestIdRef.set req.clientRequestId?
+        let emitProgress : SyncFileProgress → IO Unit := fun progress =>
+          Transport.sendMsg client
+            (toJson (StreamMessage.mkFileProgress req.clientRequestId? progress)).compress
+        let emitDiagnostic : StreamDiagnostic → IO Unit := fun diagnostic =>
+          Transport.sendMsg client
+            (toJson (StreamMessage.mkDiagnostic req.clientRequestId? diagnostic)).compress
+        let (resp, shouldStop) ← server.dispatchRequest req (some emitProgress) (some emitDiagnostic)
+        Transport.sendMsg client (toJson (StreamMessage.mkResponse resp)).compress
+        if shouldStop then
+          requestStop server
   catch e =>
     let resp := (Response.error "internalError" e.toString).withClientRequestId (← clientRequestIdRef.get)
     try

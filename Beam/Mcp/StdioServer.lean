@@ -82,7 +82,6 @@ private inductive ClientCancellationPolicy where
 private structure InFlightState where
   phase : RequestPhase := .active
   runtime? : Option Beam.Broker.ServerRuntime := none
-  root? : Option System.FilePath := none
 
 private structure InFlightRequest where
   id : RequestId
@@ -210,11 +209,11 @@ private def InFlightRequest.sendIfActive
 private def InFlightRequest.bindRuntime
     (request : InFlightRequest)
     (runtime : Beam.Broker.ServerRuntime)
-    (root : System.FilePath) : IO Bool := do
+    (_root : System.FilePath) : IO Bool := do
   request.state.atomically do
     let current ← get
     if current.phase == .active then
-      set { current with runtime? := some runtime, root? := some root }
+      set { current with runtime? := some runtime }
       pure true
     else
       pure false
@@ -241,7 +240,7 @@ private def Coordinator.finishRequest
     request.resolveDone
 
 private def InFlightRequest.markClientCancelled
-    (request : InFlightRequest) : IO (Bool × Option (Beam.Broker.ServerRuntime × System.FilePath)) := do
+    (request : InFlightRequest) : IO (Bool × Option Beam.Broker.ServerRuntime) := do
   if request.cancellationPolicy == .nonCancellable then
     return (false, none)
   request.state.atomically do
@@ -249,7 +248,7 @@ private def InFlightRequest.markClientCancelled
     match current.phase with
     | .active =>
         set { current with phase := .clientCancelled }
-        pure (true, current.runtime?.bind fun runtime => current.root?.map fun root => (runtime, root))
+        pure (true, current.runtime?)
     | .clientCancelled | .completed =>
         pure (false, none)
 
@@ -258,15 +257,13 @@ private def cancelRegistrationRetryMs : Nat :=
 
 private partial def cancelBrokerUntilTerminal
     (request : InFlightRequest)
-    (runtime : Beam.Broker.ServerRuntime)
-    (root : System.FilePath) : IO Unit := do
+    (runtime : Beam.Broker.ServerRuntime) : IO Unit := do
   let phase ← request.state.atomically do
     pure (← get).phase
   if phase == .completed then
     return
   let (response, _) ← runtime.dispatchRequest {
     op := .cancel
-    root? := some root.toString
     cancelRequestId? := some request.brokerId
   }
   let acknowledged :=
@@ -276,7 +273,7 @@ private partial def cancelBrokerUntilTerminal
     -- Binding the runtime precedes registration in the broker's active-request table. Retry across
     -- that small window; the request phase terminates the loop if dispatch finishes first.
     IO.sleep cancelRegistrationRetryMs.toUInt32
-    cancelBrokerUntilTerminal request runtime root
+    cancelBrokerUntilTerminal request runtime
 
 private def Coordinator.cancelRequest
     (coordinator : Coordinator)
@@ -290,10 +287,10 @@ private def Coordinator.cancelRequest
       if cancelled then
         match runtime? with
         | none => pure ()
-        | some (runtime, root) =>
+        | some runtime =>
             let _ ← IO.asTask (prio := Task.Priority.dedicated) do
               try
-                cancelBrokerUntilTerminal request runtime root
+                cancelBrokerUntilTerminal request runtime
               catch e =>
                 Internal.traceMcp s!"broker cancellation failed id={id.label}: {e.toString}"
             pure ()

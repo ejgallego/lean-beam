@@ -54,6 +54,13 @@ inductive Op where
   | shutdown
   deriving Inhabited, BEq, Repr
 
+def Op.all : Array Op := #[
+  .ensure, .openDocs, .cancel, .updateFile, .syncFile, .refreshFile, .close, .runAt,
+  .hover, .signatureHelp, .definition, .references, .documentSymbols, .workspaceSymbols,
+  .codeActionResolve, .saveOlean, .goals, .todo, .runWith, .release, .initWorkspace,
+  .listWorkspaces, .dropWorkspace, .stats, .resetStats, .shutdown
+]
+
 def Op.key : Op → String
   | .ensure => "ensure"
   | .openDocs => "open_docs"
@@ -212,6 +219,103 @@ structure Request where
   codeAction? : Option Lsp.CodeAction := none
   deriving Inhabited, ToJson
 
+private def Op.optionalRequestFields (op : Op) : Array String :=
+  #["clientRequestId"] ++ match op with
+  | .ensure => #["workspaceId", "root"]
+  | .openDocs | .stats => #["workspaceId", "root"]
+  | .cancel => #["cancelRequestId"]
+  | .updateFile => #["workspaceId", "root", "path"]
+  | .syncFile | .refreshFile =>
+      #["workspaceId", "root", "path", "fullDiagnostics", "includeDiagnostics"]
+  | .close => #["workspaceId", "root", "path", "fullDiagnostics", "saveArtifacts"]
+  | .runAt =>
+      #["workspaceId", "root", "path", "version", "line", "character", "text", "storeHandle"]
+  | .hover | .signatureHelp | .definition =>
+      #["workspaceId", "root", "path", "version", "line", "character"]
+  | .references =>
+      #["workspaceId", "root", "path", "version", "line", "character", "includeDeclaration"]
+  | .documentSymbols => #["workspaceId", "root", "path", "version"]
+  | .workspaceSymbols => #["workspaceId", "root", "query"]
+  | .codeActionResolve => #["workspaceId", "root", "path", "version", "codeAction"]
+  | .saveOlean => #["workspaceId", "root", "path", "fullDiagnostics"]
+  | .goals =>
+      #[
+        "workspaceId", "root", "path", "version", "line", "character", "text", "mode",
+        "compact", "ppFormat"
+      ]
+  | .todo =>
+      #[
+        "workspaceId", "root", "path", "version", "line", "character", "endLine",
+        "endCharacter", "kinds", "suggest"
+      ]
+  | .runWith =>
+      #["workspaceId", "root", "path", "text", "storeHandle", "linear", "handle"]
+  | .release => #["workspaceId", "root", "path", "handle"]
+  | .initWorkspace =>
+      #["workspaceId", "workspaceMode", "root", "leanCmd", "leanPlugin", "rocqCmd"]
+  | .dropWorkspace => #["workspaceId"]
+  | .listWorkspaces | .resetStats | .shutdown => #[]
+
+private def Op.usesBackend : Op → Bool
+  | .ensure | .updateFile | .syncFile | .refreshFile | .close | .runAt | .hover
+  | .signatureHelp | .definition | .references | .documentSymbols | .workspaceSymbols
+  | .codeActionResolve | .saveOlean | .goals | .todo | .runWith | .release => true
+  | .openDocs | .cancel | .initWorkspace | .listWorkspaces | .dropWorkspace | .stats
+  | .resetStats | .shutdown => false
+
+private def requireRequestJsonFields (op : Op) : Json → Except String Unit
+  | .obj fields =>
+      let allowed := #["op", "backend"] ++ op.optionalRequestFields
+      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
+        if allowed.contains field then unexpected else unexpected.push field
+      unless unexpected.isEmpty do
+        throw s!"broker op '{op.key}' accepts no undeclared or unrelated fields: {String.intercalate ", " unexpected.toList}"
+  | other => throw s!"broker request must be an object, got {other.compress}"
+
+private def Request.presentOptionalFields (req : Request) : Array String :=
+  #[
+    ("workspaceId", req.workspaceId?.isSome),
+    ("workspaceMode", req.workspaceMode?.isSome),
+    ("clientRequestId", req.clientRequestId?.isSome),
+    ("cancelRequestId", req.cancelRequestId?.isSome),
+    ("root", req.root?.isSome),
+    ("path", req.path?.isSome),
+    ("version", req.version?.isSome),
+    ("line", req.line?.isSome),
+    ("character", req.character?.isSome),
+    ("endLine", req.endLine?.isSome),
+    ("endCharacter", req.endCharacter?.isSome),
+    ("text", req.text?.isSome),
+    ("query", req.query?.isSome),
+    ("includeDeclaration", req.includeDeclaration?.isSome),
+    ("kinds", req.kinds?.isSome),
+    ("suggest", req.suggest?.isSome),
+    ("storeHandle", req.storeHandle?.isSome),
+    ("linear", req.linear?.isSome),
+    ("mode", req.mode?.isSome),
+    ("compact", req.compact?.isSome),
+    ("ppFormat", req.ppFormat?.isSome),
+    ("fullDiagnostics", req.fullDiagnostics?.isSome),
+    ("includeDiagnostics", req.includeDiagnostics?.isSome),
+    ("saveArtifacts", req.saveArtifacts?.isSome),
+    ("leanCmd", req.leanCmd?.isSome),
+    ("leanPlugin", req.leanPlugin?.isSome),
+    ("rocqCmd", req.rocqCmd?.isSome),
+    ("handle", req.handle?.isSome),
+    ("codeAction", req.codeAction?.isSome)
+  ].filterMap fun (field, present) => if present then some field else none
+
+/-- Reject request fields that have no meaning for the selected broker operation. -/
+def Request.validateFields (req : Request) : Except String Unit := do
+  let allowed := req.op.optionalRequestFields
+  let unexpected := req.presentOptionalFields.filter fun field => !allowed.contains field
+  unless unexpected.isEmpty do
+    throw s!"broker op '{req.op.key}' accepts no unrelated fields: {String.intercalate ", " unexpected.toList}"
+  if !req.op.usesBackend && req.backend != .lean then
+    throw s!"broker op '{req.op.key}' does not select a backend"
+  if (req.op == .stats || req.op == .openDocs) && req.root?.isSome && req.workspaceId?.isNone then
+    throw s!"broker op '{req.op.key}' requires 'workspaceId' when 'root' is present"
+
 private def optionalField? [FromJson α] (j : Json) (field : String) : Except String (Option α) := do
   match j.getObjVal? field with
   | .ok value =>
@@ -224,6 +328,7 @@ private def optionalField? [FromJson α] (j : Json) (field : String) : Except St
 instance : FromJson Request where
   fromJson? j := do
     let op ← j.getObjValAs? Op "op"
+    requireRequestJsonFields op j
     let backend ←
       match ← optionalField? (α := Backend) j "backend" with
       | some backend => pure backend
@@ -257,13 +362,15 @@ instance : FromJson Request where
     let rocqCmd? ← optionalField? (α := String) j "rocqCmd"
     let handle? ← optionalField? (α := Handle) j "handle"
     let codeAction? ← optionalField? (α := Lsp.CodeAction) j "codeAction"
-    pure {
+    let request : Request := {
       op, backend, workspaceId?, workspaceMode?, clientRequestId?, cancelRequestId?,
       root?, path?, version?, line?, character?, endLine?, endCharacter?,
       text?, query?, includeDeclaration?, kinds?, suggest?, storeHandle?,
       linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
       saveArtifacts?, leanCmd?, leanPlugin?, rocqCmd?, handle?, codeAction?
     }
+    request.validateFields
+    pure request
 
 structure Error where
   code : String
