@@ -27,7 +27,7 @@ private def mkDoc (text : String) (version : Nat := 1) : DocState := {
 
 private def checkInactivePayload : IO Unit := do
   let root := System.FilePath.mk "/workspace"
-  let payload ← OpenDocs.payload root none none none
+  let payload ← OpenDocs.payload root none none
   requireJsonString "open docs payload" "root" root.toString payload
   let sessions ← requireObjVal "open docs payload" "sessions" payload
   let leanSession ← requireObjVal "open docs sessions" "lean" sessions
@@ -39,7 +39,7 @@ private def checkInactivePayload : IO Unit := do
   require "inactive rocq session has empty files"
     ((← requireArray "inactive rocq files" (← requireObjVal "inactive rocq session" "files" rocqSession)).isEmpty)
 
-private def checkRocqDocProjection : IO Unit := do
+private def checkDocProjection : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/beam-open-docs-test-{← IO.monoNanosNow}"
   IO.FS.createDirAll root
   let path := root / "Demo.v"
@@ -52,11 +52,10 @@ private def checkRocqDocProjection : IO Unit := do
       fileProgress? := some { updates := 3, done := true }
     }
   let session : OpenDocs.SessionView := {
-    backend := .rocq
     root
     docs
   }
-  let sessionJson ← OpenDocs.sessionJson none (some session)
+  let sessionJson ← OpenDocs.sessionJson (some session)
   requireJsonBool "open docs active session" "active" true sessionJson
   let files ← requireArray "open docs files" (← requireObjVal "open docs active session" "files" sessionJson)
   require "open docs active session has one file" (files.size == 1)
@@ -66,11 +65,15 @@ private def checkRocqDocProjection : IO Unit := do
   requireJsonString "open docs file" "status" "saved" file
   requireJsonBool "open docs file" "saved" true file
   requireJsonBool "open docs file" "savedOlean" false file
+  requireFieldAbsent "open docs file" "saveEligible" file
+  requireFieldAbsent "open docs file" "saveReason" file
+  requireFieldAbsent "open docs file" "saveModule" file
+  requireFieldAbsent "open docs file" "saveDetail" file
   discard <| requireObjVal "open docs file" "fileProgress" file
 
 def main : IO Unit := do
   checkInactivePayload
-  checkRocqDocProjection
+  checkDocProjection
 
 end BeamTest.Broker.OpenDocsTest
 

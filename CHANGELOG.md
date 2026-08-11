@@ -21,6 +21,8 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 - The exact-validation registry and CLI command are now named `validated-lean-toolchains` and
   `validated-toolchains`; `--all-validated` prebuilds that finite exact matrix.
+- `lean-beam open-files` now reports tracked-document state without performing partial Lake save
+  preflight; `lean-beam save` remains the authoritative save eligibility check.
 
 ### Fixed
 

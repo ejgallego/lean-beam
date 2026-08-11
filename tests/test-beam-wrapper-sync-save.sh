@@ -62,17 +62,6 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "true" ]; then
-    echo "expected open-files after initial probe to report saveEligible = true for SaveSmoke/B.lean" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveReason)" != "ok" ]; then
-    echo "expected open-files after initial probe to report saveReason = ok for SaveSmoke/B.lean" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-
   sed_in_place_portable 's/1/2/' SaveSmoke/B.lean
   sync_out="$("$beam_script" lean-sync SaveSmoke/B.lean)"
   if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
@@ -280,18 +269,6 @@ EOF
     exit 1
   fi
   assert_json_completed_file_progress "standalone lean-sync" "$standalone_sync" fileProgress
-
-  standalone_open="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "false" ]; then
-    echo "expected open-files to report saveEligible = false for a standalone save target" >&2
-    printf '%s\n' "$standalone_open" >&2
-    exit 1
-  fi
-  if [ "$(BEAM_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveReason)" != "saveTargetNotModule" ]; then
-    echo "expected open-files to report saveReason = saveTargetNotModule for a standalone save target" >&2
-    printf '%s\n' "$standalone_open" >&2
-    exit 1
-  fi
 
   standalone_save_err="$(beam_wrapper_mktemp_file standalone-save)"
   if "$beam_script" lean-save StandaloneSaveSmoke.lean >"$standalone_save_err" 2>&1; then

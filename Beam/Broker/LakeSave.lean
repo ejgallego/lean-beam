@@ -74,11 +74,6 @@ structure SourceSnapshot where
   hash : Hash
   mtime : MTime
 
-inductive SaveTargetEligibility where
-  | eligible (moduleName : Name)
-  | notModule
-  | workspaceLoadFailed (message : String)
-
 private def traceOptions (opts : LeanOptions) (caption := "opts") : BuildTrace :=
   opts.values.foldl (init := .nil caption) fun t n v =>
     let opt := s!"-D{n}={v.asCliFlagValue}"
@@ -201,19 +196,6 @@ def mkLeanSaveSpec
       code := .internalError
       message := e.toString
     }
-
-def checkLeanSaveTarget
-    (root path : FilePath)
-    (leanCmd? : Option String := none) : IO SaveTargetEligibility := do
-  let root ← Beam.resolveExistingPath root
-  let path ← Beam.resolvePathAgainstRoot root path
-  try
-    let ws ← loadWorkspaceForRoot root leanCmd?
-    match ws.findModuleBySrc? path with
-    | some mod => pure <| .eligible mod.name
-    | none => pure .notModule
-  catch e =>
-    pure <| .workspaceLoadFailed e.toString
 
 private def hashDescr (path : FilePath) (ext : String) : IO ArtifactDescr :=
   return artifactWithExt (← computeHash path) ext
