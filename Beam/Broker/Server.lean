@@ -1258,9 +1258,10 @@ private def saveOleanCore
     throwBrokerFailure {
       code := .saveUnsupportedSetup
       message :=
-        s!"lean-beam save cannot checkpoint {spec.relPath} with zero-build artifact replay: {reason}. " ++
-        "Run lake build for this module; Beam save is currently restricted to Lake module setups " ++
-        "that can be replayed from the LSP snapshot without custom batch setup."
+        s!"lean-beam save cannot reuse the Lean server snapshot for {spec.relPath}: {reason}. " ++
+        "Move shared -D settings from moreLeanArgs to leanOptions so Lake applies them to both " ++
+        "the language server and batch compilation. If the arguments are intentionally batch-only, " ++
+        "run lake build for this module instead."
       data? :=
         some <| (syncVerdictErrorData syncVerdict)
           |>.setObjVal! "reason" (toJson reason)

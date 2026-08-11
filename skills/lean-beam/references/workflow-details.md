@@ -91,6 +91,15 @@ to a module is a valid `lean-beam sync` target, but not a valid `lean-beam save`
 The checkpoint contains the environment accepted by the Lean server. It avoids a batch
 re-elaboration during the inner loop, so it is a development artifact rather than final build
 evidence. An elaborator that observes server mode can behave differently under `lake build`.
+Structured Lake options, dynamic libraries, and plugins are supported when the file worker has
+already applied them. Modules with batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`; move
+shared `-D` settings to `leanOptions`, or use `lake build` when the arguments are intentionally
+batch-only.
+
+Beam assumes Lake workspace configuration remains unchanged while the Lean server is running. After
+editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
+libraries, run `lean-beam shutdown` before the next sync or save. `lean-beam refresh` only reopens a
+file within the current server and is not sufficient. Beam does not detect this configuration drift.
 
 ## Save Eligibility
 

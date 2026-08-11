@@ -93,16 +93,9 @@ private def hashOfHashable [Hashable α] (a : α) : Hash :=
 private def addHashablePureTrace [ToString α] [Hashable α] (a : α) (caption := "pure") : JobM PUnit :=
   addTrace <| .ofHash (hashOfHashable a) s!"{caption}: {toString a}"
 
-private def unsupportedZeroBuildSaveReason? (mod : Lake.Module) (setup : ModuleSetup) :
-    Option String :=
-  if !setup.plugins.isEmpty then
-    some "Lake module setup loads Lean plugins"
-  else if !setup.dynlibs.isEmpty then
-    some "Lake module setup loads dynamic libraries"
-  else if !setup.options.values.isEmpty then
-    some "Lake module setup sets Lean options"
-  else if !mod.weakLeanArgs.isEmpty || !mod.leanArgs.isEmpty then
-    some "Lake module has custom Lean arguments"
+private def unsupportedZeroBuildSaveReason? (mod : Lake.Module) : Option String :=
+  if !mod.leanArgs.isEmpty then
+    some "Lake module uses batch-only moreLeanArgs"
   else
     none
 
@@ -129,7 +122,7 @@ private def buildDepTraceJob
       addHashablePureTrace mod.pkg.id? "Package.id?"
       addPureTrace mod.leanArgs "Module.leanArgs"
       setTraceCaption s!"{mod.name.toString}:leanArts"
-      return (← getTrace, setup.isModule, unsupportedZeroBuildSaveReason? mod setup)
+      return (← getTrace, setup.isModule, unsupportedZeroBuildSaveReason? mod)
 
 private def saveTraceStaleMessage (root path : FilePath) : String :=
   let relPath := Beam.pathRelativeToRootOrSelf root path

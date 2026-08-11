@@ -27,7 +27,8 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   document symbols, workspace symbols, and mode-based goal inspection, exposed through the broker,
   `lean-beam`, and MCP
 - explicit Lean `lean-beam sync` barrier with diagnostics wait and compact `fileProgress` reporting
-- zero-build `lean-beam save` development checkpoint for one synced workspace module
+- zero-build `lean-beam save` development checkpoint for one synced workspace module, including
+  structured Lake setup already applied by the Lean file worker
 - typed sync summaries with current diagnostic/readiness counts for the synced document version
 
 ### Local Beam Layer
@@ -186,12 +187,17 @@ discriminator.
 ### Sync, Save, And Staleness
 
 - Zero-build `lean-beam save` helps checkpoint one module, but it is not a whole-workspace freshness
-  solution.
-- A Beam checkpoint contains the Lean server's accepted environment. Elaborators can distinguish
-  server execution from batch execution, so exceptional custom elaboration can produce an artifact
-  that differs from a fresh `lake build` artifact. Successful checkpoints are normally sufficient
-  during local development. Final batch evidence should come from a clean CI `lake build`; if no
-  successful clean CI result is available, run the one-time local batch-validation sequence in
+  solution. Structured Lake options, dynamic libraries, and plugins are supported when the Lean file
+  worker has already applied them; batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`.
+- Beam does not detect Lake workspace configuration changes during a running Lean session. After
+  editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
+  libraries, run `lean-beam shutdown` before the next sync or save; `lean-beam refresh` does not
+  restart the server.
+- A Beam checkpoint contains the Lean server's accepted environment. Elaborators can
+  distinguish server execution from batch execution, so exceptional custom elaboration can produce
+  an artifact that differs from a fresh `lake build` artifact. Successful checkpoints are normally
+  sufficient during local development. Final batch evidence should come from a clean CI `lake build`;
+  if no successful clean CI result is available, run the one-time local batch-validation sequence in
   [SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
 - If you edit a dependency of the target file, downstream speculative results should be treated as
   stale until rebuild or checkpoint.

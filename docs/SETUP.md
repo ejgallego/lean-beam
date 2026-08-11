@@ -191,13 +191,22 @@ lean-beam refresh "MyPkg/Sub/Module.lean"
 lean-beam save "MyPkg/Sub/Module.lean"
 ```
 
+The running Lean server and existing file workers are not guaranteed to pick up Lake workspace
+configuration changes. After editing a lakefile, manifest, package override, `lean-toolchain`, Lean
+options, plugins, or dynamic libraries, run `lean-beam shutdown` before the next `lean-beam sync` or
+`lean-beam save`. `lean-beam refresh` reopens a file within the current server and is not sufficient
+for this case.
+
 ### Final Batch Validation
 
 `lean-beam save` is an inner-loop development checkpoint from Lean's accepted server state. It
-avoids repeated module builds, and server and batch elaboration agree in almost all ordinary Lean
-code. A successful checkpoint is normally sufficient for local development, so do not run a clean
-build after every Beam loop. At the end of the development loop, use a successful CI `lake build`
-from a clean checkout or clean Lake build directory as the final batch-validation result.
+includes structured Lake options, dynamic libraries, and plugins already applied by the file worker
+and avoids repeated module builds. Modules with batch-only `moreLeanArgs` fail with
+`saveUnsupportedSetup`; move shared `-D` settings to `leanOptions`, or use `lake build` when the
+arguments are intentionally batch-only. A successful checkpoint is normally sufficient for local
+development, so do not run a clean build after every Beam loop. At the end of the development loop,
+use a successful CI `lake build` from a clean checkout or clean Lake build directory as the final
+batch-validation result.
 
 If no successful clean CI result is available, or when investigating code that may observe server
 mode, validate the project once from clean local Lake artifacts:

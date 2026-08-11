@@ -92,7 +92,9 @@ Current Beam coverage includes:
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
-- zero-build save replay and stale-save race coverage in [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
+- zero-build save replay, structured-setup support, batch-only-argument rejection, and stale-save
+  race coverage in
+  [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh)
 - install flow, installed runtime layout, manifest metadata, exact/compatible toolchain selection,
   `validated-toolchains`, `compatible-release-lines`, `doctor`, and installed MCP wrapper coverage
   in [tests/test-beam-install.sh](../tests/test-beam-install.sh)
@@ -100,6 +102,10 @@ Current Beam coverage includes:
 - Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [tests/lean/BeamTest/Broker/RocqSmokeTest.lean](../tests/lean/BeamTest/Broker/RocqSmokeTest.lean)
 
 Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `validated-toolchains`, save replay, save barriers, MCP, or Rocq integration.
+
+For save-only work, use [tests/test-beam-save-olean.sh](../tests/test-beam-save-olean.sh) as the
+local development loop. The slow and aggregate Beam suites remain useful CI or pre-release signals,
+but save replay by itself does not require running them locally.
 
 The user-facing installer behavior, write locations, MCP registration paths, and toolchain options
 are documented in [SETUP.md](SETUP.md). The notes below cover maintainer test fixtures and

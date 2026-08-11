@@ -300,7 +300,10 @@ diagnostic counts, saved-olean bookkeeping, or other broker-side observations.
 For checkpoint decisions, the broker passes the expected document version and text hash to the
 Lean-side save-artifact request. The broker uses the save-readiness metadata returned by the
 diagnostics barrier that already waited for the same document version. Streamed diagnostics and
-broker summaries are evidence attached to that verdict, not the authority for it.
+broker summaries are evidence attached to that verdict, not the authority for it. Lake setup
+options, dynamic libraries, and plugins already applied by the file worker are part of that accepted
+snapshot. Strong batch-only `moreLeanArgs` are not; reject them with `saveUnsupportedSetup` instead
+of rebuilding from the broker.
 
 The saved environment is the accepted Lean server environment, not the result of a new batch
 elaboration. This is an intentional development-loop tradeoff: elaborators that inspect
@@ -426,7 +429,8 @@ What this does not promise:
 
 - LSP request / handle / scenario changes: `bash tests/test-lsp.sh`
 - Beam broker protocol / stream / barrier changes: `bash tests/test-beam-fast.sh`
-- Beam wrapper / save replay / bundle-resolution changes: `bash tests/test-beam-slow.sh`
+- Beam save replay changes: `bash tests/test-beam-save-olean.sh`
+- Beam wrapper / install / bundle-resolution changes: `bash tests/test-beam-slow.sh`
 - Beam install / runtime layout changes: `bash tests/test-beam-install.sh`
 - supported Lean toolchain changes: `bash tests/test-beam-toolchain-compat.sh <toolchain>`
 - Rocq broker / wrapper changes: `bash tests/test-beam-rocq.sh`
@@ -435,6 +439,8 @@ What this does not promise:
 - shell changes: `bash scripts/lint-shell.sh`
 
 Use `bash tests/test-beam.sh` when you want the aggregate default Beam signal.
+Keep the focused scripts as the normal local development loop; the aggregate and slow suites are
+broader CI or pre-release signals, not prerequisites for every targeted change.
 
 CI uses Node 24-compatible first-party GitHub Actions majors for checkout, setup-node, and cache.
 The MCP conformance job's `node-version` is the JavaScript test runtime and may stay pinned
