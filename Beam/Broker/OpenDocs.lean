@@ -20,15 +20,15 @@ structure SessionView where
   docs : DocumentState.Docs := {}
 
 inductive DiskStatus where
-  | saved
-  | notSaved
+  | matchesTracked
+  | differsFromTracked
   | missing
   | unknown
   deriving BEq
 
 def DiskStatus.key : DiskStatus → String
-  | .saved => "saved"
-  | .notSaved => "notSaved"
+  | .matchesTracked => "matchesTracked"
+  | .differsFromTracked => "differsFromTracked"
   | .missing => "missing"
   | .unknown => "unknown"
 
@@ -36,11 +36,15 @@ instance : ToJson DiskStatus where
   toJson status := toJson status.key
 
 def docDiskStatus (path : System.FilePath) (docState : DocState) : IO DiskStatus := do
-  if !(← path.pathExists) then
-    pure .missing
-  else
+  try
     let text ← IO.FS.readFile path
-    pure <| if hash text == docState.textHash then .saved else .notSaved
+    pure <| if hash text == docState.textHash then .matchesTracked else .differsFromTracked
+  catch e => do
+    let pathStillExists ← path.pathExists
+    if pathStillExists then
+      throw e
+    else
+      pure .missing
 
 def docJson
     (root : System.FilePath)
@@ -53,7 +57,7 @@ def docJson
     | some path => docDiskStatus path docState
     | none => pure .unknown
   let checkpointed :=
-    status == .saved && docState.checkpointedVersion? == some docState.version
+    status == .matchesTracked && docState.checkpointedVersion? == some docState.version
   let fileProgressFields :=
     match docState.fileProgress? with
     | some fileProgress => [("fileProgress", toJson fileProgress)]
@@ -62,7 +66,7 @@ def docJson
     [
       ("uri", toJson uri),
       ("version", toJson docState.version),
-      ("status", toJson status),
+      ("diskStatus", toJson status),
       ("checkpointed", toJson checkpointed)
     ] ++
     (match relPath?, path? with

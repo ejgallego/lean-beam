@@ -52,8 +52,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
-    echo "expected open-files after initial probe to report SaveSmoke/B.lean as saved" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.diskStatus)" != "matchesTracked" ]; then
+    echo "expected open-files after initial probe to report SaveSmoke/B.lean as matching tracked text" >&2
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
@@ -144,7 +144,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
 
   sed_in_place_portable 's/2/3/' SaveSmoke/B.lean
   open_files_dirty="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.status)" != "notSaved" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.diskStatus)" != "differsFromTracked" ]; then
     echo "expected open-files to detect an on-disk edit for an already known file incrementally" >&2
     printf '%s\n' "$open_files_dirty" >&2
     exit 1
@@ -169,8 +169,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
   assert_json_completed_file_progress "second lean-sync" "$sync_second" fileProgress
 
   open_files_second="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
-    echo "expected open-files after second lean-sync to report the file as saved again" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.diskStatus)" != "matchesTracked" ]; then
+    echo "expected open-files after second lean-sync to report the disk and tracked text as matching again" >&2
     printf '%s\n' "$open_files_second" >&2
     exit 1
   fi

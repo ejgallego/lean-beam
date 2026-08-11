@@ -67,7 +67,8 @@ private def checkDocProjection : IO Unit := do
     let file ← requireOnlyFile "open docs saved session" sessionJson
     requireJsonString "open docs file" "uri" uri file
     requireJsonString "open docs file" "path" "Demo.lean" file
-    requireJsonString "open docs file" "status" "saved" file
+    requireJsonString "open docs file" "diskStatus" "matchesTracked" file
+    requireFieldAbsent "open docs file" "status" file
     requireJsonBool "open docs file" "checkpointed" true file
     requireFieldAbsent "open docs file" "saved" file
     requireFieldAbsent "open docs file" "savedOlean" file
@@ -80,13 +81,13 @@ private def checkDocProjection : IO Unit := do
     IO.FS.writeFile path "def demo : Nat := 2\n"
     let changedSessionJson ← OpenDocs.sessionJson (some session)
     let changedFile ← requireOnlyFile "open docs changed session" changedSessionJson
-    requireJsonString "open docs changed file" "status" "notSaved" changedFile
+    requireJsonString "open docs changed file" "diskStatus" "differsFromTracked" changedFile
     requireJsonBool "open docs changed file" "checkpointed" false changedFile
 
     IO.FS.removeFile path
     let missingSessionJson ← OpenDocs.sessionJson (some session)
     let missingFile ← requireOnlyFile "open docs missing session" missingSessionJson
-    requireJsonString "open docs missing file" "status" "missing" missingFile
+    requireJsonString "open docs missing file" "diskStatus" "missing" missingFile
     requireJsonBool "open docs missing file" "checkpointed" false missingFile
 
     let nonFileUri := "https://example.invalid/Demo.lean"
@@ -98,7 +99,7 @@ private def checkDocProjection : IO Unit := do
     }
     let nonFileSessionJson ← OpenDocs.sessionJson (some nonFileSession)
     let unknownFile ← requireOnlyFile "open docs non-file session" nonFileSessionJson
-    requireJsonString "open docs non-file URI" "status" "unknown" unknownFile
+    requireJsonString "open docs non-file URI" "diskStatus" "unknown" unknownFile
     requireJsonBool "open docs non-file URI" "checkpointed" false unknownFile
     requireFieldAbsent "open docs non-file URI" "path" unknownFile
   finally

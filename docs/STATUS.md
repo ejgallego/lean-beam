@@ -39,7 +39,7 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
 - experimental Lean wrapper commands for follow-up handle continuation and release
 - installed `lean-beam-search` helper for shorter shell branching/playout workflows
 - explicit broker `ok` / `error` response envelopes for machine-readable local protocol consumers
-- `lean-beam open-files` daemon introspection for tracked documents, including saved/not-saved state,
+- `lean-beam open-files` daemon introspection for tracked documents, including `diskStatus`,
   the daemon-recorded `checkpointed` marker, and the last compact `fileProgress`
 - local broker workspaces keyed by explicit workspace ids, each owning its own LSP session, document
   mirror, handles, sync/save history, and metrics
