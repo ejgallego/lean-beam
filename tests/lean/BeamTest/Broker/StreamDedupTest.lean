@@ -208,7 +208,10 @@ def checkRunAtStreamsSetupDiagnostics : IO Unit := do
       session.proc.kill
     catch _ =>
       pure ()
-    discard <| session.proc.tryWait
+    try
+      discard <| session.proc.tryWait
+    catch _ =>
+      pure ()
     try
       IO.FS.removeDirAll root
     catch _ =>
@@ -262,7 +265,10 @@ def check : IO Unit := do
       session.proc.kill
     catch _ =>
       pure ()
-    discard <| session.proc.tryWait
+    try
+      discard <| session.proc.tryWait
+    catch _ =>
+      pure ()
 
 #eval check
 #eval checkRunAtStreamsSetupDiagnostics
