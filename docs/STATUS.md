@@ -117,8 +117,10 @@ field-level contract for update, sync, save, progress, diagnostics, stale-versio
 readiness, and recovery hints lives in [SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md).
 
 If a speculative probe looks right and should become real source, the current contract is still:
-make the real edit in the file, save it, then run `lean-beam sync`. The intended future direction is
-to make that handoff cheap by reusing speculative execution rather than replaying it from scratch.
+make the real edit in the file, save it, then run `lean-beam sync`. After the client has written and
+saved accepted text, the intended future direction is for `lean-beam update` or `lean-beam sync` to
+reuse matching speculative execution rather than replaying it from scratch. Beam would still not
+apply the source edit.
 
 For programmatic local consumers, the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; wrapper stderr should be treated as human-facing. Broker responses

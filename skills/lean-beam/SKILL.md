@@ -93,6 +93,7 @@ What to treat as the normal agent workflow surface:
 Core workflow contract:
 
 - use `lean-beam`, not raw JSON and not raw LSP
+- Beam never applies source edits to `.lean` files on disk; the client applies source edits
 - `lean-beam` only sees the on-disk file, not unsaved editor buffers
 - in transient PID-sandboxed command runners, start one foreground `lean-beam ensure --hold`
   process when you need daemon reuse across separate shell invocations; interrupt it when finished

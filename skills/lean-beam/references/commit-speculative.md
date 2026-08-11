@@ -52,6 +52,7 @@ the file, save it, then `lean-beam sync`.
 
 ## Future Direction
 
-The intended future direction is for this handoff to become cheap by reusing the speculative
-execution instead of replaying the work from scratch. That is not the current contract yet, so the
-safe workflow today is still: real edit, save, `lean-beam sync`.
+After the client has written and saved accepted text, the intended future direction is for
+`lean-beam update` or `lean-beam sync` to reuse matching speculative execution instead of replaying
+the work from scratch. Beam would still not apply the source edit. That is not the current contract
+yet, so the safe workflow today is still: real edit, save, `lean-beam sync`.

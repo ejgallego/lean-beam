@@ -46,6 +46,7 @@ def usage : String :=
     "  beam [--root PATH] reset-stats",
     "  beam [--root PATH] shutdown",
     "",
+    "Beam never applies source edits to `.lean` files on disk; the client applies source edits.",
     "Lean edit loop: save the file, then run lean-update for a broker document version.",
     "Run lean-sync when you need the diagnostics/readiness barrier. lean-save is lean-sync plus a",
     "workspace-module checkpoint, lean-refresh is lean-close plus lean-sync, and lean-close-save",
