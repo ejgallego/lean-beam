@@ -64,7 +64,7 @@ configuration from `lakefile.lean` text and never batch-builds as part of `save`
 Beam assumes Lake workspace configuration remains unchanged for the lifetime of the running Lean
 server. The server and existing file workers are not guaranteed to pick up edits to a lakefile,
 manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic libraries. After any
-such change, run `lean-beam shutdown` before the next `sync` or `save`; `lean-beam refresh` only
+such change, run `lean-beam shutdown` before another Lean operation; `lean-beam refresh` only
 reopens the file within the current server and is not sufficient. Beam does not detect this
 configuration drift, so reusing a running session after such an edit is unsupported.
 

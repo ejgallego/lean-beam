@@ -90,8 +90,8 @@ instance : ToJson Operation where
   toJson op := toJson op.key
 
 def Operation.description : Operation → String
-  | .runAt => "Run one Lean command or tactic block at a file position without storing follow-up state."
-  | .runAtHandle => "Run one Lean command or tactic block at a file position and store a follow-up handle."
+  | .runAt => "Speculatively test one Lean command or tactic block at a file position without editing the file or storing follow-up state. Apply accepted text with the client's normal file-edit tool before syncing."
+  | .runAtHandle => "Speculatively test one Lean command or tactic block at a file position without editing the file, and store a follow-up handle. Apply accepted text with the client's normal file-edit tool before syncing."
   | .hover => "Inspect Lean hover information at a file position."
   | .signatureHelp => "Inspect Lean signature help at a file position."
   | .definition => "Find Lean definitions for the symbol at a file position."
@@ -105,7 +105,7 @@ def Operation.description : Operation → String
   | .runWithLinear => "Run one Lean continuation command or tactic block from a stored handle and consume that handle on success or failure."
   | .release => "Release a stored Lean follow-up handle."
   | .update => "Open or update a Lean file in the broker and return its document version without waiting for diagnostics."
-  | .sync => "Synchronize a Lean file with the broker and wait for diagnostics."
+  | .sync => "Synchronize and validate the current on-disk Lean file with the broker, wait for diagnostics, and return its document version. This does not apply text from earlier speculative run_at calls."
   | .refresh => "Close a Lean file in the broker if tracked, then synchronize it again with fresh diagnostics."
   | .save => "Synchronize a Lean file and save zero-build artifacts when possible."
   | .closeSave => "Synchronize a Lean file, save zero-build artifacts when possible, and close the file."

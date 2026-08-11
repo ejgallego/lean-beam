@@ -133,6 +133,12 @@ protocol metadata, modern result envelopes and caching hints, request-scoped log
 modern stdio never sends server-to-client JSON-RPC requests. MRTR `requestState` is request-local
 continuation data and will not be used as a workspace identifier.
 
+`lean_run_at` and its handle variants are speculative: they execute the supplied text against the
+selected version without editing the Lean file. To keep an accepted result, the client must apply
+the text with its normal file-editing tool, then call `lean_update` or `lean_sync`. `lean_sync`
+validates the current on-disk file; it does not apply or recover text from an earlier speculative
+call.
+
 `lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
 apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so
 Beam observes the edited file and reports the new version. Use `lean_sync` instead of `lean_update`
@@ -150,7 +156,7 @@ one-time clean local check outside MCP. See the
 
 The running Lean server is not guaranteed to pick up Lake workspace configuration changes. After
 editing a lakefile or related workspace setup, call `lean_init_workspace` with `mode: "reset"` (or
-restart the MCP server) before the next `lean_sync` or `lean_save`. Re-syncing a file in the existing
+restart the MCP server) before using any other `lean_*` tool. Re-syncing a file in the existing
 runtime is not sufficient.
 
 ## Public Tool Boundary

@@ -109,7 +109,7 @@ Core workflow contract:
 - modules with batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`; move shared `-D` settings
   to `leanOptions`, or use `lake build` when the arguments are intentionally batch-only
 - after changing a lakefile or related Lake workspace configuration, run `lean-beam shutdown`
-  before the next sync or save; `lean-beam refresh` does not restart the Lean server
+  before another Lean operation; `lean-beam refresh` does not restart the Lean server
 - treat wrapper `stderr` as human-facing only; use stdout JSON or `beam-client request-stream`
   for machine-readable automation
 - `lean-beam feedback` does not accept free-form notes; pass a JSON object with required string
@@ -371,7 +371,7 @@ Read the save path as a progression, not as three unrelated commands:
 - modules with batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`; move shared `-D` settings
   to `leanOptions`, or use `lake build` when the arguments are intentionally batch-only
 - after changing a lakefile or related Lake workspace configuration, run `lean-beam shutdown`
-  before syncing or saving again; `lean-beam refresh` is not sufficient
+  before another Lean operation; `lean-beam refresh` is not sufficient
 - `lean-beam close-save` is `lean-beam save` plus closing the tracked file afterward
 - a Beam save checkpoints the accepted Lean server environment; it does not rerun batch elaboration
 - the one-time `shutdown` / `lake clean` / `lake build` sequence discards development checkpoints
