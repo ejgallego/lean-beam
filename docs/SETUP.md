@@ -200,8 +200,8 @@ checks.
 
 The running Lean server and existing file workers are not guaranteed to pick up Lake workspace
 configuration changes. After editing a lakefile, manifest, package override, `lean-toolchain`, Lean
-options, plugins, or dynamic libraries, run `lean-beam shutdown` before another Lean operation.
-`lean-beam refresh` reopens a file within the current server and is not sufficient
+options, plugins, or dynamic libraries, run `lean-beam shutdown` before the next command that uses
+the Lean server. `lean-beam refresh` reopens a file within the current server and is not sufficient
 for this case.
 
 ### Final Batch Validation

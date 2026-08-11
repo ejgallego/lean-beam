@@ -240,21 +240,18 @@ private def checkToolsListShape : IO Unit := do
     let tool ← requireTool tools toolName
     let schema ← requireClosedInputSchema s!"{toolName} input schema" tool
     requireSchemaRequiredFields s!"{toolName} input schema" requiredFields schema
-  let runAtTool ← requireTool tools "lean_run_at"
-  let runAtDescription ← IO.ofExcept <| runAtTool.getObjValAs? String "description"
-  require "lean_run_at description should explain speculative file behavior"
-    (runAtDescription.contains "without editing the file" &&
-      runAtDescription.contains "file-edit tool before syncing")
-  let runAtHandleTool ← requireTool tools "lean_run_at_handle"
-  let runAtHandleDescription ← IO.ofExcept <| runAtHandleTool.getObjValAs? String "description"
-  require "lean_run_at_handle description should explain speculative file behavior"
-    (runAtHandleDescription.contains "without editing the file" &&
-      runAtHandleDescription.contains "file-edit tool before syncing")
+  for toolName in #["lean_run_at", "lean_run_at_handle", "lean_run_with", "lean_run_with_linear"] do
+    let tool ← requireTool tools toolName
+    let description ← IO.ofExcept <| tool.getObjValAs? String "description"
+    require s!"{toolName} description should explain speculative file behavior"
+      (description.contains "does not edit the file" &&
+        description.contains "file-edit tool" &&
+        description.contains "lean_sync")
   let syncTool ← requireTool tools "lean_sync"
   let syncDescription ← IO.ofExcept <| syncTool.getObjValAs? String "description"
   require "lean_sync description should distinguish saved source from speculative probes"
     (syncDescription.contains "current on-disk Lean file" &&
-      syncDescription.contains "does not apply text from earlier speculative run_at calls")
+      syncDescription.contains "does not apply or recover text from speculative probes")
   let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
   let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
   requireFieldPresent "lean_sync input schema" "workspace_id" syncProperties

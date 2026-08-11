@@ -202,8 +202,8 @@ discriminator.
   worker has already applied them; batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`.
 - Beam does not detect Lake workspace configuration changes during a running Lean session. After
   editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
-  libraries, run `lean-beam shutdown` before another Lean operation; `lean-beam refresh` does not
-  restart the server.
+  libraries, run `lean-beam shutdown` before the next command that uses the Lean server;
+  `lean-beam refresh` does not restart the server.
 - A Beam checkpoint contains the Lean server's accepted environment. Elaborators can
   distinguish server execution from batch execution, so exceptional custom elaboration can produce
   an artifact that differs from a fresh `lake build` artifact. Successful checkpoints are normally
