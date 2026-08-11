@@ -97,14 +97,23 @@ done
 "$beam_script" --root "$tmp9" ensure --hold > "$tmp9/hold.out" 2> "$tmp9/hold.err" &
 hold_pid="$!"
 hold_registry="$tmp9/.beam/beam-daemon.json"
-for _ in $(seq 1 600); do
+# A cold installed-bundle qualification can build the selected Lean payload before `ensure`
+# responds. Keep this bounded, but allow enough time for that legitimate first-use path on CI.
+hold_ready_attempts="${BEAM_TEST_HOLD_READY_ATTEMPTS:-1800}"
+case "$hold_ready_attempts" in
+  ''|*[!0-9]*|0)
+    echo "BEAM_TEST_HOLD_READY_ATTEMPTS must be a positive integer" >&2
+    exit 1
+    ;;
+esac
+for _ in $(seq 1 "$hold_ready_attempts"); do
   if [ -s "$tmp9/hold.out" ] && [ -f "$hold_registry" ]; then
     break
   fi
   sleep 0.1
 done
 if [ ! -s "$tmp9/hold.out" ] || [ ! -f "$hold_registry" ]; then
-  echo "expected ensure --hold to print an ensure response and create a registry" >&2
+  echo "expected ensure --hold to print an ensure response and create a registry after $hold_ready_attempts readiness probes" >&2
   cat "$tmp9/hold.err" >&2
   exit 1
 fi

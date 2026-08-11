@@ -8,6 +8,7 @@ import Beam.Broker.Errors
 import Beam.Broker.Protocol
 import Beam.Broker.Readiness
 import Beam.Broker.RequestArgs
+import Beam.Broker.Server
 import Beam.JsonPretty
 import BeamTest.Broker.JsonAssert
 import Lean
@@ -571,6 +572,101 @@ private def checkWorkspaceRoutingFields : IO Unit := do
       require "unsupported workspace mode error should name accepted values"
         (err.contains "'set', 'verify', or 'reset'")
 
+private def checkWorkspaceLifecycleProtocol : IO Unit := do
+  let root := System.FilePath.mk "/workspace"
+  let previous := System.FilePath.mk "/previous-workspace"
+  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString)
+    ] with
+  | .ok _ => throw <| IO.userError "init workspace input without workspace_id decoded unexpectedly"
+  | .error err =>
+      require "missing init workspace id error should name workspace_id" (err.contains "workspace_id")
+  let namedInput ← expectOk "decode named init input" <|
+    fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString),
+      ("workspace_id", toJson "fixture"),
+      ("mode", toJson "verify")
+    ]
+  require "named init input should preserve workspace id" (namedInput.workspaceId == "fixture")
+  require "named init input should preserve mode" (namedInput.mode == .verify)
+  let dropInput ← expectOk "decode shared drop input" <|
+    fromJson? (α := Beam.Workspace.DropInput) <| Json.mkObj [
+      ("workspace_id", toJson "fixture")
+    ]
+  require "drop input should use the shared workspace decoder" (dropInput.workspaceId == "fixture")
+  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString),
+      ("workspace_id", toJson "")
+    ] with
+  | .ok _ => throw <| IO.userError "empty init workspace id decoded unexpectedly"
+  | .error err =>
+      require "empty init workspace id error should explain the constraint"
+        (err.contains "workspace_id must be non-empty")
+  let emptyRuntimeIdRejected ←
+    try
+      discard <| Beam.Broker.ServerRuntime.create ({ root } : Beam.Broker.BrokerConfig) ""
+      pure false
+    catch err =>
+      pure <| err.toString.contains "workspace id must be non-empty"
+  require "broker runtime constructor should reject an empty workspace id" emptyRuntimeIdRejected
+
+  let resetResult : Beam.Workspace.InitResult := {
+    workspaceId := "fixture"
+    root
+    mode := .reset
+    runtimeReused := false
+    previousRoot? := some previous
+    invalidatedHandles := true
+  }
+  let resetJson := toJson resetResult
+  requireJsonString "reset result json" "workspace_id" "fixture" resetJson
+  requireJsonString "reset result json" "root" root.toString resetJson
+  requireFieldAbsent "reset result json" "active_root" resetJson
+  requireJsonString "reset result json" "previous_root" previous.toString resetJson
+  requireJsonBool "reset result json" "invalidated_handles" true resetJson
+  requireJsonBool "reset result json" "runtime_reused" false resetJson
+  let decodedReset ← expectOk "decode typed workspace initialization result" <|
+    fromJson? (α := Beam.Workspace.InitResult) resetJson
+  require "typed workspace initialization result preserves lifecycle state"
+    (decodedReset.workspaceId == "fixture" && decodedReset.root == root &&
+      decodedReset.previousRoot? == some previous && decodedReset.invalidatedHandles)
+
+  let setResultJson := toJson ({
+    workspaceId := Beam.Workspace.defaultWorkspaceId
+    root
+    mode := .set
+    runtimeReused := false
+    invalidatedHandles := false
+  } : Beam.Workspace.InitResult)
+  requireJsonString "set result json" "workspace_id" Beam.Workspace.defaultWorkspaceId setResultJson
+  requireJsonBool "set result json" "invalidated_handles" false setResultJson
+  requireFieldAbsent "set result json" "previous_root" setResultJson
+
+  let listJson := toJson ({ workspaces := #[{
+    workspaceId := "fixture"
+    root
+    leanActive := true
+    rocqActive := false
+  }] } : Beam.Workspace.ListResult)
+  let decodedList ← expectOk "decode typed workspace list" <|
+    fromJson? (α := Beam.Workspace.ListResult) listJson
+  let some decodedEntry := decodedList.workspaces[0]?
+    | throw <| IO.userError "typed workspace list lost its entry"
+  require "typed workspace list preserves workspace id" (decodedEntry.workspaceId == "fixture")
+  require "typed workspace list preserves root" (decodedEntry.root == root)
+  require "typed workspace list preserves backend activity"
+    (decodedEntry.leanActive && !decodedEntry.rocqActive)
+
+  let dropJson := toJson ({
+    workspaceId := "fixture"
+    dropped := true
+    invalidatedHandles := true
+  } : Beam.Workspace.DropResult)
+  let decodedDrop ← expectOk "decode typed workspace drop result" <|
+    fromJson? (α := Beam.Workspace.DropResult) dropJson
+  require "typed workspace drop preserves lifecycle state"
+    (decodedDrop.workspaceId == "fixture" && decodedDrop.dropped && decodedDrop.invalidatedHandles)
+
 def main : IO Unit := do
   checkResponseJsonShape
   checkResponseJsonDecode
@@ -583,6 +679,7 @@ def main : IO Unit := do
   checkStaleDirectDepHints
   checkRequestArgsBoundary
   checkWorkspaceRoutingFields
+  checkWorkspaceLifecycleProtocol
 
 end BeamTest.Broker.ProtocolTest
 

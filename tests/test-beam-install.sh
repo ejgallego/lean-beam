@@ -1375,10 +1375,12 @@ import select
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 server, project_root = sys.argv[1:]
+workspace = {"root": str(Path(project_root).resolve())}
 proc = subprocess.Popen(
-    [server, "--root", project_root],
+    [server],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -1429,7 +1431,7 @@ send({
     "jsonrpc": "2.0",
     "id": 2,
     "method": "tools/call",
-    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean", "workspace_id": "default"}},
+    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean", "workspace": workspace}},
 })
 sync = recv(2)
 result = sync.get("result")
@@ -1485,14 +1487,14 @@ fi
 remove_tmp_file "$mcp_smoke_out"
 remove_tmp_file "$mcp_smoke_err"
 
-mcp_self_check_out="$("$installed_mcp" --root "$project_root" --self-check PositionEmptyLine.lean)"
+mcp_self_check_out="$(cd "$project_root" && "$installed_mcp" --self-check PositionEmptyLine.lean)"
 if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'Lean Beam MCP self-check passed'; then
   echo "expected installed MCP self-check to report success" >&2
   printf '%s\n' "$mcp_self_check_out" >&2
   exit 1
 fi
-if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'workspace setup: lean_init_workspace'; then
-  echo "expected installed MCP self-check to exercise explicit workspace setup" >&2
+if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'workspace: explicit root descriptor'; then
+  echo "expected installed MCP self-check to exercise an explicit workspace descriptor" >&2
   printf '%s\n' "$mcp_self_check_out" >&2
   exit 1
 fi

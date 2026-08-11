@@ -14,7 +14,6 @@ open Lean
 namespace Beam.Mcp.SelfCheck
 
 structure Options where
-  root? : Option String := none
   leanCmd? : Option String := none
   leanPlugin? : Option String := none
   beamCli? : Option String := none
@@ -67,10 +66,8 @@ private def childArgs (opts : Options) : List String :=
     | none => args
   args
 
-private def root (opts : Options) : IO System.FilePath := do
-  match opts.root? with
-  | some root => Beam.resolveExistingPath <| System.FilePath.mk root
-  | none => Beam.resolveExistingPath (← IO.currentDir)
+private def root : IO System.FilePath := do
+  Beam.resolveExistingPath (← IO.currentDir)
 
 private def resolveFile (root : System.FilePath) (pathText : String) : IO System.FilePath := do
   let path := System.FilePath.mk pathText
@@ -120,25 +117,9 @@ private def expectResult (label : String) (json : Json) : IO Json := do
   | .error _ =>
       requireObjVal label "result" json
 
-private def respondToRootsList (stdin : IO.FS.Handle) (request : Json) (root : System.FilePath) : IO Unit := do
-  let requestId ← requireObjVal "roots/list request" "id" request
-  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", requestId),
-    ("result", Json.mkObj [
-      ("roots", toJson #[
-        Json.mkObj [
-          ("uri", toJson (System.Uri.pathToUri root : String)),
-          ("name", toJson "lean-beam-self-check")
-        ]
-      ])
-    ])
-  ]
-
 private partial def readResponse
     (child : IO.Process.Child stdio)
-    (stdin stdout : IO.FS.Handle)
-    (root : System.FilePath)
+    (stdout : IO.FS.Handle)
     (expectedId : Json)
     (phase : String)
     (timeoutMs : Nat) : IO Json := do
@@ -152,15 +133,12 @@ private partial def readResponse
     | .ok json => pure json
     | .error err => throw <| IO.userError s!"lean-beam-mcp self-check child wrote invalid JSON during {phase}: {err}: {line}"
   match json.getObjValAs? String "method" with
-  | .ok "roots/list" =>
-      respondToRootsList stdin json root
-      readResponse child stdin stdout root expectedId phase timeoutMs
   | .ok method =>
       match json.getObjVal? "id" with
       | .ok _ =>
           throw <| IO.userError s!"lean-beam-mcp self-check child sent unexpected request '{method}' during {phase}: {json.compress}"
       | .error _ =>
-          readResponse child stdin stdout root expectedId phase timeoutMs
+          readResponse child stdout expectedId phase timeoutMs
   | .error _ =>
       let id ← requireObjVal "self-check response" "id" json
       if id == expectedId then
@@ -175,11 +153,7 @@ private def sendInitialize (stdin : IO.FS.Handle) : IO Unit := do
     ("method", toJson "initialize"),
     ("params", Json.mkObj [
       ("protocolVersion", toJson protocolVersion),
-      ("capabilities", Json.mkObj [
-        ("roots", Json.mkObj [
-          ("listChanged", toJson false)
-        ])
-      ]),
+      ("capabilities", Json.mkObj []),
       ("clientInfo", Json.mkObj [
         ("name", toJson "lean-beam-mcp-self-check"),
         ("version", toJson serverVersion)
@@ -193,31 +167,19 @@ private def sendInitialized (stdin : IO.FS.Handle) : IO Unit := do
     ("method", toJson "notifications/initialized")
   ]
 
-private def sendSync (stdin : IO.FS.Handle) (pathText : String) : IO Unit := do
-  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson (3 : Nat)),
-    ("method", toJson "tools/call"),
-    ("params", Json.mkObj [
-      ("name", toJson ToolName.leanSync),
-      ("arguments", Json.mkObj [
-        ("path", toJson pathText),
-        ("workspace_id", toJson Beam.Workspace.defaultWorkspaceId)
-      ])
-    ])
-  ]
-
-private def sendInitWorkspace (stdin : IO.FS.Handle) (root : System.FilePath) : IO Unit := do
+private def sendSync
+    (stdin : IO.FS.Handle)
+    (root : System.FilePath)
+    (pathText : String) : IO Unit := do
   Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
     ("id", toJson (2 : Nat)),
     ("method", toJson "tools/call"),
     ("params", Json.mkObj [
-      ("name", toJson ToolName.leanInitWorkspace),
+      ("name", toJson ToolName.leanSync),
       ("arguments", Json.mkObj [
-        ("root", toJson root.toString),
-        ("workspace_id", toJson Beam.Workspace.defaultWorkspaceId),
-        ("mode", toJson "set")
+        ("path", toJson pathText),
+        ("workspace", toJson <| Beam.Workspace.Descriptor.ofRoot root)
       ])
     ])
   ]
@@ -225,7 +187,7 @@ private def sendInitWorkspace (stdin : IO.FS.Handle) (root : System.FilePath) : 
 private def sendShutdown (stdin : IO.FS.Handle) : IO Unit := do
   Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
-    ("id", toJson (4 : Nat)),
+    ("id", toJson (3 : Nat)),
     ("method", toJson "shutdown")
   ]
 
@@ -241,7 +203,7 @@ private def terminateChild (child : IO.Process.Child stdio) : IO Unit := do
     pure ()
 
 def run (opts : Options) (pathText : String) : IO Unit := do
-  let root ← root opts
+  let root ← root
   let resolvedPath ← resolveFile root pathText
   let appPath ← IO.appPath
   let timeout ← timeoutMs
@@ -254,23 +216,14 @@ def run (opts : Options) (pathText : String) : IO Unit := do
   try
     sendInitialize child.stdin
     let init ← expectResult "initialize" =<<
-      readResponse child child.stdin child.stdout root (toJson (1 : Nat)) "initialize response" timeout
+      readResponse child child.stdout (toJson (1 : Nat)) "initialize response" timeout
     let negotiated ← requireObjValAs (α := String) "initialize result" "protocolVersion" init
     if negotiated != protocolVersion then
       throw <| IO.userError s!"server negotiated MCP protocol {negotiated}, expected {protocolVersion}"
     sendInitialized child.stdin
-    sendInitWorkspace child.stdin root
-    let initWorkspace ← expectResult "lean_init_workspace" =<<
-      readResponse child child.stdin child.stdout root (toJson (2 : Nat)) "lean_init_workspace response" timeout
-    match initWorkspace.getObjVal? "isError" with
-    | .ok (.bool true) =>
-        throw <| IO.userError s!"lean_init_workspace returned an MCP tool error: {initWorkspace.compress}"
-    | _ => pure ()
-    let initStructured ← requireObjVal "lean_init_workspace result" "structuredContent" initWorkspace
-    discard <| requireObjVal "lean_init_workspace structuredContent" "active_root" initStructured
-    sendSync child.stdin pathText
+    sendSync child.stdin root pathText
     let sync ← expectResult "lean_sync" =<<
-      readResponse child child.stdin child.stdout root (toJson (3 : Nat)) "lean_sync response" timeout
+      readResponse child child.stdout (toJson (2 : Nat)) "lean_sync response" timeout
     match sync.getObjVal? "isError" with
     | .ok (.bool true) =>
         throw <| IO.userError s!"lean_sync returned an MCP tool error: {sync.compress}"
@@ -279,7 +232,7 @@ def run (opts : Options) (pathText : String) : IO Unit := do
     discard <| requireObjVal "lean_sync structuredContent" "file_progress" structured
     sendShutdown child.stdin
     let shutdown ← expectResult "shutdown" =<<
-      readResponse child child.stdin child.stdout root (toJson (4 : Nat)) "shutdown response" timeout
+      readResponse child child.stdout (toJson (3 : Nat)) "shutdown response" timeout
     unless shutdown == Json.mkObj [] do
       throw <| IO.userError s!"unexpected shutdown result: {shutdown.compress}"
     let exitCode ← child.wait
@@ -292,7 +245,7 @@ def run (opts : Options) (pathText : String) : IO Unit := do
     IO.println "Lean Beam MCP self-check passed"
     IO.println s!"  root: {root}"
     IO.println s!"  file: {resolvedPath}"
-    IO.println s!"  workspace setup: lean_init_workspace"
+    IO.println s!"  workspace: explicit root descriptor"
     IO.println s!"  protocol: {protocolVersion}"
     IO.println "  lean_sync: ok"
   catch e =>

@@ -64,13 +64,12 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   JSON containing pasteable Markdown, metadata, collection warnings, and optional evidence bundle
   paths; CLI output and MCP `include_collected: true` include collected version/stats/open-file
   context, daemon registry context, and recent daemon incident paths
-- `lean-beam-mcp --self-check <lean-file>` setup verification for the installed MCP path, root
-  setup through `lean_init_workspace`, and a real `lean_sync` tool call
-- MCP default-root discovery through exactly one `roots/list` workspace root, explicit `--root`, or
-  explicit session setup through `lean_init_workspace`; additional local workspaces are initialized
-  with `lean_init_workspace` plus `workspace_id`, listed with `lean_list_workspaces`, and removed
-  with explicit `lean_drop_workspace` calls; every workspace-bound tool call names its
-  `workspace_id`, including `"default"`
+- `lean-beam-mcp --self-check <lean-file>` verification from a Lean project through a real
+  descriptor-bound `lean_sync` call
+- request-stateless local MCP workspaces: every workspace-bound call carries
+  `{"workspace":{"root":"/absolute/project"}}`; runtimes are cached lazily by canonical root,
+  `lean_drop_workspace` evicts one cache, and there is no default workspace, setup tool, startup
+  `--root`, or Roots discovery
 - projected MCP tools for versioned Lean file operations, semantic navigation, todo/code-action
   workflows, follow-up handles, save/sync operations, version/stats, and feedback report cards; the
   generated tool list and client semantics are documented in [MCP.md](MCP.md)
@@ -179,23 +178,21 @@ discriminator.
 ### MCP
 
 - `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are
-  not advertised or tested. The application-state model uses explicit workspace ids in preparation
-  for MCP `2026-07-28`, but discovery, per-request metadata, and modern result envelopes are not yet
+  not advertised or tested. Its application-state model is request-stateless in preparation for
+  MCP `2026-07-28`, but discovery, per-request metadata, and modern result envelopes are not yet
   implemented.
-- MCP workspace reset invalidates handles minted by the selected workspace id; discard saved handle
-  files for that workspace after `lean_init_workspace` with `mode: "reset"` or after dropping that
-  workspace. `lean_drop_workspace` requires an explicit `workspace_id`; use `"default"` to drop the
-  default workspace. `lean_init_workspace`, `beam_feedback`, and all Lean operation tools also
-  require an explicit `workspace_id`; there is no connection-wide current workspace.
+- `beam_feedback`, `lean_drop_workspace`, and all Lean operation tools require an explicit local
+  workspace descriptor. Dropping a workspace invalidates its proof handles; a later request with
+  the same descriptor recreates its runtime lazily.
 - `lean-beam-mcp` can execute ordinary tool calls concurrently in one process. Responses may arrive
   out of request order and are routed by exact JSON-RPC ID, with string and numeric IDs kept distinct.
 - Tool calls that include `_meta.progressToken` receive live MCP progress notifications. Updates for
   one request remain strictly ordered before its final response, while different requests may
   interleave; clients should use distinct tokens for concurrently active requests.
-- MCP `notifications/cancelled` cooperatively cancels active broker work. Initialization, workspace
-  setup/reset, and shutdown remain serialized; concurrent first use shares one root discovery and
-  runtime setup. Once admitted, `lean_init_workspace` ignores client cancellation and returns its
-  terminal result because workspace initialization or reset cannot be rolled back safely.
+- MCP `notifications/cancelled` cooperatively cancels active broker work. Lazy runtime setup and
+  shutdown remain serialized. Once admitted, `lean_drop_workspace` ignores client cancellation and
+  returns its terminal result because partial eviction cannot be rolled back safely. Later calls
+  wait for eviction to finish and may recreate the same descriptor.
 - Incremental Lean diagnostics are forwarded as MCP log notifications.
 - The Streamable HTTP bridge is test-only; the product entry point remains stdio.
 - Exact protocol behavior and conformance notes live in [MCP.md](MCP.md).

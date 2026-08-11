@@ -945,6 +945,34 @@ private def runWorkspaceLifecycleSmoke
   }
   expectErrCode defaultMismatch "invalidParams"
 
+  let wrongWorkspaceHandle ← runClient endpoint {
+    op := .runWith
+    workspaceId? := some Beam.Broker.defaultWorkspaceId
+    root? := some root.toString
+    path? := some "GoalSmoke.lean"
+    handle? := some postResetHandle
+    text? := some "trivial"
+  }
+  expectErrCode wrongWorkspaceHandle "invalidParams"
+
+  let scopedStats ← expectOk (← runClient endpoint {
+    op := .stats
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+  })
+  requireJsonString "scoped named workspace stats" "id" workspaceId scopedStats
+  requireJsonString "scoped named workspace stats" "root" otherRoot.toString scopedStats
+  requireFieldAbsent "scoped named workspace stats" "workspaces" scopedStats
+
+  let scopedOpenDocs ← expectOk (← runClient endpoint {
+    op := .openDocs
+    workspaceId? := some workspaceId
+    root? := some otherRoot.toString
+  })
+  requireJsonString "scoped named workspace open_docs" "workspace_id" workspaceId scopedOpenDocs
+  requireJsonString "scoped named workspace open_docs" "root" otherRoot.toString scopedOpenDocs
+  requireFieldAbsent "scoped named workspace open_docs" "workspaces" scopedOpenDocs
+
   let openDocs ← expectOk (← runClient endpoint { op := .openDocs })
   requireWorkspaceListed openDocs workspaceId
   let workspaces ← expectOk (← runClient endpoint { op := .listWorkspaces })

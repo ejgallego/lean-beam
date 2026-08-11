@@ -91,13 +91,9 @@ private structure InFlightRequest where
   state : Std.Mutex InFlightState
   done : IO.Promise Unit
 
-private structure PendingServerRequest where
-  promise : IO.Promise (Except String IncomingResponse)
-
 private structure RoutingState where
   nextBrokerId : Nat := 1
   inFlight : Std.TreeMap RequestId InFlightRequest := {}
-  pendingServer : Std.TreeMap RequestId PendingServerRequest := {}
   controlBarrier? : Option (IO.Promise Unit) := none
   closing : Bool := false
 
@@ -110,14 +106,14 @@ Nested locks flow toward the routing and output locks:
 Routing and output code must not acquire setup, progress, or request locks.
 -/
 private structure Coordinator where
-  protocol : IO.Ref ProtocolState
+  state : IO.Ref ServerState
   setupMutex : Std.Mutex Unit
   routing : Std.Mutex RoutingState
   output : OutputSink
 
-private def Coordinator.create (root? : Option System.FilePath) : IO Coordinator := do
+private def Coordinator.create : IO Coordinator := do
   pure {
-    protocol := ← ProtocolState.create root?
+    state := ← ServerState.create
     setupMutex := ← Std.Mutex.new ()
     routing := ← Std.Mutex.new {}
     output := ← OutputSink.create
@@ -304,22 +300,12 @@ private def Coordinator.cancelRequest
 
 private def Coordinator.beginClosing
     (coordinator : Coordinator)
-    (reason : String) : IO (Bool × Array InFlightRequest) := do
-  let (alreadyClosing, requests, pending) ← coordinator.routing.atomically do
+    (_reason : String) : IO (Bool × Array InFlightRequest) := do
+  let (alreadyClosing, requests) ← coordinator.routing.atomically do
     let routing ← get
     let requests := routing.inFlight.toList.map Prod.snd |>.toArray
-    let pending := routing.pendingServer.toList.map Prod.snd |>.toArray
-    set {
-      routing with
-        closing := true
-        pendingServer := {}
-    }
-    pure (routing.closing, requests, pending)
-  for pendingRequest in pending do
-    try
-      pendingRequest.promise.resolve (.error reason)
-    catch _ =>
-      pure ()
+    set { routing with closing := true }
+    pure (routing.closing, requests)
   for request in requests do
     coordinator.cancelRequest request.id
   pure (alreadyClosing, requests)
@@ -339,68 +325,22 @@ private def Coordinator.closeTransport (coordinator : Coordinator) : IO Unit := 
   coordinator.awaitRequests requests
   unless alreadyClosing do
     coordinator.setupMutex.atomically do
-      let currentState ← coordinator.protocol.get
-      match currentState.runtime? with
+      let currentState ← coordinator.state.get
+      match currentState.application.runtime? with
       | none => pure ()
       | some runtime =>
           discard <| runtime.dispatchRequest { op := .shutdown }
-
-private def Coordinator.routeResponse
-    (coordinator : Coordinator)
-    (response : IncomingResponse) : IO Unit := do
-  let pending? ← coordinator.routing.atomically do
-    let routing ← get
-    let pending? := routing.pendingServer.get? response.id
-    set { routing with pendingServer := routing.pendingServer.erase response.id }
-    pure pending?
-  match pending? with
-  | none =>
-      Internal.traceMcp s!"ignoring response for unknown server request id={response.id.label}"
-  | some pending =>
-      try
-        pending.promise.resolve (.ok response)
-      catch _ =>
-        pure ()
-
-private def Coordinator.requestClientRoot (coordinator : Coordinator) : IO (Except String System.FilePath) := do
-  let id : RequestId := .string rootsListRequestId
-  let promise ← IO.Promise.new
-  let inserted ← coordinator.routing.atomically do
-    let routing ← get
-    if routing.pendingServer.contains id then
-      pure false
-    else
-      set {
-        routing with
-          pendingServer := routing.pendingServer.insert id { promise }
-      }
-      pure true
-  if !inserted then
-    return .error "roots/list request is already pending"
-  try
-    coordinator.output.send rootsListRequest
-    let some response ← IO.wait promise.result?
-      | return .error "roots/list response promise was dropped"
-    match response with
-    | .error err => pure <| .error err
-    | .ok response => Roots.selectClientRootResponse response
-  catch e =>
-    coordinator.routing.atomically do
-      modify fun routing => {
-        routing with pendingServer := routing.pendingServer.erase id
-      }
-    pure <| .error e.toString
 
 private def Coordinator.admitToolRequest
     (coordinator : Coordinator)
     (req : Request)
     (cancellationPolicy : ClientCancellationPolicy) :
     IO (Except Json InFlightRequest) := do
-  let currentState ← coordinator.protocol.get
-  if !currentState.initializeComplete then
+  let currentState ← coordinator.state.get
+  if !currentState.legacy.initializeComplete then
     return .error <| errorResponse req.id <|
         RpcError.invalidRequest "initialize must complete before MCP operation requests"
-  if !currentState.initializedNotificationSeen then
+  if !currentState.legacy.initializedNotificationSeen then
     return .error <| errorResponse req.id <|
         RpcError.invalidRequest "notifications/initialized is required before MCP operation requests"
   match ← coordinator.registerRequest req.id cancellationPolicy with
@@ -418,10 +358,9 @@ private def Coordinator.executeToolRequest
   }
   try
     match ← Internal.handleToolCall
-        coordinator.protocol
+        coordinator.state
         opts
         coordinator.setupMutex
-        coordinator.requestClientRoot
         request.brokerId
         request.bindRuntime
         req
@@ -490,8 +429,8 @@ private def Coordinator.handleControlToolRequest
           resolvePromise done
       pure ()
 
-private def isWorkspaceInit : Except String CallToolParams → Bool
-  | .ok params => params.name == .leanInitWorkspace
+private def isWorkspaceControl : Except String CallToolParams → Bool
+  | .ok params => params.name == .leanDropWorkspace
   | .error _ => false
 
 private def Coordinator.handleNotification
@@ -504,7 +443,7 @@ private def Coordinator.handleNotification
       | .error err => Internal.traceMcp s!"ignoring invalid notifications/cancelled: {err}"
       pure false
   | _ =>
-      Beam.Mcp.Server.handleNotification coordinator.protocol notification
+      Beam.Mcp.Server.handleNotification coordinator.state notification
 
 private def Coordinator.handleShutdown
     (coordinator : Coordinator)
@@ -512,8 +451,8 @@ private def Coordinator.handleShutdown
   let (_, requests) ← coordinator.beginClosing "MCP server is shutting down"
   coordinator.awaitRequests requests
   let response ← coordinator.setupMutex.atomically do
-    let currentState ← coordinator.protocol.get
-    match currentState.runtime? with
+    let currentState ← coordinator.state.get
+    match currentState.application.runtime? with
     | none =>
         pure <| successResponse req.id (Json.mkObj [])
     | some runtime =>
@@ -536,13 +475,13 @@ private def Coordinator.handleIncoming
         pure true
       else if req.method == "tools/call" then
         let parsedParams := parseCallToolParams req.params?
-        if isWorkspaceInit parsedParams then
+        if isWorkspaceControl parsedParams then
           coordinator.handleControlToolRequest opts req parsedParams
         else
           coordinator.spawnToolRequest opts req parsedParams
         pure false
       else
-        let (response, stop) ← handleRequest coordinator.protocol opts req {
+        let (response, stop) ← handleRequest coordinator.state opts req {
           send := coordinator.output.send
         }
         coordinator.output.send response
@@ -550,12 +489,12 @@ private def Coordinator.handleIncoming
   | .notification notification =>
       coordinator.handleNotification notification
   | .response response =>
-      coordinator.routeResponse response
+      Internal.traceMcp s!"ignoring unexpected client response id={response.id.label}"
       pure false
 
-partial def runStdio (opts : Options) (root? : Option System.FilePath) : IO Unit := do
+partial def runStdio (opts : Options) : IO Unit := do
   let stdin ← IO.getStdin
-  let coordinator ← Coordinator.create root?
+  let coordinator ← Coordinator.create
   let rec loop : IO Unit := do
     let line := Beam.Mcp.Stdio.stripLineEnding (← stdin.getLine)
     if line.isEmpty then
@@ -585,11 +524,6 @@ partial def runStdio (opts : Options) (root? : Option System.FilePath) : IO Unit
   finally
     coordinator.closeTransport
 
-private def requireStartupRoot (rootText : String) : IO System.FilePath := do
-  match ← Beam.Lean.Workspace.resolveCliRoot rootText with
-  | .ok root => pure root
-  | .error err => throw <| IO.userError err.message
-
 def main (args : List String) : IO Unit := do
   let opts ←
     match Beam.Mcp.parseOptions {} args with
@@ -601,13 +535,11 @@ def main (args : List String) : IO Unit := do
   match opts.selfCheckPath? with
   | some path =>
       SelfCheck.run {
-        root? := opts.root?
         leanCmd? := opts.leanCmd?
         leanPlugin? := opts.leanPlugin?
         beamCli? := opts.beamCli?
       } path
   | none =>
-      let root? ← opts.root?.mapM requireStartupRoot
-      runStdio opts root?
+      runStdio opts
 
 end Beam.Mcp.Server

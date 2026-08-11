@@ -3,103 +3,120 @@
 This is maintainer documentation for the experimental `lean-beam-mcp` server. User setup lives in
 the [setup guide](SETUP.md#mcp-setup).
 
-## Current Shape
+## Current Protocol And State Model
 
-`lean-beam-mcp` is a stdio MCP server over the shared Beam layer. It is not a raw Lean LSP proxy and
-does not auto-expose editor-oriented LSP methods as agent tools.
+`lean-beam-mcp` is a stdio MCP server over the shared Beam broker runtime. It is not a raw Lean LSP
+proxy and does not auto-expose editor-oriented LSP methods as agent tools.
 
-The layering is:
+The server currently advertises MCP `2025-11-25` and requires `initialize` followed by
+`notifications/initialized`. The application model is already request-stateless in preparation for
+MCP `2026-07-28`:
 
-- [Beam/LSP/RunAt.lean](../Beam/LSP/RunAt.lean) owns the small Lean extension request and response
-  types.
-- [Beam/Broker/Protocol.lean](../Beam/Broker/Protocol.lean) owns the local broker request, response,
-  and stream envelopes.
-- [Beam/Broker/Server.lean](../Beam/Broker/Server.lean) owns workspace and session lifecycle,
-  document sync, save barriers, cancellation, backend dispatch, and the shared in-process runtime
-  used by both the daemon transport and MCP server.
-- [Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) owns curated Lean operations, typed inputs,
-  JSON schemas, and operation-to-broker adapters.
-- [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean) owns the matching CLI projection for
-  public Lean operations.
-- [Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean) owns typed workspace ids and the
-  shared workspace initialization input, mode, and result shapes.
-- [Beam/Workspace.lean](../Beam/Workspace.lean) owns shared workspace setup errors and active-root
-  metadata.
-- [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean) owns Lean/Lake project-root validation for
-  CLI and MCP setup paths.
-- [Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean) owns MCP tool names, descriptors, and
-  normalized agent-facing output shapes.
-- [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean) owns MCP JSON-RPC and tool-result helpers.
-- [Beam/Mcp/Options.lean](../Beam/Mcp/Options.lean), [Beam/Mcp/Roots.lean](../Beam/Mcp/Roots.lean),
-  [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean), and
-  [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean) own executable setup boundaries.
-- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean) owns typed lifecycle validation, tool dispatch,
-  runtime setup, and the synchronous protocol-test seam.
-- [Beam/Mcp/StdioServer.lean](../Beam/Mcp/StdioServer.lean) owns the permanent stdin reader,
-  concurrent request coordination, cancellation and lifecycle barriers, and serialized output.
-- [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean) owns the `lean-beam-mcp` executable entry
-  point.
+- every workspace-bound request includes an explicit workspace descriptor
+- no request depends on a root or workspace selected by earlier MCP traffic
+- continuation state is explicit in proof handles
+- warm Lean processes, document mirrors, metrics, and diagnostics remain implementation caches
 
-The MCP server sits beside the CLI as another projection over the same Beam operation set. It is a
-broker-runtime-backed executable, not a second client process that talks to the Beam daemon.
+The modern wire-protocol update is separate work. It will add `server/discover`, per-request
+protocol metadata, modern result envelopes and caching hints, and request-scoped logging. MRTR
+`requestState` is request-local continuation data and will not be used as a workspace identifier.
+
+## Local Workspace Descriptor
+
+The current local descriptor is:
+
+```json
+{
+  "workspace": {
+    "root": "/absolute/path/to/lean/project"
+  }
+}
+```
+
+`workspace` is required on `beam_feedback`, `lean_drop_workspace`, and every Lean operation. The
+root must be an absolute path to an existing Lean/Lake project. Beam resolves it to a canonical path
+and derives a private, deterministic broker cache key from that path. Canonical aliases therefore
+share one runtime; clients do not choose process-local workspace ids.
+
+There is no distinguished default workspace, `lean-beam-mcp --root`, `lean_init_workspace`,
+`lean_list_workspaces`, or MCP `roots/list` fallback. A first ordinary request is sufficient:
+
+```json
+{
+  "name": "lean_sync",
+  "arguments": {
+    "workspace": {"root": "/absolute/path/to/project"},
+    "path": "Main.lean"
+  }
+}
+```
+
+The server validates the descriptor, lazily creates or reuses its runtime, and echoes the canonical
+descriptor in successful Lean results:
+
+```json
+{
+  "workspace": {"root": "/canonical/path/to/project"}
+}
+```
+
+This is deliberately a local-only descriptor. Remote workspaces and same-source multiple-toolchain
+mirrors need a broader Source/Workspace split and a transport-safe descriptor; they are not modeled
+as client-chosen aliases for local roots.
 
 ## Runtime Setup
 
 The installed `bin/lean-beam-mcp` wrapper is the public setup path. It pairs the MCP executable with
-the matching installed `beam-cli` and passes `--beam-cli`; after root selection,
-[Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean) asks `beam-cli --root <root> mcp-config` for the
-project-specific Lean command and runAt plugin.
+the matching installed `beam-cli` and passes `--beam-cli`. On first use of a canonical root,
+[Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean) asks
+`beam-cli --root <root> mcp-config` for the project-specific Lean command and runAt plugin.
 
-Keep bundle resolution in the CLI/runtime boundary. Do not duplicate installed-bundle selection
-inside the MCP server, and do not make normal MCP clients pass raw Lean plugin paths.
+Keep bundle resolution in this CLI/runtime boundary. Normal MCP clients should pass the workspace
+descriptor, not raw Lean commands or plugin paths. Direct developer runs may still pass
+`--lean-cmd` and `--lean-plugin` explicitly.
 
-`--root PATH` is supported as the explicit default workspace root. Without `--root`, the server
-discovers the default root through exactly one `file://` MCP `roots/list` result, or through an
-explicit `lean_init_workspace` call before the first default-workspace Lean tool. Clients can add
-additional local workspaces by calling `lean_init_workspace` with `workspace_id`. Every
-workspace-bound tool call requires an explicit `workspace_id`; use `"default"` for the root supplied
-by `--root` or legacy Roots discovery. There is no unnamed current workspace.
+`lean_drop_workspace` is optional cache management, not context selection. It evicts the runtime
+for its descriptor and invalidates proof handles owned by that runtime. Drop is idempotent and
+returns `dropped: false` with `reason: "notFound"` when no cache exists. A later ordinary request
+with the same descriptor recreates the runtime lazily.
 
-One resolved local root can belong to only one workspace id at a time. Initializing another
-workspace id for the same root is rejected; drop or reset the existing owner explicitly instead.
+After editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or
+dynamic libraries, drop that workspace or restart the MCP server before the next request. Re-syncing
+inside the old Lean process is not sufficient to reload workspace configuration.
 
-The `--root` startup flag accepts absolute paths and paths relative to the server's current working
-directory. The `lean_init_workspace` tool intentionally accepts only absolute Lean/Lake project
-roots, because it is a client API and should not depend on the server process cwd.
+## Code Ownership
 
-`lean_init_workspace` supports `mode: "set"`, `mode: "verify"`, and `mode: "reset"`. Reset replaces
-only the selected workspace id and invalidates handles from that workspace. Keep the shared typed
-input/result shape in [Beam.Workspace.Protocol](../Beam/Workspace/Protocol.lean) and the ownership
-policy in the broker workspace lifecycle; do not duplicate root-switching policy in the MCP server.
-Successful initialization results include a `capabilities` array naming projected MCP tool names;
-derive those names from the operation/projection layer instead of maintaining a separate hand-written
-capability list.
+- [Beam/Broker/Protocol.lean](../Beam/Broker/Protocol.lean) owns broker request, response, handle,
+  and stream envelopes.
+- [Beam/Broker/Server.lean](../Beam/Broker/Server.lean) owns workspace runtimes, document state,
+  sessions, metrics, cancellation, and handle invalidation.
+- [Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) owns curated Lean operations, typed inputs,
+  schemas, and operation-to-broker adapters.
+- [Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean) owns the public local descriptor
+  and broker-internal lifecycle types.
+- [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean) owns Lean/Lake root validation.
+- [Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean) owns MCP tool names, descriptors, schemas,
+  and normalized output.
+- [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean) owns the current MCP JSON-RPC helpers.
+- [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean) owns root-to-runtime configuration.
+- [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean) owns the installed-wrapper self-check.
+- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean) owns descriptor resolution, lazy cache dispatch,
+  the separate legacy-protocol/application state records, and the synchronous protocol-test seam.
+- [Beam/Mcp/StdioServer.lean](../Beam/Mcp/StdioServer.lean) owns the permanent stdin reader,
+  concurrent coordination, cancellation, cache-control barriers, and serialized output.
 
-Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-cmd` and
-`--lean-plugin` explicitly.
+## Public Tools
 
-## Client Tool Semantics
+`tools/list` contains:
 
-`tools/list` includes the setup tool `lean_init_workspace`, workspace lifecycle tools
-`lean_list_workspaces` and `lean_drop_workspace`, the Beam utility tools `beam_version`,
-`beam_stats`, and `beam_feedback`, and the Lean operation tools projected from
-`Beam.Lean.Operation`. `lean_init_workspace`, `lean_drop_workspace`, `beam_feedback`, and every Lean
-operation require an explicit `workspace_id`; pass `"default"` to address the configured default
-workspace. `beam_version`, `beam_stats`, and `lean_list_workspaces` are process-wide and accept no
-workspace selector. Successful
-`lean_init_workspace` results include a `capabilities` array for the post-initialization tools:
-`beam_version`, `beam_stats`, `beam_feedback`, `lean_list_workspaces`, `lean_drop_workspace`,
-`lean_update`, `lean_sync`, `lean_refresh`, `lean_save`, `lean_close_save`, `lean_close`,
-`lean_run_at`, `lean_run_at_handle`, `lean_run_with`, `lean_run_with_linear`, `lean_release`,
-`lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
-`lean_document_symbols`, `lean_workspace_symbols`, `lean_goals`, `lean_todo`, and
-`lean_code_action_resolve`.
+- process utilities: `beam_version`, `beam_stats`
+- workspace-bound feedback: `beam_feedback`
+- cache eviction: `lean_drop_workspace`
+- curated Lean operations projected from `Beam.Lean.Operation`
 
-Dropping the default workspace does not stop remaining named workspaces. `lean_list_workspaces` and
-`beam_stats` remain available. Calls that explicitly select `"default"` fail until an explicit
-`lean_init_workspace` call recreates it. `beam_stats.workspaces` is the authoritative process-wide
-map and contains any remaining named workspaces; statistics are not projected through an implicit
-default workspace.
+The Lean operations include update/sync/refresh/save/close operations, runAt and explicit follow-up
+handle operations, hover and navigation, document/workspace symbols, goals, todo discovery, and
+code-action resolution. Raw LSP methods and generic broker escape hatches are intentionally absent.
 
 `beam_version` returns the running server identity in `structuredContent`. Installed runtime
 identities include the optional Boolean `runtime_current`: `true` means the process belongs to the
@@ -111,15 +128,12 @@ clients and follow the error-specific
 [installed-runtime recovery guidance](SETUP.md#prune-old-installed-state) before resuming normal
 work.
 
-Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
-`lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
-`lean_document_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`; those calls
-require the `version` returned by a successful `lean_update` or `lean_sync` for the same path.
-`lean_workspace_symbols` is workspace-scoped and does not take a file version. When multiple
-workspaces are initialized, its required `workspace_id` selects the symbol workspace. `lean_run_with`,
-`lean_run_with_linear`, and `lean_release` use an opaque handle returned by a previous handle tool
-result rather than a document version. Their required `workspace_id` must match the identity carried
-by the handle. `lean_goals` also requires `mode: "before"` or `mode: "after"`.
+Direct MCP clients should call `lean_update` or `lean_sync` before snapshot-bound operations and
+pass the returned `version` for the same descriptor and path. `lean_workspace_symbols` is
+workspace-scoped but has no document version. `lean_run_with`, `lean_run_with_linear`, and
+`lean_release` take an opaque handle returned by a previous handle operation. The supplied workspace
+descriptor must resolve to the same private runtime identity carried by that handle. `lean_goals`
+also requires `mode: "before"` or `mode: "after"`.
 
 Beam's source-file invariant is that Beam never applies source edits to `.lean` files on disk; the
 client applies source edits. `lean_update`, `lean_sync`, and `lean_refresh` read the current saved
@@ -151,175 +165,73 @@ one-time clean local check outside MCP. See the
 
 The running Lean server is not guaranteed to pick up Lake workspace configuration changes. After
 editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
-libraries, call `lean_init_workspace` with `mode: "reset"` (or restart the MCP server) before the next
-tool call that uses that workspace's Lean server. Calling `lean_sync` in the existing runtime is not
-sufficient.
+libraries, drop that workspace or restart the MCP server before the next request. Calling
+`lean_sync` in the existing runtime is not sufficient.
 
-## Stateless MCP Compatibility Boundary
+## Process-Wide Utilities And Feedback
 
-The current server still advertises MCP `2025-11-25`, requires the legacy initialization sequence,
-and may use legacy Roots discovery. This change does not claim conformance with MCP `2026-07-28`.
+`beam_version` and `beam_stats` are process-wide and accept no workspace descriptor. `beam_stats`
+reports all currently cached broker workspaces for debugging; callers must not use it to establish
+context for a later operation.
 
-It does make the application-state model compatible with the newer
-[stateless MCP core](https://modelcontextprotocol.io/specification/2026-07-28/basic/index): a request
-never depends on an unnamed workspace selected by earlier MCP traffic. `workspace_id` explicitly
-selects each workspace-bound operation, while continuation handles explicitly identify retained
-proof state and are checked against the supplied workspace. Warm Lean processes, document mirrors,
-metrics, and caches remain implementation state.
+`beam_feedback` requires a descriptor because it collects project and runtime context for one
+workspace. It does not start a Lean runtime solely to collect feedback. If that descriptor is
+already cached, its in-process stats and open files are included; another workspace's state is not.
 
-Workspace ids are currently local, process-scoped handles. They expire when the MCP server exits,
-and the present local stdio deployment does not promise that another server instance can resolve
-them. A future remote or load-balanced transport will need a shared registry, durable broker, or
-self-contained authenticated handle; it must not infer workspace identity from a connection.
+## Protocol Errors
 
-The follow-up MCP protocol update is separately responsible for `server/discover`, per-request
-protocol metadata, modern result envelopes and caching hints, request-scoped logging, and ensuring
-modern stdio never sends server-to-client JSON-RPC requests. MRTR `requestState` is request-local
-continuation data and will not be used as a workspace identifier.
+For MCP `2025-11-25`:
 
-## Public Tool Boundary
+- malformed or unknown tools are JSON-RPC errors
+- invalid inputs for known tools are MCP tool errors with `isError=true`
+- invalid, missing, relative, or non-project workspace roots are structured `invalidInput` errors
+- Lean semantic failures remain successful tool returns with Lean-specific success fields
+- stale or cross-workspace handles remain structured transport/tool errors
 
-Add MCP-facing Lean behavior through the shared operation layer first:
+## Concurrency, Cancellation, And Shutdown
 
-1. Add or reuse a `Beam.Lean.Operation`.
-2. Add a `ToolName` only if the operation is meant to be a public agent tool.
-3. Map to broker operations through the shared operation helpers.
-4. If the operation also belongs on the CLI, project it through `Beam.Cli.LeanOperation`.
-5. Normalize MCP output names in the projection, for example `next_handle` and `proof_state`.
+The server has one permanent stdin reader and one serialized stdout sink. Ordinary tool calls may
+overlap, and responses may arrive out of request order. Clients must correlate exact JSON-RPC IDs;
+string and numeric IDs are distinct.
 
-Keep raw LSP methods and params out of MCP input types. Do not expose expert or raw escape hatches
-such as `lean-request-at` as MCP tools. The project root belongs to workspace setup rather than each
-tool input; each workspace-bound call carries only the resulting explicit `workspace_id`.
+The server never sends JSON-RPC requests to the client. Under the current protocol it emits only
+responses and request-related notifications. In particular, descriptor resolution never invokes
+MCP Roots.
 
-## Protocol And Errors
+`notifications/cancelled` cooperatively cancels active broker work. If cancellation wins the
+terminal race, no final response is emitted for that request. `lean_drop_workspace` is
+non-cancellable once admitted because partial cache eviction cannot be rolled back safely. Cache
+control is ordered with later calls: a request queued after a drop observes the completed eviction
+and may immediately recreate the same descriptor.
 
-`Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. The current
-server advertises `2025-11-25` only. Bump it, or add support for another revision, only with a
-protocol audit: check the upstream MCP schema/changelog, update local protocol tests, run the
-Lean-backed stdio harness, update this document and any affected status notes, and run
-[tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) against the revised conformance
-baseline.
-
-The server follows the `2025-11-25` tool-call error split:
-
-- malformed or unknown tools are JSON-RPC protocol errors
-- invalid inputs for known tools return MCP tool execution errors with `isError=true`
-- Lean semantic failures remain normal successful tool returns with Lean-specific success fields
-
-The product entry point is stdio. The local Streamable HTTP bridge in
-[tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) is a test/conformance adapter over the stdio
-server, not a separate product transport.
-
-## Concurrency, Ordering, And Cancellation
-
-The MCP server has one permanent stdin reader. It routes client requests, notifications, and
-responses to in-flight operations by their exact JSON-RPC ID; string and numeric IDs are distinct.
-Ordinary `tools/call` requests can overlap in one server process, and their final responses may be
-written in a different order from their requests. Clients must demultiplex responses by ID instead
-of relying on arrival order. Request IDs must be unique while active; a normally completed ID can be
-reused after its terminal response has arrived.
-
-The server serializes complete stdout messages so concurrent responses and notifications cannot
-interleave at the byte level. Progress notifications for one request are strictly ordered and are
-written before that request's final response. Clients should use a distinct progress token for each
-active request; the server does not impose global ordering when active requests reuse a token. No
-ordering is promised between different requests or progress tokens.
-
-A client can send `notifications/cancelled` with the request ID from an active tool call. Beam maps
-that notification to cooperative broker cancellation. If client cancellation wins the request's
-terminal-state race, the server does not send a final response for that request. Late or unknown
-cancellation notifications are ignored. Cancellation is cooperative and does not roll back an
-update, save, or other state change that has already committed.
-
-`lean_init_workspace` is non-cancellable once admitted. Workspace initialization or reset can
-replace the selected workspace state and cannot be rolled back safely, so the server ignores a
-cancellation notification for that request and always sends its terminal result. Clients can
-therefore use that result as the authoritative selected root and runtime state before issuing later
-work.
-
-Lifecycle and workspace-control operations remain serialized. Initialization, first-use root and
-runtime setup, `lean_init_workspace`, workspace reset, and shutdown cannot race each other. Concurrent
-first-use calls share one roots request and one runtime setup. Reset invalidates the selected
-workspace's sessions and handles; later tool calls wait behind the reset before using its new root.
-The stdin reader remains available to route a concurrent roots
-response or cancellation while a workspace control operation is waiting. Shutdown stops accepting
-work, cancels and drains active requests, and only then returns its response.
-
-This concurrency coordinator belongs to the MCP stdio transport and embeds the broker runtime in the
-MCP process. It does not share the `beam-daemon` transport loop or turn the MCP server into a daemon
-client.
+EOF is the normal transport shutdown. The current legacy `shutdown` request is also supported.
 
 ## Progress And Diagnostic Logs
 
-The MCP server advertises logging and progress capabilities. Client-facing reporting surfaces stay
-separate:
+For `tools/call`, clients may pass `params._meta.progressToken` as a string or integer. Progress
+updates for one request are monotonic and precede that request's final response.
 
-| Surface | Transport | Meaning |
-| --- | --- | --- |
-| Progress | `notifications/progress` | Request-scoped operation movement for clients that pass `_meta.progressToken`. |
-| Diagnostics | `notifications/message` with logger `lean.diagnostic` | Incremental Lean diagnostics observed while a sync/save-style request is pending. |
-| Readiness | Final structured tool result | Stable synced-state verdict for the document version, including save readiness and counts. |
+Incremental Lean diagnostics are separate `notifications/message` events with logger
+`lean.diagnostic`. Clients that cannot collect interleaved notifications can pass
+`include_diagnostics: true` to sync-style tools. Use `full_diagnostics: true` when the final reply
+should include warnings, information, and hints rather than only errors.
 
-For `tools/call`, clients can pass `params._meta.progressToken` as a string or integer. The server
-emits monotonic `notifications/progress` updates for request setup, execution phases, and throttled
-Lean `fileProgress` details before the final response is sent.
-
-Lean diagnostics are not encoded as progress notifications. Sync/save-style tools forward
-incremental Lean diagnostics as structured `notifications/message` events with path, URI, version,
-range, severity, and message data. Diagnostics known to block file completion carry
-`completionBlocking=true`. Save-blocking evidence is reported on the final sync/save verdict through
-`blockingDiagnostics` and `blockingCommandMessages`; earlier diagnostic log events are not
-retroactively rewritten.
-
-MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
-`include_diagnostics: true` to also include the current request diagnostics in
-`structuredContent.diagnostics`. Combine it with `full_diagnostics: true` when the reply should
-include warnings, information, and hints instead of the default error-only diagnostic filter.
+The current global `logging/setLevel` behavior belongs to the `2025-11-25` path. The modern protocol
+update will make logging request-scoped.
 
 ## Testing And Conformance
 
-Use the MCP checks as layered gates:
+- [McpProjectionTest.lean](../tests/lean/BeamTest/Broker/McpProjectionTest.lean) checks the curated
+  tool surface, descriptor schemas, adapters, and normalized results.
+- [McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean) checks JSON-RPC shapes,
+  descriptor decoding, lifecycle gating, progress, errors, and diagnostic forwarding.
+- [test-mcp-stdio.py](../tests/test-mcp-stdio.py) checks real lazy first use, canonical aliases,
+  concurrent multi-root isolation, cross-workspace handles, scoped feedback, eviction/recreation,
+  cancellation, response routing, progress, and shutdown.
+- [test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py) checks the local test-only HTTP adapter.
+- [test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) runs the pinned external conformance
+  scenarios supported by the current protocol.
 
-- [BeamTest/Broker/McpProjectionTest.lean](../tests/lean/BeamTest/Broker/McpProjectionTest.lean): projection
-  boundary, public tool names, raw-LSP rejection, typed operation adapters, root-free Lean operation
-  inputs, setup tools, and normalized output fields.
-- [BeamTest/Broker/McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean): JSON-RPC shapes,
-  exact typed request IDs, cancellation parameters, response routing shapes, generated schemas,
-  lifecycle gating, roots helpers, workspace lifecycle schemas, `lean_init_workspace` setup policy,
-  setup errors, and tool input validation.
-- [tests/test-mcp-stdio.py](../tests/test-mcp-stdio.py): real stdio process behavior over a copied
-  Lean fixture project, including explicit `--root`, relative `--root`, `lean_init_workspace`,
-  workspace list/drop and explicit workspace routing,
-  concurrent same-process tool calls, out-of-order response demultiplexing, exact string/numeric ID
-  identity, cancellation, progress ordering, single-flight roots/runtime setup, reset, shutdown, and
-  handle invalidation paths, including non-cancellable reset while a client roots response is
-  pending.
-- [tests/test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py): deterministic Streamable HTTP
-  bridge behavior over a stdio child.
-- [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): pinned external conformance
-  scenarios against the local HTTP bridge.
-- [tests/test-beam-fast.sh](../tests/test-beam-fast.sh): the quick maintainer gate for MCP
-  projection, protocol-only checks, one Lean-backed stdio pass, HTTP bridge smoke, and self-check.
-- [tests/test-beam-slow.sh](../tests/test-beam-slow.sh): repeated MCP server restarts and real
-  tool calls.
-- [tests/test-beam-install.sh](../tests/test-beam-install.sh): installed runtime layout, installed MCP wrapper
-  resolution, and installed MCP self-check.
-
-The default conformance package is pinned in
-[tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh). Changing the package version,
-advertised protocol revision, or scenario baseline is a protocol change. Update this document,
-[docs/TESTING.md](TESTING.md), and the CI workflow as needed.
-
-Some official conformance scenarios are fixture-specific. For example, `json-schema-2020-12` checks
-for a special tool named `json_schema_2020_12_tool`; it does not merely validate that every real
-server tool uses draft 2020-12. Tool-call scenarios likewise expect conformance fixture tools unless
-the server exposes compatible tools or carries an expected-failure baseline.
-
-## Future Work
-
-Current known MCP follow-ups:
-
-- remote workspace transports and same-source multi-toolchain mirrors
-- richer progress percentages or bounded work-unit totals if Lean exposes them
-- broader conformance scenarios when the server exposes the corresponding capabilities
-- a first-class HTTP transport only if real users need HTTP
+The Streamable HTTP bridge is a test adapter over the stdio product, not a separate deployment
+model. Remote and load-balanced deployment requires an explicit transport-safe workspace design and
+must not infer application identity from a connection.

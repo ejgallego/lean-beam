@@ -349,51 +349,27 @@ args = []
 tool_timeout_sec = 600
 ```
 
-MCP clients that support workspace roots can use that command as-is; Lean Beam discovers the default
-workspace root through `roots/list`. The client still passes `"workspace_id":"default"` on each
-workspace-bound call. If a client does not provide roots, initialize that id with an absolute
-Lean/Lake project root through the `lean_init_workspace` tool before calling Lean tools:
+Use that command as-is. Every workspace-bound tool call includes an explicit local descriptor:
 
 ```json
-{"root":"/path/to/lean/project","workspace_id":"default"}
+{"workspace":{"root":"/absolute/path/to/lean/project"},"path":"Main.lean"}
 ```
 
-The normal call omits `mode`. Advanced clients can use `mode: "verify"` to check that workspace root
-or `mode: "reset"` to explicitly replace that workspace and invalidate its handles. Additional local
-workspaces can be initialized with another `workspace_id`, listed with `lean_list_workspaces`, dropped
-with `lean_drop_workspace`, and selected by passing the same required `workspace_id` to later Lean
-tools; see
-[the MCP runtime setup notes](MCP.md#runtime-setup).
+The root must be an absolute path to an existing Lean/Lake project. No setup call is required: the
+first ordinary Lean tool lazily creates or reuses the runtime for the canonical root. The same
+server process can serve several roots because every relevant request identifies its own workspace.
+There is no connection-wide current or default workspace.
 
-Direct-client tool and version semantics live in the [MCP protocol notes](MCP.md#client-tool-semantics).
-
-For example, initialize a named workspace with these `lean_init_workspace` arguments:
+To evict one cached runtime after project-configuration changes, call `lean_drop_workspace` with:
 
 ```json
-{"root":"/path/to/another/lean/project","workspace_id":"review"}
+{"workspace":{"root":"/absolute/path/to/lean/project"}}
 ```
 
-Later Lean tools add `"workspace_id":"review"` to their argument object. Drop it explicitly with
-these `lean_drop_workspace` arguments:
-
-```json
-{"workspace_id":"review"}
-```
-
-Direct single-project MCP registrations may still pass an explicit default workspace root:
-
-```bash
-codex mcp add lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
-claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp" --root /path/to/lean/project
-```
-
-The `--root` startup flag accepts absolute paths and paths relative to the server's current working
-directory. The `lean_init_workspace` tool intentionally accepts only absolute paths so clients do
-not accidentally bind a session to a root interpreted from the server process cwd.
-
-`beam_version`, `beam_stats`, and `lean_list_workspaces` are process-wide. `beam_feedback` and every
-Lean operation are workspace-bound and therefore require `workspace_id`, even in a single-project
-server.
+Drop invalidates proof handles for that runtime. It does not select context for later calls; a later
+request with the same descriptor recreates the runtime. Lean operation and feedback results echo the
+canonical `workspace` descriptor. `beam_version` and `beam_stats` are process-wide and accept no
+descriptor. Exact tool and version semantics live in the [MCP protocol notes](MCP.md#public-tools).
 
 The wrapper resolves the matching installed Beam runtime for each project.
 
@@ -411,14 +387,16 @@ guidance in [Prune Old Installed State](#prune-old-installed-state).
 Use `lean-beam feedback --stdin` when reporting setup or runtime issues; see
 [FEEDBACK.md](FEEDBACK.md).
 
-To verify the installed MCP path from a Lean project without writing JSON-RPC by hand, run:
+To verify the installed MCP path without writing JSON-RPC by hand, change to the Lean project and
+run:
 
 ```bash
-lean-beam-mcp --root /path/to/lean/project --self-check MyPkg/Sub/Module.lean
+cd /path/to/lean/project
+lean-beam-mcp --self-check MyPkg/Sub/Module.lean
 ```
 
-The self-check starts a child MCP server, supplies the root through MCP `roots/list`, calls
-`lean_sync` on the file, and shuts the child server down. On first use for a project/toolchain, this
+The self-check starts a child MCP server, calls `lean_sync` with an explicit descriptor for the
+current project, and shuts the child server down. On first use for a project/toolchain, this
 may also build the matching local Beam runtime bundle. If a very slow machine needs a longer wait,
 set `LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS` to a positive timeout in milliseconds. Maintainer details
 for MCP live in the [MCP maintainer notes](MCP.md).

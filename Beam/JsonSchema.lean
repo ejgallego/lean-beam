@@ -68,4 +68,19 @@ def inputObject (properties : List (String × Json)) (required : Array String) :
     ("additionalProperties", toJson false)
   ]
 
+/-- Add one required property to an object schema produced by `inputObject`. -/
+def withRequiredProperty
+    (schema : Json)
+    (name : String)
+    (propertySchema : Json) : Except String Json := do
+  let properties ← schema.getObjVal? "properties"
+  match properties with
+  | .obj _ => pure ()
+  | other => throw s!"object schema properties must be an object, got {other.compress}"
+  let requiredJson ← schema.getObjVal? "required"
+  let required ← fromJson? (α := Array String) requiredJson
+  let required := if required.contains name then required else required.push name
+  pure <| (schema.setObjVal! "properties" (properties.setObjVal! name propertySchema)).setObjVal!
+    "required" (toJson required)
+
 end Beam.JsonSchema

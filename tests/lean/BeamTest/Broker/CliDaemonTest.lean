@@ -143,8 +143,6 @@ private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
     | .serverInfo => acc
     | .serverDebug => acc
     | .feedback => acc
-    | .workspaceInit => acc
-    | .workspaceList => acc
     | .workspaceDrop => acc
 
 private def requireSameOperationSurface
@@ -161,8 +159,9 @@ private def checkMcpOperationSurface : IO Unit := do
   requireSameOperationSurface "MCP Lean operation surface"
     mcpLeanOperationSurface
     Beam.Lean.Operation.all
-  require "MCP init workspace should stay outside Lean operation surface"
-    (Beam.Mcp.ToolName.leanInitWorkspace.kind == .workspaceInit)
+  require "MCP lifecycle setup tools should not be exposed"
+    (Beam.Mcp.ToolName.fromKey? "lean_init_workspace" == none &&
+      Beam.Mcp.ToolName.fromKey? "lean_list_workspaces" == none)
 
 private def checkCliRecoveryHints : IO Unit := do
   let staleData := Json.mkObj [

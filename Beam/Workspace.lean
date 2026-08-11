@@ -11,8 +11,8 @@ open Lean
 
 namespace Beam.Workspace
 
-def addActiveRoot (root : System.FilePath) (json : Json) : Json :=
-  json.setObjVal! "active_root" (toJson root.toString)
+def addWorkspaceDescriptor (root : System.FilePath) (json : Json) : Json :=
+  json.setObjVal! "workspace" (toJson <| Descriptor.ofRoot root)
 
 structure InitError where
   message : String

@@ -108,25 +108,6 @@ structure CancelledParams where
   requestId : RequestId
   reason? : Option String := none
 
-structure ClientRoot where
-  uri : String
-  name? : Option String := none
-  deriving Inhabited
-
-instance : FromJson ClientRoot where
-  fromJson? json := do
-    let uri ← json.getObjValAs? String "uri"
-    let name? ← optionalField? (α := String) json "name"
-    pure { uri, name? }
-
-structure ListRootsResult where
-  roots : Array ClientRoot
-
-instance : FromJson ListRootsResult where
-  fromJson? json := do
-    let roots ← json.getObjValAs? (Array ClientRoot) "roots"
-    pure { roots }
-
 inductive Incoming where
   | request (request : Request)
   | notification (notification : Notification)
@@ -158,27 +139,6 @@ def Incoming.fromJson? (json : Json) : Except String Incoming := do
           throw "JSON-RPC response must contain exactly one of result or error"
       | some _, some _ =>
           throw "JSON-RPC response must not contain both result and error"
-
-def clientSupportsRoots (params? : Option Json) : Bool :=
-  match params? with
-  | none => false
-  | some params =>
-      match params.getObjVal? "capabilities" with
-      | .error _ => false
-      | .ok capabilities =>
-          match capabilities.getObjVal? "roots" with
-          | .ok _ => true
-          | .error _ => false
-
-def rootsListRequestId : String :=
-  "lean-beam-roots-1"
-
-def rootsListRequest : Json :=
-  Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson rootsListRequestId),
-    ("method", toJson "roots/list")
-  ]
 
 def requireObject (label : String) : Json → Except String Json
   | obj@(.obj _) => pure obj

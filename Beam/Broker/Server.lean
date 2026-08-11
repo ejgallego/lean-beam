@@ -62,7 +62,6 @@ structure BackendState where
   session? : Option Session := none
 
 structure WorkspaceState where
-  id : WorkspaceId
   config : BrokerConfig
   nextFileSnapshotSeq : Nat := 1
   lean : BackendState := {}
@@ -71,7 +70,7 @@ structure WorkspaceState where
   rocqMetrics : BackendMetrics := {}
 
 structure State where
-  config : BrokerConfig
+  bootstrapConfig : BrokerConfig
   startMonoNanos : Nat := 0
   workspaces : Std.TreeMap WorkspaceId WorkspaceState := {}
   streamSink? : Option (StreamMessage → IO Unit) := none
@@ -208,15 +207,12 @@ private def sessionExited (session : Session) : IO Bool := do
   catch _ =>
     pure true
 
-private def mkWorkspaceState (id : WorkspaceId) (config : BrokerConfig) : WorkspaceState := {
-  id
-  config
-}
+private def mkWorkspaceState (config : BrokerConfig) : WorkspaceState := { config }
 
 private def mkInitialState (config : BrokerConfig) (startMonoNanos : Nat) : State := {
-  config
+  bootstrapConfig := config
   startMonoNanos
-  workspaces := Std.TreeMap.empty.insert defaultWorkspaceId (mkWorkspaceState defaultWorkspaceId config)
+  workspaces := Std.TreeMap.empty.insert defaultWorkspaceId (mkWorkspaceState config)
 }
 
 private def validWorkspaceId (workspaceId : WorkspaceId) : Bool :=
@@ -225,10 +221,13 @@ private def validWorkspaceId (workspaceId : WorkspaceId) : Bool :=
 private def getWorkspace? (state : State) (workspaceId : WorkspaceId) : Option WorkspaceState :=
   state.workspaces.get? workspaceId
 
-private def setWorkspace (state : State) (workspace : WorkspaceState) : State :=
-  let state := { state with workspaces := state.workspaces.insert workspace.id workspace }
-  if workspace.id == defaultWorkspaceId then
-    { state with config := workspace.config }
+private def setWorkspace
+    (state : State)
+    (workspaceId : WorkspaceId)
+    (workspace : WorkspaceState) : State :=
+  let state := { state with workspaces := state.workspaces.insert workspaceId workspace }
+  if workspaceId == defaultWorkspaceId then
+    { state with bootstrapConfig := workspace.config }
   else
     state
 
@@ -269,7 +268,7 @@ private def recordSessionSpawn (workspaceId : WorkspaceId) (backend : Backend) (
           sessionStarts := metrics.sessionStarts + 1
           sessionRestarts := metrics.sessionRestarts + (if restart then 1 else 0)
         }
-        setWorkspace state (setBackendMetrics workspace backend metrics)
+        setWorkspace state workspaceId (setBackendMetrics workspace backend metrics)
 
 private def recordRequestMetrics
     (workspaceId : WorkspaceId)
@@ -295,7 +294,7 @@ private def recordRequestMetrics
           invalidParamsCount := metrics.invalidParamsCount + (if isInvalidParamsCode errorCode? then 1 else 0)
           ops := metrics.ops.insert op opStats
         }
-        setWorkspace state (setBackendMetrics workspace backend metrics)
+        setWorkspace state workspaceId (setBackendMetrics workspace backend metrics)
 
 private def sessionSnapshotJson (session? : Option Session) : Json :=
   match session? with
@@ -309,9 +308,9 @@ private def sessionSnapshotJson (session? : Option Session) : Json :=
         ("openDocCount", toJson session.docs.toList.length)
       ]
 
-private def workspaceStatsJson (workspace : WorkspaceState) : Json :=
+private def workspaceStatsJson (workspaceId : WorkspaceId) (workspace : WorkspaceState) : Json :=
   Json.mkObj [
-    ("id", toJson workspace.id),
+    ("id", toJson workspaceId),
     ("root", toJson workspace.config.root.toString),
     ("sessions", Json.mkObj [
       ("lean", sessionSnapshotJson workspace.lean.session?),
@@ -323,30 +322,37 @@ private def workspaceStatsJson (workspace : WorkspaceState) : Json :=
     ])
   ]
 
-private def statsPayload : M Json := do
+private def statsPayload (workspaceId? : Option WorkspaceId := none) : M Json := do
   let state ← get
   let now ← IO.monoNanosNow
   let uptimeMs := (now - state.startMonoNanos) / 1000000
-  let workspaceFields := state.workspaces.toList.map fun (workspaceId, workspace) =>
-    (workspaceId, workspaceStatsJson workspace)
-  let defaultFields :=
-    match getWorkspace? state defaultWorkspaceId with
-    | some defaultWorkspace => [
-        ("root", toJson defaultWorkspace.config.root.toString),
-        ("sessions", Json.mkObj [
-          ("lean", sessionSnapshotJson defaultWorkspace.lean.session?),
-          ("rocq", sessionSnapshotJson defaultWorkspace.rocq.session?)
-        ]),
-        ("byBackend", Json.mkObj [
-          ("lean", backendMetricsJson defaultWorkspace.leanMetrics),
-          ("rocq", backendMetricsJson defaultWorkspace.rocqMetrics)
-        ])
+  match workspaceId? with
+  | some workspaceId =>
+      match getWorkspace? state workspaceId with
+      | none => throw <| IO.userError s!"unknown Beam workspace '{workspaceId}'"
+      | some workspace =>
+          pure <| (workspaceStatsJson workspaceId workspace).setObjVal! "uptimeMs" (toJson uptimeMs)
+  | none =>
+      let workspaceFields := state.workspaces.toList.map fun (workspaceId, workspace) =>
+        (workspaceId, workspaceStatsJson workspaceId workspace)
+      let defaultFields :=
+        match getWorkspace? state defaultWorkspaceId with
+        | some defaultWorkspace => [
+            ("root", toJson defaultWorkspace.config.root.toString),
+            ("sessions", Json.mkObj [
+              ("lean", sessionSnapshotJson defaultWorkspace.lean.session?),
+              ("rocq", sessionSnapshotJson defaultWorkspace.rocq.session?)
+            ]),
+            ("byBackend", Json.mkObj [
+              ("lean", backendMetricsJson defaultWorkspace.leanMetrics),
+              ("rocq", backendMetricsJson defaultWorkspace.rocqMetrics)
+            ])
+          ]
+        | none => []
+      pure <| Json.mkObj <| defaultFields ++ [
+        ("uptimeMs", toJson uptimeMs),
+        ("workspaces", Json.mkObj workspaceFields)
       ]
-    | none => []
-  pure <| Json.mkObj <| defaultFields ++ [
-    ("uptimeMs", toJson uptimeMs),
-    ("workspaces", Json.mkObj workspaceFields)
-  ]
 
 private def resetMetrics (startMonoNanos : Nat) : M Unit := do
   modify fun state =>
@@ -603,7 +609,7 @@ private def ensureSession (workspaceId : WorkspaceId) (backend : Backend) : M Se
   | some session =>
       modify fun st =>
         match getWorkspace? st workspaceId with
-        | some workspace => setWorkspace st (setBackendState workspace backend backendState)
+        | some workspace => setWorkspace st workspaceId (setBackendState workspace backend backendState)
         | none => st
       pure session
   | none =>
@@ -642,7 +648,7 @@ private def ensureSession (workspaceId : WorkspaceId) (backend : Backend) : M Se
       let backendState := { backendState with session? := some session }
       modify fun st =>
         match getWorkspace? st workspaceId with
-        | some workspace => setWorkspace st (setBackendState workspace backend backendState)
+        | some workspace => setWorkspace st workspaceId (setBackendState workspace backend backendState)
         | none => st
       pure session
 
@@ -795,19 +801,28 @@ private def openDocsSessionView (session : Session) : OpenDocs.SessionView := {
   docs := session.docs
 }
 
-private def openDocsPayload : M Json := do
+private def openDocsWorkspacePayload (workspace : WorkspaceState) : IO Json :=
+  OpenDocs.payload workspace.config.root
+    (workspace.lean.session?.map openDocsSessionView)
+    (workspace.rocq.session?.map openDocsSessionView)
+
+private def openDocsPayload (workspaceId? : Option WorkspaceId := none) : M Json := do
   let state ← get
-  let workspaceFields ← state.workspaces.toList.mapM fun (workspaceId, workspace) => do
-    let payload ←
-      OpenDocs.payload workspace.config.root
-        (workspace.lean.session?.map openDocsSessionView)
-        (workspace.rocq.session?.map openDocsSessionView)
-    pure (workspaceId, payload)
-  let defaultPayload :=
-    match workspaceFields.find? fun (workspaceId, _) => workspaceId == defaultWorkspaceId with
-    | some (_, payload) => payload
-    | none => Json.mkObj []
-  pure <| defaultPayload.setObjVal! "workspaces" (Json.mkObj workspaceFields)
+  match workspaceId? with
+  | some workspaceId =>
+      match getWorkspace? state workspaceId with
+      | none => throw <| IO.userError s!"unknown Beam workspace '{workspaceId}'"
+      | some workspace =>
+          pure <| (← openDocsWorkspacePayload workspace).setObjVal!
+            "workspace_id" (toJson workspaceId)
+  | none =>
+      let workspaceFields ← state.workspaces.toList.mapM fun (workspaceId, workspace) => do
+        pure (workspaceId, ← openDocsWorkspacePayload workspace)
+      let defaultPayload :=
+        match workspaceFields.find? fun (workspaceId, _) => workspaceId == defaultWorkspaceId with
+        | some (_, payload) => payload
+        | none => Json.mkObj []
+      pure <| defaultPayload.setObjVal! "workspaces" (Json.mkObj workspaceFields)
 
 private def wrapHandle (session : Session) (raw : Json) : Json :=
   toJson ({
@@ -841,7 +856,7 @@ private def updateSession (session : Session) : M Unit := do
     | none => state
     | some workspace =>
         let backendState := getBackendState workspace session.backend
-        setWorkspace state
+        setWorkspace state session.workspaceId
           (setBackendState workspace session.backend { backendState with session? := some session })
 
 private def currentSession? (workspaceId : WorkspaceId) (backend : Backend) : M (Option Session) := do
@@ -859,7 +874,7 @@ private def currentSession? (workspaceId : WorkspaceId) (backend : Backend) : M 
           | none => st
           | some workspace =>
               let backendState := getBackendState workspace backend
-              setWorkspace st <| setBackendState workspace backend {
+              setWorkspace st workspaceId <| setBackendState workspace backend {
                 backendState with
                 session? := none
                 nextEpoch := backendState.nextEpoch + 1
@@ -920,7 +935,7 @@ def ServerRuntime.create
   let startMonoNanos ← IO.monoNanosNow
   let state := {
     (mkInitialState config startMonoNanos) with
-    workspaces := Std.TreeMap.empty.insert workspaceId (mkWorkspaceState workspaceId config)
+    workspaces := Std.TreeMap.empty.insert workspaceId (mkWorkspaceState config)
   }
   pure {
     state := ← Std.Mutex.new state
@@ -983,8 +998,8 @@ def ServerRuntime.initWorkspaceWithConfig
               s!"workspace root {config.root} is already owned by workspace '{otherId}'"
           else
             shutdownWorkspaceSessions current
-            let replacement := mkWorkspaceState workspaceId config
-            modify fun state => setWorkspace state replacement
+            let replacement := mkWorkspaceState config
+            modify fun state => setWorkspace state workspaceId replacement
             pure <| Response.success <| toJson <|
               workspaceInitResult workspaceId config.root mode false true (some current.config.root)
         else if brokerConfigSame current.config config then
@@ -1002,20 +1017,19 @@ def ServerRuntime.initWorkspaceWithConfig
           pure <| reqError "invalidParams" <|
             s!"workspace root {config.root} is already owned by workspace '{otherId}'"
         else
-          modify fun state => setWorkspace state (mkWorkspaceState workspaceId config)
+          modify fun state => setWorkspace state workspaceId (mkWorkspaceState config)
           pure <| Response.success <| toJson <|
             workspaceInitResult workspaceId config.root mode false false
 
 private def workspaceListPayload (state : State) : Json :=
-  Json.mkObj [
-    ("workspaces", Json.arr <| state.workspaces.toList.toArray.map fun (workspaceId, workspace) =>
-      Json.mkObj [
-        ("workspace_id", toJson workspaceId),
-        ("root", toJson workspace.config.root.toString),
-        ("lean_active", toJson workspace.lean.session?.isSome),
-        ("rocq_active", toJson workspace.rocq.session?.isSome)
-      ])
-  ]
+  toJson ({
+    workspaces := state.workspaces.toList.toArray.map fun (workspaceId, workspace) => ({
+      workspaceId
+      root := workspace.config.root
+      leanActive := workspace.lean.session?.isSome
+      rocqActive := workspace.rocq.session?.isSome
+    } : Beam.Workspace.ListEntry)
+  } : Beam.Workspace.ListResult)
 
 def ServerRuntime.dropWorkspace
     (server : ServerRuntime)
@@ -1026,19 +1040,19 @@ def ServerRuntime.dropWorkspace
     let state ← get
     match getWorkspace? state workspaceId with
     | none =>
-        pure <| Response.success <| Json.mkObj [
-          ("workspace_id", toJson workspaceId),
-          ("dropped", toJson false),
-          ("reason", toJson ("notFound" : String))
-        ]
+        pure <| Response.success <| toJson ({
+          workspaceId
+          dropped := false
+          reason? := some "notFound"
+        } : Beam.Workspace.DropResult)
     | some workspace =>
-        shutdownWorkspaceSessions workspace
-        modify fun state => { state with workspaces := state.workspaces.erase workspaceId }
-        pure <| Response.success <| Json.mkObj [
-          ("workspace_id", toJson workspaceId),
-          ("dropped", toJson true),
-          ("invalidated_handles", toJson true)
-        ]
+      shutdownWorkspaceSessions workspace
+      modify fun state => { state with workspaces := state.workspaces.erase workspaceId }
+      pure <| Response.success <| toJson ({
+        workspaceId
+        dropped := true
+        invalidatedHandles := true
+      } : Beam.Workspace.DropResult)
 
 private def requestTracksActiveRequest : Op → Bool
   | .cancel | .stats | .resetStats | .shutdown | .openDocs | .listWorkspaces => false
@@ -1253,7 +1267,7 @@ private def readRequestSyncSnapshot
     let workspace ← requireWorkspace req.workspaceId
     let readSeq := workspace.nextFileSnapshotSeq
     let workspace := { workspace with nextFileSnapshotSeq := readSeq + 1 }
-    modify fun state => setWorkspace state workspace
+    modify fun state => setWorkspace state req.workspaceId workspace
     pure (workspace.config.root, readSeq)
   -- Reserve the ordering token under the mutex, then do the slow file IO
   -- outside it.
@@ -2080,7 +2094,7 @@ private def initWorkspaceConfigFromRequest
   if req.leanCmd?.isNone && leanPlugin?.isNone && req.rocqCmd?.isNone then
     let defaultConfig ← server.withState do
       let state ← get
-      pure <| (getWorkspace? state defaultWorkspaceId).map (·.config) |>.getD state.config
+      pure <| (getWorkspace? state defaultWorkspaceId).map (·.config) |>.getD state.bootstrapConfig
     if root == defaultConfig.root then
       return .ok defaultConfig
   pure <| .ok {
@@ -2105,7 +2119,13 @@ private def handleRequestIO
         pure <| Response.success (Json.mkObj [("shutdown", toJson true)])
       pure (resp, true)
   | .stats =>
-      pure (Response.success (← server.withState statsPayload), false)
+      match req.workspaceId? with
+      | none => pure (Response.success (← server.withState statsPayload), false)
+      | some _ =>
+          match ← validateRequestWorkspace server req with
+          | .error resp => pure (resp, false)
+          | .ok workspaceId =>
+              pure (Response.success (← server.withState <| statsPayload (some workspaceId)), false)
   | .listWorkspaces =>
       let payload ← server.withState do
         pure <| workspaceListPayload (← get)
@@ -2117,7 +2137,13 @@ private def handleRequestIO
         pure <| Response.success (Json.mkObj [("reset", toJson true)])
       pure (resp, false)
   | .openDocs =>
-      pure (Response.success (← server.withState openDocsPayload), false)
+      match req.workspaceId? with
+      | none => pure (Response.success (← server.withState openDocsPayload), false)
+      | some _ =>
+          match ← validateRequestWorkspace server req with
+          | .error resp => pure (resp, false)
+          | .ok workspaceId =>
+              pure (Response.success (← server.withState <| openDocsPayload (some workspaceId)), false)
   | .initWorkspace =>
       match ← initWorkspaceConfigFromRequest server req with
       | .error resp => pure (resp, false)

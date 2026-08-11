@@ -170,20 +170,20 @@ phase information in the daemon log.
 
 ## MCP Stdio Timeout Investigation
 
-When investigating MCP stdio timeouts, prefer the focused roots-negotiated sync repro before
+When investigating MCP stdio timeouts, prefer the focused descriptor-bound sync repro before
 rerunning the full smoke suite:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
-  --scenario progress-roots-sync \
+  --scenario progress-sync \
   --repro-runs 100 \
   --timeout 30 \
   --slow-threshold 5 \
   --server-trace
 ```
 
-That scenario repeats the path that negotiates workspace roots through MCP `roots/list`, runs
-`lean_sync` with a progress token, and checks the resulting progress notifications. On failure, the
+That scenario runs `lean_sync` with an explicit workspace descriptor and a progress token, then
+checks the resulting progress notifications. On failure, the
 timeout report includes the client label, pending request parameters, recent completed requests,
 recent server requests received from `lean-beam-mcp`, recent notifications, runner CPU/platform
 context, relevant CI and Lean thread env vars, the stderr tail, and a Beam/Lean process snapshot.
@@ -198,8 +198,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
 
 This scenario covers out-of-order tool responses, exact string/numeric request-ID separation,
 request-ID reuse after a terminal response, broker cancellation, per-request progress ordering,
-single-flight first use, non-cancellable reset while root discovery is pending, reset of active work,
-and shutdown draining.
+single-flight first use, stateless multi-root isolation, non-cancellable cache eviction with lazy
+recreation, and shutdown draining.
 
 If this scheduler-sensitive timeout appears on an unrelated CI PR, copy the timeout headline and
 diagnostic excerpt to [#110](https://github.com/ejgallego/lean-beam/issues/110) so repeated
@@ -243,10 +243,8 @@ are specifically checking the CI budget. The focused daemon lifecycle fixture ex
 its toolchain into one owned shared cache before timing daemon startup, so cold bundle compilation
 is not misdiagnosed as a daemon-readiness timeout.
 
-The focused harness also accepts `progress-explicit-sync`, `no-progress-roots-sync`, and
-`no-progress-explicit-sync` as `--scenario` values. Use those variants to isolate whether a timeout
-depends on MCP roots negotiation, MCP progress notifications, or the underlying `lean_sync` /
-`waitForDiagnostics` path.
+The focused harness also accepts `no-progress-sync` to isolate whether a timeout depends on MCP
+progress notifications or the underlying `lean_sync` / `waitForDiagnostics` path.
 
 ## Maintainer Surface
 

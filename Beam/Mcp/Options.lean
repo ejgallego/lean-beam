@@ -7,7 +7,6 @@ Author: Emilio J. Gallego Arias
 namespace Beam.Mcp
 
 structure Options where
-  root? : Option String := none
   leanCmd? : Option String := none
   leanPlugin? : Option String := none
   beamCli? : Option String := none
@@ -16,13 +15,13 @@ structure Options where
 
 def usage : String :=
   String.intercalate "\n" [
-    "usage: lean-beam-mcp [--root PATH] [--beam-cli PATH] [--lean-cmd CMD] [--lean-plugin PATH]",
-    "       lean-beam-mcp [--root PATH] [--beam-cli PATH] --self-check <lean-file>",
+    "usage: lean-beam-mcp [--beam-cli PATH] [--lean-cmd CMD] [--lean-plugin PATH]",
+    "       lean-beam-mcp [--beam-cli PATH] --self-check <lean-file>",
     "       lean-beam-mcp --version",
     "",
     "Runs the experimental Lean Beam MCP server over newline-delimited JSON-RPC on stdio.",
-    "When --root is omitted, call lean_init_workspace with an absolute Lean project root or let the server discover one project root via MCP roots/list.",
-    "--self-check starts a child MCP server, calls lean_init_workspace, and then calls lean_sync.",
+    "Every workspace-bound tool call carries {\"workspace\":{\"root\":\"/absolute/project\"}}.",
+    "--self-check starts a child MCP server and calls lean_sync for the current Lean project.",
     "Self-check waits up to 120000 ms per protocol phase by default; override with LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS.",
     "--version prints the MCP server version, protocol revision, and available resolved identity paths.",
     "The installed wrapper passes --beam-cli automatically so project-specific Lean bundles resolve on demand.",
@@ -31,8 +30,6 @@ def usage : String :=
 
 partial def parseOptions (opts : Options) : List String → Except String Options
   | [] => pure opts
-  | "--root" :: root :: rest =>
-      parseOptions { opts with root? := some root } rest
   | "--lean-cmd" :: leanCmd :: rest =>
       parseOptions { opts with leanCmd? := some leanCmd } rest
   | "--lean-plugin" :: leanPlugin :: rest =>

@@ -166,17 +166,10 @@ class McpClient:
         project_root,
         timeout,
         *,
-        use_root_arg=True,
-        advertise_roots=False,
-        roots=None,
-        roots_payload=None,
-        roots_response="normal",
-        root_arg=None,
         label="mcp-client",
         server_trace=False,
         drain_stdout=True,
         extra_env=None,
-        roots_response_gate=None,
     ):
         self.repo_root = repo_root
         self.project_root = project_root
@@ -187,17 +180,7 @@ class McpClient:
         self.state_changed = threading.Condition(threading.RLock())
         self.stdin_lock = threading.Lock()
         self.next_id = 0
-        self.use_root_arg = use_root_arg
-        self.advertise_roots = advertise_roots
-        self.roots = [Path(root) for root in (roots if roots is not None else [project_root])]
-        self.roots_payload = roots_payload
-        self.roots_response = roots_response
-        self.roots_response_gate = roots_response_gate
-        self.root_arg = root_arg if root_arg is not None else project_root
-        self.roots_request_count = 0
         self.server_requests = collections.deque(maxlen=20)
-        self.pending_extra_response_ids = set()
-        self.extra_responses = []
         self.pending_requests = {}
         self.responses = {}
         self.stdout_error = None
@@ -215,8 +198,6 @@ class McpClient:
         require(exe.exists(), f"missing lean-beam-mcp executable at {exe}")
         require(plugin.exists(), f"missing Beam LSP plugin shared library at {plugin}")
         cmd = [str(exe)]
-        if use_root_arg:
-            cmd.extend(["--root", str(self.root_arg)])
         cmd.extend(
             [
                 "--lean-cmd",
@@ -271,22 +252,15 @@ class McpClient:
                     else:
                         response_id = message.get("id")
                         response_key = request_id_key(response_id)
-                        if response_key in self.pending_extra_response_ids:
-                            self.extra_responses.append(message)
-                            self.pending_extra_response_ids.remove(response_key)
-                            self._record_event_locked(
-                                f"extra response id {response_id}: {compact_json(message, 240)}"
-                            )
-                        else:
-                            require(
-                                response_key in self.pending_requests,
-                                f"received response for unknown request id {response_id}: {message}",
-                            )
-                            require(
-                                response_key not in self.responses,
-                                f"received duplicate response id {response_id}: {message}",
-                            )
-                            self.responses[response_key] = message
+                        require(
+                            response_key in self.pending_requests,
+                            f"received response for unknown request id {response_id}: {message}",
+                        )
+                        require(
+                            response_key not in self.responses,
+                            f"received duplicate response id {response_id}: {message}",
+                        )
+                        self.responses[response_key] = message
                         self.state_changed.notify_all()
             with self.state_changed:
                 self.stdout_eof = True
@@ -348,45 +322,7 @@ class McpClient:
                     "received": time.monotonic(),
                 }
             )
-        if method == "roots/list":
-            with self.state_changed:
-                self.roots_request_count += 1
-            if self.roots_response == "error":
-                self.send_message(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": request_id,
-                        "error": {"code": -32603, "message": "roots unavailable"},
-                    }
-                )
-                return
-            if self.roots_response == "unrelated_then_normal":
-                extra_id = "during-roots"
-                with self.state_changed:
-                    self.pending_extra_response_ids.add(request_id_key(extra_id))
-                self.send_message({"jsonrpc": "2.0", "id": extra_id, "method": "ping"})
-            if self.roots_response == "gated":
-                require(self.roots_response_gate is not None, "gated roots response needs an event")
-                require(
-                    self.roots_response_gate.wait(timeout=self.timeout),
-                    "timed out waiting to release gated roots response",
-                )
-            if self.roots_payload is not None:
-                roots = self.roots_payload
-            else:
-                roots = [
-                    {"uri": root.resolve().as_uri(), "name": root.name or "project"}
-                    for root in self.roots
-                ]
-            self.send_message({"jsonrpc": "2.0", "id": request_id, "result": {"roots": roots}})
-            return
-        self.send_message(
-            {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32601, "message": f"unsupported server request: {method}"},
-            }
-        )
+        fail(f"lean-beam-mcp emitted forbidden server request {method!r}: {request}")
 
     def _request_label(self, request_id):
         pending = self.pending_requests.get(request_id_key(request_id))
@@ -395,20 +331,11 @@ class McpClient:
         return pending["label"]
 
     def _client_context(self):
-        roots = [str(root) for root in self.roots]
         return "\n".join(
             [
                 f"client label: {self.label}",
                 f"project root: {self.project_root}",
                 f"process pid: {self.proc.pid}",
-                f"use_root_arg: {self.use_root_arg}",
-                f"root_arg: {self.root_arg if self.use_root_arg else '<none>'}",
-                f"advertise_roots: {self.advertise_roots}",
-                f"configured roots: {roots}",
-                f"roots_response: {self.roots_response}",
-                f"roots_request_count: {self.roots_request_count}",
-                f"pending_extra_response_ids: {sorted(self.pending_extra_response_ids)}",
-                f"extra_responses_seen: {len(self.extra_responses)}",
                 "runtime context:",
                 *[f"  {line}" for line in self.runtime_context],
             ]
@@ -550,11 +477,13 @@ class McpClient:
             if tool_name == "beam_feedback" or (
                 isinstance(tool_name, str)
                 and tool_name.startswith("lean_")
-                and tool_name not in {"lean_list_workspaces", "lean_drop_workspace"}
             ):
                 params = dict(params)
                 arguments = dict(params.get("arguments") or {})
-                arguments.setdefault("workspace_id", "default")
+                arguments.setdefault(
+                    "workspace",
+                    {"root": str(self.project_root.resolve())},
+                )
                 params["arguments"] = arguments
         with self.state_changed:
             if request_id is None:
@@ -610,14 +539,11 @@ class McpClient:
         self.send_message(message)
 
     def initialize(self):
-        capabilities = {}
-        if self.advertise_roots:
-            capabilities["roots"] = {"listChanged": False}
         response = self.request(
             "initialize",
             {
                 "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": capabilities,
+                "capabilities": {},
                 "clientInfo": {"name": "lean-beam-mcp-test", "version": "0"},
             },
         )
@@ -745,6 +671,22 @@ def expect_tool_error_code(response, code):
     return structured
 
 
+def workspace_descriptor(root):
+    return {"root": str(Path(root).resolve())}
+
+
+def result_workspace_root(structured, label):
+    workspace = structured.get("workspace")
+    require(isinstance(workspace, dict), f"{label}: missing workspace descriptor: {structured}")
+    root = workspace.get("root")
+    require(isinstance(root, str), f"{label}: workspace descriptor has no root: {structured}")
+    return Path(root)
+
+
+def workspace_cache_key(root):
+    return f"local:{Path(root).resolve()}"
+
+
 def require_version_mismatch_data(error, expected_version, accepted_version, label, *, expected_uri_suffix=None):
     data = error.get("data")
     require(isinstance(data, dict), f"{label}: tool error missing data: {error}")
@@ -770,21 +712,6 @@ def require_version_mismatch_data(error, expected_version, accepted_version, lab
             isinstance(uri, str) and uri.endswith(expected_uri_suffix),
             f"{label}: expected uri ending in {expected_uri_suffix!r}, got {error}",
         )
-
-
-def require_roots_requests(client, expected, label):
-    require(
-        client.roots_request_count == expected,
-        f"{label}: expected {expected} roots/list request(s), got {client.roots_request_count}",
-    )
-
-
-def expect_extra_result(client, response_id, label):
-    for response in client.extra_responses:
-        if response.get("id") == response_id:
-            expect_result(response)
-            return
-    fail(f"{label}: missing extra response id {response_id}; saw {client.extra_responses}")
 
 
 def require_success(label, structured):
@@ -827,116 +754,15 @@ def require_message_contains(label, structured, needle):
     )
 
 
-def init_workspace(
-    client,
-    root,
-    *,
-    workspace_id="default",
-    mode=None,
-    invalidated_handles=False,
-    previous_root=None,
-):
-    args = {"root": str(root), "workspace_id": workspace_id}
-    if mode is not None:
-        args["mode"] = mode
-    structured = client.call_tool("lean_init_workspace", args)
-    require(structured.get("initialized") is True, f"init workspace did not initialize: {structured}")
-    expected_workspace_id = workspace_id
-    require(
-        structured.get("workspace_id") == expected_workspace_id,
-        f"init workspace returned wrong workspace_id {expected_workspace_id!r}: {structured}",
-    )
-    require(
-        Path(structured.get("root")).resolve() == Path(root).resolve(),
-        f"init workspace returned wrong root for {root}: {structured}",
-    )
-    require(
-        Path(structured.get("active_root")).resolve() == Path(root).resolve(),
-        f"init workspace returned wrong active_root for {root}: {structured}",
-    )
-    expected_mode = mode or "set"
-    require(
-        structured.get("mode") == expected_mode,
-        f"init workspace returned wrong mode {expected_mode!r}: {structured}",
-    )
-    require(
-        isinstance(structured.get("runtime_reused"), bool),
-        f"init workspace missing runtime_reused flag: {structured}",
-    )
-    require(
-        isinstance(structured.get("invalidated_handles"), bool),
-        f"init workspace missing invalidated_handles flag: {structured}",
-    )
-    capabilities = structured.get("capabilities")
-    require(isinstance(capabilities, list), f"init workspace missing capabilities: {structured}")
-    for capability in [
-        "beam_version",
-        "beam_stats",
-        "beam_feedback",
-        "lean_list_workspaces",
+def drop_workspace(client, root, *, expected_dropped=True):
+    descriptor = workspace_descriptor(root)
+    structured = client.call_tool(
         "lean_drop_workspace",
-        "lean_update",
-        "lean_sync",
-        "lean_refresh",
-        "lean_save",
-        "lean_close_save",
-        "lean_run_at",
-        "lean_hover",
-        "lean_signature_help",
-        "lean_definition",
-        "lean_references",
-        "lean_document_symbols",
-        "lean_workspace_symbols",
-        "lean_goals",
-    ]:
-        require(capability in capabilities, f"init workspace capabilities missing {capability}: {structured}")
-    require("$/lean/runAt" not in capabilities, f"init workspace exposed raw LSP capability: {structured}")
-    require(
-        structured.get("invalidated_handles") is invalidated_handles,
-        f"init workspace returned wrong invalidated_handles={invalidated_handles}: {structured}",
+        {"workspace": descriptor},
     )
-    if previous_root is None:
-        require("previous_root" not in structured, f"init workspace unexpectedly returned previous_root: {structured}")
-    else:
-        require(
-            Path(structured.get("previous_root")).resolve() == Path(previous_root).resolve(),
-            f"init workspace returned wrong previous_root {previous_root}: {structured}",
-        )
-    return structured
-
-
-def workspace_entry(structured, workspace_id):
-    workspaces = structured.get("workspaces")
-    require(isinstance(workspaces, list), f"workspace list missing workspaces array: {structured}")
-    for workspace in workspaces:
-        if isinstance(workspace, dict) and workspace.get("workspace_id") == workspace_id:
-            return workspace
-    return None
-
-
-def require_workspace_listed(structured, workspace_id, root=None):
-    workspace = workspace_entry(structured, workspace_id)
-    require(workspace is not None, f"workspace list missing {workspace_id!r}: {structured}")
-    if root is not None:
-        require(
-            Path(workspace.get("root")).resolve() == Path(root).resolve(),
-            f"workspace list returned wrong root for {workspace_id!r}: {workspace}",
-        )
-    return workspace
-
-
-def require_workspace_absent(structured, workspace_id):
     require(
-        workspace_entry(structured, workspace_id) is None,
-        f"workspace list unexpectedly included {workspace_id!r}: {structured}",
-    )
-
-
-def drop_workspace(client, workspace_id, *, expected_dropped=True):
-    structured = client.call_tool("lean_drop_workspace", {"workspace_id": workspace_id})
-    require(
-        structured.get("workspace_id") == workspace_id,
-        f"drop workspace returned wrong workspace_id {workspace_id!r}: {structured}",
+        structured.get("workspace") == descriptor,
+        f"drop workspace returned wrong descriptor {descriptor!r}: {structured}",
     )
     require(
         structured.get("dropped") is expected_dropped,
@@ -984,16 +810,19 @@ def require_file_progress_range_end(structured, label, range_end):
     )
 
 
-def expect_stale_handle(client, handle, label):
+def expect_stale_handle(client, handle, label, *, root=None):
+    arguments = {
+        "path": "PositionEmptyLine.lean",
+        "handle": handle,
+        "text": "def mcpResetAfter : Nat := mcpResetBase + 1",
+    }
+    if root is not None:
+        arguments["workspace"] = workspace_descriptor(root)
     response = client.request(
         "tools/call",
         {
             "name": "lean_run_with",
-            "arguments": {
-                "path": "PositionEmptyLine.lean",
-                "handle": handle,
-                "text": "def mcpResetAfter : Nat := mcpResetBase + 1",
-            },
+            "arguments": arguments,
         },
     )
     error = expect_tool_error_code(response, "contentModified")
@@ -1006,8 +835,8 @@ def expect_stale_handle(client, handle, label):
 def run_iteration(client, suffix):
     update = client.call_tool("lean_update", {"path": "PositionEmptyLine.lean"})
     require(
-        Path(update.get("active_root")).resolve() == client.project_root.resolve(),
-        f"update returned wrong active_root: {update}",
+        result_workspace_root(update, "lean_update").resolve() == client.project_root.resolve(),
+        f"update returned wrong workspace descriptor: {update}",
     )
     version = update.get("version")
     require(isinstance(version, int), f"update did not return a document version: {update}")
@@ -1161,10 +990,6 @@ def run_cycle(
     cycle,
     iterations,
     timeout,
-    *,
-    use_root_arg=True,
-    advertise_roots=False,
-    expected_roots_requests=0,
 ):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-") as tmp:
         project_root = Path(tmp) / "project"
@@ -1173,8 +998,6 @@ def run_cycle(
             repo_root,
             project_root,
             timeout,
-            use_root_arg=use_root_arg,
-            advertise_roots=advertise_roots,
             label=f"cycle-{cycle}",
         )
         try:
@@ -1206,8 +1029,8 @@ def run_cycle(
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("beam_stats" in names, f"tools/list missing beam_stats: {tools}")
             require("beam_feedback" in names, f"tools/list missing beam_feedback: {tools}")
-            require("lean_init_workspace" in names, f"tools/list missing lean_init_workspace: {tools}")
-            require("lean_list_workspaces" in names, f"tools/list missing lean_list_workspaces: {tools}")
+            require("lean_init_workspace" not in names, f"tools/list exposed removed lean_init_workspace: {tools}")
+            require("lean_list_workspaces" not in names, f"tools/list exposed removed lean_list_workspaces: {tools}")
             require("lean_drop_workspace" in names, f"tools/list missing lean_drop_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
@@ -1232,25 +1055,6 @@ def run_cycle(
 
             for iteration in range(iterations):
                 run_iteration(client, f"Cycle{cycle}Iter{iteration}")
-            require_roots_requests(client, expected_roots_requests, f"cycle {cycle}")
-        finally:
-            client.close()
-
-
-def run_relative_root_arg(repo_root, fixture_root, timeout):
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-relative-root-") as tmp:
-        project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
-        relative_root = os.path.relpath(project_root, repo_root)
-        client = McpClient(repo_root, project_root, timeout, root_arg=relative_root, label="relative-root-arg")
-        try:
-            client.initialize()
-            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(sync.get("active_root")).resolve() == project_root.resolve(),
-                f"relative --root returned wrong active_root: {sync}",
-            )
-            require_roots_requests(client, 0, "relative --root")
         finally:
             client.close()
 
@@ -1318,30 +1122,8 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
 
 
 FOCUSED_SYNC_SCENARIOS = {
-    "progress-roots-sync": {
-        "use_root_arg": False,
-        "advertise_roots": True,
-        "progress": True,
-        "expected_roots_requests": 1,
-    },
-    "progress-explicit-sync": {
-        "use_root_arg": True,
-        "advertise_roots": False,
-        "progress": True,
-        "expected_roots_requests": 0,
-    },
-    "no-progress-roots-sync": {
-        "use_root_arg": False,
-        "advertise_roots": True,
-        "progress": False,
-        "expected_roots_requests": 1,
-    },
-    "no-progress-explicit-sync": {
-        "use_root_arg": True,
-        "advertise_roots": False,
-        "progress": False,
-        "expected_roots_requests": 0,
-    },
+    "progress-sync": {"progress": True},
+    "no-progress-sync": {"progress": False},
 }
 
 
@@ -1354,8 +1136,6 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
             repo_root,
             project_root,
             timeout,
-            use_root_arg=config["use_root_arg"],
-            advertise_roots=config["advertise_roots"],
             label=label,
             server_trace=server_trace,
         )
@@ -1377,7 +1157,6 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
             sync_elapsed = time.monotonic() - sync_started
             result = expect_result(response)
             require(result.get("isError") is not True, f"{label}: lean_sync failed: {result}")
-            require_roots_requests(client, config["expected_roots_requests"], label)
             if config["progress"]:
                 notifications = client.progress_notifications(token)
                 require_progress_sequence(notifications, token, f"{label} progress")
@@ -1403,14 +1182,9 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
                 "init_elapsed": init_elapsed,
                 "sync_elapsed": sync_elapsed,
                 "notification_count": len(notifications),
-                "roots_request_count": client.roots_request_count,
             }
         finally:
             client.close()
-
-
-def run_progress_roots_sync_once(repo_root, fixture_root, timeout, label):
-    return run_focused_sync_once(repo_root, fixture_root, timeout, label, "progress-roots-sync")
 
 
 def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_trace=False, label_prefix="progress"):
@@ -1505,8 +1279,8 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
         repo_root,
         fixture_root,
         timeout,
-        f"{label_prefix}-roots-list",
-        "progress-roots-sync",
+        f"{label_prefix}-descriptor",
+        "progress-sync",
         server_trace,
     )
 
@@ -1526,7 +1300,6 @@ def run_focused_sync_repro(repo_root, fixture_root, timeout, runs, slow_threshol
             print(
                 f"{label}: init={result['init_elapsed']:.3f}s "
                 f"sync={sync_elapsed:.3f}s "
-                f"roots/list={result['roots_request_count']} "
                 f"progress_notifications={result['notification_count']}",
                 file=sys.stderr,
             )
@@ -1640,7 +1413,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 stats = client.call_tool("beam_stats")
                 lean_stats = (
                     stats.get("workspaces", {})
-                    .get("default", {})
+                    .get(workspace_cache_key(project_root), {})
                     .get("byBackend", {})
                     .get("lean", {})
                 )
@@ -1700,8 +1473,6 @@ def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=Fals
             repo_root,
             project_root,
             timeout,
-            use_root_arg=False,
-            advertise_roots=True,
             label="concurrent-first-use",
             server_trace=server_trace,
         )
@@ -1735,11 +1506,10 @@ def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=Fals
                     isinstance(structured.get("version"), int),
                     f"concurrent first-use update missing version: {structured}",
                 )
-            require_roots_requests(client, 1, "concurrent first use")
             stats = client.call_tool("beam_stats")
             lean_stats = (
                 stats.get("workspaces", {})
-                .get("default", {})
+                .get(workspace_cache_key(project_root), {})
                 .get("byBackend", {})
                 .get("lean", {})
             )
@@ -1749,185 +1519,6 @@ def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=Fals
             )
         finally:
             client.close()
-
-
-def run_root_discovery_reset_overlap(repo_root, fixture_root, timeout, server_trace=False):
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-root-reset-overlap-") as tmp:
-        tmp_root = Path(tmp)
-        project_root = tmp_root / "project"
-        other_root = tmp_root / "other-project"
-        shutil.copytree(fixture_root, project_root)
-        shutil.copytree(fixture_root, other_root)
-        roots_response_gate = threading.Event()
-        client = McpClient(
-            repo_root,
-            project_root,
-            timeout,
-            use_root_arg=False,
-            advertise_roots=True,
-            roots_response="gated",
-            label="root-discovery-reset-overlap",
-            server_trace=server_trace,
-            roots_response_gate=roots_response_gate,
-        )
-        try:
-            client.initialize()
-            first_id = client.send_request(
-                "tools/call",
-                {
-                    "name": "lean_update",
-                    "arguments": {"path": "PositionEmptyLine.lean"},
-                },
-                request_id="root-discovery-before-reset",
-            )
-            wait_until(
-                lambda: client.roots_request_count == 1,
-                timeout,
-                "gated roots/list request",
-            )
-            reset_id = client.send_request(
-                "tools/call",
-                {
-                    "name": "lean_init_workspace",
-                    "arguments": {"root": str(other_root), "mode": "reset"},
-                    "_meta": {"progressToken": "cancelled-workspace-reset"},
-                },
-                request_id="reset-during-root-discovery",
-            )
-            client.notify(
-                "notifications/cancelled",
-                {
-                    "requestId": reset_id,
-                    "reason": "workspace control must still report its committed state",
-                },
-            )
-            roots_response_gate.set()
-            reset_response = client.read_response(reset_id)
-            reset_result = expect_result(reset_response)
-            require(reset_result.get("isError") is not True, f"root-discovery reset failed: {reset_result}")
-            reset_structured = reset_result.get("structuredContent")
-            require(isinstance(reset_structured, dict), f"root-discovery reset missing content: {reset_result}")
-            require(
-                Path(reset_structured.get("active_root")).resolve() == other_root.resolve(),
-                f"root-discovery reset activated the wrong root: {reset_structured}",
-            )
-            require_progress_sequence(
-                client.progress_notifications("cancelled-workspace-reset"),
-                "cancelled-workspace-reset",
-                "non-cancellable workspace reset progress",
-            )
-            first_result = expect_result(client.read_response(first_id))
-            first_structured = first_result.get("structuredContent")
-            require(
-                isinstance(first_structured, dict),
-                f"pre-reset first-use request should have structured content: {first_result}",
-            )
-            if first_result.get("isError") is True:
-                require(
-                    isinstance(first_structured.get("code"), str),
-                    f"pre-reset first-use failure should remain structured: {first_result}",
-                )
-            else:
-                require(
-                    Path(first_structured.get("active_root")).resolve() == project_root.resolve(),
-                    f"pre-reset first-use success used the wrong root: {first_structured}",
-                )
-            update_after = client.call_tool("lean_update", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(update_after.get("active_root")).resolve() == other_root.resolve(),
-                f"request after root-discovery reset used the wrong root: {update_after}",
-            )
-            require_roots_requests(client, 1, "root discovery overlapping reset")
-        finally:
-            roots_response_gate.set()
-            client.close()
-
-
-def run_concurrent_reset(repo_root, fixture_root, timeout, server_trace=False):
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-reset-") as tmp:
-        tmp_root = Path(tmp)
-        project_root = tmp_root / "project"
-        other_root = tmp_root / "other-project"
-        started_path = tmp_root / "gate-started"
-        release_path = tmp_root / "gate-release"
-        shutil.copytree(fixture_root, project_root)
-        shutil.copytree(fixture_root, other_root)
-        client = McpClient(
-            repo_root,
-            project_root,
-            timeout,
-            label="concurrent-reset",
-            server_trace=server_trace,
-            extra_env={
-                "BEAM_MCP_GATE_STARTED": started_path,
-                "BEAM_MCP_GATE_RELEASE": release_path,
-            },
-        )
-        try:
-            client.initialize()
-            update = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
-            version = update.get("version")
-            require(isinstance(version, int), f"concurrent reset update missing version: {update}")
-            source_lines = (project_root / "McpConcurrency.lean").read_text(encoding="utf-8").splitlines()
-            line = source_lines.index("  trivial")
-            slow_id = "reset-old-generation"
-            client.send_request(
-                "tools/call",
-                {
-                    "name": "lean_run_at",
-                    "arguments": {
-                        "path": "McpConcurrency.lean",
-                        "version": version,
-                        "line": line,
-                        "character": 2,
-                        "text": "mcp_concurrency_gate",
-                    },
-                },
-                request_id=slow_id,
-            )
-            wait_for_file(started_path, timeout, "reset old-generation runAt gate sentinel")
-            reset_id = client.send_request(
-                "tools/call",
-                {
-                    "name": "lean_init_workspace",
-                    "arguments": {"root": str(other_root), "mode": "reset"},
-                },
-                request_id="reset-workspace",
-            )
-            reset_response = client.read_response(reset_id)
-            reset_result = expect_result(reset_response)
-            require(reset_result.get("isError") is not True, f"concurrent reset failed: {reset_result}")
-            reset_structured = reset_result.get("structuredContent")
-            require(isinstance(reset_structured, dict), f"concurrent reset missing content: {reset_result}")
-            require(
-                Path(reset_structured.get("active_root")).resolve() == other_root.resolve(),
-                f"concurrent reset activated the wrong root: {reset_structured}",
-            )
-            slow_response = client.read_response(slow_id)
-            slow_result = expect_result(slow_response)
-            require(
-                slow_result.get("isError") is True,
-                f"old-generation runAt should fail when reset shuts its runtime down: {slow_result}",
-            )
-            slow_error = slow_result.get("structuredContent")
-            require(
-                isinstance(slow_error, dict) and isinstance(slow_error.get("code"), str),
-                f"old-generation reset failure should remain structured: {slow_result}",
-            )
-            require(
-                not release_path.exists(),
-                "old-generation runAt required its release sentinel instead of being stopped by reset",
-            )
-            update_after = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
-            require(
-                Path(update_after.get("active_root")).resolve() == other_root.resolve(),
-                f"post-reset request used the wrong root: {update_after}",
-            )
-        finally:
-            if not release_path.exists():
-                release_path.write_text("release\n", encoding="utf-8")
-            client.close()
-
 
 def run_parallel_progress_smoke_repro(
     repo_root,
@@ -2002,576 +1593,247 @@ def run_parallel_progress_smoke_repro(
     )
 
 
-def run_root_setup_matrix(repo_root, fixture_root, timeout):
-    cases = [
-        {
-            "name": "explicit_root_ignores_advertised_roots",
-            "use_root_arg": True,
-            "advertise_roots": True,
-            "expected_roots_requests": 0,
-            "expect_success": True,
-        },
-        {
-            "name": "missing_roots_capability",
-            "use_root_arg": False,
-            "advertise_roots": False,
-            "expected_roots_requests": 0,
-            "error_needle": "did not advertise roots",
-        },
-        {
-            "name": "init_tool_without_roots_capability",
-            "use_root_arg": False,
-            "advertise_roots": False,
-            "expected_roots_requests": 0,
-            "init_workspace": True,
-            "expect_success": True,
-        },
-        {
-            "name": "init_tool_recovers_after_missing_roots_error",
-            "use_root_arg": False,
-            "advertise_roots": False,
-            "expected_roots_requests": 0,
-            "pre_init_sync_error": True,
-            "init_workspace": True,
-            "expect_success": True,
-        },
-        {
-            "name": "empty_roots",
-            "use_root_arg": False,
-            "advertise_roots": True,
-            "roots_payload": [],
-            "expected_roots_requests": 1,
-            "error_needle": "no roots",
-        },
-        {
-            "name": "multiple_roots",
-            "use_root_arg": False,
-            "advertise_roots": True,
-            "roots": "multiple",
-            "expected_roots_requests": 1,
-            "error_needle": "multiple roots",
-        },
-        {
-            "name": "non_file_root",
-            "use_root_arg": False,
-            "advertise_roots": True,
-            "roots_payload": [{"uri": "https://example.invalid/project", "name": "not-file"}],
-            "expected_roots_requests": 1,
-            "error_needle": "file://",
-        },
-        {
-            "name": "roots_rpc_error",
-            "use_root_arg": False,
-            "advertise_roots": True,
-            "roots_response": "error",
-            "expected_roots_requests": 1,
-            "error_needle": "roots/list failed",
-        },
-        {
-            "name": "unrelated_request_during_roots",
-            "use_root_arg": False,
-            "advertise_roots": True,
-            "roots_response": "unrelated_then_normal",
-            "expected_roots_requests": 1,
-            "expect_success": True,
-            "extra_result_id": "during-roots",
-        },
-    ]
-    for case in cases:
-        with tempfile.TemporaryDirectory(prefix=f"lean-beam-mcp-{case['name']}-") as tmp:
-            project_root = Path(tmp) / "project"
-            shutil.copytree(fixture_root, project_root)
-            roots = None
-            if case.get("roots") == "multiple":
-                extra_root = Path(tmp) / "other-project"
-                extra_root.mkdir()
-                roots = [project_root, extra_root]
-            client = McpClient(
-                repo_root,
-                project_root,
-                timeout,
-                use_root_arg=case["use_root_arg"],
-                advertise_roots=case["advertise_roots"],
-                roots=roots,
-                roots_payload=case.get("roots_payload"),
-                roots_response=case.get("roots_response", "normal"),
-                label=f"root-setup-{case['name']}",
+def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-stateless-workspaces-") as tmp:
+        tmp_root = Path(tmp)
+        root_a = tmp_root / "project-a"
+        root_b = tmp_root / "project-b"
+        alias_a = tmp_root / "project-a-alias"
+        shutil.copytree(fixture_root, root_a)
+        shutil.copytree(fixture_root, root_b)
+        alias_a.symlink_to(root_a, target_is_directory=True)
+        client = McpClient(repo_root, root_a, timeout, label="stateless-workspaces")
+        try:
+            client.initialize()
+
+            missing = client.request(
+                "tools/call",
+                {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                inject_workspace=False,
             )
-            try:
-                client.initialize()
-                tools = expect_result(client.request("tools/list")).get("tools")
-                require(isinstance(tools, list) and tools, f"{case['name']}: tools/list should not require root setup: {tools}")
-                if case.get("pre_init_sync_error"):
-                    response = client.request(
-                        "tools/call",
-                        {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
-                    )
-                    expect_error_message_contains(response, -32600, "did not advertise roots")
-                if case.get("init_workspace"):
-                    first_init = init_workspace(client, project_root)
-                    require(
-                        first_init.get("runtime_reused") is False,
-                        f"{case['name']}: first init should create the workspace: {first_init}",
-                    )
-                    second_init = init_workspace(client, project_root)
-                    require(
-                        second_init.get("runtime_reused") is True,
-                        f"{case['name']}: second init should be idempotent: {second_init}",
-                    )
-                    other_root = Path(tmp) / "other-project"
-                    shutil.copytree(fixture_root, other_root)
-                    changed_root = client.request(
-                        "tools/call",
-                        {"name": "lean_init_workspace", "arguments": {"root": str(other_root)}},
-                    )
-                    expect_tool_error_code(changed_root, "invalidParams")
-                response = client.request(
+            missing_error = expect_tool_error_code(missing, "invalidInput")
+            require(
+                "workspace is required" in missing_error.get("message", ""),
+                f"workspace-bound call should require its descriptor: {missing_error}",
+            )
+
+            relative = client.request(
+                "tools/call",
+                {
+                    "name": "lean_sync",
+                    "arguments": {
+                        "path": "PositionEmptyLine.lean",
+                        "workspace": {"root": "relative/project"},
+                    },
+                },
+            )
+            relative_error = expect_tool_error_code(relative, "invalidInput")
+            require(
+                "absolute path" in relative_error.get("message", ""),
+                f"relative workspace root should fail explicitly: {relative_error}",
+            )
+
+            first_a = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
+            require(
+                result_workspace_root(first_a, "first workspace A sync").resolve() == root_a.resolve(),
+                f"first request did not lazily select workspace A: {first_a}",
+            )
+
+            alias_sync = client.call_tool(
+                "lean_sync",
+                {
+                    "path": "PositionEmptyLine.lean",
+                    "workspace": workspace_descriptor(alias_a),
+                },
+            )
+            require(
+                result_workspace_root(alias_sync, "canonical alias sync").resolve() == root_a.resolve(),
+                f"canonical alias did not echo workspace A: {alias_sync}",
+            )
+            alias_stats = client.call_tool("beam_stats").get("workspaces", {})
+            require(
+                set(alias_stats) == {workspace_cache_key(root_a)},
+                f"canonical aliases should share one cached workspace: {alias_stats}",
+            )
+
+            first_b = client.call_tool(
+                "lean_sync",
+                {
+                    "path": "PositionEmptyLine.lean",
+                    "workspace": workspace_descriptor(root_b),
+                },
+            )
+            require(
+                result_workspace_root(first_b, "first workspace B sync").resolve() == root_b.resolve(),
+                f"independent request did not lazily select workspace B: {first_b}",
+            )
+            version_b = first_b.get("version")
+            require(isinstance(version_b, int), f"workspace B sync returned no version: {first_b}")
+
+            stats = client.call_tool("beam_stats").get("workspaces", {})
+            require(
+                set(stats) == {workspace_cache_key(root_a), workspace_cache_key(root_b)},
+                f"two explicit descriptors should create exactly two caches: {stats}",
+            )
+
+            parallel = []
+            for label, root in (("a", root_a), ("b", root_b)):
+                request_id = f"parallel-workspace-{label}"
+                client.send_request(
                     "tools/call",
-                    {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                    {
+                        "name": "lean_sync",
+                        "arguments": {
+                            "path": "PositionEmptyLine.lean",
+                            "workspace": workspace_descriptor(root),
+                        },
+                    },
+                    request_id=request_id,
                 )
-                if case.get("expect_success"):
-                    result = expect_result(response)
-                    require(result.get("isError") is not True, f"{case['name']}: lean_sync returned tool error: {result}")
-                else:
-                    expect_error_message_contains(response, -32600, case["error_needle"])
-                require_roots_requests(client, case["expected_roots_requests"], case["name"])
-                if "extra_result_id" in case:
-                    expect_extra_result(client, case["extra_result_id"], case["name"])
-            finally:
-                client.close()
+                parallel.append((request_id, root))
+            for request_id, root in reversed(parallel):
+                result = expect_result(client.read_response(request_id))
+                require(result.get("isError") is not True, f"parallel workspace sync failed: {result}")
+                structured = result.get("structuredContent")
+                require(isinstance(structured, dict), f"parallel workspace sync has no result: {result}")
+                require(
+                    result_workspace_root(structured, request_id).resolve() == root.resolve(),
+                    f"parallel requests crossed workspace descriptors: {structured}",
+                )
 
-
-def run_init_workspace_mode_matrix(repo_root, fixture_root, timeout):
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-relative-") as tmp:
-        project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-relative-root")
-        try:
-            client.initialize()
-            response = client.request(
-                "tools/call",
-                {"name": "lean_init_workspace", "arguments": {"root": "relative/project"}},
-            )
-            error = expect_tool_error_code(response, "invalidInput")
-            require("absolute" in error.get("message", ""), f"relative root error should mention absolute: {error}")
-        finally:
-            client.close()
-
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-non-workspace-") as tmp:
-        project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
-        empty_root = Path(tmp) / "empty"
-        empty_root.mkdir()
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-non-workspace")
-        try:
-            client.initialize()
-            response = client.request(
-                "tools/call",
-                {"name": "lean_init_workspace", "arguments": {"root": str(empty_root)}},
-            )
-            error = expect_tool_error_code(response, "invalidInput")
-            require("Lean/Lake project" in error.get("message", ""), f"non-workspace error should mention Lean/Lake: {error}")
-        finally:
-            client.close()
-
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-verify-empty-") as tmp:
-        project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-verify-empty")
-        try:
-            client.initialize()
-            response = client.request(
-                "tools/call",
-                {"name": "lean_init_workspace", "arguments": {"root": str(project_root), "mode": "verify"}},
-            )
-            error = expect_tool_error_code(response, "invalidInput")
-            require("not initialized" in error.get("message", ""), f"verify-before-set error should mention state: {error}")
-        finally:
-            client.close()
-
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-verify-reset-") as tmp:
-        project_root = Path(tmp) / "project"
-        other_root = Path(tmp) / "other-project"
-        shutil.copytree(fixture_root, project_root)
-        shutil.copytree(fixture_root, other_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-verify-reset")
-        try:
-            client.initialize()
-            first_init = init_workspace(client, project_root)
-            require(first_init.get("runtime_reused") is False, f"first init should create runtime: {first_init}")
-            verify = init_workspace(client, project_root, mode="verify")
-            require(verify.get("runtime_reused") is True, f"verify should reuse runtime: {verify}")
-            verify_other = client.request(
-                "tools/call",
-                {"name": "lean_init_workspace", "arguments": {"root": str(other_root), "mode": "verify"}},
-            )
-            expect_tool_error_code(verify_other, "invalidParams")
-
-            reset = init_workspace(
-                client,
-                other_root,
-                mode="reset",
-                invalidated_handles=True,
-                previous_root=project_root,
-            )
-            require(reset.get("runtime_reused") is False, f"reset should create new runtime: {reset}")
-            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(sync.get("active_root")).resolve() == other_root.resolve(),
-                f"sync after reset returned wrong active_root: {sync}",
-            )
-        finally:
-            client.close()
-
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-reset-after-use-") as tmp:
-        project_root = Path(tmp) / "project"
-        other_root = Path(tmp) / "other-project"
-        shutil.copytree(fixture_root, project_root)
-        shutil.copytree(fixture_root, other_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-reset-after-use")
-        try:
-            client.initialize()
-            init_workspace(client, project_root)
-            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(sync.get("active_root")).resolve() == project_root.resolve(),
-                f"bad active_root before reset: {sync}",
-            )
-            version = sync.get("version")
-            require(isinstance(version, int), f"pre-reset sync did not return a version: {sync}")
             minted = client.call_tool(
                 "lean_run_at_handle",
                 {
                     "path": "PositionEmptyLine.lean",
-                    "version": version,
+                    "version": version_b,
                     "line": 1,
                     "character": 0,
-                    "text": "def mcpResetBase : Nat := 1",
+                    "text": "def statelessWorkspaceBase : Nat := 1",
+                    "workspace": workspace_descriptor(root_b),
                 },
             )
-            require_success("pre-reset handle mint", minted)
-            old_handle = minted.get("next_handle")
-            require(
-                isinstance(old_handle, dict),
-                f"pre-reset handle mint did not return next_handle: {minted}",
-            )
+            require_success("workspace B handle mint", minted)
+            handle_b = minted.get("next_handle")
+            require(isinstance(handle_b, dict), f"workspace B handle mint returned no handle: {minted}")
 
-            same_root_reset = init_workspace(
-                client,
-                project_root,
-                mode="reset",
-                invalidated_handles=True,
-                previous_root=project_root,
-            )
-            require(
-                same_root_reset.get("runtime_reused") is False,
-                f"same-root reset should recreate runtime: {same_root_reset}",
-            )
-            expect_stale_handle(client, old_handle, "same-root reset")
-            sync_after_same_reset = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(sync_after_same_reset.get("active_root")).resolve() == project_root.resolve(),
-                f"sync after same-root reset returned wrong active_root: {sync_after_same_reset}",
-            )
-            same_reset_version = sync_after_same_reset.get("version")
-            require(
-                isinstance(same_reset_version, int),
-                f"sync after same-root reset did not return a version: {sync_after_same_reset}",
-            )
-            reminted = client.call_tool(
-                "lean_run_at_handle",
-                {
-                    "path": "PositionEmptyLine.lean",
-                    "version": same_reset_version,
-                    "line": 1,
-                    "character": 0,
-                    "text": "def mcpResetBase : Nat := 1",
-                },
-            )
-            require_success("post-reset handle mint", reminted)
-            current_handle = reminted.get("next_handle")
-            require(
-                isinstance(current_handle, dict),
-                f"post-reset handle mint did not return next_handle: {reminted}",
-            )
-
-            reset = init_workspace(
-                client,
-                other_root,
-                mode="reset",
-                invalidated_handles=True,
-                previous_root=project_root,
-            )
-            require(
-                reset.get("runtime_reused") is False,
-                f"reset after use should create new runtime: {reset}",
-            )
-            sync_after_reset = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(sync_after_reset.get("active_root")).resolve() == other_root.resolve(),
-                f"sync after reset returned wrong active_root: {sync_after_reset}",
-            )
-            expect_stale_handle(client, current_handle, "cross-root reset")
-        finally:
-            client.close()
-
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-init-reset-stale-root-") as tmp:
-        project_root = Path(tmp) / "project"
-        other_root = Path(tmp) / "other-project"
-        shutil.copytree(fixture_root, project_root)
-        shutil.copytree(fixture_root, other_root)
-        client = McpClient(repo_root, project_root, timeout, use_root_arg=False, label="init-reset-stale-root")
-        try:
-            client.initialize()
-            init_workspace(client, project_root)
-            sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(sync.get("active_root")).resolve() == project_root.resolve(),
-                f"bad active_root before stale reset: {sync}",
-            )
-            shutil.rmtree(project_root)
-            reset = init_workspace(
-                client,
-                other_root,
-                mode="reset",
-                invalidated_handles=True,
-                previous_root=project_root,
-            )
-            require(
-                reset.get("runtime_reused") is False,
-                f"stale reset should create new runtime: {reset}",
-            )
-            sync_after_reset = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                Path(sync_after_reset.get("active_root")).resolve() == other_root.resolve(),
-                f"sync after stale reset returned wrong active_root: {sync_after_reset}",
-            )
-        finally:
-            client.close()
-
-
-def run_named_workspace_matrix(repo_root, fixture_root, timeout):
-    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-named-workspaces-") as tmp:
-        default_root = Path(tmp) / "default-project"
-        other_root = Path(tmp) / "other-project"
-        shutil.copytree(fixture_root, default_root)
-        shutil.copytree(fixture_root, other_root)
-        client = McpClient(
-            repo_root,
-            default_root,
-            timeout,
-            use_root_arg=False,
-            advertise_roots=False,
-            label="named-workspaces",
-        )
-        try:
-            client.initialize()
-            empty_workspace_id = client.request(
+            crossed = client.request(
                 "tools/call",
                 {
-                    "name": "lean_init_workspace",
-                    "arguments": {"root": str(other_root), "workspace_id": ""},
-                },
-            )
-            empty_workspace_error = expect_tool_error_code(empty_workspace_id, "invalidInput")
-            require(
-                "workspace_id must be non-empty" in empty_workspace_error.get("message", ""),
-                f"empty first workspace id should be rejected explicitly: {empty_workspace_error}",
-            )
-            require_workspace_absent(client.call_tool("lean_list_workspaces"), "")
-
-            named_init = init_workspace(client, other_root, workspace_id="other")
-            require(named_init.get("runtime_reused") is False, f"named init should create runtime: {named_init}")
-            initial_list = client.call_tool("lean_list_workspaces")
-            require_workspace_listed(initial_list, "other", other_root)
-            require_workspace_absent(initial_list, "default")
-            named_sync = client.call_tool(
-                "lean_sync",
-                {"path": "PositionEmptyLine.lean", "workspace_id": "other"},
-            )
-            require(
-                named_sync.get("workspace_id") == "other",
-                f"named sync returned wrong workspace_id: {named_sync}",
-            )
-            require(
-                Path(named_sync.get("active_root")).resolve() == other_root.resolve(),
-                f"named sync returned wrong active_root: {named_sync}",
-            )
-            named_version = named_sync.get("version")
-            require(isinstance(named_version, int), f"named sync did not return a version: {named_sync}")
-            missing_workspace = client.request(
-                "tools/call",
-                {
-                    "name": "lean_sync",
-                    "arguments": {"path": "PositionEmptyLine.lean"},
-                },
-                inject_workspace=False,
-            )
-            missing_workspace_error = expect_tool_error_code(missing_workspace, "invalidInput")
-            require(
-                "workspace_id is required" in missing_workspace_error.get("message", ""),
-                f"workspace-bound call should require an explicit selector: {missing_workspace_error}",
-            )
-            named_minted = client.call_tool(
-                "lean_run_at_handle",
-                {
-                    "path": "PositionEmptyLine.lean",
-                    "version": named_version,
-                    "line": 1,
-                    "character": 0,
-                    "text": "def namedWorkspaceBase : Nat := 1",
-                    "workspace_id": "other",
-                },
-            )
-            require_success("named workspace handle mint", named_minted)
-            named_handle = named_minted.get("next_handle")
-            require(isinstance(named_handle, dict), f"named handle mint returned no handle: {named_minted}")
-            named_continued = client.call_tool(
-                "lean_run_with",
-                {
-                    "path": "PositionEmptyLine.lean",
-                    "handle": named_handle,
-                    "text": "def namedWorkspaceNext : Nat := namedWorkspaceBase + 1",
-                    "workspace_id": "other",
-                },
-            )
-            require_success("named workspace explicit handle routing", named_continued)
-            require(
-                named_continued.get("workspace_id") == "other",
-                f"handle-routed continuation returned wrong workspace: {named_continued}",
-            )
-            require(
-                Path(named_continued.get("active_root")).resolve() == other_root.resolve(),
-                f"handle-routed continuation returned wrong root: {named_continued}",
-            )
-            named_next_handle = named_continued.get("next_handle")
-            require(
-                isinstance(named_next_handle, dict),
-                f"named handle continuation returned no next handle: {named_continued}",
-            )
-            client.call_tool(
-                "lean_release",
-                {"path": "PositionEmptyLine.lean", "handle": named_next_handle, "workspace_id": "other"},
-            )
-            client.call_tool(
-                "lean_release",
-                {"path": "PositionEmptyLine.lean", "handle": named_handle, "workspace_id": "other"},
-            )
-
-            default_init = init_workspace(client, default_root)
-            require(default_init.get("runtime_reused") is False, f"default init should add workspace: {default_init}")
-            both_workspaces = client.call_tool("lean_list_workspaces")
-            require_workspace_listed(both_workspaces, "other", other_root)
-            require_workspace_listed(both_workspaces, "default", default_root)
-            default_sync = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})
-            require(
-                default_sync.get("workspace_id") == "default",
-                f"default sync returned wrong workspace_id: {default_sync}",
-            )
-            require(
-                Path(default_sync.get("active_root")).resolve() == default_root.resolve(),
-                f"default sync returned wrong active_root: {default_sync}",
-            )
-
-            named_sync_again = client.call_tool(
-                "lean_sync",
-                {"path": "PositionEmptyLine.lean", "workspace_id": "other"},
-            )
-            require(
-                Path(named_sync_again.get("active_root")).resolve() == other_root.resolve(),
-                f"named sync after default init returned wrong active_root: {named_sync_again}",
-            )
-            duplicate_reset = client.request(
-                "tools/call",
-                {
-                    "name": "lean_init_workspace",
+                    "name": "lean_run_with",
                     "arguments": {
-                        "root": str(default_root),
-                        "workspace_id": "other",
-                        "mode": "reset",
+                        "path": "PositionEmptyLine.lean",
+                        "handle": handle_b,
+                        "text": "def mustNotCrossWorkspaces : Nat := 0",
+                        "workspace": workspace_descriptor(root_a),
                     },
                 },
             )
-            error = expect_tool_error_code(duplicate_reset, "invalidParams")
+            crossed_error = expect_tool_error_code(crossed, "invalidParams")
             require(
-                "already owned by workspace 'default'" in error.get("message", ""),
-                f"duplicate workspace root error should name owner: {error}",
+                "does not match handle workspace" in crossed_error.get("message", ""),
+                f"cross-workspace handle failure should explain the mismatch: {crossed_error}",
             )
-            missing_workspace_id_drop = client.request(
+
+            feedback = client.call_tool(
+                "beam_feedback",
+                {
+                    "workspace": workspace_descriptor(root_b),
+                    "title": "workspace isolation regression",
+                    "summary": "collect one explicit workspace only",
+                    "reproduction": "call feedback with a workspace descriptor",
+                    "expected": "only that workspace is collected",
+                    "actual": "regression check",
+                    "include_collected": True,
+                    "redact": False,
+                },
+            )
+            collected = feedback.get("collected")
+            require(isinstance(collected, dict), f"workspace feedback omitted context: {feedback}")
+            feedback_stats = collected.get("stats")
+            require(
+                isinstance(feedback_stats, dict)
+                and feedback_stats.get("id") == workspace_cache_key(root_b)
+                and Path(feedback_stats.get("root")).resolve() == root_b.resolve(),
+                f"workspace feedback stats were not scoped to B: {feedback_stats}",
+            )
+            require(
+                str(root_a.resolve()) not in json.dumps(collected, sort_keys=True),
+                f"workspace feedback leaked workspace A: {collected}",
+            )
+
+            missing_drop = client.request(
                 "tools/call",
                 {"name": "lean_drop_workspace", "arguments": {}},
+                inject_workspace=False,
             )
-            missing_error = expect_tool_error_code(missing_workspace_id_drop, "invalidInput")
+            missing_drop_error = expect_tool_error_code(missing_drop, "invalidInput")
             require(
-                "workspace_id" in missing_error.get("message", ""),
-                f"drop without workspace_id should require explicit id: {missing_error}",
+                "workspace is required" in missing_drop_error.get("message", ""),
+                f"cache eviction should require a descriptor: {missing_drop_error}",
             )
 
-            drop_workspace(client, "default")
-            after_default_drop = client.call_tool("lean_list_workspaces")
-            require_workspace_absent(after_default_drop, "default")
-            require_workspace_listed(after_default_drop, "other", other_root)
-            stats_after_default_drop = client.call_tool("beam_stats")
-            stats_workspaces = stats_after_default_drop.get("workspaces")
-            require(
-                isinstance(stats_workspaces, dict)
-                and "other" in stats_workspaces
-                and "default" not in stats_workspaces,
-                f"beam_stats should report remaining named workspaces after default drop: {stats_after_default_drop}",
-            )
-            for legacy_field in ("root", "sessions", "byBackend"):
-                require(
-                    legacy_field not in stats_after_default_drop,
-                    f"beam_stats should not synthesize {legacy_field!r} after default drop: {stats_after_default_drop}",
-                )
-
-            named_reset = init_workspace(
-                client,
-                other_root,
-                workspace_id="other",
-                mode="reset",
-                invalidated_handles=True,
-                previous_root=other_root,
-            )
-            require(
-                named_reset.get("runtime_reused") is False,
-                f"named reset should replace its workspace runtime: {named_reset}",
-            )
-            default_after_named_reset = client.request(
+            drop_id = client.send_request(
                 "tools/call",
-                {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                {
+                    "name": "lean_drop_workspace",
+                    "arguments": {"workspace": workspace_descriptor(root_b)},
+                    "_meta": {"progressToken": "cancelled-workspace-drop"},
+                },
+                request_id="drop-workspace-b",
             )
-            expect_error_message_contains(
-                default_after_named_reset,
-                -32600,
-                "default Beam workspace was dropped",
+            client.notify(
+                "notifications/cancelled",
+                {
+                    "requestId": drop_id,
+                    "reason": "cache eviction must commit and report final state",
+                },
             )
-            stats_after_named_reset = client.call_tool("beam_stats")
-            require(
-                "other" in stats_after_named_reset.get("workspaces", {}),
-                f"beam_stats should remain usable after named reset: {stats_after_named_reset}",
-            )
-
-            recreated_default = init_workspace(client, default_root)
-            require(
-                recreated_default.get("runtime_reused") is False,
-                f"explicit init should recreate the dropped default workspace: {recreated_default}",
-            )
-            drop_workspace(client, "other")
-            after_drop = client.call_tool("lean_list_workspaces")
-            require_workspace_absent(after_drop, "other")
-            require_workspace_listed(after_drop, "default", default_root)
-            dropped_sync = client.request(
+            recreate_id = client.send_request(
                 "tools/call",
                 {
                     "name": "lean_sync",
-                    "arguments": {"path": "PositionEmptyLine.lean", "workspace_id": "other"},
+                    "arguments": {
+                        "path": "PositionEmptyLine.lean",
+                        "workspace": workspace_descriptor(root_b),
+                    },
                 },
+                request_id="sync-after-drop",
             )
-            dropped_error = expect_tool_error_code(dropped_sync, "invalidInput")
+            drop_result = expect_result(client.read_response(drop_id))
+            require(drop_result.get("isError") is not True, f"cancelled cache eviction failed: {drop_result}")
+            dropped = drop_result.get("structuredContent")
             require(
-                "unknown Beam workspace 'other'" in dropped_error.get("message", ""),
-                f"dropped workspace sync should fail cleanly: {dropped_error}",
+                isinstance(dropped, dict)
+                and dropped.get("workspace") == workspace_descriptor(root_b)
+                and dropped.get("dropped") is True
+                and dropped.get("invalidated_handles") is True,
+                f"cancelled cache eviction did not report committed state: {drop_result}",
+            )
+            recreated_result = expect_result(client.read_response(recreate_id))
+            require(recreated_result.get("isError") is not True, f"request after eviction failed: {recreated_result}")
+            recreated = recreated_result.get("structuredContent")
+            require(
+                isinstance(recreated, dict)
+                and result_workspace_root(recreated, "post-eviction sync").resolve() == root_b.resolve(),
+                f"request after eviction did not lazily recreate workspace B: {recreated_result}",
+            )
+            require_progress_sequence(
+                client.progress_notifications("cancelled-workspace-drop"),
+                "cancelled-workspace-drop",
+                "non-cancellable workspace drop progress",
+            )
+            expect_stale_handle(client, handle_b, "workspace B eviction", root=root_b)
+
+            drop_workspace(client, root_b)
+            drop_workspace(client, root_b, expected_dropped=False)
+            remaining = client.call_tool("beam_stats").get("workspaces", {})
+            require(
+                set(remaining) == {workspace_cache_key(root_a)},
+                f"eviction should affect only the selected workspace cache: {remaining}",
+            )
+            require(
+                not client.server_requests,
+                f"stateless MCP server must not issue server-to-client requests: {client.server_requests}",
             )
         finally:
             client.close()
@@ -2687,7 +1949,6 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
                     if action.get("stops"):
                         stopped = True
                         break
-                require_roots_requests(client, 0, case["name"])
             finally:
                 if stopped and client.proc.stdin and not client.proc.stdin.closed:
                     client.proc.stdin.close()
@@ -2821,46 +2082,15 @@ def main():
             args.timeout,
             server_trace=args.server_trace,
         )
-        run_root_discovery_reset_overlap(
-            repo_root,
-            fixture_root,
-            args.timeout,
-            server_trace=args.server_trace,
-        )
-        run_concurrent_reset(
-            repo_root,
-            fixture_root,
-            args.timeout,
-            server_trace=args.server_trace,
-        )
+        run_stateless_workspace_matrix(repo_root, fixture_root, args.timeout)
         return
     for cycle in range(args.restart_cycles):
         run_cycle(repo_root, fixture_root, cycle, args.iterations, args.timeout)
-        run_cycle(
-            repo_root,
-            fixture_root,
-            f"Roots{cycle}",
-            1,
-            args.timeout,
-            use_root_arg=False,
-            advertise_roots=True,
-            expected_roots_requests=1,
-        )
-    run_relative_root_arg(repo_root, fixture_root, args.timeout)
     run_diagnostic_logging(repo_root, fixture_root, args.timeout)
     run_progress_notification_smoke(repo_root, fixture_root, args.timeout)
     run_concurrent_dispatch(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
     run_concurrent_first_use(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
-    run_root_discovery_reset_overlap(
-        repo_root,
-        fixture_root,
-        args.timeout,
-        server_trace=args.server_trace,
-    )
-    run_concurrent_reset(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
-    run_root_setup_matrix(repo_root, fixture_root, args.timeout)
-    run_init_workspace_mode_matrix(repo_root, fixture_root, args.timeout)
-    run_named_workspace_matrix(repo_root, fixture_root, args.timeout)
+    run_stateless_workspace_matrix(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)
     run_closed_stdout_regression(repo_root, fixture_root, args.timeout)
 

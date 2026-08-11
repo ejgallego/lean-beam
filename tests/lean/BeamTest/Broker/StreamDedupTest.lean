@@ -152,13 +152,12 @@ private def fakeServerWithLeanSession
     (session : Beam.Broker.Session) : IO Beam.Broker.ServerRuntime := do
   let config : Beam.Broker.BrokerConfig := { root }
   let workspace : Beam.Broker.WorkspaceState := {
-    id := Beam.Broker.defaultWorkspaceId
     config
     lean := { nextEpoch := 1, session? := some session }
   }
   pure {
     state := ← Std.Mutex.new {
-      config
+      bootstrapConfig := config
       workspaces := Std.TreeMap.empty.insert Beam.Broker.defaultWorkspaceId workspace
     }
     endpoint := .tcp 0
