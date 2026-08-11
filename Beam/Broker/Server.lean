@@ -791,26 +791,22 @@ private def markDocSavedVersion (session : Session) (uri : DocumentUri) (version
   applyVersionMarkResult session result
 
 private def openDocsSessionView (session : Session) : OpenDocs.SessionView := {
-  backend := session.backend
   root := session.root
   docs := session.docs
 }
 
 private def openDocsPayload : M Json := do
   let state ← get
-  let defaultPayload ←
-    match getWorkspace? state defaultWorkspaceId with
-    | some defaultWorkspace =>
-        OpenDocs.payload defaultWorkspace.config.root defaultWorkspace.config.leanCmd?
-          (defaultWorkspace.lean.session?.map openDocsSessionView)
-          (defaultWorkspace.rocq.session?.map openDocsSessionView)
-    | none => pure <| Json.mkObj []
   let workspaceFields ← state.workspaces.toList.mapM fun (workspaceId, workspace) => do
     let payload ←
-      OpenDocs.payload workspace.config.root workspace.config.leanCmd?
+      OpenDocs.payload workspace.config.root
         (workspace.lean.session?.map openDocsSessionView)
         (workspace.rocq.session?.map openDocsSessionView)
     pure (workspaceId, payload)
+  let defaultPayload :=
+    match workspaceFields.find? fun (workspaceId, _) => workspaceId == defaultWorkspaceId with
+    | some (_, payload) => payload
+    | none => Json.mkObj []
   pure <| defaultPayload.setObjVal! "workspaces" (Json.mkObj workspaceFields)
 
 private def wrapHandle (session : Session) (raw : Json) : Json :=

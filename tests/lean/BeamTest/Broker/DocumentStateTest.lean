@@ -68,7 +68,7 @@ private def checkSyncFileDecisionUnchanged : IO Unit := do
     Std.TreeMap.empty.insert uri {
       (mkDoc 5 (some "OldFoo")) with
       textHash := 10
-      savedOleanVersion? := some 5
+      checkpointedVersion? := some 5
       fileProgress? := some { updates := 2, done := true }
       lastSyncEventSeq := 8
     }
@@ -77,7 +77,8 @@ private def checkSyncFileDecisionUnchanged : IO Unit := do
   require "syncFileDecision unchanged preserves version" (decision.version == 5)
   let some doc := decision.docs.get? uri
     | throw <| IO.userError "syncFileDecision unchanged erased doc"
-  require "syncFileDecision unchanged preserves saved olean" (doc.savedOleanVersion? == some 5)
+  require "syncFileDecision unchanged preserves checkpointed version"
+    (doc.checkpointedVersion? == some 5)
   require "syncFileDecision unchanged preserves progress" (doc.fileProgress? == some { updates := 2, done := true })
   require "syncFileDecision unchanged refreshes module" (doc.moduleName? == some "Foo")
   require "syncFileDecision unchanged preserves sync event seq" (doc.lastSyncEventSeq == 8)
@@ -88,7 +89,7 @@ private def checkSyncFileDecisionChange : IO Unit := do
     Std.TreeMap.empty.insert uri {
       (mkDoc 5 (some "OldFoo")) with
       textHash := 10
-      savedOleanVersion? := some 5
+      checkpointedVersion? := some 5
       fileProgress? := some { updates := 2, done := true }
       lastSyncEventSeq := 8
     }
@@ -99,7 +100,7 @@ private def checkSyncFileDecisionChange : IO Unit := do
     | throw <| IO.userError "syncFileDecision changed erased doc"
   require "syncFileDecision changed records hash" (doc.textHash == 11)
   require "syncFileDecision changed records module" (doc.moduleName? == some "Foo")
-  require "syncFileDecision changed clears saved olean" (doc.savedOleanVersion?.isNone)
+  require "syncFileDecision changed clears checkpointed version" (doc.checkpointedVersion?.isNone)
   require "syncFileDecision changed clears progress" (doc.fileProgress?.isNone)
   require "syncFileDecision changed preserves sync event seq" (doc.lastSyncEventSeq == 8)
 
@@ -158,7 +159,7 @@ private def checkMarkSavedVersion : IO Unit := do
   require "markSavedVersion applies matching version" result.applied
   let some doc := result.docs.get? uri
     | throw <| IO.userError "markSavedVersion erased existing doc"
-  require "markSavedVersion records saved version" (doc.savedOleanVersion? == some 4)
+  require "markSavedVersion records checkpointed version" (doc.checkpointedVersion? == some 4)
   require "markSavedVersion updates document sync event seq" (doc.lastSyncEventSeq == 9)
   let some history := result.moduleHistory.get? "Foo"
     | throw <| IO.userError "markSavedVersion did not update module history"

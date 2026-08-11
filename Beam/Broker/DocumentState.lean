@@ -23,7 +23,8 @@ structure DocState where
   -- records the newest ordered request snapshot applied to the LSP document.
   syncSnapshotSeq : Nat := 0
   moduleName? : Option String := none
-  savedOleanVersion? : Option Nat := none
+  /-- Version for which this daemon last completed a Beam checkpoint; not an artifact probe. -/
+  checkpointedVersion? : Option Nat := none
   fileProgress? : Option SyncFileProgress := none
   /-- Broker event sequence of the latest successful sync barrier for this document. -/
   lastSyncEventSeq : Nat := 0
@@ -148,7 +149,7 @@ def syncFileDecision
           version
           docs := docs.insert uri {
             (docStateOfSnapshot version snapshot) with
-            savedOleanVersion? := none
+            checkpointedVersion? := none
             fileProgress? := none
             lastSyncEventSeq := docState.lastSyncEventSeq
           }
@@ -233,7 +234,7 @@ def markSavedVersion
         {
           docs := docs.insert uri {
             docState with
-            savedOleanVersion? := some version
+            checkpointedVersion? := some version
             lastSyncEventSeq := eventSeq
           }
           moduleHistory

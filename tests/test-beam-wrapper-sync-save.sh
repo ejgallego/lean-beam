@@ -52,27 +52,16 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
-    echo "expected open-files after initial probe to report SaveSmoke/B.lean as saved" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.diskStatus)" != "matchesTracked" ]; then
+    echo "expected open-files after initial probe to report SaveSmoke/B.lean as matching tracked text" >&2
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files after initial probe to report savedOlean = false" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "false" ]; then
+    echo "expected open-files after initial probe to report checkpointed = false" >&2
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "true" ]; then
-    echo "expected open-files after initial probe to report saveEligible = true for SaveSmoke/B.lean" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.saveReason)" != "ok" ]; then
-    echo "expected open-files after initial probe to report saveReason = ok for SaveSmoke/B.lean" >&2
-    printf '%s\n' "$open_files_initial" >&2
-    exit 1
-  fi
-
   sed_in_place_portable 's/1/2/' SaveSmoke/B.lean
   sync_out="$("$beam_script" lean-sync SaveSmoke/B.lean)"
   if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field ok)" != "true" ]; then
@@ -99,8 +88,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
   open_files_synced="$("$beam_script" open-files)"
   assert_json_completed_file_progress "open-files after lean-sync" "$open_files_synced" \
     result.sessions.lean.files.0.fileProgress
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files after lean-sync to keep savedOlean = false before lean-save" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "false" ]; then
+    echo "expected open-files after lean-sync to keep checkpointed = false before lean-save" >&2
     printf '%s\n' "$open_files_synced" >&2
     exit 1
   fi
@@ -147,21 +136,21 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
   fi
 
   open_files_saved="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_saved" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "true" ]; then
-    echo "expected open-files after lean-save to report savedOlean = true" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_saved" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "true" ]; then
+    echo "expected open-files after lean-save to report checkpointed = true" >&2
     printf '%s\n' "$open_files_saved" >&2
     exit 1
   fi
 
   sed_in_place_portable 's/2/3/' SaveSmoke/B.lean
   open_files_dirty="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.status)" != "notSaved" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.diskStatus)" != "differsFromTracked" ]; then
     echo "expected open-files to detect an on-disk edit for an already known file incrementally" >&2
     printf '%s\n' "$open_files_dirty" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files to clear savedOlean once the on-disk file diverges" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "false" ]; then
+    echo "expected open-files to clear checkpointed once the on-disk file diverges" >&2
     printf '%s\n' "$open_files_dirty" >&2
     exit 1
   fi
@@ -180,8 +169,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
   assert_json_completed_file_progress "second lean-sync" "$sync_second" fileProgress
 
   open_files_second="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.status)" != "saved" ]; then
-    echo "expected open-files after second lean-sync to report the file as saved again" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_second" read_json_text_field result.sessions.lean.files.0.diskStatus)" != "matchesTracked" ]; then
+    echo "expected open-files after second lean-sync to report the disk and tracked text as matching again" >&2
     printf '%s\n' "$open_files_second" >&2
     exit 1
   fi
@@ -280,18 +269,6 @@ EOF
     exit 1
   fi
   assert_json_completed_file_progress "standalone lean-sync" "$standalone_sync" fileProgress
-
-  standalone_open="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveEligible)" != "false" ]; then
-    echo "expected open-files to report saveEligible = false for a standalone save target" >&2
-    printf '%s\n' "$standalone_open" >&2
-    exit 1
-  fi
-  if [ "$(BEAM_JSON_PAYLOAD="$standalone_open" read_json_text_field result.sessions.lean.files.0.saveReason)" != "saveTargetNotModule" ]; then
-    echo "expected open-files to report saveReason = saveTargetNotModule for a standalone save target" >&2
-    printf '%s\n' "$standalone_open" >&2
-    exit 1
-  fi
 
   standalone_save_err="$(beam_wrapper_mktemp_file standalone-save)"
   if "$beam_script" lean-save StandaloneSaveSmoke.lean >"$standalone_save_err" 2>&1; then
