@@ -175,7 +175,7 @@ private def checkToolsListShape : IO Unit := do
   require "tools/list is non-empty" (!tools.isEmpty)
   let initTool ← requireTool tools "lean_init_workspace"
   let initSchema ← requireClosedInputSchema "lean_init_workspace input schema" initTool
-  requireSchemaRequiredFields "lean_init_workspace input schema" #["root"] initSchema
+  requireSchemaRequiredFields "lean_init_workspace input schema" #["root", "workspace_id"] initSchema
   let initProperties ← requireObjVal "lean_init_workspace input schema" "properties" initSchema
   requireFieldPresent "lean_init_workspace input schema" "workspace_id" initProperties
   let modeSchema ← requireObjVal "lean_init_workspace properties" "mode" initProperties
@@ -210,29 +210,29 @@ private def checkToolsListShape : IO Unit := do
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
     ("beam_stats", #[]),
-    ("beam_feedback", Beam.Feedback.requiredInputFields),
+    ("beam_feedback", Beam.Feedback.requiredInputFields.push "workspace_id"),
     ("lean_list_workspaces", #[]),
     ("lean_drop_workspace", #["workspace_id"]),
-    ("lean_run_at", #["path", "version", "line", "character", "text"]),
-    ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
-    ("lean_hover", #["path", "version", "line", "character"]),
-    ("lean_signature_help", #["path", "version", "line", "character"]),
-    ("lean_definition", #["path", "version", "line", "character"]),
-    ("lean_references", #["path", "version", "line", "character"]),
-    ("lean_document_symbols", #["path", "version"]),
-    ("lean_workspace_symbols", #["query"]),
-    ("lean_goals", #["path", "version", "line", "character", "mode"]),
-    ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character"]),
-    ("lean_code_action_resolve", #["path", "version", "code_action"]),
-    ("lean_run_with", #["path", "handle", "text"]),
-    ("lean_run_with_linear", #["path", "handle", "text"]),
-    ("lean_release", #["path", "handle"]),
-    ("lean_update", #["path"]),
-    ("lean_sync", #["path"]),
-    ("lean_refresh", #["path"]),
-    ("lean_save", #["path"]),
-    ("lean_close_save", #["path"]),
-    ("lean_close", #["path"])
+    ("lean_run_at", #["path", "version", "line", "character", "text", "workspace_id"]),
+    ("lean_run_at_handle", #["path", "version", "line", "character", "text", "workspace_id"]),
+    ("lean_hover", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_signature_help", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_definition", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_references", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_document_symbols", #["path", "version", "workspace_id"]),
+    ("lean_workspace_symbols", #["query", "workspace_id"]),
+    ("lean_goals", #["path", "version", "line", "character", "mode", "workspace_id"]),
+    ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character", "workspace_id"]),
+    ("lean_code_action_resolve", #["path", "version", "code_action", "workspace_id"]),
+    ("lean_run_with", #["path", "handle", "text", "workspace_id"]),
+    ("lean_run_with_linear", #["path", "handle", "text", "workspace_id"]),
+    ("lean_release", #["path", "handle", "workspace_id"]),
+    ("lean_update", #["path", "workspace_id"]),
+    ("lean_sync", #["path", "workspace_id"]),
+    ("lean_refresh", #["path", "workspace_id"]),
+    ("lean_save", #["path", "workspace_id"]),
+    ("lean_close_save", #["path", "workspace_id"]),
+    ("lean_close", #["path", "workspace_id"])
   ]
   require "tools/list should expose init workspace plus curated Lean tools"
     (tools.size == schemaCases.size + 1)
@@ -411,13 +411,12 @@ private def checkRuntimeSetupErrors : IO Unit := do
 private def checkWorkspaceInitPolicy : IO Unit := do
   let root := System.FilePath.mk "/workspace"
   let previous := System.FilePath.mk "/previous-workspace"
-  let defaultInput ← expectOk "decode default init input" <|
-    fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
       ("root", toJson root.toString)
-    ]
-  require "default init input should default workspace id"
-    (defaultInput.workspaceId == Beam.Workspace.defaultWorkspaceId)
-  require "default init input should default mode" (defaultInput.mode == .set)
+    ] with
+  | .ok _ => throw <| IO.userError "init workspace input without workspace_id decoded unexpectedly"
+  | .error err =>
+      require "missing init workspace id error should name workspace_id" (err.contains "workspace_id")
   let namedInput ← expectOk "decode named init input" <|
     fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
       ("root", toJson root.toString),
@@ -495,7 +494,18 @@ private def rpcNotification (method : String) (params? : Option Json := none) : 
     | some params => [("params", params)]
     | none => []
 
+private def withDefaultWorkspace (name : String) (arguments : Json) : Json :=
+  let workspaceBound :=
+    match Beam.Mcp.ToolName.fromKey? name with
+    | some (.leanOperation _) | some .beamFeedback | some .leanInitWorkspace => true
+    | _ => false
+  if workspaceBound && !(arguments.getObjVal? "workspace_id").isOk then
+    arguments.setObjVal! "workspace_id" (toJson Beam.Workspace.defaultWorkspaceId)
+  else
+    arguments
+
 private def toolCallParams (name : String) (arguments : Json := Json.mkObj []) : Json :=
+  let arguments := withDefaultWorkspace name arguments
   Json.mkObj [
     ("name", toJson name),
     ("arguments", arguments)
@@ -505,6 +515,7 @@ private def toolCallParamsWithProgress
     (name : String)
     (progressToken : Json)
     (arguments : Json := Json.mkObj []) : Json :=
+  let arguments := withDefaultWorkspace name arguments
   Json.mkObj [
     ("name", toJson name),
     ("arguments", arguments),
@@ -924,10 +935,11 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let statsResult ← requireObjVal "beam stats response" "result" statsResp
     requireJsonBool "beam stats result" "isError" false statsResult
     let statsStructured ← requireObjVal "beam stats result" "structuredContent" statsResult
-    requireJsonString "beam stats structured" "root" expectedRoot.toString statsStructured
-    requireJsonString "beam stats structured" "active_root" expectedRoot.toString statsStructured
-    discard <| requireObjVal "beam stats structured" "sessions" statsStructured
-    let byBackend ← requireObjVal "beam stats structured" "byBackend" statsStructured
+    let workspaces ← requireObjVal "beam stats structured" "workspaces" statsStructured
+    let defaultStats ← requireObjVal "beam stats workspaces" "default" workspaces
+    requireJsonString "beam stats default workspace" "root" expectedRoot.toString defaultStats
+    discard <| requireObjVal "beam stats default workspace" "sessions" defaultStats
+    let byBackend ← requireObjVal "beam stats default workspace" "byBackend" defaultStats
     let leanMetrics ← requireObjVal "beam stats byBackend" "lean" byBackend
     let ops ← requireObjVal "beam stats lean metrics" "ops" leanMetrics
     let syncStats ← requireObjVal "beam stats lean ops" "sync_file" ops

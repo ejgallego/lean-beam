@@ -219,7 +219,8 @@ When adding an MCP-facing operation, use this order:
    negotiation for the default workspace belongs to `lean_init_workspace`, explicit `--root`, or
    exactly one MCP `roots/list` result. Additional local workspaces are explicit
    `lean_init_workspace` calls with `workspace_id`, and later Lean tools route to them with the same
-   optional `workspace_id`. `lean_init_workspace` is the only setup tool that accepts a root, and it
+   required `workspace_id`; `"default"` is an explicit id, not an omitted selector.
+   `lean_init_workspace` is the only setup tool that accepts a root, and it
    should keep projecting the shared `Beam.Workspace` contract: explicit, absolute, idempotent for
    `set` and `verify`, and destructive only through `mode=reset`, which replaces the selected
    workspace and invalidates handles owned by that workspace id. `lean_drop_workspace` must require

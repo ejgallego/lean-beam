@@ -63,22 +63,19 @@ instance : FromJson InitMode where
 /-- Shared input for explicit Beam workspace/session initialization. -/
 structure InitInput where
   root : String
-  workspaceId? : Option WorkspaceId := none
+  workspaceId : WorkspaceId
   mode? : Option InitMode := none
 
 def InitInput.mode (input : InitInput) : InitMode :=
   input.mode?.getD .set
 
-def InitInput.workspaceId (input : InitInput) : WorkspaceId :=
-  input.workspaceId?.getD defaultWorkspaceId
-
 instance : ToJson InitInput where
   toJson input :=
     Json.mkObj <|
-      [("root", toJson input.root)] ++
-      (match input.workspaceId? with
-      | some workspaceId => [("workspace_id", toJson workspaceId)]
-      | none => []) ++
+      [
+        ("root", toJson input.root),
+        ("workspace_id", toJson input.workspaceId)
+      ] ++
       match input.mode? with
       | some mode => [("mode", toJson mode)]
       | none => []
@@ -86,12 +83,18 @@ instance : ToJson InitInput where
 instance : FromJson InitInput where
   fromJson? j := do
     let root ← j.getObjValAs? String "root"
-    let workspaceId? ← optionalField? (α := WorkspaceId) j "workspace_id"
-    if let some workspaceId := workspaceId? then
-      unless validWorkspaceId workspaceId do
-        throw "workspace_id must be non-empty"
+    let rawWorkspaceId ←
+      match j.getObjVal? "workspace_id" with
+      | .ok rawWorkspaceId => pure rawWorkspaceId
+      | .error _ => throw "workspace_id is required"
+    let workspaceId ←
+      match fromJson? (α := WorkspaceId) rawWorkspaceId with
+      | .ok workspaceId => pure workspaceId
+      | .error err => throw s!"invalid 'workspace_id': {err}"
+    unless validWorkspaceId workspaceId do
+      throw "workspace_id must be non-empty"
     let mode? ← optionalField? (α := InitMode) j "mode"
-    pure { root, workspaceId?, mode? }
+    pure { root, workspaceId, mode? }
 
 structure InitResult where
   workspaceId : WorkspaceId := defaultWorkspaceId

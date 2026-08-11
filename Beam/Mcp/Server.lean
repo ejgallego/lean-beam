@@ -431,40 +431,39 @@ private def handleListWorkspaces
 
 private def handleBeamStats
     (state : IO.Ref ProtocolState)
-    (opts : Options)
-    (stdin : IO.FS.Stream)
-    (notifier : Notifier)
     (arguments : Json)
-    (progress? : Option ProgressEmitter) : IO (Except RpcError Json) := do
+    (progress? : Option ProgressEmitter) : IO Json := do
   match requireEmptyInput "beam_stats" arguments with
   | .error err =>
       emitProgress? progress? "beam_stats failed"
-      return .ok <| callToolErrorResult <| ToolError.invalidInput err
+      return callToolErrorResult <| ToolError.invalidInput err
   | .ok () => pure ()
   let runtime ←
     match (← state.get).runtime? with
     | some runtime => pure runtime
     | none =>
-        match ← ensureRuntime state opts stdin notifier with
-        | .ok (runtime, _) => pure runtime
-        | .error err =>
-            emitProgress? progress? "beam_stats failed"
-            return .error err
+        emitProgress? progress? "completed beam_stats"
+        return callToolResult <| Json.mkObj [("workspaces", Json.mkObj [])]
   let (brokerResp, _) ← runtime.dispatchRequest { op := .stats }
   match normalizeBrokerResponse .beamStats brokerResp with
   | .error err =>
       emitProgress? progress? "beam_stats failed"
-      pure <| .ok <| callToolErrorResult err
+      pure <| callToolErrorResult err
   | .ok result =>
-      let currentState ← state.get
-      let result :=
-        match currentState.root? with
-        | some root =>
-            (Beam.Workspace.addActiveRoot root result).setObjVal!
-              "workspace_id" (toJson Beam.Broker.defaultWorkspaceId)
-        | none => result
+      let uptimeMs :=
+        match result.getObjVal? "uptimeMs" with
+        | .ok uptimeMs => uptimeMs
+        | .error _ => Json.null
+      let workspaces :=
+        match result.getObjVal? "workspaces" with
+        | .ok workspaces => workspaces
+        | .error _ => Json.mkObj []
+      let result := Json.mkObj [
+        ("uptimeMs", uptimeMs),
+        ("workspaces", workspaces)
+      ]
       emitProgress? progress? "completed beam_stats"
-      pure <| .ok <| callToolResult result
+      pure <| callToolResult result
 
 private def handleDropWorkspace
     (state : IO.Ref ProtocolState)
@@ -587,8 +586,10 @@ private def feedbackIncludeCollected (arguments : Json) : Except String Bool := 
   | .error _ => pure false
 
 private def handleBeamFeedback
-    (state : IO.Ref ProtocolState)
     (opts : Options)
+    (workspaceId : Beam.Broker.WorkspaceId)
+    (root : System.FilePath)
+    (runtime? : Option Beam.Broker.ServerRuntime)
     (arguments : Json)
     (progress? : Option ProgressEmitter) : IO Json := do
   let input ←
@@ -603,23 +604,17 @@ private def handleBeamFeedback
     | .error err =>
         emitProgress? progress? "beam_feedback failed"
         return callToolErrorResult <| ToolError.invalidInput err
-  let currentState ← state.get
   emitProgress? progress? "collecting beam_feedback context"
   let generatedAt ← Beam.utcTimestamp
-  let identity ← serverIdentity opts currentState.root? (some currentState.runtime?.isSome)
+  let identity ← serverIdentity opts (some root) (some runtime?.isSome)
   let mut warnings := #[]
-  let daemon ←
-    match currentState.root? with
-    | some root => Beam.Daemon.daemonDebugContextJson root
-    | none =>
-        warnings := warnings.push "no known MCP root was available for daemon registry context"
-        pure Json.null
+  let daemon ← Beam.Daemon.daemonDebugContextJson root
   let warningsWithDaemon := warnings ++ Beam.Daemon.daemonDebugWarnings daemon
   let (stats, openDocs, warnings') ←
-    collectFeedbackRuntimePayload currentState.runtime? currentState.root? warningsWithDaemon
+    collectFeedbackRuntimePayload runtime? (some root) warningsWithDaemon
   let collection : Beam.Feedback.Collection := {
     generatedAt
-    activeRoot? := currentState.root?.map (·.toString)
+    activeRoot? := some root.toString
     data := Json.mkObj [
       ("identity", identity.asJson),
       ("stats", stats),
@@ -628,15 +623,17 @@ private def handleBeamFeedback
     ]
     warnings := warnings'
   }
-  let allowedRoots ← feedbackAllowedRoots currentState.root?
+  let allowedRoots ← feedbackAllowedRoots (some root)
   try
     let result ← Beam.Feedback.buildResult input collection {
-      root? := currentState.root?
+      root? := some root
       allowedRoots
     }
     let markdown ← Beam.Feedback.renderMcpMarkdown input collection includeCollected
     emitProgress? progress? "completed beam_feedback"
-    pure <| callToolResult <| Beam.Feedback.resultMcpJson result markdown includeCollected
+    let result := (Beam.Feedback.resultMcpJson result markdown includeCollected).setObjVal!
+      "workspace_id" (toJson workspaceId)
+    pure <| callToolResult result
   catch e =>
     emitProgress? progress? "beam_feedback failed"
     pure <| callToolErrorResult <| ToolError.invalidInput e.toString
@@ -648,42 +645,19 @@ private def brokerRequestForTool
   let req ← params.name.toBrokerRequest root.toString params.arguments
   pure { req with clientRequestId? := some clientRequestId }
 
-private def toolHandleWorkspaceId?
-    (tool : ToolName)
-    (arguments : Json) : Except String (Option Beam.Broker.WorkspaceId) := do
-  let routesByHandle :=
-    match tool.leanOperation? with
-    | some .runWith | some .runWithLinear | some .release => true
-    | _ => false
-  if !routesByHandle then
-    pure none
-  else
-    let rawHandle ←
-      match arguments.getObjVal? "handle" with
-      | .ok rawHandle => pure rawHandle
-      | .error _ => throw "handle is required"
-    let handle ←
-      match fromJson? (α := Beam.Broker.Handle) rawHandle with
-      | .ok handle => pure handle
-      | .error err => throw s!"invalid 'handle': {err}"
-    if !Beam.Workspace.validWorkspaceId handle.workspaceId then
-      throw "handle workspace id must be non-empty"
-    pure (some handle.workspaceId)
-
 private def toolWorkspaceId
-    (tool : ToolName)
     (arguments : Json) : Except String Beam.Broker.WorkspaceId := do
-  match arguments.getObjVal? "workspace_id" with
-  | .ok value =>
-      match fromJson? (α := Beam.Broker.WorkspaceId) value with
-      | .ok workspaceId =>
-          if !Beam.Workspace.validWorkspaceId workspaceId then
-            throw "workspace_id must be non-empty"
-          else
-            pure workspaceId
-      | .error err => throw s!"invalid 'workspace_id': {err}"
-  | .error _ =>
-      pure <| (← toolHandleWorkspaceId? tool arguments).getD Beam.Broker.defaultWorkspaceId
+  let value ←
+    match arguments.getObjVal? "workspace_id" with
+    | .ok value => pure value
+    | .error _ => throw "workspace_id is required"
+  let workspaceId ←
+    match fromJson? (α := Beam.Broker.WorkspaceId) value with
+    | .ok workspaceId => pure workspaceId
+    | .error err => throw s!"invalid 'workspace_id': {err}"
+  unless Beam.Workspace.validWorkspaceId workspaceId do
+    throw "workspace_id must be non-empty"
+  pure workspaceId
 
 def Internal.handleToolCall
     (state : IO.Ref ProtocolState)
@@ -722,18 +696,13 @@ def Internal.handleToolCall
     let result ← handleBeamVersion state opts
     Internal.traceMcp s!"tools/call version complete id={req.id.label} tool={params.name.key}"
     return .ok result
-  if params.name == .beamFeedback then
-    emitProgress? progress? s!"starting {params.name.key}"
-    let result ← handleBeamFeedback state opts params.arguments progress?
-    Internal.traceMcp s!"tools/call feedback complete id={req.id.label} tool={params.name.key}"
-    return .ok result
   if params.name == .beamStats then
     emitProgress? progress? s!"starting {params.name.key}"
-    let result ← handleBeamStats state opts stdin notifier params.arguments progress?
-    traceMcp s!"tools/call stats complete id={requestIdLabel req.id} tool={params.name.key}"
-    return result
+    let result ← handleBeamStats state params.arguments progress?
+    Internal.traceMcp s!"tools/call stats complete id={req.id.label} tool={params.name.key}"
+    return .ok result
   let workspaceId ←
-    match toolWorkspaceId params.name params.arguments with
+    match toolWorkspaceId params.arguments with
     | .ok workspaceId => pure workspaceId
     | .error err =>
         emitProgress? progress? s!"failed {params.name.key}"
@@ -759,6 +728,12 @@ def Internal.handleToolCall
           emitProgress? progress? s!"failed {params.name.key}"
           return .ok <| callToolErrorResult <| ToolError.invalidInput
             s!"unknown Beam workspace '{workspaceId}'; call lean_init_workspace with workspace_id first"
+  if params.name == .beamFeedback then
+    emitProgress? progress? s!"starting {params.name.key}"
+    let currentState ← state.get
+    let result ← handleBeamFeedback opts workspaceId root currentState.runtime? params.arguments progress?
+    Internal.traceMcp s!"tools/call feedback complete id={req.id.label} tool={params.name.key}"
+    return .ok result
   emitProgress? progress? s!"starting {params.name.key}"
   emitProgress? progress? s!"preparing {params.name.key}"
   let brokerReq ←

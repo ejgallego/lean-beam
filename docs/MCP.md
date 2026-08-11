@@ -56,9 +56,9 @@ inside the MCP server, and do not make normal MCP clients pass raw Lean plugin p
 `--root PATH` is supported as the explicit default workspace root. Without `--root`, the server
 discovers the default root through exactly one `file://` MCP `roots/list` result, or through an
 explicit `lean_init_workspace` call before the first default-workspace Lean tool. Clients can add
-additional local workspaces by calling `lean_init_workspace` with `workspace_id`; subsequent Lean
-tools may pass the same optional `workspace_id` to route a request to that workspace. Omitting
-`workspace_id` means the default workspace.
+additional local workspaces by calling `lean_init_workspace` with `workspace_id`. Every
+workspace-bound tool call requires an explicit `workspace_id`; use `"default"` for the root supplied
+by `--root` or legacy Roots discovery. There is no unnamed current workspace.
 
 One resolved local root can belong to only one workspace id at a time. Initializing another
 workspace id for the same root is rejected; drop or reset the existing owner explicitly instead.
@@ -83,8 +83,10 @@ Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-
 `tools/list` includes the setup tool `lean_init_workspace`, workspace lifecycle tools
 `lean_list_workspaces` and `lean_drop_workspace`, the Beam utility tools `beam_version`,
 `beam_stats`, and `beam_feedback`, and the Lean operation tools projected from
-`Beam.Lean.Operation`. `lean_drop_workspace` requires an explicit `workspace_id`; pass
-`"default"` to drop the default workspace. Successful
+`Beam.Lean.Operation`. `lean_init_workspace`, `lean_drop_workspace`, `beam_feedback`, and every Lean
+operation require an explicit `workspace_id`; pass `"default"` to address the configured default
+workspace. `beam_version`, `beam_stats`, and `lean_list_workspaces` are process-wide and accept no
+workspace selector. Successful
 `lean_init_workspace` results include a `capabilities` array for the post-initialization tools:
 `beam_version`, `beam_stats`, `beam_feedback`, `lean_list_workspaces`, `lean_drop_workspace`,
 `lean_update`, `lean_sync`, `lean_refresh`, `lean_save`, `lean_close_save`, `lean_close`,
@@ -94,21 +96,42 @@ Direct developer runs of `.lake/build/bin/lean-beam-mcp` may still pass `--lean-
 `lean_code_action_resolve`.
 
 Dropping the default workspace does not stop remaining named workspaces. `lean_list_workspaces` and
-`beam_stats` remain available, while a Lean tool call that omits `workspace_id` fails until an
-explicit `lean_init_workspace` call recreates `"default"`. In that state, `beam_stats.workspaces`
-contains the remaining named workspaces and the legacy default-workspace fields `root`, `sessions`,
-and `byBackend` are omitted.
+`beam_stats` remain available. Calls that explicitly select `"default"` fail until an explicit
+`lean_init_workspace` call recreates it. `beam_stats.workspaces` is the authoritative process-wide
+map and contains any remaining named workspaces; statistics are not projected through an implicit
+default workspace.
 
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
 `lean_document_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`; those calls
 require the `version` returned by a successful `lean_update` or `lean_sync` for the same path.
 `lean_workspace_symbols` is workspace-scoped and does not take a file version. When multiple
-workspaces are initialized, pass `workspace_id` to select the symbol workspace. `lean_run_with`,
+workspaces are initialized, its required `workspace_id` selects the symbol workspace. `lean_run_with`,
 `lean_run_with_linear`, and `lean_release` use an opaque handle returned by a previous handle tool
-result rather than a document version. Those tools route from the handle when `workspace_id` is
-omitted; a supplied `workspace_id` must match the identity carried by the handle. `lean_goals` also
-requires `mode: "before"` or `mode: "after"`.
+result rather than a document version. Their required `workspace_id` must match the identity carried
+by the handle. `lean_goals` also requires `mode: "before"` or `mode: "after"`.
+
+## Stateless MCP Compatibility Boundary
+
+The current server still advertises MCP `2025-11-25`, requires the legacy initialization sequence,
+and may use legacy Roots discovery. This change does not claim conformance with MCP `2026-07-28`.
+
+It does make the application-state model compatible with the newer
+[stateless MCP core](https://modelcontextprotocol.io/specification/2026-07-28/basic/index): a request
+never depends on an unnamed workspace selected by earlier MCP traffic. `workspace_id` explicitly
+selects each workspace-bound operation, while continuation handles explicitly identify retained
+proof state and are checked against the supplied workspace. Warm Lean processes, document mirrors,
+metrics, and caches remain implementation state.
+
+Workspace ids are currently local, process-scoped handles. They expire when the MCP server exits,
+and the present local stdio deployment does not promise that another server instance can resolve
+them. A future remote or load-balanced transport will need a shared registry, durable broker, or
+self-contained authenticated handle; it must not infer workspace identity from a connection.
+
+The follow-up MCP protocol update is separately responsible for `server/discover`, per-request
+protocol metadata, modern result envelopes and caching hints, request-scoped logging, and ensuring
+modern stdio never sends server-to-client JSON-RPC requests. MRTR `requestState` is request-local
+continuation data and will not be used as a workspace identifier.
 
 `lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
 apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so
@@ -141,8 +164,8 @@ Add MCP-facing Lean behavior through the shared operation layer first:
 5. Normalize MCP output names in the projection, for example `next_handle` and `proof_state`.
 
 Keep raw LSP methods and params out of MCP input types. Do not expose expert or raw escape hatches
-such as `lean-request-at` as MCP tools. The project root belongs in server/session context, not in
-each tool input.
+such as `lean-request-at` as MCP tools. The project root belongs to workspace setup rather than each
+tool input; each workspace-bound call carries only the resulting explicit `workspace_id`.
 
 ## Protocol And Errors
 
@@ -185,15 +208,16 @@ cancellation notifications are ignored. Cancellation is cooperative and does not
 update, save, or other state change that has already committed.
 
 `lean_init_workspace` is non-cancellable once admitted. Workspace initialization or reset can
-replace the active runtime and cannot be rolled back safely, so the server ignores a cancellation
-notification for that request and always sends its terminal result. Clients can therefore use that
-result as the authoritative active-root and runtime state before issuing later work.
+replace the selected workspace state and cannot be rolled back safely, so the server ignores a
+cancellation notification for that request and always sends its terminal result. Clients can
+therefore use that result as the authoritative selected root and runtime state before issuing later
+work.
 
 Lifecycle and workspace-control operations remain serialized. Initialization, first-use root and
 runtime setup, `lean_init_workspace`, workspace reset, and shutdown cannot race each other. Concurrent
-first-use calls share one roots request and one runtime setup. Reset stops the old runtime and makes
-unfinished in-flight requests fail with structured tool errors; later tool calls wait behind the
-reset before using the new root. The stdin reader remains available to route a concurrent roots
+first-use calls share one roots request and one runtime setup. Reset invalidates the selected
+workspace's sessions and handles; later tool calls wait behind the reset before using its new root.
+The stdin reader remains available to route a concurrent roots
 response or cancellation while a workspace control operation is waiting. Shutdown stops accepting
 work, cancels and drains active requests, and only then returns its response.
 

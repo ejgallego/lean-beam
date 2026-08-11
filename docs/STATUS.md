@@ -67,7 +67,8 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
 - MCP default-root discovery through exactly one `roots/list` workspace root, explicit `--root`, or
   explicit session setup through `lean_init_workspace`; additional local workspaces are initialized
   with `lean_init_workspace` plus `workspace_id`, listed with `lean_list_workspaces`, and removed
-  with explicit `lean_drop_workspace` calls
+  with explicit `lean_drop_workspace` calls; every workspace-bound tool call names its
+  `workspace_id`, including `"default"`
 - projected MCP tools for versioned Lean file operations, semantic navigation, todo/code-action
   workflows, follow-up handles, save/sync operations, version/stats, and feedback report cards; the
   generated tool list and client semantics are documented in [MCP.md](MCP.md)
@@ -174,11 +175,14 @@ discriminator.
 ### MCP
 
 - `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are
-  not advertised or tested.
+  not advertised or tested. The application-state model uses explicit workspace ids in preparation
+  for MCP `2026-07-28`, but discovery, per-request metadata, and modern result envelopes are not yet
+  implemented.
 - MCP workspace reset invalidates handles minted by the selected workspace id; discard saved handle
   files for that workspace after `lean_init_workspace` with `mode: "reset"` or after dropping that
   workspace. `lean_drop_workspace` requires an explicit `workspace_id`; use `"default"` to drop the
-  default workspace.
+  default workspace. `lean_init_workspace`, `beam_feedback`, and all Lean operation tools also
+  require an explicit `workspace_id`; there is no connection-wide current workspace.
 - `lean-beam-mcp` can execute ordinary tool calls concurrently in one process. Responses may arrive
   out of request order and are routed by exact JSON-RPC ID, with string and numeric IDs kept distinct.
 - Tool calls that include `_meta.progressToken` receive live MCP progress notifications. Updates for

@@ -201,7 +201,8 @@ private def sendSync (stdin : IO.FS.Handle) (pathText : String) : IO Unit := do
     ("params", Json.mkObj [
       ("name", toJson ToolName.leanSync),
       ("arguments", Json.mkObj [
-        ("path", toJson pathText)
+        ("path", toJson pathText),
+        ("workspace_id", toJson Beam.Workspace.defaultWorkspaceId)
       ])
     ])
   ]
@@ -215,6 +216,7 @@ private def sendInitWorkspace (stdin : IO.FS.Handle) (root : System.FilePath) : 
       ("name", toJson ToolName.leanInitWorkspace),
       ("arguments", Json.mkObj [
         ("root", toJson root.toString),
+        ("workspace_id", toJson Beam.Workspace.defaultWorkspaceId),
         ("mode", toJson "set")
       ])
     ])

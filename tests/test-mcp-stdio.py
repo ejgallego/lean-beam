@@ -544,7 +544,18 @@ class McpClient:
                 )
             return response
 
-    def send_request(self, method, params=None, *, request_id=None):
+    def send_request(self, method, params=None, *, request_id=None, inject_workspace=True):
+        if inject_workspace and method == "tools/call" and isinstance(params, dict):
+            tool_name = params.get("name")
+            if tool_name == "beam_feedback" or (
+                isinstance(tool_name, str)
+                and tool_name.startswith("lean_")
+                and tool_name not in {"lean_list_workspaces", "lean_drop_workspace"}
+            ):
+                params = dict(params)
+                arguments = dict(params.get("arguments") or {})
+                arguments.setdefault("workspace_id", "default")
+                params["arguments"] = arguments
         with self.state_changed:
             if request_id is None:
                 self.next_id += 1
@@ -569,8 +580,13 @@ class McpClient:
         self.send_message(message)
         return request_id
 
-    def request(self, method, params=None, *, request_id=None):
-        request_id = self.send_request(method, params, request_id=request_id)
+    def request(self, method, params=None, *, request_id=None, inject_workspace=True):
+        request_id = self.send_request(
+            method,
+            params,
+            request_id=request_id,
+            inject_workspace=inject_workspace,
+        )
         return self.read_response(request_id)
 
     def response_ready(self, request_id):
@@ -815,19 +831,17 @@ def init_workspace(
     client,
     root,
     *,
-    workspace_id=None,
+    workspace_id="default",
     mode=None,
     invalidated_handles=False,
     previous_root=None,
 ):
-    args = {"root": str(root)}
-    if workspace_id is not None:
-        args["workspace_id"] = workspace_id
+    args = {"root": str(root), "workspace_id": workspace_id}
     if mode is not None:
         args["mode"] = mode
     structured = client.call_tool("lean_init_workspace", args)
     require(structured.get("initialized") is True, f"init workspace did not initialize: {structured}")
-    expected_workspace_id = workspace_id if workspace_id is not None else "default"
+    expected_workspace_id = workspace_id
     require(
         structured.get("workspace_id") == expected_workspace_id,
         f"init workspace returned wrong workspace_id {expected_workspace_id!r}: {structured}",
@@ -1624,7 +1638,12 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             cancelled_count = 0
             while time.monotonic() < cancel_deadline:
                 stats = client.call_tool("beam_stats")
-                lean_stats = stats.get("byBackend", {}).get("lean", {})
+                lean_stats = (
+                    stats.get("workspaces", {})
+                    .get("default", {})
+                    .get("byBackend", {})
+                    .get("lean", {})
+                )
                 cancelled_count = lean_stats.get("cancelledCount", 0)
                 if isinstance(cancelled_count, int) and cancelled_count >= 1:
                     break
@@ -1718,7 +1737,12 @@ def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=Fals
                 )
             require_roots_requests(client, 1, "concurrent first use")
             stats = client.call_tool("beam_stats")
-            lean_stats = stats.get("byBackend", {}).get("lean", {})
+            lean_stats = (
+                stats.get("workspaces", {})
+                .get("default", {})
+                .get("byBackend", {})
+                .get("lean", {})
+            )
             require(
                 lean_stats.get("sessionStarts") == 1,
                 f"concurrent first use should start one Lean session: {stats}",
@@ -2375,6 +2399,19 @@ def run_named_workspace_matrix(repo_root, fixture_root, timeout):
             )
             named_version = named_sync.get("version")
             require(isinstance(named_version, int), f"named sync did not return a version: {named_sync}")
+            missing_workspace = client.request(
+                "tools/call",
+                {
+                    "name": "lean_sync",
+                    "arguments": {"path": "PositionEmptyLine.lean"},
+                },
+                inject_workspace=False,
+            )
+            missing_workspace_error = expect_tool_error_code(missing_workspace, "invalidInput")
+            require(
+                "workspace_id is required" in missing_workspace_error.get("message", ""),
+                f"workspace-bound call should require an explicit selector: {missing_workspace_error}",
+            )
             named_minted = client.call_tool(
                 "lean_run_at_handle",
                 {
@@ -2395,9 +2432,10 @@ def run_named_workspace_matrix(repo_root, fixture_root, timeout):
                     "path": "PositionEmptyLine.lean",
                     "handle": named_handle,
                     "text": "def namedWorkspaceNext : Nat := namedWorkspaceBase + 1",
+                    "workspace_id": "other",
                 },
             )
-            require_success("named workspace implicit handle routing", named_continued)
+            require_success("named workspace explicit handle routing", named_continued)
             require(
                 named_continued.get("workspace_id") == "other",
                 f"handle-routed continuation returned wrong workspace: {named_continued}",
@@ -2413,11 +2451,11 @@ def run_named_workspace_matrix(repo_root, fixture_root, timeout):
             )
             client.call_tool(
                 "lean_release",
-                {"path": "PositionEmptyLine.lean", "handle": named_next_handle},
+                {"path": "PositionEmptyLine.lean", "handle": named_next_handle, "workspace_id": "other"},
             )
             client.call_tool(
                 "lean_release",
-                {"path": "PositionEmptyLine.lean", "handle": named_handle},
+                {"path": "PositionEmptyLine.lean", "handle": named_handle, "workspace_id": "other"},
             )
 
             default_init = init_workspace(client, default_root)

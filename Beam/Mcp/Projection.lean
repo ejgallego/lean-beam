@@ -152,9 +152,18 @@ def ToolName.toBrokerRequest
     (input : Json) : Except String Beam.Broker.Request :=
   match tool.kind with
   | .leanOperation operation => do
-      let workspaceId? ← optionalField? (α := Beam.Broker.WorkspaceId) input "workspace_id"
+      let rawWorkspaceId ←
+        match input.getObjVal? "workspace_id" with
+        | .ok rawWorkspaceId => pure rawWorkspaceId
+        | .error _ => throw "workspace_id is required"
+      let workspaceId ←
+        match fromJson? (α := Beam.Broker.WorkspaceId) rawWorkspaceId with
+        | .ok workspaceId => pure workspaceId
+        | .error err => throw s!"invalid 'workspace_id': {err}"
+      unless Beam.Workspace.validWorkspaceId workspaceId do
+        throw "workspace_id must be non-empty"
       let req ← operation.toBrokerRequest root input
-      pure { req with workspaceId? := workspaceId? }
+      pure { req with workspaceId? := some workspaceId }
   | .serverInfo => throw s!"{tool.key} reports MCP server identity and does not map to a broker request"
   | .serverDebug => do
       requireEmptyInput tool.key input
@@ -168,10 +177,10 @@ def beamVersionDescription : String :=
   "Return the running Lean Beam MCP server identity for bug reports and refresh checks."
 
 def beamStatsDescription : String :=
-  "Return debug Beam broker runtime statistics for initialized MCP workspaces."
+  "Return process-wide debug Beam broker runtime statistics keyed by workspace id."
 
 def beamFeedbackDescription : String :=
-  "Produce a pasteable Beam report card, optionally with a local evidence bundle, using available MCP debug context."
+  "Produce a pasteable Beam report card for one explicit workspace, optionally with a local evidence bundle."
 
 open Beam.JsonSchema in
 def emptyInputSchema : Json :=
@@ -205,6 +214,7 @@ private def evidenceInputSchema : Json :=
 open Beam.JsonSchema in
 def feedbackInputSchema : Json :=
   inputObject [
+    ("workspace_id", string "Beam workspace id whose runtime and project context should be collected."),
     ("title", string "Short report title."),
     ("summary", string "What went wrong or what feedback should be reviewed."),
     ("reproduction", string "Concrete steps or commands needed to reproduce the behavior."),
@@ -222,10 +232,10 @@ def feedbackInputSchema : Json :=
     ("bundle", enumString "Optional evidence bundle mode. Defaults to none." Beam.Feedback.bundleModeKeys),
     ("redact", bool "Whether to redact the user's home directory from the rendered report. Defaults to true."),
     ("include_collected", bool "When true, include full collected Beam debug context inline in the MCP result. Defaults to false.")
-  ] Beam.Feedback.requiredInputFields
+  ] (Beam.Feedback.requiredInputFields.push "workspace_id")
 
 def initWorkspaceDescription : String :=
-  "Initialize, verify, or explicitly reset a Lean workspace root for MCP clients."
+  "Initialize, verify, or explicitly reset a named Lean workspace root for MCP clients."
 
 def listWorkspacesDescription : String :=
   "List Lean workspaces currently initialized in this MCP server."
@@ -242,7 +252,7 @@ def initWorkspaceModeDescription : String :=
 
 private def workspaceIdField : String × Json :=
   ("workspace_id", Beam.JsonSchema.string
-    "Optional Beam workspace id. Omit to use the default workspace.")
+    "Beam workspace id. Use \"default\" to select the default workspace explicitly.")
 
 private def requiredWorkspaceIdField : String × Json :=
   ("workspace_id", Beam.JsonSchema.string
@@ -254,7 +264,7 @@ def initWorkspaceInputSchema : Json :=
     ("root", string "Absolute Lean/Lake project root path."),
     workspaceIdField,
     ("mode", enumString initWorkspaceModeDescription Beam.Workspace.initModeKeys)
-  ] #["root"]
+  ] #["root", "workspace_id"]
 
 open Beam.JsonSchema in
 def listWorkspacesInputSchema : Json :=
@@ -271,7 +281,17 @@ private def schemaWithWorkspaceId (schema : Json) : Json :=
     match schema.getObjVal? "properties" with
     | .ok properties => properties
     | .error _ => Json.mkObj []
-  schema.setObjVal! "properties" (properties.setObjVal! "workspace_id" workspaceIdField.snd)
+  let required :=
+    match schema.getObjVal? "required" with
+    | .ok required =>
+        match fromJson? (α := Array String) required with
+        | .ok required => required
+        | .error _ => #[]
+    | .error _ => #[]
+  let required :=
+    if required.contains "workspace_id" then required else required.push "workspace_id"
+  (schema.setObjVal! "properties" (properties.setObjVal! "workspace_id" workspaceIdField.snd)).setObjVal!
+    "required" (toJson required)
 
 /-- Minimal descriptor for the MCP tool list. -/
 structure ToolDescriptor where
