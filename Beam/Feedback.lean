@@ -103,6 +103,16 @@ private def requireObject (label : String) : Json → Except String Unit
   | Json.obj _ => pure ()
   | other => throw s!"{label}, got {other.compress}"
 
+private def requireOnlyFields
+    (label : String)
+    (allowed : Array String) : Json → Except String Unit
+  | .obj fields =>
+      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
+        if allowed.contains field then unexpected else unexpected.push field
+      unless unexpected.isEmpty do
+        throw s!"{label} accepts no undeclared fields: {String.intercalate ", " unexpected.toList}"
+  | other => throw s!"{label} must be a JSON object, got {other.compress}"
+
 private def optionalField? [FromJson α] (json : Json) (field : String) : Except String (Option α) := do
   match json.getObjVal? field with
   | .ok value =>
@@ -130,7 +140,7 @@ structure EvidenceInput where
 
 instance : FromJson EvidenceInput where
   fromJson? json := do
-    requireObject "feedback evidence entry must be a JSON object" json
+    requireOnlyFields "feedback evidence entry" #["name", "content", "path"] json
     let name ← requiredString json "name"
     let content? ← optionalField? (α := Json) json "content"
     let path? ← optionalField? (α := String) json "path"

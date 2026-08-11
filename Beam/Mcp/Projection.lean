@@ -116,30 +116,13 @@ def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
   | .feedback => false
   | .workspaceDrop => false
 
-def requireEmptyInput (label : String) : Json → Except String Unit
-  | Json.obj fields =>
-      let hasField := fields.foldl (init := false) fun _ _ _ => true
-      if hasField then
-        throw s!"{label} accepts no input fields"
-      else
-        pure ()
-  | other => throw s!"{label} input must be an object, got {other.compress}"
-
-def ToolName.toBrokerRequest
-    (tool : ToolName)
+def leanOperationToBrokerRequest
+    (operation : Beam.Lean.Operation)
     (root : String)
     (workspaceId : Beam.Workspace.WorkspaceId)
-    (input : Json) : Except String Beam.Broker.Request :=
-  match tool.kind with
-  | .leanOperation operation => do
-      let req ← operation.toBrokerRequest root input
-      pure { req with workspaceId? := some workspaceId }
-  | .serverInfo => throw s!"{tool.key} reports MCP server identity and does not map to a broker request"
-  | .serverDebug => do
-      requireEmptyInput tool.key input
-      pure { op := .stats, root? := some root }
-  | .feedback => throw s!"{tool.key} produces a report card locally and does not map to a broker request"
-  | .workspaceDrop => throw s!"{tool.key} drops MCP workspace state and does not map to a Lean operation request"
+    (input : Json) : Except String Beam.Broker.Request := do
+  let req ← operation.toBrokerRequest root input
+  pure { req with workspaceId? := some workspaceId }
 
 def beamVersionDescription : String :=
   "Return the running Lean Beam MCP server identity for bug reports and refresh checks."
@@ -240,18 +223,6 @@ def toolNames : Array ToolName :=
 def leanOperationToolNames : Array ToolName :=
   ToolName.leanOperationTools
 
-def capabilityNames : Array String :=
-  #[
-    ToolName.beamVersion.key,
-    ToolName.beamStats.key,
-    ToolName.beamFeedback.key,
-    ToolName.leanDropWorkspace.key
-  ] ++
-    leanOperationToolNames.map (·.key)
-
-def withCapabilities (json : Json) : Json :=
-  json.setObjVal! "capabilities" (toJson capabilityNames)
-
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
   match tool.kind with
   | .serverInfo =>
@@ -292,6 +263,24 @@ def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
 
 def toolDescriptors : Array ToolDescriptor :=
   toolNames.map ToolName.descriptor
+
+/-- Reject fields outside the closed schema advertised for one MCP tool. -/
+def ToolName.validateInputFields (tool : ToolName) (input : Json) : Except String Unit := do
+  let properties ← tool.descriptor.inputSchema.getObjVal? "properties"
+  match properties with
+  | .obj _ => pure ()
+  | other => throw s!"{tool.key} input schema properties must be an object, got {other.compress}"
+  match input with
+  | .obj fields =>
+      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
+        if (properties.getObjVal? field).isOk then
+          unexpected
+        else
+          unexpected.push field
+      unless unexpected.isEmpty do
+        throw s!"{tool.key} accepts no undeclared input fields: {String.intercalate ", " unexpected.toList}"
+  | other =>
+      throw s!"{tool.key} input must be an object, got {other.compress}"
 
 abbrev RunAtInput := Beam.Lean.RunAtInput
 abbrev PositionInput := Beam.Lean.PositionInput

@@ -175,7 +175,7 @@ Keep these stdio invariants explicit:
 - every stdout message passes through `OutputSink`
 - the server emits no JSON-RPC requests to clients
 - request IDs preserve their exact string-or-number type
-- ordinary calls may overlap; cache eviction and shutdown use control barriers
+- ordinary calls may overlap; cache eviction is a full stream-order fence and shutdown drains work
 - routing/output locks do not acquire setup, progress, or per-request locks
 
 The installed wrapper passes the matching `beam-cli`; on lazy first use, `Beam.Mcp.Runtime` runs
@@ -193,7 +193,8 @@ When adding an MCP-facing operation:
 5. Normalize agent-facing output, including `next_handle`, `proof_state`, and the canonical workspace
    descriptor. Keep errors typed until the transport edge.
 6. Treat `lean_drop_workspace` only as idempotent cache eviction. It invalidates that runtime's
-   handles; the next descriptor-bound call recreates it lazily.
+   handles; the next descriptor-bound call recreates it lazily. Preserve the canonical descriptor
+   recovery path when the project directory or its Lean/Lake markers no longer resolve.
 7. Update projection, protocol, and real stdio coverage, including missing/relative descriptors,
    canonical aliases, multi-root isolation, cross-workspace handles, and eviction/recreation.
 8. Run the projection/protocol builds and executables, the concurrent stdio scenario,

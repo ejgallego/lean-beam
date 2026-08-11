@@ -292,6 +292,30 @@ private def resolveWorkspace (arguments : Json) : IO (Except ToolError ResolvedW
       let descriptor := Beam.Workspace.Descriptor.ofRoot root
       pure <| .ok { descriptor, root, workspaceId := descriptor.cacheKey }
 
+/--
+Resolve a workspace descriptor for cache eviction without requiring the project to remain usable.
+
+Existing paths are canonicalized even after their Lean project markers disappear. Missing paths
+fall back to lexical normalization, so the canonical descriptor echoed by an earlier successful
+request remains sufficient to evict or idempotently re-evict its cache.
+-/
+private def resolveWorkspaceForDrop
+    (arguments : Json) : IO (Except ToolError ResolvedWorkspace) := do
+  let descriptor ←
+    match Beam.Workspace.decodeDescriptorField arguments with
+    | .ok descriptor => pure descriptor
+    | .error err => return .error <| ToolError.invalidInput err
+  let rootPath := System.FilePath.mk descriptor.root
+  if !rootPath.isAbsolute then
+    return .error <| ToolError.invalidInput "workspace root must be an absolute path"
+  let root ←
+    try
+      Beam.resolveExistingPath rootPath
+    catch _ =>
+      pure rootPath.normalize
+  let descriptor := Beam.Workspace.Descriptor.ofRoot root
+  pure <| .ok { descriptor, root, workspaceId := descriptor.cacheKey }
+
 private def toolErrorOfBrokerResponse
     (resp : Beam.Broker.Response)
     (fallback : String) : ToolError :=
@@ -312,13 +336,7 @@ private def decodeBeamStatsResult (json : Json) : Except String BeamStatsResult 
 
 private def handleBeamStats
     (state : IO.Ref ServerState)
-    (arguments : Json)
     (progress? : Option ProgressEmitter) : IO Json := do
-  match requireEmptyInput "beam_stats" arguments with
-  | .error err =>
-      emitProgress? progress? "beam_stats failed"
-      return callToolErrorResult <| ToolError.invalidInput err
-  | .ok () => pure ()
   let runtime ←
     match (← state.get).application.runtime? with
     | some runtime => pure runtime
@@ -352,7 +370,7 @@ private def handleDropWorkspace
     (arguments : Json)
     (progress? : Option ProgressEmitter) : IO Json := do
   let workspace ←
-    match ← resolveWorkspace arguments with
+    match ← resolveWorkspaceForDrop arguments with
     | .ok workspace => pure workspace
     | .error err =>
         emitProgress? progress? "lean_drop_workspace failed"
@@ -539,8 +557,12 @@ private def brokerRequestForTool
     (workspaceId : Beam.Broker.WorkspaceId)
     (params : CallToolParams)
     (clientRequestId : String) : Except String Beam.Broker.Request := do
-  let req ← params.name.toBrokerRequest root.toString workspaceId params.arguments
-  pure { req with clientRequestId? := some clientRequestId }
+  match params.name.kind with
+  | .leanOperation operation => do
+      let req ← leanOperationToBrokerRequest operation root.toString workspaceId params.arguments
+      pure { req with clientRequestId? := some clientRequestId }
+  | _ =>
+      throw s!"{params.name.key} is handled locally and does not map to a Lean broker request"
 
 def Internal.handleToolCall
     (state : IO.Ref ServerState)
@@ -559,6 +581,11 @@ def Internal.handleToolCall
   let progress? ← ProgressEmitter.create? params.progressToken? notifier.send
   Internal.traceMcp
     s!"tools/call start id={req.id.label} tool={params.name.key} progressToken={params.progressToken?.isSome}"
+  match params.name.validateInputFields params.arguments with
+  | .error err =>
+      emitProgress? progress? s!"failed {params.name.key}"
+      return .ok <| callToolErrorResult <| ToolError.invalidInput err
+  | .ok () => pure ()
   if params.name == .leanDropWorkspace then
     emitProgress? progress? s!"starting {params.name.key}"
     let result ← setupMutex.atomically do
@@ -571,7 +598,7 @@ def Internal.handleToolCall
     return .ok result
   if params.name == .beamStats then
     emitProgress? progress? s!"starting {params.name.key}"
-    let result ← handleBeamStats state params.arguments progress?
+    let result ← handleBeamStats state progress?
     Internal.traceMcp s!"tools/call stats complete id={req.id.label} tool={params.name.key}"
     return .ok result
   let workspace ←

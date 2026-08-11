@@ -179,6 +179,42 @@ private def requireClosedInputSchema (label : String) (tool : Json) : IO Json :=
   requireJsonBool label "additionalProperties" false schema
   pure schema
 
+private def objectFieldNames (label : String) : Json → IO (Array String)
+  | .obj fields => pure <| fields.foldl (init := #[]) fun names field _ => names.push field
+  | other => throw <| IO.userError s!"{label} is not an object: {other.compress}"
+
+private def requireUniqueStrings (label : String) (values : Array String) : IO Unit := do
+  let unique := values.foldl (init := #[]) fun seen value =>
+    if seen.contains value then seen else seen.push value
+  require s!"{label} contains duplicate fields: {values}" (unique.size == values.size)
+
+private def checkToolInputParameterUniqueness (tools : Array Json) : IO Unit := do
+  let forbiddenAliases := #[
+    "root", "workspace_id", "workspaceId", "includeDeclaration", "startLine",
+    "startCharacter", "endLine", "endCharacter", "codeAction", "fullDiagnostics",
+    "includeDiagnostics"
+  ]
+  for tool in tools do
+    let name ← IO.ofExcept <| tool.getObjValAs? String "name"
+    let schema ← requireClosedInputSchema s!"{name} input schema" tool
+    let properties ← requireObjVal s!"{name} input schema" "properties" schema
+    let propertyNames ← objectFieldNames s!"{name} input properties" properties
+    let required ← IO.ofExcept <| schema.getObjValAs? (Array String) "required"
+    requireUniqueStrings s!"{name} required parameters" required
+    for field in required do
+      require s!"{name} requires undeclared parameter '{field}'" (propertyNames.contains field)
+    for alias in forbiddenAliases do
+      require s!"{name} exposes ambiguous or obsolete top-level parameter '{alias}'"
+        (!propertyNames.contains alias)
+    let workspaceBound := name == "beam_feedback" || name == "lean_drop_workspace" ||
+      name.startsWith "lean_"
+    require s!"{name} workspace selector requirement is inconsistent"
+      (required.contains "workspace" == workspaceBound)
+    let handleBound := name == "lean_run_with" || name == "lean_run_with_linear" ||
+      name == "lean_release"
+    require s!"{name} handle parameter ownership is inconsistent"
+      (propertyNames.contains "handle" == handleBound)
+
 private def requireSchemaRequiredFields
     (label : String)
     (expected : Array String)
@@ -225,29 +261,10 @@ private def checkToolsListShape : IO Unit := do
   let tools ← requireObjVal "tools/list result" "tools" result
   let tools ← requireJsonArray "tools/list tools" tools
   require "tools/list is non-empty" (!tools.isEmpty)
+  checkToolInputParameterUniqueness tools
   for removed in #["lean_init_workspace", "lean_list_workspaces"] do
     require s!"tools/list must not expose removed lifecycle tool {removed}"
       (!(tools.any fun tool => (tool.getObjValAs? String "name").toOption == some removed))
-  require "MCP capability names should include central Lean tools"
-    (Beam.Mcp.capabilityNames.contains "beam_version" &&
-      Beam.Mcp.capabilityNames.contains "beam_stats" &&
-      Beam.Mcp.capabilityNames.contains "beam_feedback" &&
-      Beam.Mcp.capabilityNames.contains "lean_drop_workspace" &&
-      Beam.Mcp.capabilityNames.contains "lean_run_at" &&
-      Beam.Mcp.capabilityNames.contains "lean_update" &&
-      Beam.Mcp.capabilityNames.contains "lean_sync" &&
-      Beam.Mcp.capabilityNames.contains "lean_refresh" &&
-      Beam.Mcp.capabilityNames.contains "lean_save" &&
-      Beam.Mcp.capabilityNames.contains "lean_close_save" &&
-      Beam.Mcp.capabilityNames.contains "lean_signature_help" &&
-      Beam.Mcp.capabilityNames.contains "lean_definition" &&
-      Beam.Mcp.capabilityNames.contains "lean_references" &&
-      Beam.Mcp.capabilityNames.contains "lean_document_symbols" &&
-      Beam.Mcp.capabilityNames.contains "lean_workspace_symbols" &&
-      Beam.Mcp.capabilityNames.contains "lean_goals" &&
-      Beam.Mcp.capabilityNames.contains "lean_code_action_resolve")
-  require "MCP capability names should not expose raw LSP methods"
-    (!Beam.Mcp.capabilityNames.contains Beam.LSP.RunAt.method)
 
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
@@ -638,6 +655,37 @@ private def checkServerBasics : IO Unit := do
           ("character", toJson (0 : Nat))
       ]
   discard <| expectToolErrorCode "bad args" "invalidInput" badArgsResp
+
+  let obsoleteSelectorResp ← handleRpcRequest state opts "obsolete workspace selector rejection" 31
+      "tools/call" <| some <| toolCallParams "lean_drop_workspace" <| Json.mkObj [
+        ("workspace", toJson <| Beam.Workspace.Descriptor.ofRoot root),
+        ("workspace_id", toJson "legacy")
+      ]
+  let obsoleteSelector ← expectToolErrorCode "obsolete workspace selector" "invalidInput"
+    obsoleteSelectorResp
+  let obsoleteSelectorMessage ← IO.ofExcept <| obsoleteSelector.getObjValAs? String "message"
+  require "obsolete workspace selector error should identify an undeclared field"
+    (obsoleteSelectorMessage.contains "workspace_id" &&
+      obsoleteSelectorMessage.contains "undeclared input fields")
+
+  let nestedExtraResp ← handleRpcRequest state opts "nested feedback field rejection" 33
+      "tools/call" <| some <| toolCallParams "beam_feedback" <|
+        withWorkspace root <| Json.mkObj [
+          ("title", toJson "Nested feedback field"),
+          ("summary", toJson "Reject nested fields omitted from the schema."),
+          ("reproduction", toJson "Pass an undeclared evidence field."),
+          ("expected", toJson "A typed invalidInput error."),
+          ("actual", toJson "Regression coverage."),
+          ("evidence", Json.arr #[Json.mkObj [
+            ("name", toJson "trace.json"),
+            ("content", Json.mkObj []),
+            ("workspace_id", toJson "legacy")
+          ]])
+        ]
+  let nestedExtra ← expectToolErrorCode "nested feedback field" "invalidInput" nestedExtraResp
+  let nestedExtraMessage ← IO.ofExcept <| nestedExtra.getObjValAs? String "message"
+  require "nested feedback error should identify the undeclared field"
+    (nestedExtraMessage.contains "workspace_id" && nestedExtraMessage.contains "undeclared fields")
 
   let relativeWorkspaceResp ← handleRpcRequest state opts "relative workspace rejection" 32
       "tools/call" <| some <| toolCallParams "lean_run_at" <| Json.mkObj [

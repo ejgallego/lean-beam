@@ -264,41 +264,16 @@ private def checkToolDescriptors : IO Unit := do
 private def checkBrokerRequestAdapters : IO Unit := do
   let root := "/repo"
   let workspaceId := "local:/repo"
-  match Beam.Mcp.ToolName.beamVersion.toBrokerRequest root workspaceId (Json.mkObj []) with
-  | .ok req =>
-      throw <| IO.userError s!"beam version produced broker request unexpectedly: {repr req.op}"
-  | .error err =>
-      require "beam version broker adapter error names server identity behavior" (err.contains "server identity")
-
-  let statsReq ← expectOk "beam stats tool request" <|
-    Beam.Mcp.ToolName.beamStats.toBrokerRequest root workspaceId (Json.mkObj [])
-  require "beam stats op" (statsReq.op == .stats)
-  require "beam stats root" (statsReq.root? == some root)
-
-  match Beam.Mcp.ToolName.beamStats.toBrokerRequest root workspaceId
-      (Json.mkObj [("path", toJson "Demo.lean")]) with
-  | .ok req =>
-      throw <| IO.userError s!"beam stats accepted input fields unexpectedly: {repr req.op}"
-  | .error err =>
-      require "beam stats broker adapter rejects input fields" (err.contains "accepts no input fields")
-
-  match Beam.Mcp.ToolName.beamFeedback.toBrokerRequest root workspaceId (Json.mkObj []) with
-  | .ok req =>
-      throw <| IO.userError s!"beam feedback produced broker request unexpectedly: {repr req.op}"
-  | .error err =>
-      require "beam feedback broker adapter error names local report card behavior"
-        (err.contains "report card locally")
-
-  match Beam.Mcp.ToolName.leanDropWorkspace.toBrokerRequest root workspaceId
-      (Json.mkObj [("workspace", toJson ({ root } : Beam.Workspace.Descriptor))]) with
-  | .ok req =>
-      throw <| IO.userError s!"drop workspace produced broker request unexpectedly: {repr req.op}"
-  | .error err =>
-      require "drop workspace broker adapter error names workspace state behavior"
-        (err.contains "workspace state")
-
   let inWorkspace (json : Json) : Json :=
     json.setObjVal! "workspace" (toJson ({ root } : Beam.Workspace.Descriptor))
+
+  for tool in Beam.Mcp.toolNames do
+    let input := Json.mkObj [("__undeclared", toJson true)]
+    match tool.validateInputFields input with
+    | .ok _ => throw <| IO.userError s!"{tool.key} accepted an undeclared input field"
+    | .error err =>
+        require s!"{tool.key} undeclared field error names the closed input boundary"
+          (err.contains "undeclared input fields")
 
   let runAtInput : Beam.Mcp.RunAtInput := {
     path := "Demo.lean"
@@ -308,7 +283,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     text := "exact h"
   }
   let runAtReq ← expectOk "runAt tool request" <|
-    Beam.Mcp.ToolName.leanRunAt.toBrokerRequest root workspaceId (inWorkspace <| toJson runAtInput)
+    Beam.Mcp.leanOperationToBrokerRequest .runAt root workspaceId (inWorkspace <| toJson runAtInput)
   require "runAt op" (runAtReq.op == .runAt)
   require "runAt backend" (runAtReq.backend == .lean)
   require "runAt root" (runAtReq.root? == some root)
@@ -323,12 +298,12 @@ private def checkBrokerRequestAdapters : IO Unit := do
 
   let runAtWorkspaceJson := inWorkspace <| toJson runAtInput
   let runAtWorkspaceReq ← expectOk "runAt workspace tool request" <|
-    Beam.Mcp.ToolName.leanRunAt.toBrokerRequest root workspaceId runAtWorkspaceJson
+    Beam.Mcp.leanOperationToBrokerRequest .runAt root workspaceId runAtWorkspaceJson
   require "runAt workspace id is the private canonical cache key"
     (runAtWorkspaceReq.workspaceId? == some workspaceId)
 
   let runAtHandleReq ← expectOk "runAt handle tool request" <|
-    Beam.Mcp.ToolName.leanRunAtHandle.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .runAtHandle root workspaceId
       (inWorkspace <| toJson runAtInput)
   require "runAt handle stores state" (runAtHandleReq.storeHandle? == some true)
 
@@ -339,19 +314,19 @@ private def checkBrokerRequestAdapters : IO Unit := do
     character := 3
   }
   let hoverReq ← expectOk "hover tool request" <|
-    Beam.Mcp.ToolName.leanHover.toBrokerRequest root workspaceId (inWorkspace <| toJson positionInput)
+    Beam.Mcp.leanOperationToBrokerRequest .hover root workspaceId (inWorkspace <| toJson positionInput)
   require "hover op" (hoverReq.op == .hover)
   require "hover version" (hoverReq.version? == some 13)
 
   let signatureHelpReq ← expectOk "signature-help tool request" <|
-    Beam.Mcp.ToolName.leanSignatureHelp.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .signatureHelp root workspaceId
       (inWorkspace <| toJson positionInput)
   require "signature-help op" (signatureHelpReq.op == .signatureHelp)
   require "signature-help backend" (signatureHelpReq.backend == .lean)
   require "signature-help version" (signatureHelpReq.version? == some 13)
 
   let definitionReq ← expectOk "definition tool request" <|
-    Beam.Mcp.ToolName.leanDefinition.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .definition root workspaceId
       (inWorkspace <| toJson positionInput)
   require "definition op" (definitionReq.op == .definition)
   require "definition backend" (definitionReq.backend == .lean)
@@ -365,7 +340,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     includeDeclaration? := some false
   }
   let referencesReq ← expectOk "references tool request" <|
-    Beam.Mcp.ToolName.leanReferences.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .references root workspaceId
       (inWorkspace <| toJson referencesInput)
   require "references op" (referencesReq.op == .references)
   require "references version" (referencesReq.version? == some 13)
@@ -382,7 +357,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     version := 13
   }
   let documentSymbolsReq ← expectOk "document-symbols tool request" <|
-    Beam.Mcp.ToolName.leanDocumentSymbols.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .documentSymbols root workspaceId
       (inWorkspace <| toJson documentSymbolsInput)
   require "document-symbols op" (documentSymbolsReq.op == .documentSymbols)
   require "document-symbols path" (documentSymbolsReq.path? == some "Demo.lean")
@@ -392,7 +367,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     query := "Demo"
   }
   let workspaceSymbolsReq ← expectOk "workspace-symbols tool request" <|
-    Beam.Mcp.ToolName.leanWorkspaceSymbols.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .workspaceSymbols root workspaceId
       (inWorkspace <| toJson workspaceSymbolsInput)
   require "workspace-symbols op" (workspaceSymbolsReq.op == .workspaceSymbols)
   require "workspace-symbols root" (workspaceSymbolsReq.root? == some root)
@@ -407,7 +382,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     mode := .before
   }
   let goalsBeforeReq ← expectOk "goals before tool request" <|
-    Beam.Mcp.ToolName.leanGoals.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .goals root workspaceId
       (inWorkspace <| toJson goalsBeforeInput)
   require "goals before op" (goalsBeforeReq.op == .goals)
   require "goals before mode" (goalsBeforeReq.mode? == some .before)
@@ -422,7 +397,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     mode := .after
   }
   let goalsAfterReq ← expectOk "goals after tool request" <|
-    Beam.Mcp.ToolName.leanGoals.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .goals root workspaceId
       (inWorkspace <| toJson goalsAfterInput)
   require "goals after op" (goalsAfterReq.op == .goals)
   require "goals after mode" (goalsAfterReq.mode? == some .after)
@@ -439,7 +414,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     suggest? := some .basic
   }
   let todoReq ← expectOk "todo tool request" <|
-    Beam.Mcp.ToolName.leanTodo.toBrokerRequest root workspaceId (inWorkspace <| toJson todoInput)
+    Beam.Mcp.leanOperationToBrokerRequest .todo root workspaceId (inWorkspace <| toJson todoInput)
   require "todo op" (todoReq.op == .todo)
   require "todo backend" (todoReq.backend == .lean)
   require "todo version" (todoReq.version? == some 14)
@@ -465,7 +440,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     codeAction
   }
   let codeActionResolveReq ← expectOk "code-action-resolve tool request" <|
-    Beam.Mcp.ToolName.leanCodeActionResolve.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .codeActionResolve root workspaceId
       (inWorkspace <| toJson codeActionResolveInput)
   require "code-action-resolve op" (codeActionResolveReq.op == .codeActionResolve)
   require "code-action-resolve backend" (codeActionResolveReq.backend == .lean)
@@ -484,7 +459,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
     text := "simp"
   }
   let runWithReq ← expectOk "runWith tool request" <|
-    Beam.Mcp.ToolName.leanRunWithLinear.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .runWithLinear root workspaceId
       (inWorkspace <| toJson runWithInput)
   require "runWith op" (runWithReq.op == .runWith)
   require "runWith stores successor handle" (runWithReq.storeHandle? == some true)
@@ -494,10 +469,10 @@ private def checkBrokerRequestAdapters : IO Unit := do
 
   let pathInput : Beam.Mcp.PathInput := { path := "Demo.lean" }
   let updateReq ← expectOk "update tool request" <|
-    Beam.Mcp.ToolName.leanUpdate.toBrokerRequest root workspaceId (inWorkspace <| toJson pathInput)
+    Beam.Mcp.leanOperationToBrokerRequest .update root workspaceId (inWorkspace <| toJson pathInput)
   require "update op" (updateReq.op == .updateFile)
   let closeReq ← expectOk "close tool request" <|
-    Beam.Mcp.ToolName.leanClose.toBrokerRequest root workspaceId (inWorkspace <| toJson pathInput)
+    Beam.Mcp.leanOperationToBrokerRequest .close root workspaceId (inWorkspace <| toJson pathInput)
   require "close op" (closeReq.op == .close)
 
   let syncInput : Beam.Mcp.SyncInput := {
@@ -506,22 +481,22 @@ private def checkBrokerRequestAdapters : IO Unit := do
     includeDiagnostics? := some true
   }
   let syncReq ← expectOk "sync tool request" <|
-    Beam.Mcp.ToolName.leanSync.toBrokerRequest root workspaceId (inWorkspace <| toJson syncInput)
+    Beam.Mcp.leanOperationToBrokerRequest .sync root workspaceId (inWorkspace <| toJson syncInput)
   require "sync op" (syncReq.op == .syncFile)
   require "sync full diagnostics" (syncReq.fullDiagnostics? == some true)
   require "sync include diagnostics" (syncReq.includeDiagnostics? == some true)
   let refreshReq ← expectOk "refresh tool request" <|
-    Beam.Mcp.ToolName.leanRefresh.toBrokerRequest root workspaceId (inWorkspace <| toJson syncInput)
+    Beam.Mcp.leanOperationToBrokerRequest .refresh root workspaceId (inWorkspace <| toJson syncInput)
   require "refresh op" (refreshReq.op == .refreshFile)
   require "refresh full diagnostics" (refreshReq.fullDiagnostics? == some true)
   require "refresh include diagnostics" (refreshReq.includeDiagnostics? == some true)
   let saveReq ← expectOk "save tool request" <|
-    Beam.Mcp.ToolName.leanSave.toBrokerRequest root workspaceId (inWorkspace <| toJson syncInput)
+    Beam.Mcp.leanOperationToBrokerRequest .save root workspaceId (inWorkspace <| toJson syncInput)
   require "save op" (saveReq.op == .saveOlean)
   require "save full diagnostics" (saveReq.fullDiagnostics? == some true)
   require "save should not request reply diagnostics" saveReq.includeDiagnostics?.isNone
   let closeSaveReq ← expectOk "close-save tool request" <|
-    Beam.Mcp.ToolName.leanCloseSave.toBrokerRequest root workspaceId
+    Beam.Mcp.leanOperationToBrokerRequest .closeSave root workspaceId
       (inWorkspace <| toJson syncInput)
   require "close-save op" (closeSaveReq.op == .close)
   require "close-save requests artifact save" (closeSaveReq.saveArtifacts? == some true)

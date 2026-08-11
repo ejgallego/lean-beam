@@ -78,7 +78,9 @@ descriptor, not raw Lean commands or plugin paths. Direct developer runs may sti
 `lean_drop_workspace` is optional cache management, not context selection. It evicts the runtime
 for its descriptor and invalidates proof handles owned by that runtime. Drop is idempotent and
 returns `dropped: false` with `reason: "notFound"` when no cache exists. A later ordinary request
-with the same descriptor recreates the runtime lazily.
+with the same descriptor recreates the runtime lazily. Keep the canonical descriptor echoed by
+successful calls: cache eviction accepts that absolute descriptor even if the project directory or
+its Lean/Lake markers have since disappeared.
 
 After editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or
 dynamic libraries, drop that workspace or restart the MCP server before the next request. Re-syncing
@@ -184,6 +186,8 @@ For MCP `2025-11-25`:
 
 - malformed or unknown tools are JSON-RPC errors
 - invalid inputs for known tools are MCP tool errors with `isError=true`
+- undeclared tool-input fields, including undeclared workspace selector aliases, are rejected as
+  structured `invalidInput` errors rather than ignored
 - invalid, missing, relative, or non-project workspace roots are structured `invalidInput` errors
 - Lean semantic failures remain successful tool returns with Lean-specific success fields
 - stale or cross-workspace handles remain structured transport/tool errors
@@ -201,8 +205,8 @@ MCP Roots.
 `notifications/cancelled` cooperatively cancels active broker work. If cancellation wins the
 terminal race, no final response is emitted for that request. `lean_drop_workspace` is
 non-cancellable once admitted because partial cache eviction cannot be rolled back safely. Cache
-control is ordered with later calls: a request queued after a drop observes the completed eviction
-and may immediately recreate the same descriptor.
+eviction is a full stream-order fence: previously admitted calls drain before the drop runs, while
+later calls wait for its terminal result and may then recreate the same descriptor.
 
 EOF is the normal transport shutdown. The current legacy `shutdown` request is also supported.
 

@@ -191,8 +191,9 @@ discriminator.
   interleave; clients should use distinct tokens for concurrently active requests.
 - MCP `notifications/cancelled` cooperatively cancels active broker work. Lazy runtime setup and
   shutdown remain serialized. Once admitted, `lean_drop_workspace` ignores client cancellation and
-  returns its terminal result because partial eviction cannot be rolled back safely. Later calls
-  wait for eviction to finish and may recreate the same descriptor.
+  returns its terminal result because partial eviction cannot be rolled back safely. Previously
+  admitted calls drain first; later calls wait for eviction to finish and may recreate the same
+  descriptor.
 - Incremental Lean diagnostics are forwarded as MCP log notifications.
 - The Streamable HTTP bridge is test-only; the product entry point remains stdio.
 - Exact protocol behavior and conformance notes live in [MCP.md](MCP.md).

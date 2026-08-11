@@ -51,7 +51,8 @@ state.
 
 MCP workspace-bound tools carry an explicit local workspace descriptor on every call. Dropping that
 workspace only evicts its cached runtime and retained handles; it does not prove the MCP server
-binary itself was refreshed.
+binary itself was refreshed. Retain the canonical descriptor echoed by successful MCP calls so a
+cached runtime can still be dropped if the project path or its Lean/Lake markers become unavailable.
 
 Restart active agent or MCP client sessions after installation.
 

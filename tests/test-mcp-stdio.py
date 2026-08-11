@@ -1454,6 +1454,45 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             expect_result(client.request("ping", request_id="after-burst"))
 
             started_path.unlink()
+            release_path.unlink(missing_ok=True)
+            drop_fence_id = "drop-fence-run-at"
+            client.send_request("tools/call", slow_params, request_id=drop_fence_id)
+            wait_for_file(started_path, timeout, "workspace-drop fence runAt gate sentinel")
+            drop_id = client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_drop_workspace",
+                    "arguments": {"workspace": workspace_descriptor(project_root)},
+                },
+                request_id="drop-fence-control",
+            )
+            time.sleep(0.1)
+            require(
+                not client.response_ready(drop_id),
+                "workspace drop completed before previously admitted work drained",
+            )
+            release_path.write_text("release\n", encoding="utf-8")
+            slow_response = client.read_response(drop_fence_id)
+            slow_result = expect_result(slow_response)
+            require(
+                slow_result.get("isError") is not True,
+                f"work admitted before workspace drop failed: {slow_result}",
+            )
+            drop_response = expect_result(client.read_response(drop_id))
+            require(drop_response.get("isError") is not True, f"workspace drop fence failed: {drop_response}")
+            dropped = drop_response.get("structuredContent")
+            require(
+                isinstance(dropped, dict) and dropped.get("dropped") is True,
+                f"workspace drop fence did not evict the runtime: {drop_response}",
+            )
+
+            update = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
+            version = update.get("version")
+            require(isinstance(version, int), f"post-drop concurrency update missing version: {update}")
+            slow_params["arguments"]["version"] = version
+
+            started_path.unlink()
+            release_path.unlink()
             shutdown_id = "shutdown-inflight"
             client.send_request("tools/call", slow_params, request_id=shutdown_id)
             wait_for_file(started_path, timeout, "shutdown runAt gate sentinel")
@@ -1824,8 +1863,13 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
             )
             expect_stale_handle(client, handle_b, "workspace B eviction", root=root_b)
 
-            drop_workspace(client, root_b)
-            drop_workspace(client, root_b, expected_dropped=False)
+            unavailable_root_b = tmp_root / "project-b-unavailable"
+            root_b.rename(unavailable_root_b)
+            try:
+                drop_workspace(client, root_b)
+                drop_workspace(client, root_b, expected_dropped=False)
+            finally:
+                unavailable_root_b.rename(root_b)
             remaining = client.call_tool("beam_stats").get("workspaces", {})
             require(
                 set(remaining) == {workspace_cache_key(root_a)},

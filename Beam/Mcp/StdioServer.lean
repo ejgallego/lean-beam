@@ -319,6 +319,13 @@ private def Coordinator.awaitRequests
   for request in requests do
     awaitRequestDone request
 
+private def Coordinator.otherInFlightRequests
+    (coordinator : Coordinator)
+    (request : InFlightRequest) : IO (Array InFlightRequest) := do
+  coordinator.routing.atomically do
+    pure <| (← get).inFlight.toList.filterMap (fun (_, other) =>
+      if other.brokerId == request.brokerId then none else some other) |>.toArray
+
 private def Coordinator.closeTransport (coordinator : Coordinator) : IO Unit := do
   let (alreadyClosing, requests) ←
     coordinator.beginClosing "MCP client transport closed"
@@ -419,8 +426,12 @@ private def Coordinator.handleControlToolRequest
   | .error response => coordinator.output.send response
   | .ok request =>
       let (previous?, done) ← coordinator.pushControlBarrier
+      let priorRequests ← coordinator.otherInFlightRequests request
       let _ ← IO.asTask (prio := Task.Priority.dedicated) do
         try
+          -- A control operation is a full stream-order fence: work admitted before it drains,
+          -- while work admitted afterward waits on `done`.
+          coordinator.awaitRequests priorRequests
           coordinator.runToolRequest opts req parsedParams request previous?
         catch e =>
           if !Beam.Mcp.Stdio.isBrokenPipeError e then
