@@ -112,10 +112,11 @@ result rather than a document version. Their required `workspace_id` must match 
 by the handle. `lean_goals` also requires `mode: "before"` or `mode: "after"`.
 
 `lean_run_at`, `lean_run_at_handle`, `lean_run_with`, and `lean_run_with_linear` are speculative.
-They test supplied text against a selected document snapshot or follow-up handle without editing the
-Lean file. If an accepted result should become source, the client must apply the corresponding edits
-with its normal file-editing tool, then call `lean_update` or `lean_sync`. `lean_sync` validates the
-current on-disk file; it does not apply or recover text from an earlier speculative probe.
+They test supplied text against a selected document snapshot or follow-up handle; none edits the Lean
+file. Do not call `lean_sync` as a way to commit a successful probe. To keep a result, first edit and
+save the Lean file with the client's normal file-editing tool. Then call `lean_update` before another
+snapshot-bound operation, or call `lean_sync` when a diagnostics/readiness barrier is needed. Both
+commands synchronize the current on-disk file; neither applies or recovers speculative text.
 
 `lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
 apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so
@@ -133,9 +134,10 @@ one-time clean local check outside MCP. See the
 [checkpoint contract](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
 
 The running Lean server is not guaranteed to pick up Lake workspace configuration changes. After
-editing a lakefile or related workspace setup, call `lean_init_workspace` with `mode: "reset"` (or
-restart the MCP server) before the next operation backed by that Lean workspace. Re-syncing a file
-in the existing runtime is not sufficient.
+editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
+libraries, call `lean_init_workspace` with `mode: "reset"` (or restart the MCP server) before the next
+tool call that uses that workspace's Lean server. Calling `lean_sync` in the existing runtime is not
+sufficient.
 
 ## Stateless MCP Compatibility Boundary
 

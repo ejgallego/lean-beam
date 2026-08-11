@@ -25,6 +25,8 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
   `fileProgress`. It no longer emits redundant `saved`, obsolete `savedOlean`, or the partial
   `saveEligible`, `saveReason`, `saveModule`, and `saveDetail` preflight fields; `lean-beam save`
   remains the authoritative save eligibility check.
+- MCP speculative execution and continuation tools now state that they never edit Lean source and
+  require an explicit saved file edit before `lean_sync` can observe the accepted text.
 
 ### Fixed
 
