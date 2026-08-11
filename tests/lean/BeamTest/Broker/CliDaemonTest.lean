@@ -750,18 +750,22 @@ private def checkLeanModuleNamePathHelpers : IO Unit := do
   require "outside rooted Lean path should not become module name"
     (Beam.leanModuleNameForPath? root (p "/tmp/other-root/Foo.lean") == none)
 
+private def createSymlink
+    (label : String) (target link : System.FilePath) : IO Unit := do
+  let out ← IO.Process.output {
+    cmd := "ln"
+    args := #["-s", target.toString, link.toString]
+  }
+  if out.exitCode != 0 then
+    throw <| IO.userError s!"failed to create {label} symlink\n{out.stderr}"
+
 private def checkPathCanonicalization : IO Unit := do
   let stamp ← IO.monoNanosNow
   let root := System.FilePath.mk s!"/tmp/beam-path-canonical-root-{stamp}"
   let alias := System.FilePath.mk s!"/tmp/beam-path-canonical-alias-{stamp}"
   try
     IO.FS.createDirAll root
-    let out ← IO.Process.output {
-      cmd := "ln"
-      args := #["-s", root.toString, alias.toString]
-    }
-    if out.exitCode != 0 then
-      throw <| IO.userError s!"failed to create symlink alias for path canonicalization test\n{out.stderr}"
+    createSymlink "path canonicalization fixture" root alias
     require "canonical path equality should treat symlinked workspace roots as the same path"
       (← Beam.sameFilePath root alias)
     require "missing paths should fall back to exact text equality"
@@ -799,6 +803,17 @@ private def checkLockLifecycle : IO Unit := do
     expectIoErrorContains "live lock timeout" s!"lock owner: pid {selfPid}" <|
       Beam.Cli.withLockTimeout lockDir 100 do
         pure ()
+    IO.FS.removeDirAll lockDir
+
+    let deadPidTarget := root / "dead-pid"
+    IO.FS.writeFile deadPidTarget "999999999\n"
+    IO.FS.createDirAll lockDir
+    createSymlink "lock PID fixture" deadPidTarget (lockDir / "pid")
+    expectIoErrorContains "symlinked lock PID timeout" "lock owner: unknown owner" <|
+      Beam.Cli.withLockTimeout lockDir 100 do
+        pure ()
+    require "a lock with a non-regular PID file should not be removed as stale"
+      (← lockDir.pathExists)
   finally
     try
       if ← root.pathExists then
@@ -1021,17 +1036,57 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
     require "bundle should reject stale toolchain fingerprint metadata"
       (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
 
+    writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprint (root / "elsewhere")
+    require "bundle should reject metadata for a different workspace"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
+    require "bundle with mismatched workspace should not expose a source hash"
+      ((← Beam.Cli.completeBundleSourceHash? bundleDir).isNone)
+
     writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprint workspace
     require "bundle should accept matching artifacts and metadata"
       (← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint)
 
-    writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprint (System.FilePath.mk <| "/private" ++ workspace.toString)
+    writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprint (workspace / ".")
     require "bundle should accept metadata with equivalent diagnostic workspace spelling"
       (← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint)
 
-    IO.FS.removeFile (Beam.Cli.bundlePathsFor workspace).client
+    require "complete bundle source hash should use typed ready metadata"
+      ((← Beam.Cli.completeBundleSourceHash? bundleDir) == some sourceHash)
+
+    let metadataPath := Beam.Cli.bundleMetadataPath bundleDir
+    let metadataTarget := root / "metadata-symlink-target.json"
+    IO.FS.writeFile metadataTarget (← IO.FS.readFile metadataPath)
+    IO.FS.removeFile metadataPath
+    createSymlink "bundle metadata fixture" metadataTarget metadataPath
+    require "bundle should reject symlinked metadata"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
+    require "bundle with symlinked metadata should not expose a source hash"
+      ((← Beam.Cli.completeBundleSourceHash? bundleDir).isNone)
+    IO.FS.removeFile metadataPath
+    writeBundleMetadataFile bundleDir toolchain sourceHash sampleFingerprint workspace
+
+    let client := (Beam.Cli.bundlePathsFor workspace).client
+    IO.FS.removeFile client
+    IO.FS.createDir client
+    require "bundle should reject a required artifact path that is a directory"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
+    require "bundle with a directory artifact should not expose a source hash"
+      ((← Beam.Cli.completeBundleSourceHash? bundleDir).isNone)
+    IO.FS.removeDir client
+
+    let symlinkTarget := root / "client-symlink-target"
+    IO.FS.writeFile symlinkTarget "fake artifact\n"
+    createSymlink "bundle artifact fixture" symlinkTarget client
+    require "bundle should reject a symlinked required artifact"
+      (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
+    require "bundle with a symlinked artifact should not expose a source hash"
+      ((← Beam.Cli.completeBundleSourceHash? bundleDir).isNone)
+    IO.FS.removeFile client
+
     require "bundle should reject matching metadata without required artifacts"
       (!(← Beam.Cli.bundleReady bundleDir toolchain sourceHash sampleFingerprint))
+    require "incomplete bundle should not expose a source hash"
+      ((← Beam.Cli.completeBundleSourceHash? bundleDir).isNone)
   finally
     try
       if ← root.pathExists then

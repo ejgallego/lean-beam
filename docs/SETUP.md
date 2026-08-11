@@ -124,6 +124,70 @@ If you are unsure which runtime bundle is active or why a toolchain is rejected,
 lean-beam doctor
 ```
 
+## Prune Old Installed State
+
+The installer publishes each distinct content payload as an immutable runtime under
+`BEAM_INSTALL_ROOT/versions`. Reinstalling an identical payload reuses its existing runtime only
+after validating its ownership marker, manifest, required files, executable commands, and payload
+contents. The schema-3 manifest field `createdWithToolchains` records the toolchain selection that
+first created that immutable payload; later prebuilds add mutable bundle-cache entries without
+rewriting that provenance. Beam keeps prior distinct runtimes so publishing `current` stays atomic,
+but those snapshots are not removed automatically. Schema-2 manifests are readable only for
+identity and cleanup; reinstalling never republishes a schema-2 runtime. Preview old state with:
+
+```bash
+lean-beam prune
+```
+
+The preview validates the Beam ownership marker, requires the command to come from the current
+installed runtime, and checks every candidate's manifest. It never selects the current runtime.
+Apply the displayed runtime cleanup with:
+
+```bash
+lean-beam prune --apply
+```
+
+Installed bundle-cache keys include the toolchain name and resolved fingerprint, runtime source
+hash, and platform. To also preview stale-source or incomplete entries while preserving bundles
+that match the current runtime source, add `--bundles`:
+
+```bash
+lean-beam prune --bundles
+lean-beam prune --apply --bundles
+```
+
+This only scans the installer-owned cache under `BEAM_INSTALL_ROOT/state/install-bundles`; it does
+not remove project-local fallback bundles under `<project>/.beam/bundles`. A complete installed
+bundle is preserved when its runtime source still matches, even when that toolchain fingerprint is
+not currently in use.
+
+Restart active agent and MCP client sessions before any `prune --apply`; otherwise a process may
+still be running from a runtime selected for removal. A later request rebuilds any needed bundle
+that was pruned. Pruning uses the same install lock as the installer and each selected bundle's
+build lock, and refuses symlinked installed bundle-cache roots or symlinked and unmarked runtime
+directories.
+
+Apply is incremental rather than transactional: Beam validates and removes one displayed path at a
+time and reports each successful removal immediately. If a later path fails validation or its lock
+cannot be acquired, earlier reported removals remain applied. Resolve the reported error and rerun
+`lean-beam prune` (with `--bundles` when applicable) to preview what remains.
+
+If reinstalling reports that an existing runtime does not match its payload hash, stop active Beam
+agents and MCP clients first. Move only the exact reported runtime directory out of
+`BEAM_INSTALL_ROOT/versions` and preserve it for inspection, then rerun the installer. Do not remove
+the whole `versions` directory. `lean-beam prune` deliberately refuses invalid state and the current
+runtime, so it is not the repair path for this case. Use the same recovery when reinstalling refuses
+to reuse a cleanup-only schema-2 runtime.
+
+If `runtime_error` instead reports an invalid install-root marker, do not recreate that ownership
+marker in place or move only one runtime: the marker protects the boundary of the whole managed
+root. Stop active Beam clients, rename the exact `BEAM_INSTALL_ROOT` as a unit and preserve it for
+inspection, then rerun the installer so it creates a fresh owned root. Do not delete the preserved
+root until its contents are understood.
+
+The command is intentionally unavailable from a source checkout because there is no owned
+immutable install root to prune there.
+
 ## Use Beam From A Lean Project
 
 Move to the Lean project you want to work on and check the resolved setup:
@@ -335,7 +399,14 @@ The wrapper resolves the matching installed Beam runtime for each project.
 
 Use `lean-beam --version` for bug reports and CLI refresh checks. Use `lean-beam-mcp --version` to
 check which MCP server command a client registration resolves. From a live MCP session, call the
-`beam_version` tool to report the running server process identity as structured content.
+`beam_version` tool to report the running server process identity as structured content. Installed
+identities include `runtime_current`: `false` means that process is not selected by the install
+root's `current` link, usually because it belongs to a superseded runtime but also when that link is
+missing. Restart the agent or MCP client after reinstalling. A newly resolved installed wrapper
+should report `runtime current: true`; if it does not, treat the missing or broken `current` link as
+an installation-integrity failure. An owned runtime with an invalid marker or manifest reports
+`runtime_error` instead of being presented as a source checkout. Follow the error-specific recovery
+guidance in [Prune Old Installed State](#prune-old-installed-state).
 
 Use `lean-beam feedback --stdin` when reporting setup or runtime issues; see
 [FEEDBACK.md](FEEDBACK.md).

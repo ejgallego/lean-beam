@@ -37,6 +37,7 @@ def usage : String :=
     "  beam [--root PATH] [--port N] rocq-goals-prev <path> <line> <character> [text...]",
     "  beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]",
     "  beam bundle-install <toolchain>",
+    "  beam install-prune [--apply] [--bundles]",
     "  beam validated-toolchains lean",
     "  beam compatible-release-lines",
     "  beam [--root PATH] doctor lean|rocq",

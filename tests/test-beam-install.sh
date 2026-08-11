@@ -40,6 +40,8 @@ export BEAM_INSTALL_ROOT="$tmp_root/install-root"
 
 mkdir -p "$HOME" "$BEAM_INSTALL_ROOT"
 
+run_step "install prune" bash tests/test-beam-prune.sh
+
 validated_toolchains=()
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -75,8 +77,8 @@ assert_symlink_target() {
   local path="$1"
   local expected="$2"
   local actual resolved_expected
-  actual="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path")"
-  resolved_expected="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$expected")"
+  actual="$(beam_test_realpath "$path")"
+  resolved_expected="$(beam_test_realpath "$expected")"
   if [ "$actual" != "$resolved_expected" ]; then
     echo "unexpected symlink target for $path: expected $resolved_expected, got $actual" >&2
     exit 1
@@ -120,14 +122,16 @@ with open(manifest_path, "r", encoding="utf-8") as f:
     manifest = json.load(f)
 layout = json.loads(os.environ["BEAM_INSTALL_LAYOUT_JSON"])
 
-if manifest.get("schemaVersion") != 2:
+if manifest.get("schemaVersion") != 3:
     raise SystemExit(f"unexpected manifest schemaVersion: {manifest.get('schemaVersion')}")
 if manifest.get("payloadHash") != expected_payload:
     raise SystemExit(f"unexpected manifest payloadHash: {manifest.get('payloadHash')}")
-if manifest.get("toolchains") != expected_toolchains:
-    raise SystemExit(f"unexpected manifest toolchains: {manifest.get('toolchains')}")
-if "toolchain" in manifest:
-    raise SystemExit(f"unexpected obsolete manifest toolchain field: {manifest.get('toolchain')}")
+if manifest.get("createdWithToolchains") != expected_toolchains:
+    raise SystemExit(
+        f"unexpected manifest createdWithToolchains: {manifest.get('createdWithToolchains')}"
+    )
+if "toolchain" in manifest or "toolchains" in manifest:
+    raise SystemExit("manifest contains an obsolete toolchain field")
 actual_source_commit = manifest.get("sourceCommit", None)
 if expected_source_commit:
     if actual_source_commit != expected_source_commit:
@@ -158,6 +162,20 @@ if set(runtime_paths or []) != expected_runtime_paths:
     raise SystemExit(f"unexpected manifest runtimePaths: {runtime_paths}")
 if set(wrapper_paths or []) != expected_wrapper_paths:
     raise SystemExit(f"unexpected manifest wrapperPaths: {wrapper_paths}")
+
+runtime_root = os.path.dirname(manifest_path)
+for rel in root_files or []:
+    path = os.path.join(runtime_root, rel)
+    if not os.path.isfile(path) or os.path.islink(path):
+        raise SystemExit(f"manifest rootFiles entry is not a regular runtime file: {path}")
+for rel in source_dirs or []:
+    path = os.path.join(runtime_root, rel)
+    if not os.path.isdir(path) or os.path.islink(path):
+        raise SystemExit(f"manifest sourceDirs entry is not a runtime directory: {path}")
+for rel in (runtime_paths or []) + (wrapper_paths or []):
+    path = os.path.join(runtime_root, rel)
+    if not os.path.isfile(path) or os.path.islink(path):
+        raise SystemExit(f"manifest executable/file entry is not a regular runtime file: {path}")
 PY
 }
 
@@ -251,6 +269,28 @@ run_install_from_source() {
   )
 }
 
+assert_install_rejects_marker() {
+  local label="$1"
+  local install_root="$2"
+  local expected="$3"
+  local marker_err="$tmp_root/${label}.err"
+  local marker_home="$tmp_root/${label}-home"
+  mkdir -p "$marker_home"
+  if (
+    cd "$source_checkout"
+    HOME="$marker_home" BEAM_INSTALL_ROOT="$install_root" \
+      bash scripts/install-beam.sh --dont-ask --toolchain "$toolchain" \
+        > /dev/null 2>"$marker_err"
+  ); then
+    echo "expected install to reject $label" >&2
+    cat "$marker_err" >&2
+    exit 1
+  fi
+  assert_contains_literal "$marker_err" "$expected"
+  assert_not_exists "$install_root/versions"
+  remove_tmp_file "$marker_err"
+}
+
 rsync -a --exclude='.git' ./ "$source_checkout"/
 path_no_elan="$(path_without_elan)"
 if PATH="$path_no_elan" command -v elan >/dev/null 2>&1; then
@@ -301,6 +341,109 @@ if ! grep -q 'install root must be an absolute path' "$relative_root_err"; then
 fi
 remove_tmp_file "$relative_root_err"
 assert_not_exists "$source_checkout/relative"
+
+missing_owner_root="$tmp_root/install-marker-missing-owner"
+mkdir -p "$missing_owner_root"
+printf '%s\n' \
+  'schema=1' \
+  "root=$missing_owner_root" >"$missing_owner_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker missing owner" \
+  "$missing_owner_root" \
+  'refusing to use Beam install root marker without owner=lean-beam'
+
+missing_marker_root="$tmp_root/install-marker-missing-root"
+mkdir -p "$missing_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'owner=lean-beam' >"$missing_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker missing root" \
+  "$missing_marker_root" \
+  'refusing to use Beam install root marker without root'
+
+mismatched_marker_root="$tmp_root/install-marker-mismatched-root"
+other_marker_root="$tmp_root/install-marker-other-root"
+mkdir -p "$mismatched_marker_root" "$other_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'owner=lean-beam' \
+  "root=$other_marker_root" >"$mismatched_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker mismatched root" \
+  "$mismatched_marker_root" \
+  'refusing to use Beam install root marker naming a different root'
+
+relative_marker_root="$tmp_root/install-marker-relative-root"
+mkdir -p "$relative_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'owner=lean-beam' \
+  'root=.' >"$relative_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker relative root" \
+  "$relative_marker_root" \
+  'refusing to use Beam install root marker with non-absolute root'
+
+blank_marker_root="$tmp_root/install-marker-blank-root"
+mkdir -p "$blank_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'owner=lean-beam' \
+  'root=' >"$blank_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker blank root" \
+  "$blank_marker_root" \
+  'refusing to use Beam install root marker without root'
+
+multiple_marker_root="$tmp_root/install-marker-multiple-roots"
+mkdir -p "$multiple_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'owner=lean-beam' \
+  "root=$multiple_marker_root" \
+  "root=$multiple_marker_root" >"$multiple_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker multiple roots" \
+  "$multiple_marker_root" \
+  'refusing to use Beam install root marker with multiple roots'
+
+conflicting_schema_marker_root="$tmp_root/install-marker-conflicting-schema"
+mkdir -p "$conflicting_schema_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'schema=2' \
+  'owner=lean-beam' \
+  "root=$conflicting_schema_marker_root" >"$conflicting_schema_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker conflicting schema" \
+  "$conflicting_schema_marker_root" \
+  'refusing to use Beam install root marker with invalid schema fields'
+
+conflicting_owner_marker_root="$tmp_root/install-marker-conflicting-owner"
+mkdir -p "$conflicting_owner_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'owner=lean-beam' \
+  'owner=other' \
+  "root=$conflicting_owner_marker_root" >"$conflicting_owner_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker conflicting owner" \
+  "$conflicting_owner_marker_root" \
+  'refusing to use Beam install root marker with invalid owner fields'
+
+symlink_marker_root="$tmp_root/install-marker-symlink"
+symlink_marker_target="$tmp_root/install-marker-symlink-target"
+mkdir -p "$symlink_marker_root"
+printf '%s\n' \
+  'schema=1' \
+  'owner=lean-beam' \
+  "root=$symlink_marker_root" >"$symlink_marker_target"
+ln -s "$symlink_marker_target" "$symlink_marker_root/.lean-beam-install-root"
+assert_install_rejects_marker \
+  "install marker symlink" \
+  "$symlink_marker_root" \
+  'refusing to use non-file Beam install root marker'
 
 unsupported_install_err="$(mktemp "$tmp_root/install-unsupported-toolchain-XXXXXX")"
 if (
@@ -594,7 +737,7 @@ assert_not_exists "$HOME/.local/bin/beam-lean-search"
 assert_runtime_layout "$installed_runtime_root"
 assert_file "$BEAM_INSTALL_ROOT/.lean-beam-install-root"
 assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
-installed_version_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$installed_runtime_root")"
+installed_version_root="$(beam_test_realpath "$installed_runtime_root")"
 installed_payload_id="$(basename "$installed_version_root")"
 assert_file "$installed_runtime_root/manifest.json"
 BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata "$installed_runtime_root/manifest.json" "$installed_payload_id" "$expected_source_commit" "$toolchain"
@@ -605,6 +748,7 @@ assert_output_contains "installed lean-beam --version" "$installed_lean_beam_ver
 assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "beam cli: $installed_version_root/libexec/beam-cli"
 assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "runtime payload: $installed_payload_id"
 assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "manifest: $installed_version_root/manifest.json"
+assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "runtime current: true"
 if [ -n "$expected_source_commit" ]; then
   assert_output_contains "installed lean-beam --version" "$installed_lean_beam_version" "source commit: $expected_source_commit"
 fi
@@ -616,9 +760,104 @@ assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_versi
 assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "beam cli: $installed_version_root/libexec/beam-cli"
 assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "runtime payload: $installed_payload_id"
 assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "manifest: $installed_version_root/manifest.json"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "runtime current: true"
 if [ -n "$expected_source_commit" ]; then
   assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "source commit: $expected_source_commit"
 fi
+
+reuse_guard_backup="$tmp_root/runtime-reuse-Beam.lean"
+reuse_guard_err="$tmp_root/runtime-reuse.err"
+cp "$installed_version_root/Beam.lean" "$reuse_guard_backup"
+printf '\n-- corrupt installed runtime reuse fixture\n' >>"$installed_version_root/Beam.lean"
+if run_install_from_source --toolchain "$toolchain" 2>"$reuse_guard_err"; then
+  mv "$reuse_guard_backup" "$installed_version_root/Beam.lean"
+  echo "expected reinstall to reject a corrupted content-addressed runtime" >&2
+  exit 1
+fi
+mv "$reuse_guard_backup" "$installed_version_root/Beam.lean"
+assert_contains_literal "$reuse_guard_err" \
+  'refusing to reuse installed Beam runtime whose contents do not match its payload hash'
+assert_symlink_target "$installed_runtime_root" "$installed_version_root"
+assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
+assert_not_exists "$BEAM_INSTALL_ROOT/.install-lock"
+remove_tmp_file "$reuse_guard_err"
+
+reuse_mode_err="$tmp_root/runtime-reuse-mode.err"
+chmod -x "$installed_version_root/libexec/beam-cli"
+if run_install_from_source --toolchain "$toolchain" 2>"$reuse_mode_err"; then
+  chmod +x "$installed_version_root/libexec/beam-cli"
+  echo "expected reinstall to reject a runtime with a non-executable command" >&2
+  exit 1
+fi
+chmod +x "$installed_version_root/libexec/beam-cli"
+assert_contains_literal "$reuse_mode_err" \
+  'installed runtime has a non-executable command:'
+assert_symlink_target "$installed_runtime_root" "$installed_version_root"
+assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
+assert_not_exists "$BEAM_INSTALL_ROOT/.install-lock"
+remove_tmp_file "$reuse_mode_err"
+
+reuse_legacy_manifest_backup="$tmp_root/runtime-reuse-legacy-manifest.json"
+reuse_legacy_manifest_err="$tmp_root/runtime-reuse-legacy-manifest.err"
+cp "$installed_version_root/manifest.json" "$reuse_legacy_manifest_backup"
+python3 - "$installed_version_root/manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    manifest = json.load(stream)
+manifest["schemaVersion"] = 2
+manifest["toolchains"] = manifest.pop("createdWithToolchains")
+# Recreate the final layout that Beam actually emitted under schema 2.
+artifacts = manifest["artifacts"]
+artifacts["rootFiles"].insert(2, "lakefile.toml")
+artifacts["runtimePaths"].append(".lake/packages")
+artifacts["sourceHashInputs"] = artifacts["rootFiles"] + ["Beam/**"]
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(manifest, stream)
+    stream.write("\n")
+PY
+if run_install_from_source --toolchain "$toolchain" 2>"$reuse_legacy_manifest_err"; then
+  mv "$reuse_legacy_manifest_backup" "$installed_version_root/manifest.json"
+  echo "expected reinstall to reject a cleanup-only schema-2 runtime manifest" >&2
+  exit 1
+fi
+mv "$reuse_legacy_manifest_backup" "$installed_version_root/manifest.json"
+assert_contains_literal "$reuse_legacy_manifest_err" \
+  'refusing to reuse legacy Beam install manifest schemaVersion 2'
+assert_symlink_target "$installed_runtime_root" "$installed_version_root"
+assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
+assert_not_exists "$BEAM_INSTALL_ROOT/.install-lock"
+remove_tmp_file "$reuse_legacy_manifest_err"
+
+reuse_manifest_backup="$tmp_root/runtime-reuse-manifest.json"
+reuse_manifest_err="$tmp_root/runtime-reuse-manifest.err"
+cp "$installed_version_root/manifest.json" "$reuse_manifest_backup"
+python3 - "$installed_version_root/manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    manifest = json.load(stream)
+manifest["schemaVersion"] = 999
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(manifest, stream)
+    stream.write("\n")
+PY
+if run_install_from_source --toolchain "$toolchain" 2>"$reuse_manifest_err"; then
+  mv "$reuse_manifest_backup" "$installed_version_root/manifest.json"
+  echo "expected reinstall to reject an invalid typed runtime manifest" >&2
+  exit 1
+fi
+mv "$reuse_manifest_backup" "$installed_version_root/manifest.json"
+assert_contains_literal "$reuse_manifest_err" \
+  'unsupported install manifest schemaVersion 999'
+assert_symlink_target "$installed_runtime_root" "$installed_version_root"
+assert_version_count "$BEAM_INSTALL_ROOT/versions" 1
+assert_not_exists "$BEAM_INSTALL_ROOT/.install-lock"
+remove_tmp_file "$reuse_manifest_err"
 
 assert_not_exists "$CODEX_HOME"
 assert_not_exists "$CLAUDE_HOME"
@@ -685,7 +924,7 @@ run_custom_toolchain_install_test() (
   assert_runtime_layout "$custom_installed_runtime_root"
   assert_contains_literal "$custom_installed_runtime_root/custom-lean-toolchains" "$custom_toolchain"
   assert_version_count "$custom_install_root/versions" 1
-  custom_installed_version_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$custom_installed_runtime_root")"
+  custom_installed_version_root="$(beam_test_realpath "$custom_installed_runtime_root")"
   custom_installed_payload_id="$(basename "$custom_installed_version_root")"
   BEAM_INSTALL_LAYOUT_JSON="$install_layout_json" assert_manifest_metadata \
     "$custom_installed_runtime_root/manifest.json" \

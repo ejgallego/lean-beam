@@ -101,6 +101,16 @@ Dropping the default workspace does not stop remaining named workspaces. `lean_l
 map and contains any remaining named workspaces; statistics are not projected through an implicit
 default workspace.
 
+`beam_version` returns the running server identity in `structuredContent`. Installed runtime
+identities include the optional Boolean `runtime_current`: `true` means the process belongs to the
+runtime selected by the install root's `current` link, while `false` means it is stale or that the
+link is missing. Source-checkout identities omit this field. Invalid installed state also includes
+the optional string `runtime_error`; the tool call still succeeds so clients can report the broken
+identity. Restart an agent or MCP client for `runtime_current: false`. For `runtime_error`, stop Beam
+clients and follow the error-specific
+[installed-runtime recovery guidance](SETUP.md#prune-old-installed-state) before resuming normal
+work.
+
 Direct MCP clients should call `lean_update` before snapshot-bound tools such as `lean_run_at`,
 `lean_run_at_handle`, `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
 `lean_document_symbols`, `lean_goals`, `lean_todo`, and `lean_code_action_resolve`; those calls

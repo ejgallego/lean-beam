@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Beam.Cli.RuntimeBundle.Fingerprint
 import Beam.Cli.RuntimeBundle.Paths
+import Beam.Path
 
 open Lean
 
@@ -23,12 +24,57 @@ private structure BundleMetadata where
   builtAt : String
   deriving FromJson, ToJson
 
-def bundleArtifactsReady (workspace : System.FilePath) : IO Bool := do
+private def checkBundleMetadataShape (metadata : BundleMetadata) : Except String Unit := do
+  if metadata.schemaVersion != bundleMetadataSchemaVersion then
+    throw s!"unsupported bundle metadata schemaVersion {metadata.schemaVersion}"
+  if metadata.toolchain.isEmpty then
+    throw "bundle metadata toolchain must not be empty"
+  if metadata.toolchainFingerprint.leanVersion.isEmpty ||
+      metadata.toolchainFingerprint.leanPrefix.isEmpty ||
+      metadata.toolchainFingerprint.leanLibDir.isEmpty ||
+      metadata.toolchainFingerprint.lakeVersion.isEmpty then
+    throw "bundle metadata toolchain fingerprint fields must not be empty"
+  if metadata.sourceHash.isEmpty then
+    throw "bundle metadata sourceHash must not be empty"
+  if metadata.workspace.isEmpty then
+    throw "bundle metadata workspace must not be empty"
+  if metadata.builtAt.isEmpty then
+    throw "bundle metadata builtAt must not be empty"
+
+private def checkBundleMetadataMatches
+    (toolchain srcHash : String)
+    (fingerprint : ToolchainFingerprint)
+    (metadata : BundleMetadata) : Except String Unit := do
+  if metadata.toolchain != toolchain then
+    throw s!"bundle metadata toolchain mismatch: expected {toolchain}, got {metadata.toolchain}"
+  if metadata.toolchainFingerprint != fingerprint then
+    throw "bundle metadata toolchain fingerprint mismatch"
+  if metadata.sourceHash != srcHash then
+    throw s!"bundle metadata sourceHash mismatch: expected {srcHash}, got {metadata.sourceHash}"
+
+private def bundleMetadataWorkspaceMatches
+    (metadata : BundleMetadata) (workspace : System.FilePath) : IO Bool :=
+  Beam.sameFilePath (System.FilePath.mk metadata.workspace) workspace
+
+private def bundleArtifactsReady (workspace : System.FilePath) : IO Bool := do
   let paths := bundlePathsFor workspace
-  return (← paths.daemon.pathExists) && (← paths.client.pathExists) && (← paths.plugin.pathExists)
+  return (← Beam.regularNonSymlinkFile paths.daemon) &&
+    (← Beam.regularNonSymlinkFile paths.client) &&
+    (← Beam.regularNonSymlinkFile paths.plugin)
 
 def bundleMetadataPath (bundleDir : System.FilePath) : System.FilePath :=
   bundleDir / "metadata.json"
+
+private def readBundleMetadata? (bundleDir : System.FilePath) : IO (Option BundleMetadata) := do
+  let path := bundleMetadataPath bundleDir
+  unless ← Beam.regularNonSymlinkFile path do
+    return none
+  try
+    let json ← IO.ofExcept <| Json.parse (← IO.FS.readFile path)
+    let metadata : BundleMetadata ← IO.ofExcept <| fromJson? json
+    pure (some metadata)
+  catch _ =>
+    pure none
 
 def bundleMetadataJson
     (toolchain srcHash : String)
@@ -44,46 +90,30 @@ def bundleMetadataJson
     builtAt
   } : BundleMetadata)
 
-def checkBundleMetadataJson
-    (toolchain srcHash : String)
-    (fingerprint : ToolchainFingerprint)
-    (_workspace : System.FilePath)
-    (json : Json) : Except String Unit := do
-  let metadata : BundleMetadata ← fromJson? json
-  if metadata.schemaVersion != bundleMetadataSchemaVersion then
-    throw s!"unsupported bundle metadata schemaVersion {metadata.schemaVersion}"
-  if metadata.toolchain != toolchain then
-    throw s!"bundle metadata toolchain mismatch: expected {toolchain}, got {metadata.toolchain}"
-  if metadata.toolchainFingerprint != fingerprint then
-    throw "bundle metadata toolchain fingerprint mismatch"
-  if metadata.sourceHash != srcHash then
-    throw s!"bundle metadata sourceHash mismatch: expected {srcHash}, got {metadata.sourceHash}"
-  if metadata.workspace.isEmpty then
-    throw "bundle metadata workspace must not be empty"
-  if metadata.builtAt.isEmpty then
-    throw "bundle metadata builtAt must not be empty"
+private def completeBundleMetadata? (bundleDir : System.FilePath) : IO (Option BundleMetadata) := do
+  let workspace := bundleWorkspaceFor bundleDir
+  unless ← bundleArtifactsReady workspace do
+    return none
+  let some metadata ← readBundleMetadata? bundleDir
+    | return none
+  match checkBundleMetadataShape metadata with
+  | .error _ => return none
+  | .ok () => pure ()
+  unless ← bundleMetadataWorkspaceMatches metadata workspace do
+    return none
+  pure (some metadata)
 
-def bundleMetadataReady
-    (bundleDir : System.FilePath)
-    (toolchain srcHash : String)
-    (fingerprint : ToolchainFingerprint)
-    (workspace : System.FilePath) : IO Bool := do
-  let path := bundleMetadataPath bundleDir
-  unless ← path.pathExists do
-    return false
-  try
-    let json ← IO.ofExcept <| Json.parse (← IO.FS.readFile path)
-    match checkBundleMetadataJson toolchain srcHash fingerprint workspace json with
-    | .ok _ => return true
-    | .error _ => return false
-  catch _ =>
-    return false
+/-- Return the source hash only for a structurally complete, artifact-ready bundle. -/
+def completeBundleSourceHash? (bundleDir : System.FilePath) : IO (Option String) := do
+  pure <| (← completeBundleMetadata? bundleDir).map (·.sourceHash)
 
 def bundleReady (bundleDir : System.FilePath) (toolchain srcHash : String)
     (fingerprint : ToolchainFingerprint) : IO Bool := do
-  let workspace := bundleWorkspaceFor bundleDir
-  return (← bundleArtifactsReady workspace) &&
-    (← bundleMetadataReady bundleDir toolchain srcHash fingerprint workspace)
+  let some metadata ← completeBundleMetadata? bundleDir
+    | return false
+  match checkBundleMetadataMatches toolchain srcHash fingerprint metadata with
+  | .ok () => pure true
+  | .error _ => pure false
 
 def writeBundleMetadata (bundleDir : System.FilePath) (toolchain srcHash : String)
     (fingerprint : ToolchainFingerprint) (workspace : System.FilePath) : IO Unit := do

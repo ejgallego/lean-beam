@@ -29,7 +29,7 @@ client1="$(read_json_field "$registry_path" clientBin 2>/dev/null || true)"
 if [ -z "$client1" ]; then
   client1="$client"
 fi
-if [ "$root1" != "$(beam_wrapper_realpath "$project_root")" ]; then
+if [ "$root1" != "$(beam_test_realpath "$project_root")" ]; then
   echo "wrapper registry root mismatch: expected $project_root, got $root1" >&2
   exit 1
 fi

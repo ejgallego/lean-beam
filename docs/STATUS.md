@@ -47,6 +47,8 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   notifications were observed while the request was pending
 - explicit support for installed custom elan-linked Lean toolchains through
   `--custom-toolchain <toolchain>`, recorded in the runtime's `custom-lean-toolchains` registry
+- conservative installed-state maintenance through `lean-beam prune`, with a dry run by default,
+  ownership and manifest validation, and optional stale installed bundle-cache cleanup
 
 ### MCP And Agent Integration
 
@@ -56,7 +58,8 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   connection
 - bug-report identity surfaces: `lean-beam --version`, `lean-beam-mcp --version`, and MCP
   `beam_version` for the running server process, including manifest commit or source checkout
-  commit/branch/dirty data
+  commit/branch/dirty data, installed `runtime_current` status, and structural `runtime_error`
+  reporting for invalid owned markers or manifests
 - feedback report-card surfaces: `lean-beam feedback` and MCP `beam_feedback` return structured
   JSON containing pasteable Markdown, metadata, collection warnings, and optional evidence bundle
   paths; CLI output and MCP `include_collected: true` include collected version/stats/open-file

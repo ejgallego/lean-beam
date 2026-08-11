@@ -78,6 +78,8 @@ beam_lsp_plugin_shared_lib="$(beam_shared_lib_name beam_Beam_LSP)"
 install_root_marker=".lean-beam-install-root"
 skill_owner_marker=".lean-beam-skill"
 install_lock_dir=""
+install_lock_owned=0
+active_staging_root=""
 
 set_bin_home() {
   bin_home="$1"
@@ -135,24 +137,22 @@ set_opencode_config_dir "${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 set_vibe_home "${VIBE_HOME:-$HOME/.vibe}"
 
 runtime_payload_spec=(
-  "copy|rootFiles|Beam.lean|Beam.lean"
-  "copy|rootFiles|lakefile.lean|lakefile.lean"
-  "copy|rootFiles|lakefile.toml|lakefile.toml"
-  "copy|rootFiles|lake-manifest.json|lake-manifest.json"
-  "copy|rootFiles|lean-toolchain|lean-toolchain"
-  "copy|rootFiles|validated-lean-toolchains|validated-lean-toolchains"
-  "copy|rootFiles|compatible-lean-release-lines|compatible-lean-release-lines"
+  "required|rootFiles|Beam.lean|Beam.lean"
+  "required|rootFiles|lakefile.lean|lakefile.lean"
+  "required|rootFiles|lake-manifest.json|lake-manifest.json"
+  "required|rootFiles|lean-toolchain|lean-toolchain"
+  "required|rootFiles|validated-lean-toolchains|validated-lean-toolchains"
+  "required|rootFiles|compatible-lean-release-lines|compatible-lean-release-lines"
   "generated|rootFiles|custom-lean-toolchains|custom-lean-toolchains"
-  "copy|sourceDirs|Beam|Beam"
-  "copy|runtimePaths|.lake/build/bin/beam-cli|libexec/beam-cli"
-  "copy|runtimePaths|.lake/build/bin/beam-daemon|libexec/beam-daemon"
-  "copy|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"
-  "copy|runtimePaths|.lake/build/bin/lean-beam-mcp|libexec/lean-beam-mcp"
-  "copy|runtimePaths|.lake/build/lib/$beam_lsp_plugin_shared_lib|libexec/$beam_lsp_plugin_shared_lib"
-  "copy|runtimePaths|.lake/packages|.lake/packages"
-  "copy|wrapperPaths|scripts/lean-beam|bin/lean-beam"
-  "copy|wrapperPaths|scripts/lean-beam-search|bin/lean-beam-search"
-  "copy|wrapperPaths|scripts/lean-beam-mcp|bin/lean-beam-mcp"
+  "required|sourceDirs|Beam|Beam"
+  "required|runtimePaths|.lake/build/bin/beam-cli|libexec/beam-cli"
+  "required|runtimePaths|.lake/build/bin/beam-daemon|libexec/beam-daemon"
+  "required|runtimePaths|.lake/build/bin/beam-client|libexec/beam-client"
+  "required|runtimePaths|.lake/build/bin/lean-beam-mcp|libexec/lean-beam-mcp"
+  "required|runtimePaths|.lake/build/lib/$beam_lsp_plugin_shared_lib|libexec/$beam_lsp_plugin_shared_lib"
+  "required|wrapperPaths|scripts/lean-beam|bin/lean-beam"
+  "required|wrapperPaths|scripts/lean-beam-search|bin/lean-beam-search"
+  "required|wrapperPaths|scripts/lean-beam-mcp|bin/lean-beam-mcp"
 )
 
 usage() {
@@ -327,13 +327,75 @@ require_owned_staging_dir() {
   esac
 }
 
-ensure_replaceable_path() {
-  local path="$1"
-  local root="$2"
-  local label="$3"
-  require_path_within "$path" "$root" "$label"
-  if [ -d "$path" ] && [ ! -L "$path" ]; then
-    die "refusing to replace directory at $path"
+validate_install_root_marker() {
+  local marker="$install_root/$install_root_marker"
+  local field=""
+  local marked_root=""
+  local marked_root_count=0
+  local schema_count=0
+  local schema_valid=0
+  local owner_count=0
+  local owner_valid=0
+  local resolved_install_root=""
+  local resolved_marked_root=""
+
+  if [ -L "$marker" ] || [ ! -f "$marker" ]; then
+    die "refusing to use non-file Beam install root marker: $marker"
+  fi
+  while IFS= read -r field || [ -n "$field" ]; do
+    case "$field" in
+      schema=*)
+        schema_count=$((schema_count + 1))
+        if [ "$field" = "schema=1" ]; then
+          schema_valid=$((schema_valid + 1))
+        fi
+        ;;
+      owner=*)
+        owner_count=$((owner_count + 1))
+        if [ "$field" = "owner=lean-beam" ]; then
+          owner_valid=$((owner_valid + 1))
+        fi
+        ;;
+      root=*)
+        marked_root_count=$((marked_root_count + 1))
+        if [ "$marked_root_count" -eq 1 ]; then
+          marked_root="${field#root=}"
+        fi
+        ;;
+    esac
+  done <"$marker"
+  if [ "$schema_count" -eq 0 ]; then
+    die "refusing to use Beam install root marker without schema=1: $marker"
+  fi
+  if [ "$schema_count" -ne 1 ] || [ "$schema_valid" -ne 1 ]; then
+    die "refusing to use Beam install root marker with invalid schema fields: $marker"
+  fi
+  if [ "$owner_count" -eq 0 ]; then
+    die "refusing to use Beam install root marker without owner=lean-beam: $marker"
+  fi
+  if [ "$owner_count" -ne 1 ] || [ "$owner_valid" -ne 1 ]; then
+    die "refusing to use Beam install root marker with invalid owner fields: $marker"
+  fi
+  if [ "$marked_root_count" -eq 0 ] || [ -z "$marked_root" ]; then
+    die "refusing to use Beam install root marker without root: $marker"
+  fi
+  if [ "$marked_root_count" -ne 1 ]; then
+    die "refusing to use Beam install root marker with multiple roots: $marker"
+  fi
+  case "$marked_root" in
+    /*)
+      ;;
+    *)
+      die "refusing to use Beam install root marker with non-absolute root: $marker"
+      ;;
+  esac
+  if [ ! -d "$marked_root" ]; then
+    die "refusing to use Beam install root marker with missing root: $marker"
+  fi
+  resolved_install_root="$(cd -P "$install_root" && pwd)"
+  resolved_marked_root="$(cd -P "$marked_root" && pwd)"
+  if [ "$resolved_install_root" != "$resolved_marked_root" ]; then
+    die "refusing to use Beam install root marker naming a different root: $marker"
   fi
 }
 
@@ -349,7 +411,8 @@ ensure_install_root_claimable() {
   if [ ! -d "$install_root" ]; then
     die "refusing to use non-directory install root: $install_root"
   fi
-  if [ -f "$install_root/$install_root_marker" ]; then
+  if [ -e "$install_root/$install_root_marker" ] || [ -L "$install_root/$install_root_marker" ]; then
+    validate_install_root_marker
     return 0
   fi
   while IFS= read -r entry; do
@@ -367,7 +430,8 @@ ensure_install_root_claimable() {
 
 write_install_root_marker() {
   local marker="$install_root/$install_root_marker"
-  if [ -f "$marker" ]; then
+  if [ -e "$marker" ] || [ -L "$marker" ]; then
+    validate_install_root_marker
     return 0
   fi
   confirm_path_edit "mark Beam install root as installer-owned" "$marker"
@@ -387,19 +451,30 @@ ensure_install_root_ready() {
 }
 
 release_install_lock() {
-  if [ -d "$install_lock_dir" ] && [ -f "$install_lock_dir/pid" ]; then
-    rm -f -- "$install_lock_dir/pid"
-    rmdir "$install_lock_dir" 2>/dev/null || true
+  if [ "$install_lock_owned" -eq 1 ]; then
+    if [ -d "$install_lock_dir" ]; then
+      rm -f -- "$install_lock_dir/pid"
+      rmdir "$install_lock_dir" 2>/dev/null || true
+    fi
+    install_lock_owned=0
   fi
 }
 
 acquire_install_lock() {
   require_path_within "$install_lock_dir" "$install_root" "install lock"
   if mkdir "$install_lock_dir"; then
-    printf '%s\n' "$$" >"$install_lock_dir/pid"
+    install_lock_owned=1
     trap 'release_install_lock' EXIT
+    printf '%s\n' "$$" >"$install_lock_dir/pid"
   else
     die "another Beam install appears to be running: $install_lock_dir"
+  fi
+}
+
+cleanup_failed_install() {
+  release_install_lock
+  if [ -n "$active_staging_root" ]; then
+    remove_owned_staging_dir "$active_staging_root"
   fi
 }
 
@@ -445,16 +520,17 @@ remove_owned_staging_dir() {
   rm -rf -- "$path"
 }
 
-copy_repo_path_if_present() {
+copy_required_repo_path() {
   local src="$1"
   local dest="$2"
   local dest_root="$3"
   require_path_within "$src" "$repo_root" "copy source"
   require_path_within "$dest" "$dest_root" "copy destination"
-  if [ -e "$src" ]; then
-    ensure_dir_for_install "$(dirname "$dest")" "copy destination parent"
-    cp -Rp "$src" "$dest"
+  if [ ! -e "$src" ] && [ ! -L "$src" ]; then
+    die "missing required runtime payload source: $src"
   fi
+  ensure_dir_for_install "$(dirname "$dest")" "copy destination parent"
+  cp -Rp "$src" "$dest"
 }
 
 move_staging_dir_into_versions() {
@@ -1050,24 +1126,74 @@ print_install_plan() {
   fi
 }
 
-hash_tree() {
+hash_runtime_payload() {
   local root="$1"
   local tool
   tool="$(hash_tool)"
   if [ "$tool" = "sha256sum" ]; then
     (
       cd "$root"
-      find . -type f -print | LC_ALL=C sort | while IFS= read -r rel; do
+      find . -type f ! -path './manifest.json' -print | LC_ALL=C sort | while IFS= read -r rel; do
         sha256sum "$rel"
       done | sha256sum | awk '{print $1}'
     )
   else
     (
       cd "$root"
-      find . -type f -print | LC_ALL=C sort | while IFS= read -r rel; do
+      find . -type f ! -path './manifest.json' -print | LC_ALL=C sort | while IFS= read -r rel; do
         shasum -a 256 "$rel"
       done | shasum -a 256 | awk '{print $1}'
     )
+  fi
+}
+
+validate_runtime_payload_layout() {
+  local root="$1"
+  local entry=""
+  local category=""
+  local dest_rel=""
+  local path=""
+  for entry in ${runtime_payload_spec[@]+"${runtime_payload_spec[@]}"}; do
+    IFS='|' read -r _ category _ dest_rel <<< "$entry"
+    path="$root/$dest_rel"
+    case "$category" in
+      sourceDirs)
+        if [ -L "$path" ] || [ ! -d "$path" ]; then
+          die "installed runtime is missing required source directory: $path"
+        fi
+        ;;
+      rootFiles|runtimePaths|wrapperPaths)
+        if [ -L "$path" ] || [ ! -f "$path" ]; then
+          die "installed runtime is missing required regular file: $path"
+        fi
+        ;;
+      *)
+        die "unknown runtime payload category: $category"
+        ;;
+    esac
+    case "$dest_rel" in
+      libexec/beam-cli|libexec/beam-daemon|libexec/beam-client|libexec/lean-beam-mcp|bin/lean-beam|bin/lean-beam-search|bin/lean-beam-mcp)
+        if [ ! -x "$path" ]; then
+          die "installed runtime has a non-executable command: $path"
+        fi
+        ;;
+    esac
+  done
+  if [ -L "$root/manifest.json" ] || [ ! -f "$root/manifest.json" ]; then
+    die "installed runtime manifest must be a regular non-symlinked file: $root/manifest.json"
+  fi
+}
+
+validate_runtime_version_for_reuse() {
+  local version_root="$1"
+  local expected_payload_id="$2"
+  local actual_payload_id=""
+  require_path_within "$version_root" "$versions_root" "installed runtime version"
+  "$beam_cli" install-runtime-validate "$version_root"
+  validate_runtime_payload_layout "$version_root"
+  actual_payload_id="$(hash_runtime_payload "$version_root")"
+  if [ "$actual_payload_id" != "$expected_payload_id" ]; then
+    die "refusing to reuse installed Beam runtime whose contents do not match its payload hash: $version_root; stop active Beam clients, move this exact runtime aside for inspection, and rerun the installer"
   fi
 }
 
@@ -1113,8 +1239,8 @@ stage_runtime_tree() {
   for entry in ${runtime_payload_spec[@]+"${runtime_payload_spec[@]}"}; do
     IFS='|' read -r mode _ src_rel dest_rel <<< "$entry"
     case "$mode" in
-      copy)
-        copy_repo_path_if_present "$repo_root/$src_rel" "$dest/$dest_rel" "$dest"
+      required)
+        copy_required_repo_path "$repo_root/$src_rel" "$dest/$dest_rel" "$dest"
         ;;
       generated)
         case "$dest_rel" in
@@ -1135,11 +1261,6 @@ stage_runtime_tree() {
         ;;
     esac
   done
-}
-
-stage_install_version() {
-  local dest="$1"
-  stage_runtime_tree "$dest"
 }
 
 write_install_manifest() {
@@ -1271,8 +1392,8 @@ prepare_install_environment() {
 
 prepare_install_version() {
   local staging_root="$1"
-  stage_install_version "$staging_root"
-  prepared_payload_id="$(hash_tree "$staging_root")"
+  stage_runtime_tree "$staging_root"
+  prepared_payload_id="$(hash_runtime_payload "$staging_root")"
   prepared_version_root="$versions_root/$prepared_payload_id"
   prepared_source_commit="$(repo_source_commit)"
   write_install_manifest \
@@ -1280,21 +1401,13 @@ prepare_install_version() {
     "$prepared_payload_id" \
     "$prepared_source_commit" \
     ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
-  if [ ! -d "$prepared_version_root" ]; then
-    move_staging_dir_into_versions "$staging_root" "$prepared_version_root"
-  else
-    if [ ! -f "$prepared_version_root/manifest.json" ]; then
-      die "refusing to reuse unmarked existing version directory: $prepared_version_root"
-    fi
+  if [ -d "$prepared_version_root" ]; then
+    validate_runtime_version_for_reuse "$prepared_version_root" "$prepared_payload_id"
     remove_owned_staging_dir "$staging_root"
+    return 0
   fi
-  if [ ! -f "$prepared_version_root/manifest.json" ]; then
-    write_install_manifest \
-      "$prepared_version_root/manifest.json" \
-      "$prepared_payload_id" \
-      "$prepared_source_commit" \
-      ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}
-  fi
+  move_staging_dir_into_versions "$staging_root" "$prepared_version_root"
+  validate_runtime_version_for_reuse "$prepared_version_root" "$prepared_payload_id"
 }
 
 prebuild_install_bundles() {
@@ -1550,17 +1663,16 @@ print_install_summary() {
 }
 
 main() {
-  local staging_root=""
   setup_styles
   parse_args "$@"
   validate_install_config
   prepare_install_environment
 
   confirm_path_edit "create Beam staging directory" "$install_root/.staging-XXXXXX"
-  staging_root="$(mktemp -d "$install_root/.staging-XXXXXX")"
-  trap 'remove_owned_staging_dir "$staging_root"; release_install_lock' EXIT
-  prepare_install_version "$staging_root"
-  staging_root=""
+  active_staging_root="$(mktemp -d "$install_root/.staging-XXXXXX")"
+  trap 'cleanup_failed_install' EXIT
+  prepare_install_version "$active_staging_root"
+  active_staging_root=""
   trap 'release_install_lock' EXIT
 
   prebuild_install_bundles "$prepared_version_root" ${prepared_selected_toolchains[@]+"${prepared_selected_toolchains[@]}"}

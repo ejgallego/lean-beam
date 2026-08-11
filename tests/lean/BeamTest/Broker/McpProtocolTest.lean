@@ -145,6 +145,20 @@ private def checkIncoming : IO Unit := do
     | .ok _ => throw <| IO.userError s!"invalid response decoded: {invalidResponse.compress}"
     | .error _ => pure ()
 
+private def checkVersionIdentityJson : IO Unit := do
+  let current := Beam.Version.Identity.asJson {
+    name := "identity-fixture"
+    runtimeCurrent? := some true
+  }
+  requireJsonBool "runtime identity json" "runtime_current" true current
+  let source := Beam.Version.Identity.asJson { name := "source-fixture" }
+  requireFieldAbsent "source identity json" "runtime_current" source
+  let invalid := Beam.Version.Identity.asJson {
+    name := "invalid-installed-fixture"
+    runtimeError? := some "invalid install manifest"
+  }
+  requireJsonString "invalid runtime identity json" "runtime_error" "invalid install manifest" invalid
+
 private def requireJsonArray (label : String) : Json → IO (Array Json)
   | Json.arr values => pure values
   | other => throw <| IO.userError s!"{label} is not an array: {other.compress}"
@@ -1033,6 +1047,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
 def main : IO Unit := do
   checkJsonHelpers
+  checkVersionIdentityJson
   checkIncoming
   checkToolsListShape
   checkRootsProtocol

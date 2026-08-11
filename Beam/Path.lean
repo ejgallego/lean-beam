@@ -8,6 +8,14 @@ import Lean
 
 namespace Beam
 
+/-- Return whether `path` itself is a regular file, without following symbolic links. -/
+def regularNonSymlinkFile (path : System.FilePath) : IO Bool := do
+  try
+    let metadata ← path.symlinkMetadata
+    pure (metadata.type == IO.FS.FileType.file)
+  catch _ =>
+    pure false
+
 /-- Resolve a path that must already exist. -/
 def resolveExistingPath (path : System.FilePath) : IO System.FilePath :=
   IO.FS.realPath path

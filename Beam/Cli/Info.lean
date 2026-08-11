@@ -200,15 +200,17 @@ def printCompatibleReleaseLines (home : System.FilePath) : IO Unit := do
 def printInstallLayout : IO Unit := do
   printJsonLine (toJson installLayout)
 
-def printInstallManifest (payloadHash : String) (sourceCommitArg : String) (toolchains : List String) : IO Unit := do
-  if toolchains.isEmpty then
-    throw <| IO.userError "usage: beam install-manifest <payload-hash> <source-commit|-> <toolchain...>"
+def printInstallManifest (payloadHash : String) (sourceCommitArg : String)
+    (createdWithToolchains : List String) : IO Unit := do
+  if createdWithToolchains.isEmpty then
+    throw <| IO.userError
+      "usage: beam install-manifest <payload-hash> <source-commit|-> <creation-toolchain...>"
   let sourceCommit? :=
     if sourceCommitArg == "-" then
       none
     else
       some sourceCommitArg
-  printJsonLine (installManifestJson payloadHash sourceCommit? toolchains)
+  printJsonLine (installManifestJson payloadHash sourceCommit? createdWithToolchains)
 
 def printMcpConfig (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   let root ← projectRoot opts .lean

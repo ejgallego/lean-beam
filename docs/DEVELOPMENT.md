@@ -403,12 +403,16 @@ Daemon registry management, daemon startup/reuse, endpoint selection, and wrappe
 [Beam/Cli/DaemonManager.lean](../Beam/Cli/DaemonManager.lean). Broker request plumbing, progress
 messages, cancellation-on-interrupt, and response failure notes live in
 [Beam/Cli/Broker.lean](../Beam/Cli/Broker.lean). User-facing stdout/stderr formatting helpers live
-in [Beam/Cli/Output.lean](../Beam/Cli/Output.lean). Doctor, supported-toolchain, install-manifest,
-and MCP config reporting live in [Beam/Cli/Info.lean](../Beam/Cli/Info.lean). The command dispatch
+in [Beam/Cli/Output.lean](../Beam/Cli/Output.lean). Doctor, validated/compatible toolchain registry,
+install layout/manifest, and MCP config reporting live in
+[Beam/Cli/Info.lean](../Beam/Cli/Info.lean). The command dispatch
 table lives in [Beam/Cli/Commands.lean](../Beam/Cli/Commands.lean), and [Beam/Cli/Usage.lean](../Beam/Cli/Usage.lean)
 owns the help text. Lean command to broker-request projection lives in
-[Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Install and bundle layout metadata lives in
-[Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Runtime bundle compatibility imports
+[Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Install and bundle layout metadata,
+typed manifest parsing, install-root ownership checks, and source/installed/invalid runtime
+classification live in [Beam/Cli/InstallLayout.lean](../Beam/Cli/InstallLayout.lean). Conservative
+installed-state planning and removal lives in
+[Beam/Cli/InstallPrune.lean](../Beam/Cli/InstallPrune.lean). Runtime bundle compatibility imports
 live in [Beam/Cli/RuntimeBundle.lean](../Beam/Cli/RuntimeBundle.lean); implementation details are
 split under [Beam/Cli/RuntimeBundle](../Beam/Cli/RuntimeBundle). Keep source hashing, resolved
 toolchain fingerprinting, metadata acceptance, and fallback bundle builds in their focused
@@ -416,6 +420,11 @@ submodules instead of growing the umbrella import. Bundle IDs and metadata must 
 Beam runtime source hash and the resolved Lean/Lake fingerprint so local custom toolchain relinks
 and reported identity changes cannot silently reuse stale helpers. The user-facing model is in
 [CUSTOM_TOOLCHAINS.md](CUSTOM_TOOLCHAINS.md).
+
+Install manifests describe required staged artifacts, not optional future layout. New manifests
+write schema 3 and name creation-time toolchain provenance explicitly. Schema 2 remains readable for
+identity and `lean-beam prune`, but installer reuse requires the current schema; the compatibility
+window and removal trigger live in [COMPATIBILITY.md](COMPATIBILITY.md).
 Keep [Beam/Cli.lean](../Beam/Cli.lean) as the executable entry point: parse top-level options,
 resolve `BEAM_HOME`, and delegate to `runCommand`.
 

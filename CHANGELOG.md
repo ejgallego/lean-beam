@@ -8,6 +8,11 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
+- `lean-beam prune` previews obsolete installed runtime snapshots; `--apply` removes them, and
+  `--bundles` also selects stale or incomplete installed bundle-cache entries.
+- Installed runtime identities report whether the running CLI or MCP process still belongs to the
+  current runtime selected by the installer and expose invalid installed state without
+  misclassifying it as a source checkout.
 - Canonical Lean RC and patch toolchains from declared compatible release lines can now build
   exact-fingerprint bundles that pass a local plugin qualification probe before use.
 - Validated Lean `v4.33.0-rc2` support.
@@ -28,6 +33,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 - Lean MCP tool descriptions now state the source-file invariant: Beam reads saved `.lean` source
   but never applies source edits. Speculative tools do not persist source, save commands write build
   artifacts only, and code-action edits are returned for clients to apply.
+- Install manifest schema 3 names immutable creation-time toolchain provenance explicitly and lists
+  only required staged artifacts; schema-2 runtimes remain readable for identity and safe cleanup but
+  are not reused by reinstall.
 
 ### Fixed
 
@@ -36,6 +44,14 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
   with `saveUnsupportedSetup`, now with guidance to use `leanOptions` or `lake build`. Running Lean
   sessions must be restarted after Lake workspace configuration changes before the next operation
   that uses the Lean server.
+- Reinstalling an existing content-addressed runtime now validates its owned install marker, typed
+  manifest, required artifacts, executable commands, and payload contents instead of silently
+  reusing corrupted installed state, and failed validation releases the installer lock.
+- Bundle readiness and installed-cache pruning now require regular, non-symlinked runtime artifacts
+  instead of accepting any existing filesystem entry at an artifact path.
+- Install and prune control-file reads now reject non-regular or symlinked paths, and a failed lock
+  owner-PID write removes the lock directory acquired by that process.
+- `lean-beam ensure --hold` now exits cleanly and promptly after `SIGINT`.
 - `lean-save` and `lean-close-save` now stage and commit complete artifact sets, preserving prior
   outputs on reported failure or cancellation and preventing same-worker saves from mixing files
   ([#217](https://github.com/ejgallego/lean-beam/pull/217), @ejgallego).

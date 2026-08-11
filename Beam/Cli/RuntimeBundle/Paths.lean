@@ -63,6 +63,13 @@ def installBundlesDirName : String :=
 def runtimeBundlesDirName : String :=
   "bundles"
 
+/--
+The build lock lives beside a bundle rather than inside it so cleanup can remove the complete
+bundle directory without deleting the lock that protects that removal.
+-/
+def bundleBuildLockPath (platformRoot : System.FilePath) (bundleId : String) : System.FilePath :=
+  platformRoot / ".locks" / bundleId
+
 def beamStateDir (root : System.FilePath) : System.FilePath :=
   root / beamStateDirName
 

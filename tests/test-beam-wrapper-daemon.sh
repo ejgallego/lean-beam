@@ -12,20 +12,40 @@ cd "$(dirname "$0")/.."
 . tests/lib/beam-wrapper-common.sh
 
 beam_script="$PWD/scripts/lean-beam"
+beam_cli="$PWD/.lake/build/bin/beam-cli"
 
 if [ ! -x "$beam_script" ]; then
   echo "missing lean-beam wrapper at $beam_script" >&2
   exit 1
 fi
+if [ ! -x "$beam_cli" ]; then
+  echo "missing beam-cli at $beam_cli" >&2
+  exit 1
+fi
 
 stop_hold_process() {
+  local require_clean_exit="${1:-false}"
   if [ -n "$hold_pid" ]; then
     kill -INT "$hold_pid" > /dev/null 2>&1 || true
     if ! wait_for_exit "$hold_pid" "ensure --hold wrapper" 20 0.1; then
       kill "$hold_pid" > /dev/null 2>&1 || true
       wait "$hold_pid" 2>/dev/null || true
+      hold_pid=""
+      if [ "$require_clean_exit" = "true" ]; then
+        echo "expected ensure --hold wrapper to exit promptly after SIGINT" >&2
+        return 1
+      fi
     else
-      wait "$hold_pid" 2>/dev/null || true
+      local hold_status=0
+      set +e
+      wait "$hold_pid" 2>/dev/null
+      hold_status="$?"
+      set -e
+      hold_pid=""
+      if [ "$require_clean_exit" = "true" ] && [ "$hold_status" -ne 0 ]; then
+        echo "expected ensure --hold wrapper to exit cleanly after SIGINT, got $hold_status" >&2
+        return 1
+      fi
     fi
     hold_pid=""
   fi
@@ -34,6 +54,11 @@ stop_hold_process() {
 tmp1="$(mktemp -d /tmp/beam-wrapper-daemon-a-XXXXXX)"
 tmp3="$(mktemp -d /tmp/beam-wrapper-daemon-c-XXXXXX)"
 tmp9="$(mktemp -d /tmp/beam-wrapper-daemon-i-XXXXXX)"
+owned_bundle_dir=""
+if [ -z "${BEAM_INSTALL_BUNDLE_DIR:-}" ]; then
+  owned_bundle_dir="$(mktemp -d /tmp/beam-wrapper-daemon-bundles-XXXXXX)"
+  export BEAM_INSTALL_BUNDLE_DIR="$owned_bundle_dir"
+fi
 busy_pid=""
 hold_pid=""
 
@@ -49,8 +74,18 @@ cleanup() {
   remove_owned_tmp_tree "$tmp1"
   remove_owned_tmp_tree "$tmp3"
   remove_owned_tmp_tree "$tmp9"
+  if [ -n "$owned_bundle_dir" ]; then
+    remove_owned_tmp_tree "$owned_bundle_dir"
+  fi
 }
 trap cleanup EXIT
+
+if [ -n "$owned_bundle_dir" ]; then
+  expect_owned_tmp_dir "$owned_bundle_dir"
+fi
+
+fixture_toolchain="$(awk 'NR==1 {print $1}' tests/save_olean_project/lean-toolchain)"
+"$beam_cli" bundle-install "$fixture_toolchain"
 
 for tmp in "$tmp1" "$tmp3" "$tmp9"; do
   expect_owned_tmp_dir "$tmp"
@@ -80,7 +115,7 @@ if ! kill -0 "$hold_pid" 2>/dev/null; then
 fi
 hold_json="$(cat "$tmp9/hold.out")"
 assert_json_field_equals "ensure --hold response" "$hold_json" ok true "$tmp9/hold.err"
-stop_hold_process
+stop_hold_process true
 "$beam_script" --root "$tmp9" shutdown > /dev/null
 
 stale_lease_dir="$tmp9/.beam/wrapper-leases"
@@ -119,7 +154,7 @@ expect_file "$reg1"
 pid1="$(read_json_field "$reg1" pid)"
 port1="$(read_json_field "$reg1" port)"
 root1="$(read_json_field "$reg1" root)"
-if [ "$root1" != "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$tmp1")" ]; then
+if [ "$root1" != "$(beam_test_realpath "$tmp1")" ]; then
   echo "wrapper registry root mismatch: expected $tmp1, got $root1" >&2
   exit 1
 fi
