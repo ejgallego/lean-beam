@@ -57,8 +57,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files after initial probe to report savedOlean = false" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_initial" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "false" ]; then
+    echo "expected open-files after initial probe to report checkpointed = false" >&2
     printf '%s\n' "$open_files_initial" >&2
     exit 1
   fi
@@ -88,8 +88,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
   open_files_synced="$("$beam_script" open-files)"
   assert_json_completed_file_progress "open-files after lean-sync" "$open_files_synced" \
     result.sessions.lean.files.0.fileProgress
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files after lean-sync to keep savedOlean = false before lean-save" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_synced" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "false" ]; then
+    echo "expected open-files after lean-sync to keep checkpointed = false before lean-save" >&2
     printf '%s\n' "$open_files_synced" >&2
     exit 1
   fi
@@ -136,8 +136,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
   fi
 
   open_files_saved="$("$beam_script" open-files)"
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_saved" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "true" ]; then
-    echo "expected open-files after lean-save to report savedOlean = true" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_saved" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "true" ]; then
+    echo "expected open-files after lean-save to report checkpointed = true" >&2
     printf '%s\n' "$open_files_saved" >&2
     exit 1
   fi
@@ -149,8 +149,8 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$open_files_dirty" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.savedOlean)" != "false" ]; then
-    echo "expected open-files to clear savedOlean once the on-disk file diverges" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$open_files_dirty" read_json_text_field result.sessions.lean.files.0.checkpointed)" != "false" ]; then
+    echo "expected open-files to clear checkpointed once the on-disk file diverges" >&2
     printf '%s\n' "$open_files_dirty" >&2
     exit 1
   fi

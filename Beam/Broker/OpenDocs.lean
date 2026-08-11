@@ -19,25 +19,41 @@ structure SessionView where
   root : System.FilePath
   docs : DocumentState.Docs := {}
 
-def docSyncStatus (path : System.FilePath) (docState : DocState) : IO String := do
+inductive DiskStatus where
+  | saved
+  | notSaved
+  | missing
+  | unknown
+  deriving BEq
+
+def DiskStatus.key : DiskStatus → String
+  | .saved => "saved"
+  | .notSaved => "notSaved"
+  | .missing => "missing"
+  | .unknown => "unknown"
+
+instance : ToJson DiskStatus where
+  toJson status := toJson status.key
+
+def docDiskStatus (path : System.FilePath) (docState : DocState) : IO DiskStatus := do
   if !(← path.pathExists) then
-    pure "missing"
+    pure .missing
   else
     let text ← IO.FS.readFile path
-    pure <| if hash text == docState.textHash then "saved" else "notSaved"
+    pure <| if hash text == docState.textHash then .saved else .notSaved
 
 def docJson
     (root : System.FilePath)
     (uri : DocumentUri)
     (docState : DocState) : IO Json := do
   let path? := System.Uri.fileUriToPath? uri
-  let relPath? := Beam.pathRelativeToRootFromUri? root uri
+  let relPath? := path?.bind (Beam.pathRelativeToRoot? root)
   let status ←
     match path? with
-    | some path => docSyncStatus path docState
-    | none => pure "unknown"
-  let saved := status == "saved"
-  let savedOlean := saved && docState.savedOleanVersion? == some docState.version
+    | some path => docDiskStatus path docState
+    | none => pure .unknown
+  let checkpointed :=
+    status == .saved && docState.checkpointedVersion? == some docState.version
   let fileProgressFields :=
     match docState.fileProgress? with
     | some fileProgress => [("fileProgress", toJson fileProgress)]
@@ -47,8 +63,7 @@ def docJson
       ("uri", toJson uri),
       ("version", toJson docState.version),
       ("status", toJson status),
-      ("saved", toJson saved),
-      ("savedOlean", toJson savedOlean)
+      ("checkpointed", toJson checkpointed)
     ] ++
     (match relPath?, path? with
     | some relPath, _ => [("path", toJson relPath)]

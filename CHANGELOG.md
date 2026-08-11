@@ -21,8 +21,10 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 - The exact-validation registry and CLI command are now named `validated-lean-toolchains` and
   `validated-toolchains`; `--all-validated` prebuilds that finite exact matrix.
-- `lean-beam open-files` now reports tracked-document state without performing partial Lake save
-  preflight; `lean-beam save` remains the authoritative save eligibility check.
+- `lean-beam open-files` now reports tracked-document state through `status`, `checkpointed`, and
+  `fileProgress`. It no longer emits redundant `saved`, obsolete `savedOlean`, or the partial
+  `saveEligible`, `saveReason`, `saveModule`, and `saveDetail` preflight fields; `lean-beam save`
+  remains the authoritative save eligibility check.
 
 ### Fixed
 

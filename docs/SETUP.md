@@ -191,6 +191,12 @@ lean-beam refresh "MyPkg/Sub/Module.lean"
 lean-beam save "MyPkg/Sub/Module.lean"
 ```
 
+`lean-beam open-files` reports only documents tracked by the current project daemon. Each file's
+`status` is `saved`, `notSaved`, `missing`, or `unknown`, comparing the current on-disk source with
+the broker's tracked text. `checkpointed` means this daemon recorded a successful `lean-beam save`
+for that tracked version and the source still matches. It does not revalidate Lake artifacts or
+predict whether another save will succeed; `lean-beam save` is authoritative for those checks.
+
 The running Lean server and existing file workers are not guaranteed to pick up Lake workspace
 configuration changes. After editing a lakefile, manifest, package override, `lean-toolchain`, Lean
 options, plugins, or dynamic libraries, run `lean-beam shutdown` before the next `lean-beam sync` or

@@ -352,11 +352,11 @@ lean-beam reset-stats
 ```
 
 `lean-beam open-files` shows the files currently tracked by the Beam daemon for the current project,
-along with `saved` / `notSaved`, whether the current synced version has been checkpointed with
-`lean-beam save`, and the last compact `fileProgress` observed for that tracked version. For files
-the Beam daemon already knows about, the wrapper checks saved status incrementally against the
-current on-disk text. Run `lean-beam save` to perform the authoritative Lake module and save-setup
-checks.
+along with on-disk `status`, the daemon-recorded `checkpointed` marker, and the last compact
+`fileProgress` observed for that tracked version. `status` is `saved`, `notSaved`, `missing`, or
+`unknown`. `checkpointed` means this daemon successfully saved the unchanged tracked version; it
+does not revalidate Lake artifacts. Run `lean-beam save` to perform the authoritative Lake module,
+readiness, trace, and setup checks.
 
 Stats are in-memory only and scoped to the current project Beam daemon.
 
