@@ -111,12 +111,18 @@ workspaces are initialized, its required `workspace_id` selects the symbol works
 result rather than a document version. Their required `workspace_id` must match the identity carried
 by the handle. `lean_goals` also requires `mode: "before"` or `mode: "after"`.
 
+Beam's source-file invariant is that Beam never applies source edits to `.lean` files on disk; the
+client applies source edits. `lean_update`, `lean_sync`, and `lean_refresh` read the current saved
+source from disk into Beam's LSP mirror. `lean_save` and `lean_close_save` additionally write
+Lean/Lake build artifacts, never source. `lean_code_action_resolve` only returns a resolved action;
+the client must apply any LSP `WorkspaceEdit` it contains.
+
 `lean_run_at`, `lean_run_at_handle`, `lean_run_with`, and `lean_run_with_linear` are speculative.
-They test supplied text against a selected document snapshot or follow-up handle; none edits the Lean
-file. Do not call `lean_sync` as a way to commit a successful probe. To keep a result, first edit and
-save the Lean file with the client's normal file-editing tool. Then call `lean_update` before another
-snapshot-bound operation, or call `lean_sync` when a diagnostics/readiness barrier is needed. Both
-commands synchronize the current on-disk file; neither applies or recovers speculative text.
+They test supplied text against a selected document snapshot or follow-up handle without persisting
+that text as source. Do not call `lean_sync` as a way to commit a successful probe. To keep a result,
+first edit and save the Lean file with the client's normal file-editing tool. Then call `lean_update`
+before another snapshot-bound operation, or call `lean_sync` when a diagnostics/readiness barrier is
+needed. Both commands read the current on-disk file; neither applies or recovers speculative text.
 
 `lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
 apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so

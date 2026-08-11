@@ -240,11 +240,19 @@ private def checkToolsListShape : IO Unit := do
     let tool ← requireTool tools toolName
     let schema ← requireClosedInputSchema s!"{toolName} input schema" tool
     requireSchemaRequiredFields s!"{toolName} input schema" requiredFields schema
+  let sourceFileInvariant :=
+    "Beam never applies source edits to `.lean` files on disk; the client applies source edits."
+  for operation in Beam.Lean.Operation.all do
+    let toolName := s!"lean_{operation.key}"
+    let tool ← requireTool tools toolName
+    let description ← IO.ofExcept <| tool.getObjValAs? String "description"
+    require s!"{toolName} description should end with the source-file invariant"
+      (description.endsWith sourceFileInvariant)
   for toolName in #["lean_run_at", "lean_run_at_handle", "lean_run_with", "lean_run_with_linear"] do
     let tool ← requireTool tools toolName
     let description ← IO.ofExcept <| tool.getObjValAs? String "description"
     require s!"{toolName} description should explain speculative file behavior"
-      (description.contains "never edits the Lean file" &&
+      (description.contains "not persisted as source" &&
         description.contains "first edit and save the Lean file" &&
         description.contains "only then call lean_sync")
   let runAtHandleTool ← requireTool tools "lean_run_at_handle"
@@ -254,8 +262,23 @@ private def checkToolsListShape : IO Unit := do
   let syncTool ← requireTool tools "lean_sync"
   let syncDescription ← IO.ofExcept <| syncTool.getObjValAs? String "description"
   require "lean_sync description should distinguish saved source from speculative probes"
-    (syncDescription.contains "current on-disk Lean file" &&
-      syncDescription.contains "never applies or recovers text from speculative tools")
+    (syncDescription.contains "Read the current on-disk Lean source" &&
+      syncDescription.contains "never applies or recovers speculative text")
+  for toolName in #["lean_update", "lean_refresh"] do
+    let tool ← requireTool tools toolName
+    let description ← IO.ofExcept <| tool.getObjValAs? String "description"
+    require s!"{toolName} description should state that it reads source from disk"
+      (description.contains "current on-disk Lean source")
+  for toolName in #["lean_save", "lean_close_save"] do
+    let tool ← requireTool tools toolName
+    let description ← IO.ofExcept <| tool.getObjValAs? String "description"
+    require s!"{toolName} description should distinguish build artifacts from source"
+      (description.contains "Lean/Lake build artifacts")
+  let resolveTool ← requireTool tools "lean_code_action_resolve"
+  let resolveDescription ← IO.ofExcept <| resolveTool.getObjValAs? String "description"
+  require "lean_code_action_resolve description should leave edits to the client"
+    (resolveDescription.contains "LSP WorkspaceEdit" &&
+      resolveDescription.contains "client must apply it")
   let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
   let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
   requireFieldPresent "lean_sync input schema" "workspace_id" syncProperties
