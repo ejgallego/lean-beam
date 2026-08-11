@@ -111,6 +111,40 @@ workspaces are initialized, its required `workspace_id` selects the symbol works
 result rather than a document version. Their required `workspace_id` must match the identity carried
 by the handle. `lean_goals` also requires `mode: "before"` or `mode: "after"`.
 
+Beam's source-file invariant is that Beam never applies source edits to `.lean` files on disk; the
+client applies source edits. `lean_update`, `lean_sync`, and `lean_refresh` read the current saved
+source from disk into Beam's LSP mirror. `lean_save` and `lean_close_save` additionally write
+Lean/Lake build artifacts, never source. `lean_code_action_resolve` only returns a resolved action;
+the client must apply any LSP `WorkspaceEdit` it contains.
+
+`lean_run_at`, `lean_run_at_handle`, `lean_run_with`, and `lean_run_with_linear` are speculative.
+They test supplied text against a selected document snapshot or follow-up handle without persisting
+that text as source. Do not call `lean_sync` as a way to commit a successful probe. To keep a result,
+first edit and save the Lean file with the client's normal file-editing tool. Then call `lean_update`
+before another snapshot-bound operation, or call `lean_sync` when a diagnostics/readiness barrier is
+needed. Both commands read the current on-disk file; neither applies or recovers speculative text.
+
+`lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
+apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so
+Beam observes the edited file and reports the new version. Use `lean_sync` instead of `lean_update`
+when the client also needs the diagnostics/readiness barrier.
+
+`lean_save` and `lean_close_save` create development checkpoints from the accepted Lean server
+snapshot, including structured Lake options, dynamic libraries, and plugins already applied by the
+file worker. Modules with batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`; move shared
+`-D` settings to `leanOptions`, or use `lake build` when the arguments are intentionally batch-only.
+Successful checkpoints are normally sufficient for the local development loop, but MCP clients
+should describe them as checkpoint success rather than batch-build or CI success. CI must separately
+run `lake build` from clean artifacts. If no successful clean CI result is available, perform the
+one-time clean local check outside MCP. See the
+[checkpoint contract](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
+
+The running Lean server is not guaranteed to pick up Lake workspace configuration changes. After
+editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
+libraries, call `lean_init_workspace` with `mode: "reset"` (or restart the MCP server) before the next
+tool call that uses that workspace's Lean server. Calling `lean_sync` in the existing runtime is not
+sufficient.
+
 ## Stateless MCP Compatibility Boundary
 
 The current server still advertises MCP `2025-11-25`, requires the legacy initialization sequence,
@@ -132,26 +166,6 @@ The follow-up MCP protocol update is separately responsible for `server/discover
 protocol metadata, modern result envelopes and caching hints, request-scoped logging, and ensuring
 modern stdio never sends server-to-client JSON-RPC requests. MRTR `requestState` is request-local
 continuation data and will not be used as a workspace identifier.
-
-`lean_code_action_resolve` takes a `code_action` payload previously returned by `lean_todo`. Clients
-apply any returned LSP `WorkspaceEdit` themselves, then call `lean_update` or `lean_sync` again so
-Beam observes the edited file and reports the new version. Use `lean_sync` instead of `lean_update`
-when the client also needs the diagnostics/readiness barrier.
-
-`lean_save` and `lean_close_save` create development checkpoints from the accepted Lean server
-snapshot, including structured Lake options, dynamic libraries, and plugins already applied by the
-file worker. Modules with batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`; move shared
-`-D` settings to `leanOptions`, or use `lake build` when the arguments are intentionally batch-only.
-Successful checkpoints are normally sufficient for the local development loop, but MCP clients
-should describe them as checkpoint success rather than batch-build or CI success. CI must separately
-run `lake build` from clean artifacts. If no successful clean CI result is available, perform the
-one-time clean local check outside MCP. See the
-[checkpoint contract](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
-
-The running Lean server is not guaranteed to pick up Lake workspace configuration changes. After
-editing a lakefile or related workspace setup, call `lean_init_workspace` with `mode: "reset"` (or
-restart the MCP server) before the next `lean_sync` or `lean_save`. Re-syncing a file in the existing
-runtime is not sufficient.
 
 ## Public Tool Boundary
 

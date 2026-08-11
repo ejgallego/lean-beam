@@ -117,8 +117,10 @@ field-level contract for update, sync, save, progress, diagnostics, stale-versio
 readiness, and recovery hints lives in [SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md).
 
 If a speculative probe looks right and should become real source, the current contract is still:
-make the real edit in the file, save it, then run `lean-beam sync`. The intended future direction is
-to make that handoff cheap by reusing speculative execution rather than replaying it from scratch.
+make the real edit in the file, save it, then run `lean-beam sync`. After the client has written and
+saved accepted text, the intended future direction is for `lean-beam update` or `lean-beam sync` to
+reuse matching speculative execution rather than replaying it from scratch. Beam would still not
+apply the source edit.
 
 For programmatic local consumers, the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; wrapper stderr should be treated as human-facing. Broker responses
@@ -202,8 +204,8 @@ discriminator.
   worker has already applied them; batch-only `moreLeanArgs` fail with `saveUnsupportedSetup`.
 - Beam does not detect Lake workspace configuration changes during a running Lean session. After
   editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
-  libraries, run `lean-beam shutdown` before the next sync or save; `lean-beam refresh` does not
-  restart the server.
+  libraries, run `lean-beam shutdown` before the next command that uses the Lean server;
+  `lean-beam refresh` does not restart the server.
 - A Beam checkpoint contains the Lean server's accepted environment. Elaborators can
   distinguish server execution from batch execution, so exceptional custom elaboration can produce
   an artifact that differs from a fresh `lake build` artifact. Successful checkpoints are normally

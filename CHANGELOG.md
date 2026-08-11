@@ -25,13 +25,17 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
   `fileProgress`. It no longer emits redundant `saved`, obsolete `savedOlean`, or the partial
   `saveEligible`, `saveReason`, `saveModule`, and `saveDetail` preflight fields; `lean-beam save`
   remains the authoritative save eligibility check.
+- Lean MCP tool descriptions now state the source-file invariant: Beam reads saved `.lean` source
+  but never applies source edits. Speculative tools do not persist source, save commands write build
+  artifacts only, and code-action edits are returned for clients to apply.
 
 ### Fixed
 
 - `lean-save` and `lean-close-save` now reuse the accepted server snapshot for structured Lake
   `leanOptions`, dynamic libraries, and plugins. Modules with batch-only `moreLeanArgs` still fail
   with `saveUnsupportedSetup`, now with guidance to use `leanOptions` or `lake build`. Running Lean
-  sessions must be restarted after Lake workspace configuration changes before syncing or saving.
+  sessions must be restarted after Lake workspace configuration changes before the next operation
+  that uses the Lean server.
 - `lean-save` and `lean-close-save` now stage and commit complete artifact sets, preserving prior
   outputs on reported failure or cancellation and preventing same-worker saves from mixing files
   ([#217](https://github.com/ejgallego/lean-beam/pull/217), @ejgallego).

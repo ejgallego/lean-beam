@@ -98,8 +98,9 @@ batch-only.
 
 Beam assumes Lake workspace configuration remains unchanged while the Lean server is running. After
 editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
-libraries, run `lean-beam shutdown` before the next sync or save. `lean-beam refresh` only reopens a
-file within the current server and is not sufficient. Beam does not detect this configuration drift.
+libraries, run `lean-beam shutdown` before the next command that uses the Lean server.
+`lean-beam refresh` only reopens a file within the current server and is not sufficient. Beam does
+not detect this configuration drift.
 
 ## Save Eligibility
 

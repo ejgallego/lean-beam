@@ -89,9 +89,9 @@ def Operation.key : Operation → String
 instance : ToJson Operation where
   toJson op := toJson op.key
 
-def Operation.description : Operation → String
-  | .runAt => "Run one Lean command or tactic block at a file position without storing follow-up state."
-  | .runAtHandle => "Run one Lean command or tactic block at a file position and store a follow-up handle."
+private def operationDescription : Operation → String
+  | .runAt => "Speculatively test one Lean command or tactic block at a file position without retaining follow-up state. Supplied text remains speculative and is not persisted as source. To keep the result, first edit and save the Lean file with the client's normal file-edit tool; only then call lean_sync."
+  | .runAtHandle => "Speculatively test one Lean command or tactic block at a file position. A successful result may include next_handle for follow-up execution. Supplied text remains speculative and is not persisted as source. To keep the result, first edit and save the Lean file with the client's normal file-edit tool; only then call lean_sync."
   | .hover => "Inspect Lean hover information at a file position."
   | .signatureHelp => "Inspect Lean signature help at a file position."
   | .definition => "Find Lean definitions for the symbol at a file position."
@@ -100,16 +100,22 @@ def Operation.description : Operation → String
   | .workspaceSymbols => "Search Lean workspace symbols by query string."
   | .goals => "Inspect Lean goals before or after a file position."
   | .todo => "Inspect agent-actionable Lean todo items in a file range."
-  | .codeActionResolve => "Resolve a Lean code action payload returned by lean_todo before a client applies its workspace edit."
-  | .runWith => "Run one Lean continuation command or tactic block from a stored handle without consuming the parent handle."
-  | .runWithLinear => "Run one Lean continuation command or tactic block from a stored handle and consume that handle on success or failure."
+  | .codeActionResolve => "Resolve and return a Lean code action payload from lean_todo. If it contains an LSP WorkspaceEdit, the client must apply it."
+  | .runWith => "Speculatively continue from a stored handle without consuming the parent handle. The continuation remains speculative and is not persisted as source. To keep the result, first edit and save the Lean file so it contains the complete accepted source; only then call lean_sync."
+  | .runWithLinear => "Speculatively continue from a stored handle and consume that handle on success or failure. The continuation remains speculative and is not persisted as source. To keep the result, first edit and save the Lean file so it contains the complete accepted source; only then call lean_sync."
   | .release => "Release a stored Lean follow-up handle."
-  | .update => "Open or update a Lean file in the broker and return its document version without waiting for diagnostics."
-  | .sync => "Synchronize a Lean file with the broker and wait for diagnostics."
-  | .refresh => "Close a Lean file in the broker if tracked, then synchronize it again with fresh diagnostics."
-  | .save => "Synchronize a Lean file and save zero-build artifacts when possible."
-  | .closeSave => "Synchronize a Lean file, save zero-build artifacts when possible, and close the file."
-  | .close => "Close a Lean file in the broker session."
+  | .update => "Read the current on-disk Lean source into the broker's LSP mirror and return its document version without waiting for diagnostics."
+  | .sync => "Read the current on-disk Lean source into the broker's LSP mirror, wait for diagnostics and readiness, and return its document version. This never applies or recovers speculative text."
+  | .refresh => "Close the tracked LSP document, reread the current on-disk Lean source, and wait for fresh diagnostics."
+  | .save => "Read and synchronize the current on-disk Lean source, then write Lean/Lake build artifacts as a zero-build development checkpoint when possible."
+  | .closeSave => "Read and synchronize the current on-disk Lean source, write the same Lean/Lake build artifacts when possible, and close the tracked LSP document."
+  | .close => "Close the tracked LSP document."
+
+private def sourceFileInvariant : String :=
+  "Beam never applies source edits to `.lean` files on disk; the client applies source edits."
+
+def Operation.description (operation : Operation) : String :=
+  s!"{operationDescription operation} {sourceFileInvariant}"
 
 private def pathField : String × Json :=
   ("path", Beam.JsonSchema.string "Lean file path, relative to the server root unless absolute.")

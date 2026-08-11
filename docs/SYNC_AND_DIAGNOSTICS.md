@@ -3,6 +3,10 @@
 This is the canonical contract for Beam sync, save, progress, diagnostics, and readiness reporting
 across the wrapper, broker stream, and MCP server.
 
+Beam never applies source edits to `.lean` files on disk; the client applies source edits. The
+commands below read saved source into Beam's LSP mirror or write Lean/Lake build artifacts; none is
+a source-editing command.
+
 ## Command Model
 
 `lean-beam update` is the cheap on-disk edit observation for a Lean file. It reads the current file,
@@ -64,9 +68,9 @@ configuration from `lakefile.lean` text and never batch-builds as part of `save`
 Beam assumes Lake workspace configuration remains unchanged for the lifetime of the running Lean
 server. The server and existing file workers are not guaranteed to pick up edits to a lakefile,
 manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic libraries. After any
-such change, run `lean-beam shutdown` before the next `sync` or `save`; `lean-beam refresh` only
-reopens the file within the current server and is not sufficient. Beam does not detect this
-configuration drift, so reusing a running session after such an edit is unsupported.
+such change, run `lean-beam shutdown` before the next command that uses the Lean server;
+`lean-beam refresh` only reopens the file within the current server and is not sufficient. Beam does
+not detect this configuration drift, so reusing a running session after such an edit is unsupported.
 
 ## Development Checkpoints And Batch Validation
 
