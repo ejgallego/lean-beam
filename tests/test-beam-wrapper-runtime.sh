@@ -477,7 +477,7 @@ cross_err="$(beam_wrapper_mktemp_file cross)"
 cross_req="$(beam_wrapper_mktemp_file cross-req)"
 printf '{"op":"ensure","root":"%s"}\n' "$other_root" > "$cross_req"
 if "$client1" --port "$port1" request - <"$cross_req" >"$cross_err" 2>&1; then
-  echo "expected single-root Beam daemon to reject another project root" >&2
+  echo "expected default Beam workspace to reject another project root" >&2
   cat "$cross_err" >&2
   exit 1
 fi

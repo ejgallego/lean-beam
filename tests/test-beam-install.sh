@@ -1190,7 +1190,7 @@ send({
     "jsonrpc": "2.0",
     "id": 2,
     "method": "tools/call",
-    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean", "workspace_id": "default"}},
 })
 sync = recv(2)
 result = sync.get("result")

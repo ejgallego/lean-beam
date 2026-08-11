@@ -322,7 +322,12 @@ def main():
                         "method": "tools/call",
                         "params": {
                             "name": "lean_run_at",
-                            "arguments": {"path": "PositionEmptyLine.lean", "line": 1, "character": 0},
+                            "arguments": {
+                                "path": "PositionEmptyLine.lean",
+                                "line": 1,
+                                "character": 0,
+                                "workspace_id": "default",
+                            },
                         },
                     },
                     timeout=args.timeout,
@@ -336,7 +341,10 @@ def main():
                     "jsonrpc": "2.0",
                     "id": 5,
                     "method": "tools/call",
-                    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean"}},
+                    "params": {
+                        "name": "lean_sync",
+                        "arguments": {"path": "PositionEmptyLine.lean", "workspace_id": "default"},
+                    },
                 },
                 timeout=args.timeout,
             ))
@@ -361,6 +369,7 @@ def main():
                             "line": 1,
                             "character": 0,
                             "text": "def mcpHttpProbe : Nat := 1",
+                            "workspace_id": "default",
                         },
                     },
                 },
@@ -380,7 +389,11 @@ def main():
                     "method": "tools/call",
                     "params": {
                         "name": "lean_sync",
-                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                        "arguments": {
+                            "path": "SaveSmoke/B.lean",
+                            "full_diagnostics": True,
+                            "workspace_id": "default",
+                        },
                     },
                 },
                 timeout=args.timeout,

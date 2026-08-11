@@ -175,19 +175,22 @@ private def checkToolsListShape : IO Unit := do
   require "tools/list is non-empty" (!tools.isEmpty)
   let initTool ← requireTool tools "lean_init_workspace"
   let initSchema ← requireClosedInputSchema "lean_init_workspace input schema" initTool
-  requireSchemaRequiredFields "lean_init_workspace input schema" #["root"] initSchema
+  requireSchemaRequiredFields "lean_init_workspace input schema" #["root", "workspace_id"] initSchema
   let initProperties ← requireObjVal "lean_init_workspace input schema" "properties" initSchema
+  requireFieldPresent "lean_init_workspace input schema" "workspace_id" initProperties
   let modeSchema ← requireObjVal "lean_init_workspace properties" "mode" initProperties
   let modeEnum ← requireObjVal "lean_init_workspace mode schema" "enum" modeSchema
   require "lean_init_workspace mode enum should expose set/verify/reset"
     (modeEnum == toJson (#["set", "verify", "reset"] : Array String))
   let modeDescription ← IO.ofExcept <| modeSchema.getObjValAs? String "description"
-  require "lean_init_workspace mode description should explain destructive reset"
+  require "lean_init_workspace mode description should explain handle invalidation"
     (modeDescription.contains "invalidates handles")
   require "MCP capability names should include central Lean tools"
     (Beam.Mcp.capabilityNames.contains "beam_version" &&
       Beam.Mcp.capabilityNames.contains "beam_stats" &&
       Beam.Mcp.capabilityNames.contains "beam_feedback" &&
+      Beam.Mcp.capabilityNames.contains "lean_list_workspaces" &&
+      Beam.Mcp.capabilityNames.contains "lean_drop_workspace" &&
       Beam.Mcp.capabilityNames.contains "lean_run_at" &&
       Beam.Mcp.capabilityNames.contains "lean_update" &&
       Beam.Mcp.capabilityNames.contains "lean_sync" &&
@@ -207,27 +210,29 @@ private def checkToolsListShape : IO Unit := do
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
     ("beam_stats", #[]),
-    ("beam_feedback", Beam.Feedback.requiredInputFields),
-    ("lean_run_at", #["path", "version", "line", "character", "text"]),
-    ("lean_run_at_handle", #["path", "version", "line", "character", "text"]),
-    ("lean_hover", #["path", "version", "line", "character"]),
-    ("lean_signature_help", #["path", "version", "line", "character"]),
-    ("lean_definition", #["path", "version", "line", "character"]),
-    ("lean_references", #["path", "version", "line", "character"]),
-    ("lean_document_symbols", #["path", "version"]),
-    ("lean_workspace_symbols", #["query"]),
-    ("lean_goals", #["path", "version", "line", "character", "mode"]),
-    ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character"]),
-    ("lean_code_action_resolve", #["path", "version", "code_action"]),
-    ("lean_run_with", #["path", "handle", "text"]),
-    ("lean_run_with_linear", #["path", "handle", "text"]),
-    ("lean_release", #["path", "handle"]),
-    ("lean_update", #["path"]),
-    ("lean_sync", #["path"]),
-    ("lean_refresh", #["path"]),
-    ("lean_save", #["path"]),
-    ("lean_close_save", #["path"]),
-    ("lean_close", #["path"])
+    ("beam_feedback", Beam.Feedback.requiredInputFields.push "workspace_id"),
+    ("lean_list_workspaces", #[]),
+    ("lean_drop_workspace", #["workspace_id"]),
+    ("lean_run_at", #["path", "version", "line", "character", "text", "workspace_id"]),
+    ("lean_run_at_handle", #["path", "version", "line", "character", "text", "workspace_id"]),
+    ("lean_hover", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_signature_help", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_definition", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_references", #["path", "version", "line", "character", "workspace_id"]),
+    ("lean_document_symbols", #["path", "version", "workspace_id"]),
+    ("lean_workspace_symbols", #["query", "workspace_id"]),
+    ("lean_goals", #["path", "version", "line", "character", "mode", "workspace_id"]),
+    ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character", "workspace_id"]),
+    ("lean_code_action_resolve", #["path", "version", "code_action", "workspace_id"]),
+    ("lean_run_with", #["path", "handle", "text", "workspace_id"]),
+    ("lean_run_with_linear", #["path", "handle", "text", "workspace_id"]),
+    ("lean_release", #["path", "handle", "workspace_id"]),
+    ("lean_update", #["path", "workspace_id"]),
+    ("lean_sync", #["path", "workspace_id"]),
+    ("lean_refresh", #["path", "workspace_id"]),
+    ("lean_save", #["path", "workspace_id"]),
+    ("lean_close_save", #["path", "workspace_id"]),
+    ("lean_close", #["path", "workspace_id"])
   ]
   require "tools/list should expose init workspace plus curated Lean tools"
     (tools.size == schemaCases.size + 1)
@@ -238,6 +243,7 @@ private def checkToolsListShape : IO Unit := do
   let syncTool ← requireTool tools "lean_sync"
   let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
   let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
+  requireFieldPresent "lean_sync input schema" "workspace_id" syncProperties
   requireFieldPresent "lean_sync input schema" "include_diagnostics" syncProperties
   let referencesTool ← requireTool tools "lean_references"
   let referencesSchema ← requireClosedInputSchema "lean_references input schema" referencesTool
@@ -318,7 +324,7 @@ private def checkRootsProtocol : IO Unit := do
     | .error err => pure <| .error err
   let cases : Array (String × Json × Bool) := #[
     (
-      "single root",
+      "one client root",
       rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[
         Json.mkObj [
           ("uri", toJson rootUri),
@@ -346,7 +352,7 @@ private def checkRootsProtocol : IO Unit := do
     | .ok root =>
         unless shouldDecode do
           throw <| IO.userError s!"{label}: roots/list response decoded unexpectedly"
-        if label == "single root" then
+        if label == "one client root" then
           require "roots/list should resolve the selected project root" (root == resolvedProjectRoot)
     | .error err =>
         if shouldDecode then
@@ -402,70 +408,63 @@ private def checkRuntimeSetupErrors : IO Unit := do
     catch _ =>
       pure ()
 
-private def expectWorkspacePlan
-    (label : String)
-    (state : Beam.Workspace.InitState)
-    (root : System.FilePath)
-    (mode : Beam.Workspace.InitMode) : IO Beam.Workspace.InitPlan := do
-  match Beam.Workspace.planInit state root mode with
-  | .ok plan => pure plan
-  | .error err => throw <| IO.userError s!"{label}: {err.message}"
-
-private def expectWorkspacePlanError
-    (label needle : String)
-    (state : Beam.Workspace.InitState)
-    (root : System.FilePath)
-    (mode : Beam.Workspace.InitMode) : IO Beam.Workspace.InitError := do
-  match Beam.Workspace.planInit state root mode with
-  | .ok plan => throw <| IO.userError s!"{label}: expected error, got plan for {plan.root}"
-  | .error err =>
-      require label (err.message.contains needle)
-      pure err
-
 private def checkWorkspaceInitPolicy : IO Unit := do
   let root := System.FilePath.mk "/workspace"
-  let other := System.FilePath.mk "/other-workspace"
+  let previous := System.FilePath.mk "/previous-workspace"
+  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString)
+    ] with
+  | .ok _ => throw <| IO.userError "init workspace input without workspace_id decoded unexpectedly"
+  | .error err =>
+      require "missing init workspace id error should name workspace_id" (err.contains "workspace_id")
+  let namedInput ← expectOk "decode named init input" <|
+    fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString),
+      ("workspace_id", toJson "fixture"),
+      ("mode", toJson "verify")
+    ]
+  require "named init input should preserve workspace id" (namedInput.workspaceId == "fixture")
+  require "named init input should preserve mode" (namedInput.mode == .verify)
+  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
+      ("root", toJson root.toString),
+      ("workspace_id", toJson "")
+    ] with
+  | .ok _ => throw <| IO.userError "empty init workspace id decoded unexpectedly"
+  | .error err =>
+      require "empty init workspace id error should explain the constraint"
+        (err.contains "workspace_id must be non-empty")
+  let emptyRuntimeIdRejected ←
+    try
+      discard <| Beam.Broker.ServerRuntime.create ({ root } : Beam.Broker.BrokerConfig) ""
+      pure false
+    catch err =>
+      pure <| err.toString.contains "workspace id must be non-empty"
+  require "broker runtime constructor should reject an empty workspace id" emptyRuntimeIdRejected
 
-  let setPlan ← expectWorkspacePlan "set unbound workspace" {} root .set
-  require "set unbound should create runtime" setPlan.createRuntime
-  require "set unbound should not reset runtime" (!setPlan.resetCurrent)
-  require "set unbound should not reuse runtime" (!setPlan.runtimeReused)
-
-  discard <| expectWorkspacePlanError "verify unbound workspace" "not initialized" {} root .verify
-
-  let readyState : Beam.Workspace.InitState := {
-    root? := some root
-    runtimeReady := true
+  let resetResult : Beam.Workspace.InitResult := {
+    workspaceId := "fixture"
+    root
+    mode := .reset
+    runtimeReused := false
+    previousRoot? := some previous
+    invalidatedHandles := true
   }
-  let samePlan ← expectWorkspacePlan "set same workspace" readyState root .set
-  require "same workspace should reuse runtime" samePlan.runtimeReused
-  require "same workspace should not recreate runtime" (!samePlan.createRuntime)
-
-  let setOtherErr ← expectWorkspacePlanError "set other workspace" "switch roots explicitly" readyState other .set
-  require "set other workspace should report active root" (setOtherErr.activeRoot? == some root)
-
-  let sameResetPlan ← expectWorkspacePlan "reset same workspace" readyState root .reset
-  require "reset same workspace should create runtime" sameResetPlan.createRuntime
-  require "reset same workspace should shut down current runtime" sameResetPlan.resetCurrent
-  require "reset same workspace should target requested root" (sameResetPlan.root == root)
-  require "reset same workspace should not reuse runtime" (!sameResetPlan.runtimeReused)
-  require "reset same workspace should remember previous root" (sameResetPlan.previousRoot? == some root)
-
-  let resetPlan ← expectWorkspacePlan "reset other workspace" readyState other .reset
-  require "reset other workspace should create runtime" resetPlan.createRuntime
-  require "reset other workspace should shut down current runtime" resetPlan.resetCurrent
-  require "reset other workspace should target requested root" (resetPlan.root == other)
-  require "reset other workspace should remember previous root" (resetPlan.previousRoot? == some root)
-  let resetResult := Beam.Workspace.initResult resetPlan other
-  require "reset result should report invalidated handles" resetResult.invalidatedHandles
   let resetJson := toJson resetResult
-  requireJsonString "reset result json" "root" other.toString resetJson
-  requireJsonString "reset result json" "active_root" other.toString resetJson
-  requireJsonString "reset result json" "previous_root" root.toString resetJson
+  requireJsonString "reset result json" "workspace_id" "fixture" resetJson
+  requireJsonString "reset result json" "root" root.toString resetJson
+  requireJsonString "reset result json" "active_root" root.toString resetJson
+  requireJsonString "reset result json" "previous_root" previous.toString resetJson
   requireJsonBool "reset result json" "invalidated_handles" true resetJson
   requireJsonBool "reset result json" "runtime_reused" false resetJson
 
-  let setResultJson := toJson <| Beam.Workspace.initResult setPlan root
+  let setResultJson := toJson ({
+    workspaceId := Beam.Workspace.defaultWorkspaceId
+    root
+    mode := .set
+    runtimeReused := false
+    invalidatedHandles := false
+  } : Beam.Workspace.InitResult)
+  requireJsonString "set result json" "workspace_id" Beam.Workspace.defaultWorkspaceId setResultJson
   requireJsonBool "set result json" "invalidated_handles" false setResultJson
   requireFieldAbsent "set result json" "previous_root" setResultJson
 
@@ -495,7 +494,18 @@ private def rpcNotification (method : String) (params? : Option Json := none) : 
     | some params => [("params", params)]
     | none => []
 
+private def withDefaultWorkspace (name : String) (arguments : Json) : Json :=
+  let workspaceBound :=
+    match Beam.Mcp.ToolName.fromKey? name with
+    | some (.leanOperation _) | some .beamFeedback | some .leanInitWorkspace => true
+    | _ => false
+  if workspaceBound && !(arguments.getObjVal? "workspace_id").isOk then
+    arguments.setObjVal! "workspace_id" (toJson Beam.Workspace.defaultWorkspaceId)
+  else
+    arguments
+
 private def toolCallParams (name : String) (arguments : Json := Json.mkObj []) : Json :=
+  let arguments := withDefaultWorkspace name arguments
   Json.mkObj [
     ("name", toJson name),
     ("arguments", arguments)
@@ -505,6 +515,7 @@ private def toolCallParamsWithProgress
     (name : String)
     (progressToken : Json)
     (arguments : Json := Json.mkObj []) : Json :=
+  let arguments := withDefaultWorkspace name arguments
   Json.mkObj [
     ("name", toJson name),
     ("arguments", arguments),
@@ -924,10 +935,11 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let statsResult ← requireObjVal "beam stats response" "result" statsResp
     requireJsonBool "beam stats result" "isError" false statsResult
     let statsStructured ← requireObjVal "beam stats result" "structuredContent" statsResult
-    requireJsonString "beam stats structured" "root" expectedRoot.toString statsStructured
-    requireJsonString "beam stats structured" "active_root" expectedRoot.toString statsStructured
-    discard <| requireObjVal "beam stats structured" "sessions" statsStructured
-    let byBackend ← requireObjVal "beam stats structured" "byBackend" statsStructured
+    let workspaces ← requireObjVal "beam stats structured" "workspaces" statsStructured
+    let defaultStats ← requireObjVal "beam stats workspaces" "default" workspaces
+    requireJsonString "beam stats default workspace" "root" expectedRoot.toString defaultStats
+    discard <| requireObjVal "beam stats default workspace" "sessions" defaultStats
+    let byBackend ← requireObjVal "beam stats default workspace" "byBackend" defaultStats
     let leanMetrics ← requireObjVal "beam stats byBackend" "lean" byBackend
     let ops ← requireObjVal "beam stats lean metrics" "ops" leanMetrics
     let syncStats ← requireObjVal "beam stats lean ops" "sync_file" ops

@@ -409,7 +409,7 @@ proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
 proc.stdin.flush()
 tools = request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
 server_version = request({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "beam_version", "arguments": {}}})
-update = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_update", "arguments": {"path": "TodoSmoke.lean"}}})
+update = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_update", "arguments": {"path": "TodoSmoke.lean", "workspace_id": "default"}}})
 update_content = update.get("result", {}).get("structuredContent", {})
 version = update_content.get("version")
 if not isinstance(version, int):
@@ -431,6 +431,7 @@ todo = request({
             "end_character": 0,
             "kinds": ["sorry"],
             "suggest": "none",
+            "workspace_id": "default",
         },
     },
 })
@@ -442,6 +443,7 @@ feedback = request({
     "params": {
         "name": "beam_feedback",
         "arguments": {
+            "workspace_id": "default",
             "title": "MCP feedback fixture",
             "kind": "bug",
             "severity": "medium",
@@ -459,6 +461,7 @@ feedback_full = request({
     "params": {
         "name": "beam_feedback",
         "arguments": {
+            "workspace_id": "default",
             "title": "MCP feedback fixture full",
             "kind": "bug",
             "severity": "medium",

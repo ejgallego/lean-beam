@@ -42,8 +42,8 @@ Free-form notes are not accepted directly. Wrap notes in the required JSON objec
 `lean-beam feedback --help` prints the accepted input shape.
 
 Evidence entries, when present, must have a simple `name` and exactly one source: inline `content`
-or a local `path`. File evidence is accepted only from the active root, Beam control directory, or
-the bundle directory being written.
+or a local `path`. File evidence is accepted only from the known project root, Beam control
+directory, or the bundle directory being written.
 
 Redaction is intentionally narrow and best-effort. It is meant to keep ordinary home-directory
 paths out of report cards, not to scrub arbitrary secrets, access tokens, private repository names,
@@ -54,23 +54,24 @@ daemon registry status, startup log tail, and recent daemon incident records.
 
 ## MCP
 
-Call `beam_feedback` with the same required fields. MCP returns compact report-card JSON in
+Call `beam_feedback` with the same required fields plus the `workspace_id` whose project and runtime
+context should be collected. MCP returns compact report-card JSON in
 `structuredContent`: `markdown`, `metadata`, `collection_warnings`, and any bundle paths. The
 default Markdown includes a short Beam runtime summary instead of the full collected debug JSON.
 Pass `include_collected: true` to include the full collected Beam debug context inline and render
 the full debug-context section in Markdown.
 
-MCP does not start a Lean runtime just to collect feedback. When a root is known, it includes daemon
-registry and recent daemon incident context. When a runtime is active, it also includes in-process
-stats and open-file data. MCP evidence bundles require an active root; use the CLI with
-`--output-dir` when a bundle is needed before a root is available.
+MCP does not start a Lean runtime just to collect feedback. For the selected workspace, it includes
+daemon registry and recent daemon incident context. When a runtime is active, it also includes
+in-process stats and open-file data. MCP evidence bundles require a known project root; use the CLI
+with `--output-dir` when a bundle is needed before a root is available.
 
 ## Output
 
 The top-level JSON object contains:
 
 - `markdown`: pasteable report card
-- `metadata`: schema, title, kind, severity, timestamp, active root, tags, bundle mode, and request id
+- `metadata`: schema, title, kind, severity, timestamp, known project root, tags, bundle mode, and request id
 - `collected`: Beam identity, stats, open files, and daemon context; always present in CLI output
   and in MCP output only when `include_collected: true`
 - `collection_warnings`: non-fatal context collection failures
