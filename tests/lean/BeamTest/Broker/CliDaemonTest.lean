@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import Beam.Cli.Args
 import Beam.Cli.Broker
 import Beam.Cli.Info
 import Beam.Cli.LeanOperation
@@ -307,6 +308,13 @@ private def checkCancelAcknowledgementDecoding : IO Unit := do
   }
   require "failed cancel response should decode none"
     (Beam.Cli.decodeCancelAcknowledged? failed).isNone
+
+private def checkCliRootParsing : IO Unit := do
+  let missingRoot := System.FilePath.mk s!"/tmp/beam-cli-missing-root-{← IO.monoNanosNow}"
+  expectIoErrorContains
+    "missing explicit CLI root should use the workspace error boundary"
+    "workspace root does not resolve"
+    (Beam.Cli.parseCliOptions {} ["--root", missingRoot.toString, "ensure", "lean"])
 
 private def checkLeanOperationRequests : IO Unit := do
   let root := System.FilePath.mk "/repo"
@@ -1098,6 +1106,7 @@ def main : IO Unit := do
   checkCliRecoveryHints
   checkSyncWaitSpecs
   checkCancelAcknowledgementDecoding
+  checkCliRootParsing
   checkLeanOperationRequests
   checkStartupRetryPolicy
   checkDaemonDebugWarnings

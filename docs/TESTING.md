@@ -24,6 +24,11 @@ directory. That directory may contain large machine-local runtime bundles from a
 is cache state, not fixture input, and copying it can hide cold-start behavior or exhaust disk
 space.
 
+For public CLI failure behavior, pair a cheap typed or parser-level test with the focused wrapper
+test that exercises the real command line. Run that focused entrypoint after the final error
+assertion is written; a pass obtained before the assertion or through a neighboring suite does not
+validate the public wording or exit path.
+
 The LSP surface also has a lightweight coverage registry under
 [tests/lsp-coverage](../tests/lsp-coverage). The registry ties every method registered by
 [Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean) to concrete test pointers and required coverage
