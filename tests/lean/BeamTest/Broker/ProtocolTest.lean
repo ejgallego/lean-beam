@@ -625,33 +625,6 @@ private def checkWorkspaceRoutingFields : IO Unit := do
 private def checkWorkspaceLifecycleProtocol : IO Unit := do
   let root := System.FilePath.mk "/workspace"
   let previous := System.FilePath.mk "/previous-workspace"
-  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
-      ("root", toJson root.toString)
-    ] with
-  | .ok _ => throw <| IO.userError "init workspace input without workspace_id decoded unexpectedly"
-  | .error err =>
-      require "missing init workspace id error should name workspace_id" (err.contains "workspace_id")
-  let namedInput ← expectOk "decode named init input" <|
-    fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
-      ("root", toJson root.toString),
-      ("workspace_id", toJson "fixture"),
-      ("mode", toJson "verify")
-    ]
-  require "named init input should preserve workspace id" (namedInput.workspaceId == "fixture")
-  require "named init input should preserve mode" (namedInput.mode == .verify)
-  let dropInput ← expectOk "decode shared drop input" <|
-    fromJson? (α := Beam.Workspace.DropInput) <| Json.mkObj [
-      ("workspace_id", toJson "fixture")
-    ]
-  require "drop input should use the shared workspace decoder" (dropInput.workspaceId == "fixture")
-  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
-      ("root", toJson root.toString),
-      ("workspace_id", toJson "")
-    ] with
-  | .ok _ => throw <| IO.userError "empty init workspace id decoded unexpectedly"
-  | .error err =>
-      require "empty init workspace id error should explain the constraint"
-        (err.contains "workspace_id must be non-empty")
   let emptyRuntimeIdRejected ←
     try
       discard <| Beam.Broker.ServerRuntime.create ({ root } : Beam.Broker.BrokerConfig) ""

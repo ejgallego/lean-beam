@@ -1883,15 +1883,20 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
                 f"first request did not lazily select workspace A: {first_a}",
             )
 
+            alias_descriptor = {"root": str(alias_a.absolute())}
+            require(
+                alias_descriptor != workspace_descriptor(root_a),
+                f"canonical alias fixture did not preserve its symlink spelling: {alias_descriptor}",
+            )
             alias_sync = client.call_tool(
                 "lean_sync",
                 {
                     "path": "PositionEmptyLine.lean",
-                    "workspace": workspace_descriptor(alias_a),
+                    "workspace": alias_descriptor,
                 },
             )
             require(
-                result_workspace_root(alias_sync, "canonical alias sync").resolve() == root_a.resolve(),
+                result_workspace_root(alias_sync, "canonical alias sync") == root_a.resolve(),
                 f"canonical alias did not echo workspace A: {alias_sync}",
             )
             alias_stats = client.call_tool("beam_stats").get("workspaces", {})

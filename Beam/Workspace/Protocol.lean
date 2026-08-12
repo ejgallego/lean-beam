@@ -101,9 +101,6 @@ def InitMode.key : InitMode → String
 def InitMode.all : Array InitMode :=
   #[.set, .verify, .reset]
 
-def initModeKeys : Array String :=
-  InitMode.all.map InitMode.key
-
 def InitMode.fromKey? (key : String) : Option InitMode :=
   InitMode.all.find? (fun mode => mode.key == key)
 
@@ -119,33 +116,6 @@ instance : FromJson InitMode where
             .error <|
               s!"expected init workspace mode 'set', 'verify', or 'reset', got {toJson key |>.compress}"
     | j => .error s!"expected init workspace mode 'set', 'verify', or 'reset', got {j.compress}"
-
-/-- Shared input for explicit Beam workspace/session initialization. -/
-structure InitInput where
-  root : String
-  workspaceId : WorkspaceId
-  mode? : Option InitMode := none
-
-def InitInput.mode (input : InitInput) : InitMode :=
-  input.mode?.getD .set
-
-instance : ToJson InitInput where
-  toJson input :=
-    Json.mkObj <|
-      [
-        ("root", toJson input.root),
-        ("workspace_id", toJson input.workspaceId)
-      ] ++
-      match input.mode? with
-      | some mode => [("mode", toJson mode)]
-      | none => []
-
-instance : FromJson InitInput where
-  fromJson? j := do
-    let root ← j.getObjValAs? String "root"
-    let workspaceId ← decodeWorkspaceIdField j
-    let mode? ← optionalField? (α := InitMode) j "mode"
-    pure { root, workspaceId, mode? }
 
 structure InitResult where
   workspaceId : WorkspaceId := defaultWorkspaceId
@@ -189,17 +159,6 @@ instance : FromJson InitResult where
       previousRoot? := previousRoot?.map System.FilePath.mk
       invalidatedHandles
     }
-
-/-- Shared input for explicitly dropping one Beam workspace. -/
-structure DropInput where
-  workspaceId : WorkspaceId
-
-instance : ToJson DropInput where
-  toJson input := Json.mkObj [("workspace_id", toJson input.workspaceId)]
-
-instance : FromJson DropInput where
-  fromJson? json := do
-    pure { workspaceId := ← decodeWorkspaceIdField json }
 
 /-- One initialized workspace reported by the broker lifecycle surface. -/
 structure ListEntry where

@@ -208,8 +208,7 @@ private def InFlightRequest.sendIfActive
 
 private def InFlightRequest.bindRuntime
     (request : InFlightRequest)
-    (runtime : Beam.Broker.ServerRuntime)
-    (_root : System.FilePath) : IO Bool := do
+    (runtime : Beam.Broker.ServerRuntime) : IO Bool := do
   request.state.atomically do
     let current ← get
     if current.phase == .active then
@@ -296,8 +295,7 @@ private def Coordinator.cancelRequest
             pure ()
 
 private def Coordinator.beginClosing
-    (coordinator : Coordinator)
-    (_reason : String) : IO (Bool × Array InFlightRequest) := do
+    (coordinator : Coordinator) : IO (Bool × Array InFlightRequest) := do
   let (alreadyClosing, requests) ← coordinator.routing.atomically do
     let routing ← get
     let requests := routing.inFlight.toList.map Prod.snd |>.toArray
@@ -325,7 +323,7 @@ private def Coordinator.otherInFlightRequests
 
 private def Coordinator.closeTransport (coordinator : Coordinator) : IO Unit := do
   let (alreadyClosing, requests) ←
-    coordinator.beginClosing "MCP client transport closed"
+    coordinator.beginClosing
   coordinator.awaitRequests requests
   unless alreadyClosing do
     coordinator.setupMutex.atomically do
@@ -456,7 +454,7 @@ private def Coordinator.handleNotification
 private def Coordinator.handleShutdown
     (coordinator : Coordinator)
     (req : Request) : IO Unit := do
-  let (_, requests) ← coordinator.beginClosing "MCP server is shutting down"
+  let (_, requests) ← coordinator.beginClosing
   coordinator.awaitRequests requests
   let response ← coordinator.setupMutex.atomically do
     let currentState ← coordinator.state.get

@@ -272,9 +272,7 @@ private def ensureRuntimeForWorkspace
             pure <| .ok (runtime, canonicalRoot)
 
 private def workspaceErrorToToolError (err : Beam.Workspace.InitError) : ToolError :=
-  let data? := err.activeRoot?.map fun activeRoot =>
-    Json.mkObj [("workspace", toJson <| Beam.Workspace.Descriptor.ofRoot activeRoot)]
-  { ToolError.invalidInput err.message with data? }
+  ToolError.invalidInput err.message
 
 private structure ResolvedWorkspace where
   descriptor : Beam.Workspace.Descriptor
@@ -483,12 +481,9 @@ private def collectFeedbackRuntimePayload
       pure (stats, openDocs, warnings)
 
 private def feedbackAllowedRoots
-    (root? : Option System.FilePath) : IO (Array System.FilePath) := do
-  match root? with
-  | some root => do
-      let control ← Beam.Daemon.controlDir root
-      pure #[root, control]
-  | none => pure #[]
+    (root : System.FilePath) : IO (Array System.FilePath) := do
+  let control ← Beam.Daemon.controlDir root
+  pure #[root, control]
 
 private def feedbackIncludeCollected (arguments : Json) : Except String Bool := do
   match arguments.getObjVal? "include_collected" with
@@ -537,7 +532,7 @@ private def handleBeamFeedback
     ]
     warnings := warnings'
   }
-  let allowedRoots ← feedbackAllowedRoots (some root)
+  let allowedRoots ← feedbackAllowedRoots root
   try
     let result ← Beam.Feedback.buildResult input collection {
       root? := some root
@@ -569,7 +564,7 @@ def Internal.handleToolCall
     (opts : Options)
     (setupMutex : Std.Mutex Unit)
     (brokerClientRequestId : String)
-    (beforeDispatch : Beam.Broker.ServerRuntime → System.FilePath → IO Bool)
+    (beforeDispatch : Beam.Broker.ServerRuntime → IO Bool)
     (req : Request)
     (parsedParams : Except String CallToolParams)
     (notifications : NotificationSink) : IO (Except RpcError Json) := do
@@ -639,7 +634,7 @@ def Internal.handleToolCall
         emitProgress? progress? s!"failed {params.name.key}"
         Internal.traceMcp s!"tools/call runtime failed id={req.id.label} tool={params.name.key}"
         return .error err
-  unless ← beforeDispatch runtime root do
+  unless ← beforeDispatch runtime do
     return .error <| RpcError.invalidRequest "request was cancelled before broker dispatch"
   let emitDiagnostic : Beam.Broker.StreamDiagnostic → IO Unit := fun diagnostic =>
     emitDiagnosticLog notifier diagnostic
@@ -675,7 +670,7 @@ private def handleReadyOperationRequest
   | "tools/call" =>
       let parsedParams := parseCallToolParams req.params?
       match ← Internal.handleToolCall state opts setupMutex brokerClientRequestId
-          (fun _ _ => pure true) req parsedParams notifications with
+          (fun _ => pure true) req parsedParams notifications with
       | .ok result => pure (successResponse req.id result, false)
       | .error err => pure (errorResponse req.id err, false)
   | method =>

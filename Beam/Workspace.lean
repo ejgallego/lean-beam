@@ -16,7 +16,6 @@ def addWorkspaceDescriptor (root : System.FilePath) (json : Json) : Json :=
 
 structure InitError where
   message : String
-  activeRoot? : Option System.FilePath := none
 
 instance : ToString InitError where
   toString err := err.message
