@@ -21,9 +21,9 @@ Process-wide control operations deliberately remain unscoped. An explicitly supp
 preserved so this adapter does not rewrite lower-level test or maintenance requests.
 -/
 def inProjectDaemonWorkspace (req : Request) : Request :=
-  match req.op with
-  | .cancel | .listWorkspaces | .resetStats | .shutdown => req
-  | _ =>
+  match req.op.workspaceScope with
+  | .none => req
+  | .optional | .required =>
       if req.workspaceId?.isSome then req
       else { req with workspaceId? := some projectDaemonWorkspaceId }
 

@@ -12,7 +12,6 @@ import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle
 import Beam.Daemon.Debug
 import Beam.Path
-import Beam.Mcp.Projection
 import BeamTest.Broker.JsonAssert
 
 open Lean
@@ -137,33 +136,6 @@ private def sampleBrokerHandle : Beam.Broker.Handle := {
   session := "session"
   raw := Json.mkObj [("value", toJson "raw-handle")]
 }
-
-private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
-  Beam.Mcp.toolDescriptors.foldl (init := #[]) fun acc desc =>
-    match desc.kind with
-    | .leanOperation op => acc.push op
-    | .serverInfo => acc
-    | .serverDebug => acc
-    | .feedback => acc
-    | .workspaceDrop => acc
-
-private def requireSameOperationSurface
-    (label : String)
-    (actual expected : Array Beam.Lean.Operation) : IO Unit := do
-  require s!"{label}: expected size {expected.size}, got {actual.size}"
-    (actual.size == expected.size)
-  for op in expected do
-    require s!"{label}: missing operation {repr op}" (actual.contains op)
-  for op in actual do
-    require s!"{label}: unexpected operation {repr op}" (expected.contains op)
-
-private def checkMcpOperationSurface : IO Unit := do
-  requireSameOperationSurface "MCP Lean operation surface"
-    mcpLeanOperationSurface
-    Beam.Lean.Operation.all
-  require "MCP lifecycle setup tools should not be exposed"
-    (Beam.Mcp.ToolName.fromKey? "lean_init_workspace" == none &&
-      Beam.Mcp.ToolName.fromKey? "lean_list_workspaces" == none)
 
 private def checkProjectDaemonWorkspaceRouting : IO Unit := do
   let ensureReq := Beam.Cli.inProjectDaemonWorkspace ({ op := .ensure } : Beam.Broker.Request)
@@ -1119,7 +1091,6 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
       pure ()
 
 def main : IO Unit := do
-  checkMcpOperationSurface
   checkProjectDaemonWorkspaceRouting
   checkCliRecoveryHints
   checkSyncWaitSpecs

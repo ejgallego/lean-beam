@@ -216,41 +216,60 @@ structure Request where
   codeAction? : Option Lsp.CodeAction := none
   deriving Inhabited
 
+inductive WorkspaceScope where
+  | none
+  | optional
+  | required
+  deriving BEq, Repr
+
+/-- Describe whether a broker operation is process-wide or resolves one workspace. -/
+def Op.workspaceScope : Op → WorkspaceScope
+  | .cancel | .listWorkspaces | .resetStats | .shutdown => .none
+  | .openDocs | .stats => .optional
+  | .ensure | .updateFile | .syncFile | .refreshFile | .close | .runAt | .hover
+  | .signatureHelp | .definition | .references | .documentSymbols | .workspaceSymbols
+  | .codeActionResolve | .saveOlean | .goals | .todo | .runWith | .release
+  | .initWorkspace | .dropWorkspace => .required
+
 private def Op.optionalRequestFields (op : Op) : Array String :=
-  #["clientRequestId"] ++ match op with
-  | .ensure => #["workspaceId", "root"]
-  | .openDocs | .stats => #["workspaceId", "root"]
+  #["clientRequestId"] ++
+  (match op.workspaceScope with
+  | .none => #[]
+  | .optional | .required => #["workspaceId"]) ++
+  match op with
+  | .ensure => #["root"]
+  | .openDocs | .stats => #["root"]
   | .cancel => #["cancelRequestId"]
-  | .updateFile => #["workspaceId", "root", "path"]
+  | .updateFile => #["root", "path"]
   | .syncFile | .refreshFile =>
-      #["workspaceId", "root", "path", "fullDiagnostics", "includeDiagnostics"]
-  | .close => #["workspaceId", "root", "path", "fullDiagnostics", "saveArtifacts"]
+      #["root", "path", "fullDiagnostics", "includeDiagnostics"]
+  | .close => #["root", "path", "fullDiagnostics", "saveArtifacts"]
   | .runAt =>
-      #["workspaceId", "root", "path", "version", "line", "character", "text", "storeHandle"]
+      #["root", "path", "version", "line", "character", "text", "storeHandle"]
   | .hover | .signatureHelp | .definition =>
-      #["workspaceId", "root", "path", "version", "line", "character"]
+      #["root", "path", "version", "line", "character"]
   | .references =>
-      #["workspaceId", "root", "path", "version", "line", "character", "includeDeclaration"]
-  | .documentSymbols => #["workspaceId", "root", "path", "version"]
-  | .workspaceSymbols => #["workspaceId", "root", "query"]
-  | .codeActionResolve => #["workspaceId", "root", "path", "version", "codeAction"]
-  | .saveOlean => #["workspaceId", "root", "path", "fullDiagnostics"]
+      #["root", "path", "version", "line", "character", "includeDeclaration"]
+  | .documentSymbols => #["root", "path", "version"]
+  | .workspaceSymbols => #["root", "query"]
+  | .codeActionResolve => #["root", "path", "version", "codeAction"]
+  | .saveOlean => #["root", "path", "fullDiagnostics"]
   | .goals =>
       #[
-        "workspaceId", "root", "path", "version", "line", "character", "text", "mode",
-        "compact", "ppFormat"
+        "root", "path", "version", "line", "character", "text", "mode", "compact",
+        "ppFormat"
       ]
   | .todo =>
       #[
-        "workspaceId", "root", "path", "version", "line", "character", "endLine",
-        "endCharacter", "kinds", "suggest"
+        "root", "path", "version", "line", "character", "endLine", "endCharacter", "kinds",
+        "suggest"
       ]
   | .runWith =>
-      #["workspaceId", "root", "path", "text", "storeHandle", "linear", "handle"]
-  | .release => #["workspaceId", "root", "path", "handle"]
+      #["root", "path", "text", "storeHandle", "linear", "handle"]
+  | .release => #["root", "path", "handle"]
   | .initWorkspace =>
-      #["workspaceId", "workspaceMode", "root", "leanCmd", "leanPlugin", "rocqCmd"]
-  | .dropWorkspace => #["workspaceId"]
+      #["workspaceMode", "root", "leanCmd", "leanPlugin", "rocqCmd"]
+  | .dropWorkspace => #[]
   | .listWorkspaces | .resetStats | .shutdown => #[]
 
 private def Op.usesBackend : Op → Bool
@@ -773,10 +792,6 @@ def Request.requireWorkspaceId (req : Request) : Except String WorkspaceId := do
   unless Beam.Workspace.validWorkspaceId workspaceId do
     throw "workspaceId must be non-empty"
   pure workspaceId
-
-/-- Internal routing accessor; call `requireWorkspaceId` before using it for a request. -/
-def Request.workspaceId (req : Request) : WorkspaceId :=
-  req.resolvedWorkspaceId?.getD ""
 
 def Request.requireRoot (req : Request) : Except String System.FilePath := do
   let some root := req.root?

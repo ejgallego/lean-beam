@@ -146,9 +146,12 @@ exit-capable Lean/Lake API is introduced.
 The broker has no default workspace. Every workspace-bound broker request names a workspace or
 carries a continuation handle that names one, and daemon startup receives its initial workspace id
 explicitly through `--workspace-id`. The public CLI still manages one daemon per project, but that
-policy stays in `Beam.Cli`: its request adapter supplies the private `beam-cli-project` id. Broker
-stats and open-document requests without an id remain process-wide and return only the
-`workspaces` map; the CLI scopes those requests before sending them.
+policy stays in `Beam.Cli`: its request adapter supplies a CLI-owned private identifier. That value
+is an implementation detail, not part of the broker protocol. Broker stats and open-document
+requests without an id remain process-wide and return only the `workspaces` map; the CLI scopes
+those requests before sending them. `Beam.Broker.Op.workspaceScope` is the shared operation
+classification; CLI and test adapters should use it instead of maintaining their own operation
+lists.
 
 ## MCP Projection Changes
 

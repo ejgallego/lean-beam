@@ -1077,9 +1077,14 @@ private def requestStop (server : ServerRuntime) : IO Unit := do
   catch _ =>
     pure ()
 
+private structure WorkspaceRequest extends Request where
+  workspaceId : WorkspaceId
+
+private instance : Coe WorkspaceRequest Request := ⟨WorkspaceRequest.toRequest⟩
+
 private def validateRequestWorkspace
     (server : ServerRuntime)
-    (req : Request) : IO (Except Response WorkspaceId) := do
+    (req : Request) : IO (Except Response WorkspaceRequest) := do
   let workspaceId ←
     match req.requireWorkspaceId with
     | .ok workspaceId => pure workspaceId
@@ -1094,7 +1099,7 @@ private def validateRequestWorkspace
   let some workspace := workspace?
     | return .error (reqError "invalidParams" s!"unknown Beam workspace '{workspaceId}'")
   match req.root? with
-  | none => pure (.ok workspaceId)
+  | none => pure (.ok { toRequest := req, workspaceId })
   | some rootText =>
       let requestedRoot ←
         try
@@ -1104,7 +1109,7 @@ private def validateRequestWorkspace
       if requestedRoot != workspace.config.root then
         return .error <| reqError "invalidParams"
           s!"Beam workspace '{workspaceId}' serves {workspace.config.root}, not {requestedRoot}"
-      pure (.ok workspaceId)
+      pure (.ok { toRequest := req, workspaceId })
 
 private def mergeFileProgressIfCurrent
     (server : ServerRuntime)
@@ -1241,7 +1246,7 @@ private def awaitSyncedDocumentRequest
 
 private def readRequestSyncSnapshot
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (path : System.FilePath) : IO FileSyncSnapshot := do
   let (root, readSeq) ← server.withState do
     let workspace ← requireWorkspace req.workspaceId
@@ -1266,7 +1271,7 @@ private structure StartedTrackedBarrier where
 
 private def startTrackedDiagnosticsBarrierIO
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (path : System.FilePath)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
@@ -1454,7 +1459,7 @@ private initialize savePublicationMutex : Std.Mutex Unit ← Std.Mutex.new ()
 
 private def saveOleanCore
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (path : System.FilePath)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
@@ -1569,7 +1574,7 @@ private def saveOleanCore
 
 private def saveOlean
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (path : System.FilePath)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
@@ -1582,7 +1587,7 @@ private def saveOlean
 
 private def handleSyncFileOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
@@ -1634,7 +1639,7 @@ private def handleSyncFileOp
 
 private def closeTrackedFileIfOpen
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (path : System.FilePath) : HandlerM Unit :=
   liftHandlerIO <| server.withState do
     match ← currentSession? req.workspaceId req.backend with
@@ -1646,7 +1651,7 @@ private def closeTrackedFileIfOpen
 
 private def handleRefreshFileOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
@@ -1658,7 +1663,7 @@ private def handleRefreshFileOp
 
 private def handleUpdateFileOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none) :
     HandlerM (Response × Bool) := do
   let path ← requestArg req.pathArg
@@ -1677,7 +1682,7 @@ private def handleUpdateFileOp
 
 private def handleCloseOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
@@ -1706,7 +1711,7 @@ private def runAtSetupProgressEmitter?
 
 private def handleRunAtOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
@@ -1749,7 +1754,7 @@ private def positionLspParams
 
 private def handlePositionLspOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (args : PositionArgs)
     (method : String)
     (extraFields : List (String × Json) := [])
@@ -1771,7 +1776,7 @@ private def handlePositionLspOp
 
 private def handleHoverOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1781,7 +1786,7 @@ private def handleHoverOp
 
 private def handleSignatureHelpOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1791,7 +1796,7 @@ private def handleSignatureHelpOp
 
 private def handleDefinitionOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1801,7 +1806,7 @@ private def handleDefinitionOp
 
 private def handleReferencesOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1812,7 +1817,7 @@ private def handleReferencesOp
 
 private def handleDocumentSymbolsOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1834,7 +1839,7 @@ private def handleDocumentSymbolsOp
 
 private def handleWorkspaceSymbolsOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none) :
     HandlerM (Response × Bool) := do
   let args ← requestArg req.workspaceSymbolsArgs
@@ -1862,7 +1867,7 @@ private def codeActionResolveSourceUri (action : CodeAction) : Except Response D
 
 private def handleCodeActionResolveOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1893,7 +1898,7 @@ private def handleCodeActionResolveOp
 
 private def handleSaveOleanOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
@@ -1905,7 +1910,7 @@ private def handleSaveOleanOp
 
 private def handleGoalsOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1947,7 +1952,7 @@ private def handleGoalsOp
 
 private def handleTodoOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -1980,7 +1985,7 @@ private def handleTodoOp
 
 private def handleRunWithOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -2023,7 +2028,7 @@ private def handleRunWithOp
 
 private def handleReleaseOp
     (server : ServerRuntime)
-    (req : Request)
+    (req : WorkspaceRequest)
     (cancelRef? : Option (IO.Ref Bool) := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
     HandlerM (Response × Bool) := do
@@ -2104,8 +2109,9 @@ private def handleRequestIO
       | some _ =>
           match ← validateRequestWorkspace server req with
           | .error resp => pure (resp, false)
-          | .ok workspaceId =>
-              pure (Response.success (← server.withState <| statsPayload (some workspaceId)), false)
+          | .ok workspaceReq =>
+              pure (Response.success
+                (← server.withState <| statsPayload (some workspaceReq.workspaceId)), false)
   | .listWorkspaces =>
       let payload ← server.withState do
         pure <| workspaceListPayload (← get)
@@ -2122,8 +2128,9 @@ private def handleRequestIO
       | some _ =>
           match ← validateRequestWorkspace server req with
           | .error resp => pure (resp, false)
-          | .ok workspaceId =>
-              pure (Response.success (← server.withState <| openDocsPayload (some workspaceId)), false)
+          | .ok workspaceReq =>
+              pure (Response.success
+                (← server.withState <| openDocsPayload (some workspaceReq.workspaceId)), false)
   | .initWorkspace =>
       match req.requireWorkspaceId with
       | .error err => pure (reqError "invalidParams" err, false)
@@ -2149,16 +2156,16 @@ private def handleRequestIO
   | op =>
       match ← validateRequestWorkspace server req with
       | .error resp => pure (resp, false)
-      | .ok _ =>
+      | .ok workspaceReq =>
           match op with
           | .ensure =>
               let resp ←
                 try
                   server.withState do
-                    let session ← ensureSession req.workspaceId req.backend
+                    let session ← ensureSession workspaceReq.workspaceId workspaceReq.backend
                     let payload := Json.mkObj [
-                      ("workspace_id", toJson req.workspaceId),
-                      ("backend", toJson req.backend),
+                      ("workspace_id", toJson workspaceReq.workspaceId),
+                      ("backend", toJson workspaceReq.backend),
                       ("root", toJson session.root.toString),
                       ("epoch", toJson session.epoch)
                     ]
@@ -2166,23 +2173,34 @@ private def handleRequestIO
                 catch e =>
                   pure <| reqError "internalError" e.toString
               pure (resp, false)
-          | .updateFile => runHandler <| handleUpdateFileOp server req cancelRef?
-          | .syncFile => runHandler <| handleSyncFileOp server req cancelRef? emitProgress? emitDiagnostic?
-          | .refreshFile => runHandler <| handleRefreshFileOp server req cancelRef? emitProgress? emitDiagnostic?
-          | .close => runHandler <| handleCloseOp server req cancelRef? emitProgress? emitDiagnostic?
-          | .runAt => runHandler <| handleRunAtOp server req cancelRef? emitProgress? emitDiagnostic?
-          | .hover => runHandler <| handleHoverOp server req cancelRef? emitProgress?
-          | .signatureHelp => runHandler <| handleSignatureHelpOp server req cancelRef? emitProgress?
-          | .definition => runHandler <| handleDefinitionOp server req cancelRef? emitProgress?
-          | .references => runHandler <| handleReferencesOp server req cancelRef? emitProgress?
-          | .documentSymbols => runHandler <| handleDocumentSymbolsOp server req cancelRef? emitProgress?
-          | .workspaceSymbols => runHandler <| handleWorkspaceSymbolsOp server req cancelRef?
-          | .codeActionResolve => runHandler <| handleCodeActionResolveOp server req cancelRef? emitProgress?
-          | .saveOlean => runHandler <| handleSaveOleanOp server req cancelRef? emitProgress? emitDiagnostic?
-          | .goals => runHandler <| handleGoalsOp server req cancelRef? emitProgress?
-          | .todo => runHandler <| handleTodoOp server req cancelRef? emitProgress?
-          | .runWith => runHandler <| handleRunWithOp server req cancelRef? emitProgress?
-          | .release => runHandler <| handleReleaseOp server req cancelRef? emitProgress?
+          | .updateFile => runHandler <| handleUpdateFileOp server workspaceReq cancelRef?
+          | .syncFile =>
+              runHandler <| handleSyncFileOp server workspaceReq cancelRef? emitProgress? emitDiagnostic?
+          | .refreshFile =>
+              runHandler <| handleRefreshFileOp server workspaceReq cancelRef? emitProgress? emitDiagnostic?
+          | .close =>
+              runHandler <| handleCloseOp server workspaceReq cancelRef? emitProgress? emitDiagnostic?
+          | .runAt =>
+              runHandler <| handleRunAtOp server workspaceReq cancelRef? emitProgress? emitDiagnostic?
+          | .hover => runHandler <| handleHoverOp server workspaceReq cancelRef? emitProgress?
+          | .signatureHelp =>
+              runHandler <| handleSignatureHelpOp server workspaceReq cancelRef? emitProgress?
+          | .definition =>
+              runHandler <| handleDefinitionOp server workspaceReq cancelRef? emitProgress?
+          | .references =>
+              runHandler <| handleReferencesOp server workspaceReq cancelRef? emitProgress?
+          | .documentSymbols =>
+              runHandler <| handleDocumentSymbolsOp server workspaceReq cancelRef? emitProgress?
+          | .workspaceSymbols =>
+              runHandler <| handleWorkspaceSymbolsOp server workspaceReq cancelRef?
+          | .codeActionResolve =>
+              runHandler <| handleCodeActionResolveOp server workspaceReq cancelRef? emitProgress?
+          | .saveOlean =>
+              runHandler <| handleSaveOleanOp server workspaceReq cancelRef? emitProgress? emitDiagnostic?
+          | .goals => runHandler <| handleGoalsOp server workspaceReq cancelRef? emitProgress?
+          | .todo => runHandler <| handleTodoOp server workspaceReq cancelRef? emitProgress?
+          | .runWith => runHandler <| handleRunWithOp server workspaceReq cancelRef? emitProgress?
+          | .release => runHandler <| handleReleaseOp server workspaceReq cancelRef? emitProgress?
           | .openDocs | .stats | .resetStats | .shutdown
           | .cancel | .initWorkspace | .listWorkspaces | .dropWorkspace =>
               unreachable!
