@@ -15,7 +15,8 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
   misclassifying it as a source checkout.
 - Canonical Lean RC and patch toolchains from declared compatible release lines can now build
   exact-fingerprint bundles that pass a local plugin qualification probe before use.
-- Validated Lean `v4.33.0-rc2` support.
+- Validated Lean `v4.34.0-rc1` support.
+- Validated Lean `v4.33.0` support and made it the repository's default Lean toolchain.
 - Validated Lean `v4.32.0` support and made it the repository's default Lean toolchain
   ([#219](https://github.com/ejgallego/lean-beam/pull/219), @ejgallego).
 - Mistral Vibe skill installation and MCP registration support through `--vibe`, `--vibe-mcp`,
