@@ -175,8 +175,9 @@ env ${mcp_stdio_env[@]+"${mcp_stdio_env[@]}"} \
     > /dev/null
 python3 tests/test-mcp-http-bridge.py > /dev/null
 mcp_self_check_timeout="${BEAM_MCP_SELF_CHECK_TIMEOUT_MS:-120000}"
-LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS="$mcp_self_check_timeout" \
-  scripts/lean-beam-mcp --root tests/save_olean_project --self-check PositionEmptyLine.lean > /dev/null
+(cd tests/save_olean_project && \
+  LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS="$mcp_self_check_timeout" \
+    ../../scripts/lean-beam-mcp --self-check PositionEmptyLine.lean > /dev/null)
 
 self_check_timeout_dir="$(mktemp -d /tmp/lean-beam-mcp-self-check-timeout-XXXXXX)"
 self_check_timeout_err="$(mktemp /tmp/lean-beam-mcp-self-check-timeout-err-XXXXXX)"
@@ -189,12 +190,13 @@ printf '%s\n' \
   'sleep 30' \
   > "$self_check_fake_cli"
 chmod +x "$self_check_fake_cli"
-if LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=10000 \
+if (cd tests/save_olean_project && \
+    LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=10000 \
     LEAN_BEAM_FAKE_CLI_PID="$self_check_fake_cli_pid" \
-    .lake/build/bin/lean-beam-mcp --root tests/save_olean_project \
+    ../../.lake/build/bin/lean-beam-mcp \
       --beam-cli "$self_check_fake_cli" --self-check PositionEmptyLine.lean \
-    > /dev/null 2>"$self_check_timeout_err"; then
-  echo "expected MCP self-check to time out while setting up the workspace" >&2
+    > /dev/null 2>"$self_check_timeout_err"); then
+  echo "expected MCP self-check to time out while lazily starting lean_sync" >&2
   if [ -s "$self_check_fake_cli_pid" ]; then
     kill "$(cat "$self_check_fake_cli_pid")" 2> /dev/null || true
   fi
@@ -203,9 +205,9 @@ if LEAN_BEAM_MCP_SELF_CHECK_TIMEOUT_MS=10000 \
   exit 1
 fi
 if ! grep -Fq \
-    'timed out after 10000 ms waiting for lean-beam-mcp self-check lean_init_workspace response' \
+    'timed out after 10000 ms waiting for lean-beam-mcp self-check lean_sync response' \
     "$self_check_timeout_err"; then
-  echo "expected MCP self-check timeout to identify the workspace setup phase" >&2
+  echo "expected MCP self-check timeout to identify the lean_sync phase" >&2
   cat "$self_check_timeout_err" >&2
   if [ -s "$self_check_fake_cli_pid" ]; then
     kill "$(cat "$self_check_fake_cli_pid")" 2> /dev/null || true
@@ -221,8 +223,9 @@ rm -rf -- "$self_check_timeout_dir"
 rm -f "$self_check_timeout_err"
 
 self_check_missing_file_err="$(mktemp /tmp/lean-beam-mcp-self-check-missing-file-XXXXXX)"
-if scripts/lean-beam-mcp --root tests/save_olean_project --self-check DoesNotExist.lean \
-    > /dev/null 2>"$self_check_missing_file_err"; then
+if (cd tests/save_olean_project && \
+    ../../scripts/lean-beam-mcp --self-check DoesNotExist.lean \
+      > /dev/null 2>"$self_check_missing_file_err"); then
   echo "expected MCP self-check to reject a missing Lean file" >&2
   rm -f "$self_check_missing_file_err"
   exit 1
@@ -235,22 +238,20 @@ if ! grep -Eiq 'No such file|failed to canonicalize|does not exist' "$self_check
 fi
 rm -f "$self_check_missing_file_err"
 
-self_check_missing_root="/tmp/lean-beam-mcp-missing-root-$$"
-self_check_missing_root_err="$(mktemp /tmp/lean-beam-mcp-self-check-missing-root-XXXXXX)"
-rm -rf -- "$self_check_missing_root"
-if scripts/lean-beam-mcp --root "$self_check_missing_root" --self-check PositionEmptyLine.lean \
-    > /dev/null 2>"$self_check_missing_root_err"; then
-  echo "expected MCP self-check to reject a missing root" >&2
-  rm -f "$self_check_missing_root_err"
+mcp_removed_root_err="$(mktemp /tmp/lean-beam-mcp-removed-root-XXXXXX)"
+if scripts/lean-beam-mcp --root tests/save_olean_project \
+    > /dev/null 2>"$mcp_removed_root_err"; then
+  echo "expected lean-beam-mcp to reject the removed --root option" >&2
+  rm -f "$mcp_removed_root_err"
   exit 1
 fi
-if ! grep -Eiq 'No such file|failed to canonicalize|does not exist' "$self_check_missing_root_err"; then
-  echo "expected missing-root MCP self-check failure to explain the root error" >&2
-  cat "$self_check_missing_root_err" >&2
-  rm -f "$self_check_missing_root_err"
+if ! grep -Fq "unexpected lean-beam-mcp argument '--root'" "$mcp_removed_root_err"; then
+  echo "expected removed MCP --root failure to explain the invalid option" >&2
+  cat "$mcp_removed_root_err" >&2
+  rm -f "$mcp_removed_root_err"
   exit 1
 fi
-rm -f "$self_check_missing_root_err"
+rm -f "$mcp_removed_root_err"
 
 cli_non_workspace_root="$(mktemp -d /tmp/beam-cli-non-workspace-root-XXXXXX)"
 cli_non_workspace_err="$(mktemp /tmp/beam-cli-non-workspace-root-err-XXXXXX)"
@@ -368,9 +369,10 @@ import subprocess
 import sys
 
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("BEAM_MCP_SMOKE_REQUEST_TIMEOUT", "60"))
+workspace = {"root": os.path.abspath("tests/save_olean_project")}
 
 proc = subprocess.Popen(
-    ["scripts/lean-beam-mcp", "--root", "tests/save_olean_project"],
+    ["scripts/lean-beam-mcp"],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -409,7 +411,7 @@ proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
 proc.stdin.flush()
 tools = request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
 server_version = request({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "beam_version", "arguments": {}}})
-update = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_update", "arguments": {"path": "TodoSmoke.lean", "workspace_id": "default"}}})
+update = request({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lean_update", "arguments": {"path": "TodoSmoke.lean", "workspace": workspace}}})
 update_content = update.get("result", {}).get("structuredContent", {})
 version = update_content.get("version")
 if not isinstance(version, int):
@@ -431,7 +433,7 @@ todo = request({
             "end_character": 0,
             "kinds": ["sorry"],
             "suggest": "none",
-            "workspace_id": "default",
+            "workspace": workspace,
         },
     },
 })
@@ -443,7 +445,7 @@ feedback = request({
     "params": {
         "name": "beam_feedback",
         "arguments": {
-            "workspace_id": "default",
+            "workspace": workspace,
             "title": "MCP feedback fixture",
             "kind": "bug",
             "severity": "medium",
@@ -461,7 +463,7 @@ feedback_full = request({
     "params": {
         "name": "beam_feedback",
         "arguments": {
-            "workspace_id": "default",
+            "workspace": workspace,
             "title": "MCP feedback fixture full",
             "kind": "bug",
             "severity": "medium",

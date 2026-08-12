@@ -934,7 +934,7 @@ run_custom_toolchain_install_test() (
   assert_bundle_layout "$custom_install_root/state/install-bundles" "$custom_toolchain"
 
   custom_project_root="$tmp_root/custom-project"
-  rsync -a tests/save_olean_project/ "$custom_project_root"/
+  rsync -a --exclude='.beam/' tests/save_olean_project/ "$custom_project_root"/
   printf '%s\n' "$custom_toolchain" > "$custom_project_root/lean-toolchain"
   custom_doctor_out="$(ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" doctor)"
   assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain admission: custom'
@@ -1305,7 +1305,7 @@ assert_not_exists "$blocked_codex_home/skills/rocq-beam"
 remove_tmp_tree "$source_checkout"
 
 project_root="$tmp_root/external-project"
-rsync -a tests/save_olean_project/ "$project_root"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$project_root"/
 project_toolchain="$(awk 'NR==1 {print $1}' "$project_root/lean-toolchain")"
 if [ -z "$project_toolchain" ]; then
   echo "missing Lean toolchain in external install smoke project" >&2
@@ -1375,10 +1375,12 @@ import select
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 server, project_root = sys.argv[1:]
+workspace = {"root": str(Path(project_root).resolve())}
 proc = subprocess.Popen(
-    [server, "--root", project_root],
+    [server],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -1429,7 +1431,7 @@ send({
     "jsonrpc": "2.0",
     "id": 2,
     "method": "tools/call",
-    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean", "workspace_id": "default"}},
+    "params": {"name": "lean_sync", "arguments": {"path": "PositionEmptyLine.lean", "workspace": workspace}},
 })
 sync = recv(2)
 result = sync.get("result")
@@ -1485,20 +1487,20 @@ fi
 remove_tmp_file "$mcp_smoke_out"
 remove_tmp_file "$mcp_smoke_err"
 
-mcp_self_check_out="$("$installed_mcp" --root "$project_root" --self-check PositionEmptyLine.lean)"
+mcp_self_check_out="$(cd "$project_root" && "$installed_mcp" --self-check PositionEmptyLine.lean)"
 if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'Lean Beam MCP self-check passed'; then
   echo "expected installed MCP self-check to report success" >&2
   printf '%s\n' "$mcp_self_check_out" >&2
   exit 1
 fi
-if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'workspace setup: lean_init_workspace'; then
-  echo "expected installed MCP self-check to exercise explicit workspace setup" >&2
+if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'workspace: explicit root descriptor'; then
+  echo "expected installed MCP self-check to exercise an explicit workspace descriptor" >&2
   printf '%s\n' "$mcp_self_check_out" >&2
   exit 1
 fi
 
 unsupported_project_root="$tmp_root/external-project-unsupported"
-rsync -a tests/save_olean_project/ "$unsupported_project_root"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$unsupported_project_root"/
 printf 'leanprover/lean4:v4.26.0\n' > "$unsupported_project_root/lean-toolchain"
 
 unsupported_doctor_out="$("$installed_lean_beam" --root "$unsupported_project_root" doctor)"
@@ -1569,7 +1571,7 @@ fi
 remove_tmp_file "$stale_sync_err"
 
 project_root_standalone="$tmp_root/external-project-standalone"
-rsync -a tests/save_olean_project/ "$project_root_standalone"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$project_root_standalone"/
 
 cat > "$project_root_standalone/StandaloneSaveSmoke.lean" <<'EOF'
 import SaveSmoke.B

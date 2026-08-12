@@ -8,6 +8,7 @@ import Beam.Broker.Errors
 import Beam.Broker.Protocol
 import Beam.Broker.Readiness
 import Beam.Broker.RequestArgs
+import Beam.Broker.Server
 import Beam.JsonPretty
 import BeamTest.Broker.JsonAssert
 import Lean
@@ -531,14 +532,36 @@ private def checkRequestArgsBoundary : IO Unit := do
     codeActionResolveRocqUnsupported.codeActionResolveArgs
 
 private def checkWorkspaceRoutingFields : IO Unit := do
-  let defaultReq : Request := { op := .stats }
-  require "missing workspace id defaults to default" (defaultReq.workspaceId == defaultWorkspaceId)
+  let processWideOps := #[Op.cancel, .listWorkspaces, .resetStats, .shutdown]
+  let optionallyScopedOps := #[Op.openDocs, .stats]
+
+  for op in Op.all do
+    let expectedScope :=
+      if processWideOps.contains op then
+        WorkspaceScope.none
+      else if optionallyScopedOps.contains op then
+        .optional
+      else
+        .required
+    require s!"{op.key} has the wrong workspace scope"
+      (op.workspaceScope == expectedScope)
+    let request : Request := { op }
+    let decoded ← expectOk s!"minimal {op.key} request round trip" <|
+      fromJson? (α := Request) (toJson request)
+    require s!"minimal {op.key} request lost its operation" (decoded.op == op)
+
+  let unscopedReq : Request := { op := .stats }
+  require "missing workspace id remains unscoped" unscopedReq.resolvedWorkspaceId?.isNone
+  requireFieldAbsent "stats request serialization" "backend" (toJson unscopedReq)
+
+  let leanReq : Request := { op := .ensure }
+  requireJsonString "backend-scoped request serialization" "backend" "lean" (toJson leanReq)
 
   let explicitReq : Request := {
     op := .stats
     workspaceId? := some "fixture"
   }
-  require "explicit workspace id wins" (explicitReq.workspaceId == "fixture")
+  require "explicit workspace id wins" (explicitReq.resolvedWorkspaceId? == some "fixture")
 
   let handle : Handle := {
     workspaceId := "handle-workspace"
@@ -552,7 +575,7 @@ private def checkWorkspaceRoutingFields : IO Unit := do
     handle? := some handle
   }
   require "handle workspace id routes omitted request workspace"
-    (handleReq.workspaceId == "handle-workspace")
+    (handleReq.resolvedWorkspaceId? == some "handle-workspace")
 
   let explicitHandleReq : Request := {
     op := .runWith
@@ -560,7 +583,47 @@ private def checkWorkspaceRoutingFields : IO Unit := do
     handle? := some handle
   }
   require "explicit workspace id overrides handle for validation"
-    (explicitHandleReq.workspaceId == "explicit")
+    (explicitHandleReq.resolvedWorkspaceId? == some "explicit")
+
+  let unrelatedStats : Request := {
+    op := .stats
+    query? := some "ignored-before-strict-validation"
+  }
+  match unrelatedStats.validateFields with
+  | .ok _ => throw <| IO.userError "stats accepted an unrelated query field"
+  | .error err =>
+      require "broker request field validation identifies the operation and field"
+        (err.contains "stats" && err.contains "query")
+
+  let rootOnlyStats : Request := {
+    op := .stats
+    root? := some "/workspace"
+  }
+  match rootOnlyStats.validateFields with
+  | .ok _ => throw <| IO.userError "stats accepted a root without a workspace id"
+  | .error err =>
+      require "scoped stats requires an explicit workspace id"
+        (err.contains "workspaceId" && err.contains "root")
+
+  for (label, json, field) in #[
+      ("unknown broker field", Json.mkObj [
+        ("op", toJson "stats"),
+        ("mystery", toJson true)
+      ], "mystery"),
+      ("known field owned by another operation", Json.mkObj [
+        ("op", toJson "stats"),
+        ("query", toJson "ignored-before-strict-validation")
+      ], "query"),
+      ("backend on process operation", Json.mkObj [
+        ("op", toJson "stats"),
+        ("backend", toJson "lean")
+      ], "backend")
+    ] do
+    match fromJson? (α := Request) json with
+    | .ok _ => throw <| IO.userError s!"{label} decoded unexpectedly"
+    | .error err =>
+        require s!"{label} error should identify '{field}'"
+          (err.contains field || (field == "backend" && err.contains "does not select a backend"))
 
   match fromJson? (α := Request) <| Json.mkObj [
       ("op", toJson "init_workspace"),
@@ -570,6 +633,89 @@ private def checkWorkspaceRoutingFields : IO Unit := do
   | .error err =>
       require "unsupported workspace mode error should name accepted values"
         (err.contains "'set', 'verify', or 'reset'")
+
+private def checkWorkspaceLifecycleProtocol : IO Unit := do
+  let root := System.FilePath.mk "/workspace"
+  let previous := System.FilePath.mk "/previous-workspace"
+  let emptyRuntimeIdRejected ←
+    try
+      discard <| Beam.Broker.ServerRuntime.create ({ root } : Beam.Broker.BrokerConfig) ""
+      pure false
+    catch err =>
+      pure <| err.toString.contains "workspace id must be non-empty"
+  require "broker runtime constructor should reject an empty workspace id" emptyRuntimeIdRejected
+
+  let runtime ← Beam.Broker.ServerRuntime.create
+    ({ root } : Beam.Broker.BrokerConfig) "fixture"
+  for op in #[Op.ensure, .initWorkspace, .dropWorkspace] do
+    let (missingWorkspaceResp, _) ← runtime.dispatchRequest { op }
+    require s!"{op.key} should reject omitted workspace identity"
+      (missingWorkspaceResp.error?.any fun err =>
+        err.code == "invalidParams" && err.message.contains "workspaceId is required")
+  let (processStatsResp, _) ← runtime.dispatchRequest { op := .stats }
+  let some processStats := processStatsResp.result?
+    | throw <| IO.userError s!"process-wide stats failed: {(toJson processStatsResp).compress}"
+  requireFieldAbsent "process-wide stats" "root" processStats
+  requireFieldAbsent "process-wide stats" "sessions" processStats
+  requireFieldAbsent "process-wide stats" "byBackend" processStats
+  discard <| IO.ofExcept <| processStats.getObjVal? "workspaces"
+
+  let resetResult : Beam.Workspace.InitResult := {
+    workspaceId := "fixture"
+    root
+    mode := .reset
+    runtimeReused := false
+    previousRoot? := some previous
+    invalidatedHandles := true
+  }
+  let resetJson := toJson resetResult
+  requireJsonString "reset result json" "workspace_id" "fixture" resetJson
+  requireJsonString "reset result json" "root" root.toString resetJson
+  requireFieldAbsent "reset result json" "active_root" resetJson
+  requireJsonString "reset result json" "previous_root" previous.toString resetJson
+  requireJsonBool "reset result json" "invalidated_handles" true resetJson
+  requireJsonBool "reset result json" "runtime_reused" false resetJson
+  let decodedReset ← expectOk "decode typed workspace initialization result" <|
+    fromJson? (α := Beam.Workspace.InitResult) resetJson
+  require "typed workspace initialization result preserves lifecycle state"
+    (decodedReset.workspaceId == "fixture" && decodedReset.root == root &&
+      decodedReset.previousRoot? == some previous && decodedReset.invalidatedHandles)
+
+  let setResultJson := toJson ({
+    workspaceId := "fixture"
+    root
+    mode := .set
+    runtimeReused := false
+    invalidatedHandles := false
+  } : Beam.Workspace.InitResult)
+  requireJsonString "set result json" "workspace_id" "fixture" setResultJson
+  requireJsonBool "set result json" "invalidated_handles" false setResultJson
+  requireFieldAbsent "set result json" "previous_root" setResultJson
+
+  let listJson := toJson ({ workspaces := #[{
+    workspaceId := "fixture"
+    root
+    leanActive := true
+    rocqActive := false
+  }] } : Beam.Workspace.ListResult)
+  let decodedList ← expectOk "decode typed workspace list" <|
+    fromJson? (α := Beam.Workspace.ListResult) listJson
+  let some decodedEntry := decodedList.workspaces[0]?
+    | throw <| IO.userError "typed workspace list lost its entry"
+  require "typed workspace list preserves workspace id" (decodedEntry.workspaceId == "fixture")
+  require "typed workspace list preserves root" (decodedEntry.root == root)
+  require "typed workspace list preserves backend activity"
+    (decodedEntry.leanActive && !decodedEntry.rocqActive)
+
+  let dropJson := toJson ({
+    workspaceId := "fixture"
+    dropped := true
+    invalidatedHandles := true
+  } : Beam.Workspace.DropResult)
+  let decodedDrop ← expectOk "decode typed workspace drop result" <|
+    fromJson? (α := Beam.Workspace.DropResult) dropJson
+  require "typed workspace drop preserves lifecycle state"
+    (decodedDrop.workspaceId == "fixture" && decodedDrop.dropped && decodedDrop.invalidatedHandles)
 
 def main : IO Unit := do
   checkResponseJsonShape
@@ -583,6 +729,7 @@ def main : IO Unit := do
   checkStaleDirectDepHints
   checkRequestArgsBoundary
   checkWorkspaceRoutingFields
+  checkWorkspaceLifecycleProtocol
 
 end BeamTest.Broker.ProtocolTest
 

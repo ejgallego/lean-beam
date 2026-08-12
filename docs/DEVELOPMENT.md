@@ -143,121 +143,84 @@ The cheap regression guard is [scripts/check-daemon-safety.sh](../scripts/check-
 It is intentionally conservative and should be updated when a new daemon-safe wrapper around an
 exit-capable Lean/Lake API is introduced.
 
+The broker has no default workspace. Every workspace-bound broker request names a workspace or
+carries a continuation handle that names one, and daemon startup receives its initial workspace id
+explicitly through `--workspace-id`. The public CLI still manages one daemon per project, but that
+policy stays in `Beam.Cli`: its request adapter supplies a CLI-owned private identifier. That value
+is an implementation detail, not part of the broker protocol. Broker stats and open-document
+requests without an id remain process-wide and return only the `workspaces` map; the CLI scopes
+those requests before sending them. `Beam.Broker.Op.workspaceScope` is the shared operation
+classification; CLI and test adapters should use it instead of maintaining their own operation
+lists.
+
 ## MCP Projection Changes
 
 MCP work should go through the shared Lean operation layer in
-[Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) and the typed MCP projection boundary in
-[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean). CLI Lean commands should go through the
-CLI projection helpers in [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean) instead of
-constructing broker requests directly in the command dispatcher.
-`Beam/Lean/Operation.lean` names curated Lean operations, maps typed inputs to broker requests, and
-owns the tool input schemas. `Beam/Mcp/Projection.lean` names the MCP tools and normalizes
-selected broker results. Workspace/session input and result shapes are shared Beam surfaces in
-[Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean); MCP tools such as
-`lean_init_workspace`, `lean_list_workspaces`, and `lean_drop_workspace` should project broker
-lifecycle behavior instead of inventing MCP-only root policy or pretending setup is a raw Lean
-operation. Lean/Lake root recognition belongs in
-[Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean), not in the generic workspace state machine.
+[Beam/Lean/Operation.lean](../Beam/Lean/Operation.lean) and the typed projection in
+[Beam/Mcp/Projection.lean](../Beam/Mcp/Projection.lean). `Beam.Lean.Operation` owns curated
+operations, typed inputs, broker adapters, descriptions, and base schemas. The MCP projection adds
+its required workspace descriptor and normalizes result names.
 
-The executable MCP path is split into importable runtime modules and tiny entry-point modules:
+The local descriptor lives in
+[Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean). Every workspace-bound request must
+carry `{"workspace":{"root":"/absolute/project"}}`. Resolve it through
+[Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean), canonicalize it before deriving the private
+broker cache key, and never store a current/default workspace in MCP protocol state.
 
-- [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean): MCP JSON-RPC and tool-result helpers
-- [Beam/Mcp/Options.lean](../Beam/Mcp/Options.lean): executable option parsing and usage text
-- [Beam/Mcp/Roots.lean](../Beam/Mcp/Roots.lean): MCP `roots/list` negotiation and root selection
-- [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): project-root to broker-runtime setup
-- [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check driver
-- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): typed MCP lifecycle, tool dispatch, runtime setup,
-  and the synchronous `handleJson` protocol-test seam
+The executable path is split into importable modules:
+
+- [Beam/Mcp/Protocol.lean](../Beam/Mcp/Protocol.lean): current MCP JSON-RPC helpers
+- [Beam/Mcp/Options.lean](../Beam/Mcp/Options.lean): executable options and usage
+- [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean): canonical root to broker configuration
+- [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean): installed-wrapper self-check
+- [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean): descriptor resolution, lazy runtime dispatch, and
+  the synchronous protocol-test seam
 - [Beam/Mcp/StdioServer.lean](../Beam/Mcp/StdioServer.lean): permanent stdin reader, concurrent
-  request coordinator, cancellation and workspace-control barriers, serialized output, and process
-  startup
-- [Beam/Workspace/Protocol.lean](../Beam/Workspace/Protocol.lean): typed workspace ids and shared
-  workspace init input, mode, and result shapes
-- [Beam/Workspace.lean](../Beam/Workspace.lean): shared setup errors, explicit workspace-selection
-  metadata, and session binding policy
-- [Beam/Lean/Workspace.lean](../Beam/Lean/Workspace.lean): Lean/Lake project-root validation for
-  CLI and MCP setup paths
-- [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): `lean-beam-mcp` executable entry point
-- [Beam/Broker/ServerMain.lean](../Beam/Broker/ServerMain.lean): `beam-daemon` executable entry point
+  coordination, cancellation, cache-control barriers, and serialized output
+- [Beam/Mcp/ServerMain.lean](../Beam/Mcp/ServerMain.lean): executable entry point
 
-Keep these stdio coordination invariants explicit:
+Keep these stdio invariants explicit:
 
-- only `runStdio` reads stdin; client responses such as `roots/list` results return through the
-  coordinator's request-ID table
-- every stdout message passes through `OutputSink`, including progress, server requests, tool
-  results, and JSON-RPC errors
-- request IDs preserve their exact JSON-RPC string-or-number type when used as routing keys
-- ordinary tool calls may overlap, while workspace initialization and shutdown use explicit
-  lifecycle barriers
-- nested locks flow toward routing and output locks; routing and output code must not acquire setup,
-  progress, or per-request locks
+- only `runStdio` reads stdin
+- every stdout message passes through `OutputSink`
+- the server emits no JSON-RPC requests to clients
+- request IDs preserve their exact string-or-number type
+- ordinary calls may overlap; cache eviction is a full stream-order fence and shutdown drains work
+- routing/output locks do not acquire setup, progress, or per-request locks
+- JSON-RPC envelopes and current-method parameter objects reject undeclared fields; protocol
+  extensions belong in `_meta` or in a deliberately versioned schema change
 
-Keep executable `main` declarations out of importable runtime modules. Otherwise test and adapter
-modules that import a runtime accidentally inherit the wrong root-level `main`.
+The installed wrapper passes the matching `beam-cli`; on lazy first use, `Beam.Mcp.Runtime` runs
+`beam-cli` with the canonical root to obtain `mcp-config`. Keep bundle selection in that narrow
+CLI/runtime boundary. Clients supply descriptors, not raw commands or plugin paths.
 
-The installed `bin/lean-beam-mcp` wrapper is the normal setup path. It pairs the MCP executable with
-the same installed `beam-cli` and passes `--beam-cli`; `Beam/Mcp/Runtime.lean` then asks
-`beam-cli --root <root> mcp-config` for the project-specific Lean command and Beam LSP plugin after
-root selection. Keep this resolver as a narrow CLI/MCP setup boundary. Do not duplicate bundle
-selection logic in the MCP server, and do not make MCP clients pass raw plugin paths in normal
-installed use.
+When adding an MCP-facing operation:
 
-When adding an MCP-facing operation, use this order:
-
-1. Add or reuse a `Beam.Lean.Operation`. Define the typed input, broker-request adapter, description,
-   and closed input schema there. Use [Beam/JsonSchema.lean](../Beam/JsonSchema.lean) for public
-   tool schemas instead of hand-rolling schema JSON.
-2. If the operation should be an MCP tool, make sure `Beam.Mcp.Projection` projects it from
-   the shared Lean operation surface. Normal Lean MCP tool names derive from the operation key with
-   the `lean_` prefix; `lean_init_workspace`, `lean_list_workspaces`, and `lean_drop_workspace` are
-   the MCP lifecycle exceptions, and `beam_version` is the MCP server-identity utility for bug
-   reports. Do not add raw LSP method names or generic request-forwarding escape hatches.
-3. If the operation also belongs on the CLI, add or update the request helper in
-   [Beam/Cli/LeanOperation.lean](../Beam/Cli/LeanOperation.lean). Keep CLI-specific validation,
-   such as omitted-text validation, at the CLI projection boundary.
-4. Keep project-root selection in server/session setup, not in each Lean operation input. Root
-   negotiation for the default workspace belongs to `lean_init_workspace`, explicit `--root`, or
-   exactly one MCP `roots/list` result. Additional local workspaces are explicit
-   `lean_init_workspace` calls with `workspace_id`, and later Lean tools route to them with the same
-   required `workspace_id`; `"default"` is an explicit id, not an omitted selector.
-   `lean_init_workspace` is the only setup tool that accepts a root, and it
-   should keep projecting the shared `Beam.Workspace` contract: explicit, absolute, idempotent for
-   `set` and `verify`, and destructive only through `mode=reset`, which replaces the selected
-   workspace and invalidates handles owned by that workspace id. `lean_drop_workspace` must require
-   an explicit `workspace_id`, including `"default"` for the default workspace. Keep lifecycle result
-   fields in snake_case, including `runtime_reused`, `previous_root`, and `invalidated_handles`.
-5. Normalize MCP output field names in the projection, for example `next_handle` and `proof_state`.
-   Transport/setup failures should become structured tool or JSON-RPC errors; semantic Lean failures
-   should remain normal tool results when the broker reports them that way.
-6. Keep progress and readiness separate. Lean `fileProgress` is useful observability and a
-   sync/save barrier input, but it is not a general proof that every operation is semantically ready.
-   Setup latency should be attributed to setup phases such as `lean_init_workspace`, not reported as
-   a later Lean operation timeout.
-7. Add or update [tests/lean/BeamTest/Broker/McpProjectionTest.lean](../tests/lean/BeamTest/Broker/McpProjectionTest.lean)
-   for operation-to-broker mapping and result normalization, then update
-   [tests/lean/BeamTest/Broker/McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean) for generated
-   tool schema, lifecycle, root setup, and protocol error-shape expectations.
-8. Run `lake build beam-mcp-projection-test beam-mcp-protocol-test beam-cli lean-beam-mcp`, the two
-   focused MCP test executables,
-   `python3 tests/test-mcp-stdio.py --scenario concurrent-dispatch --timeout 40`,
+1. Add or reuse a `Beam.Lean.Operation` with a typed input, broker adapter, description, and closed
+   schema.
+2. Project it through `Beam.Mcp.Projection`; do not expose raw LSP or generic broker escape hatches.
+3. Add CLI projection work separately when the operation also belongs on the CLI.
+4. Require the descriptor in the generated MCP schema. Pass only the canonical private key to the
+   broker. Do not add init/select/list tools or restore startup-root or Roots fallback.
+5. Normalize agent-facing output, including `next_handle`, `proof_state`, and the canonical workspace
+   descriptor. Keep errors typed until the transport edge.
+6. Treat `lean_drop_workspace` only as idempotent cache eviction. It invalidates that runtime's
+   handles; the next descriptor-bound call recreates it lazily. Preserve the canonical descriptor
+   recovery path when the project directory or its Lean/Lake markers no longer resolve.
+7. Update projection, protocol, and real stdio coverage, including missing/relative descriptors,
+   canonical aliases, multi-root isolation, cross-workspace handles, and eviction/recreation.
+8. Run the projection/protocol builds and executables, the concurrent stdio scenario,
    `git diff --check`, and `bash tests/test-beam-fast.sh`.
 
-For setup tools that do not map to Lean execution, keep the tool projection in `Beam.Mcp`, shared
-input/result types in `Beam.Workspace.Protocol`, and lifecycle policy in the broker. Make the
-non-broker boundary explicit in tests.
+Broker requests remain a shared record for the CLI, MCP projection, and daemon transport, but field
+ownership is operation-specific. Update `Op.optionalRequestFields` with every new broker field and
+keep `Request.validateFields` at both the JSON decoder and direct dispatch boundary. Do not let an
+operation silently ignore a field owned by another operation. Cancellation is process-wide and is
+identified only by `cancelRequestId`; it does not carry a workspace or root selector.
 
-Lean/Lake root validation should stay shared between CLI and MCP. `lean_init_workspace` should keep
-using `Beam.Lean.Workspace.resolveRoot`, which requires an absolute root because it is a client API.
-Local startup paths such as `beam --root` and `lean-beam-mcp --root` should use
-`Beam.Lean.Workspace.resolveCliRoot`, which first resolves relative paths from the current working
-directory and then applies the same Lean/Lake project validation before broker workspace lifecycle
-policy.
-
-When a CLI command exposes the same Lean operation, add or update its request helper in
-`Beam.Cli.LeanOperation` and keep request-shape parity coverage in
-[tests/lean/BeamTest/Broker/CliDaemonTest.lean](../tests/lean/BeamTest/Broker/CliDaemonTest.lean). CLI-only validation,
-such as preserving broker-side validation for omitted text arguments, should stay at this projection
-boundary and should not leak into the typed MCP inputs.
+Lean/Lake root validation remains shared with the CLI. MCP descriptors use
+`Beam.Lean.Workspace.resolveRoot`, which requires absolute paths; ordinary `lean-beam` CLI paths use
+`resolveCliRoot`. The MCP executable itself has no startup-root option.
 
 `Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
 add support for another revision, only with a protocol audit: check the upstream MCP

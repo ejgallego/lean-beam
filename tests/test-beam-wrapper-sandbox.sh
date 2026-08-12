@@ -68,7 +68,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$project_root" "$control_root"
-rsync -a tests/save_olean_project/ "$project_root"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$project_root"/
 mkdir -p "$project_root/tests/scenario/docs"
 cp tests/scenario/docs/SlowPoll.lean "$project_root/tests/scenario/docs/SlowPoll.lean"
 

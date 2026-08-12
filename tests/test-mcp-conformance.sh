@@ -76,9 +76,9 @@ start_bridge() {
   project_root="$scenario_dir/project"
   ready_file="$scenario_dir/ready.json"
   mkdir -p "$scenario_dir" || return
-  cp -R tests/save_olean_project "$project_root" || return
+  mkdir -p "$project_root"
+  rsync -a --exclude='.beam/' tests/save_olean_project/ "$project_root"/ || return
   python3 tests/mcp_http_bridge.py \
-    --root "$project_root" \
     --server .lake/build/bin/lean-beam-mcp \
     --lean-cmd "$(command -v lean)" \
     --lean-plugin ".lake/build/lib/$(beam_shared_lib_name beam_Beam_LSP)" \

@@ -49,8 +49,10 @@ installer. For an invalid install-root marker, preserve and rename the exact `BE
 a unit before reinstalling; do not recreate its ownership marker in place or delete the preserved
 state.
 
-`lean_init_workspace` with `mode: "reset"` restarts the Lean runtime inside the current MCP server
-process; it does not prove the MCP server binary itself was refreshed.
+MCP workspace-bound tools carry an explicit local workspace descriptor on every call. Dropping that
+workspace only evicts its cached runtime and retained handles; it does not prove the MCP server
+binary itself was refreshed. Retain the canonical descriptor echoed by successful MCP calls so a
+cached runtime can still be dropped if the project path or its Lean/Lake markers become unavailable.
 
 Restart active agent or MCP client sessions after installation.
 

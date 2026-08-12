@@ -31,6 +31,15 @@ private def checkJsonHelpers : IO Unit := do
     Beam.Mcp.optionalField? (α := String) withField "missing"
   require "missing optional string field decodes as none" missingName.isNone
 
+  discard <| expectOk "closed object fields" <|
+    Beam.Mcp.requireOnlyFields "fixture" #["name"] withField
+  match Beam.Mcp.requireOnlyFields "fixture" #["name"] <|
+      Json.mkObj [("name", toJson "fixture"), ("extra", toJson true)] with
+  | .ok _ => throw <| IO.userError "closed object accepted an undeclared field"
+  | .error err =>
+      require "closed object error identifies its undeclared field"
+        (err.contains "undeclared fields" && err.contains "extra")
+
   match Beam.Mcp.optionalField? (α := String) (Json.mkObj [("name", toJson (1 : Nat))]) "name" with
   | .ok value =>
       throw <| IO.userError s!"invalid optional field decoded unexpectedly: {repr value}"
@@ -124,7 +133,8 @@ private def checkIncoming : IO Unit := do
   let cancelled ← expectOk "decode cancellation params" <|
     Beam.Mcp.parseCancelledParams <| some <| Json.mkObj [
       ("requestId", toJson "slow-request"),
-      ("reason", toJson "client no longer needs the result")
+      ("reason", toJson "client no longer needs the result"),
+      ("_meta", Json.mkObj [("traceId", toJson "cancel-trace")])
     ]
   require "cancellation request id" (cancelled.requestId == .string "slow-request")
   require "cancellation reason" (cancelled.reason? == some "client no longer needs the result")
@@ -144,6 +154,44 @@ private def checkIncoming : IO Unit := do
     match Beam.Mcp.Incoming.fromJson? invalidResponse with
     | .ok _ => throw <| IO.userError s!"invalid response decoded: {invalidResponse.compress}"
     | .error _ => pure ()
+
+  for (label, ambiguous) in #[
+      ("request with response result", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "mixed-request"),
+        ("method", toJson "tools/list"),
+        ("result", Json.mkObj [])
+      ]),
+      ("notification with response error", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("method", toJson "notifications/initialized"),
+        ("error", Json.mkObj [])
+      ]),
+      ("response with request method", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "mixed-response"),
+        ("method", toJson "tools/list"),
+        ("result", Json.mkObj [])
+      ]),
+      ("request with undeclared envelope field", Json.mkObj [
+        ("jsonrpc", toJson "2.0"),
+        ("id", toJson "extra-request"),
+        ("method", toJson "tools/list"),
+        ("unexpected", toJson true)
+      ])
+    ] do
+    match Beam.Mcp.Incoming.fromJson? ambiguous with
+    | .ok _ => throw <| IO.userError s!"{label} decoded unexpectedly: {ambiguous.compress}"
+    | .error err =>
+        require s!"{label} should report a closed JSON-RPC envelope"
+          (err.contains "undeclared fields")
+
+  match Beam.Mcp.parseCancelledParams <| some <| Json.mkObj [
+      ("requestId", toJson "slow-request"),
+      ("workspace", Json.mkObj [])
+    ] with
+  | .ok _ => throw <| IO.userError "cancellation params accepted an unrelated workspace"
+  | .error err => require "cancellation rejects undeclared fields" (err.contains "workspace")
 
 private def checkVersionIdentityJson : IO Unit := do
   let current := Beam.Version.Identity.asJson {
@@ -178,6 +226,42 @@ private def requireClosedInputSchema (label : String) (tool : Json) : IO Json :=
   requireJsonString label "$schema" Beam.JsonSchema.dialect schema
   requireJsonBool label "additionalProperties" false schema
   pure schema
+
+private def objectFieldNames (label : String) : Json → IO (Array String)
+  | .obj fields => pure <| fields.foldl (init := #[]) fun names field _ => names.push field
+  | other => throw <| IO.userError s!"{label} is not an object: {other.compress}"
+
+private def requireUniqueStrings (label : String) (values : Array String) : IO Unit := do
+  let unique := values.foldl (init := #[]) fun seen value =>
+    if seen.contains value then seen else seen.push value
+  require s!"{label} contains duplicate fields: {values}" (unique.size == values.size)
+
+private def checkToolInputParameterUniqueness (tools : Array Json) : IO Unit := do
+  let forbiddenAliases := #[
+    "root", "workspace_id", "workspaceId", "includeDeclaration", "startLine",
+    "startCharacter", "endLine", "endCharacter", "codeAction", "fullDiagnostics",
+    "includeDiagnostics"
+  ]
+  for tool in tools do
+    let name ← IO.ofExcept <| tool.getObjValAs? String "name"
+    let schema ← requireClosedInputSchema s!"{name} input schema" tool
+    let properties ← requireObjVal s!"{name} input schema" "properties" schema
+    let propertyNames ← objectFieldNames s!"{name} input properties" properties
+    let required ← IO.ofExcept <| schema.getObjValAs? (Array String) "required"
+    requireUniqueStrings s!"{name} required parameters" required
+    for field in required do
+      require s!"{name} requires undeclared parameter '{field}'" (propertyNames.contains field)
+    for alias in forbiddenAliases do
+      require s!"{name} exposes ambiguous or obsolete top-level parameter '{alias}'"
+        (!propertyNames.contains alias)
+    let workspaceBound := name == "beam_feedback" || name == "lean_drop_workspace" ||
+      name.startsWith "lean_"
+    require s!"{name} workspace selector requirement is inconsistent"
+      (required.contains "workspace" == workspaceBound)
+    let handleBound := name == "lean_run_with" || name == "lean_run_with_linear" ||
+      name == "lean_release"
+    require s!"{name} handle parameter ownership is inconsistent"
+      (propertyNames.contains "handle" == handleBound)
 
 private def requireSchemaRequiredFields
     (label : String)
@@ -225,69 +309,39 @@ private def checkToolsListShape : IO Unit := do
   let tools ← requireObjVal "tools/list result" "tools" result
   let tools ← requireJsonArray "tools/list tools" tools
   require "tools/list is non-empty" (!tools.isEmpty)
-  let initTool ← requireTool tools "lean_init_workspace"
-  let initSchema ← requireClosedInputSchema "lean_init_workspace input schema" initTool
-  requireSchemaRequiredFields "lean_init_workspace input schema" #["root", "workspace_id"] initSchema
-  let initProperties ← requireObjVal "lean_init_workspace input schema" "properties" initSchema
-  requireFieldPresent "lean_init_workspace input schema" "workspace_id" initProperties
-  let modeSchema ← requireObjVal "lean_init_workspace properties" "mode" initProperties
-  let modeEnum ← requireObjVal "lean_init_workspace mode schema" "enum" modeSchema
-  require "lean_init_workspace mode enum should expose set/verify/reset"
-    (modeEnum == toJson (#["set", "verify", "reset"] : Array String))
-  let modeDescription ← IO.ofExcept <| modeSchema.getObjValAs? String "description"
-  require "lean_init_workspace mode description should explain handle invalidation"
-    (modeDescription.contains "invalidates handles")
-  require "MCP capability names should include central Lean tools"
-    (Beam.Mcp.capabilityNames.contains "beam_version" &&
-      Beam.Mcp.capabilityNames.contains "beam_stats" &&
-      Beam.Mcp.capabilityNames.contains "beam_feedback" &&
-      Beam.Mcp.capabilityNames.contains "lean_list_workspaces" &&
-      Beam.Mcp.capabilityNames.contains "lean_drop_workspace" &&
-      Beam.Mcp.capabilityNames.contains "lean_run_at" &&
-      Beam.Mcp.capabilityNames.contains "lean_update" &&
-      Beam.Mcp.capabilityNames.contains "lean_sync" &&
-      Beam.Mcp.capabilityNames.contains "lean_refresh" &&
-      Beam.Mcp.capabilityNames.contains "lean_save" &&
-      Beam.Mcp.capabilityNames.contains "lean_close_save" &&
-      Beam.Mcp.capabilityNames.contains "lean_signature_help" &&
-      Beam.Mcp.capabilityNames.contains "lean_definition" &&
-      Beam.Mcp.capabilityNames.contains "lean_references" &&
-      Beam.Mcp.capabilityNames.contains "lean_document_symbols" &&
-      Beam.Mcp.capabilityNames.contains "lean_workspace_symbols" &&
-      Beam.Mcp.capabilityNames.contains "lean_goals" &&
-      Beam.Mcp.capabilityNames.contains "lean_code_action_resolve")
-  require "MCP capability names should not expose raw LSP methods"
-    (!Beam.Mcp.capabilityNames.contains Beam.LSP.RunAt.method)
+  checkToolInputParameterUniqueness tools
+  for removed in #["lean_init_workspace", "lean_list_workspaces"] do
+    require s!"tools/list must not expose removed lifecycle tool {removed}"
+      (!(tools.any fun tool => (tool.getObjValAs? String "name").toOption == some removed))
 
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
     ("beam_stats", #[]),
-    ("beam_feedback", Beam.Feedback.requiredInputFields.push "workspace_id"),
-    ("lean_list_workspaces", #[]),
-    ("lean_drop_workspace", #["workspace_id"]),
-    ("lean_run_at", #["path", "version", "line", "character", "text", "workspace_id"]),
-    ("lean_run_at_handle", #["path", "version", "line", "character", "text", "workspace_id"]),
-    ("lean_hover", #["path", "version", "line", "character", "workspace_id"]),
-    ("lean_signature_help", #["path", "version", "line", "character", "workspace_id"]),
-    ("lean_definition", #["path", "version", "line", "character", "workspace_id"]),
-    ("lean_references", #["path", "version", "line", "character", "workspace_id"]),
-    ("lean_document_symbols", #["path", "version", "workspace_id"]),
-    ("lean_workspace_symbols", #["query", "workspace_id"]),
-    ("lean_goals", #["path", "version", "line", "character", "mode", "workspace_id"]),
-    ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character", "workspace_id"]),
-    ("lean_code_action_resolve", #["path", "version", "code_action", "workspace_id"]),
-    ("lean_run_with", #["path", "handle", "text", "workspace_id"]),
-    ("lean_run_with_linear", #["path", "handle", "text", "workspace_id"]),
-    ("lean_release", #["path", "handle", "workspace_id"]),
-    ("lean_update", #["path", "workspace_id"]),
-    ("lean_sync", #["path", "workspace_id"]),
-    ("lean_refresh", #["path", "workspace_id"]),
-    ("lean_save", #["path", "workspace_id"]),
-    ("lean_close_save", #["path", "workspace_id"]),
-    ("lean_close", #["path", "workspace_id"])
+    ("beam_feedback", Beam.Feedback.requiredInputFields.push "workspace"),
+    ("lean_drop_workspace", #["workspace"]),
+    ("lean_run_at", #["path", "version", "line", "character", "text", "workspace"]),
+    ("lean_run_at_handle", #["path", "version", "line", "character", "text", "workspace"]),
+    ("lean_hover", #["path", "version", "line", "character", "workspace"]),
+    ("lean_signature_help", #["path", "version", "line", "character", "workspace"]),
+    ("lean_definition", #["path", "version", "line", "character", "workspace"]),
+    ("lean_references", #["path", "version", "line", "character", "workspace"]),
+    ("lean_document_symbols", #["path", "version", "workspace"]),
+    ("lean_workspace_symbols", #["query", "workspace"]),
+    ("lean_goals", #["path", "version", "line", "character", "mode", "workspace"]),
+    ("lean_todo", #["path", "version", "start_line", "start_character", "end_line", "end_character", "workspace"]),
+    ("lean_code_action_resolve", #["path", "version", "code_action", "workspace"]),
+    ("lean_run_with", #["path", "handle", "text", "workspace"]),
+    ("lean_run_with_linear", #["path", "handle", "text", "workspace"]),
+    ("lean_release", #["path", "handle", "workspace"]),
+    ("lean_update", #["path", "workspace"]),
+    ("lean_sync", #["path", "workspace"]),
+    ("lean_refresh", #["path", "workspace"]),
+    ("lean_save", #["path", "workspace"]),
+    ("lean_close_save", #["path", "workspace"]),
+    ("lean_close", #["path", "workspace"])
   ]
-  require "tools/list should expose init workspace plus curated Lean tools"
-    (tools.size == schemaCases.size + 1)
+  require "tools/list should expose only cache management and curated Lean tools"
+    (tools.size == schemaCases.size)
   for (toolName, requiredFields) in schemaCases do
     let tool ← requireTool tools toolName
     let schema ← requireClosedInputSchema s!"{toolName} input schema" tool
@@ -296,7 +350,9 @@ private def checkToolsListShape : IO Unit := do
   let syncTool ← requireTool tools "lean_sync"
   let syncSchema ← requireClosedInputSchema "lean_sync input schema" syncTool
   let syncProperties ← requireObjVal "lean_sync input schema" "properties" syncSchema
-  requireFieldPresent "lean_sync input schema" "workspace_id" syncProperties
+  let workspaceSchema ← requireObjVal "lean_sync input schema" "workspace" syncProperties
+  let workspaceProperties ← requireObjVal "workspace descriptor schema" "properties" workspaceSchema
+  requireFieldPresent "workspace descriptor schema" "root" workspaceProperties
   requireFieldPresent "lean_sync input schema" "include_diagnostics" syncProperties
   let referencesTool ← requireTool tools "lean_references"
   let referencesSchema ← requireClosedInputSchema "lean_references input schema" referencesTool
@@ -330,107 +386,73 @@ private def checkToolsListShape : IO Unit := do
       (tool.getObjValAs? String "name").toOption == some "lean_request_at"
   require "tools/list must not expose raw LSP/request-at tools" (!rawExposed)
 
-private def checkRootsProtocol : IO Unit := do
-  let initWithoutRoots := Json.mkObj [
-    ("capabilities", Json.mkObj [])
+private def checkWorkspaceDescriptor : IO Unit := do
+  let root := "/workspace"
+  let json := Json.mkObj [
+    ("workspace", Json.mkObj [("root", toJson root)])
   ]
-  require "empty client capabilities should not advertise roots"
-    (!Beam.Mcp.clientSupportsRoots (some initWithoutRoots))
-
-  let initWithRoots := Json.mkObj [
-    ("capabilities", Json.mkObj [
-      ("roots", Json.mkObj [
-        ("listChanged", toJson false)
+  let descriptor ← expectOk "decode workspace descriptor" <|
+    Beam.Workspace.decodeDescriptorField json
+  require "workspace descriptor preserves the explicit root" (descriptor.root == root)
+  require "workspace descriptor derives a deterministic private cache key"
+    (descriptor.cacheKey == "local:/workspace")
+  require "workspace descriptor JSON is typed and round-trips"
+    ((fromJson? (α := Beam.Workspace.Descriptor) (toJson descriptor)).toOption == some descriptor)
+  match Beam.Workspace.decodeDescriptorField (Json.mkObj []) with
+  | .ok _ => throw <| IO.userError "missing workspace descriptor decoded unexpectedly"
+  | .error err => require "missing descriptor error names workspace" (err.contains "workspace")
+  match Beam.Workspace.decodeDescriptorField <| Json.mkObj [
+      ("workspace", Json.mkObj [("root", toJson (3 : Nat))])
+    ] with
+  | .ok _ => throw <| IO.userError "non-string workspace root decoded unexpectedly"
+  | .error err => require "invalid descriptor error names workspace" (err.contains "workspace")
+  match Beam.Workspace.decodeDescriptorField <| Json.mkObj [
+      ("workspace", Json.mkObj [
+        ("root", toJson root),
+        ("workspace_id", toJson "legacy")
       ])
-    ])
-  ]
-  require "roots client capability should be detected"
-    (Beam.Mcp.clientSupportsRoots (some initWithRoots))
-
-  let projectRoot ← IO.currentDir
-  let resolvedProjectRoot ← IO.FS.realPath projectRoot
-  let rootUri := (System.Uri.pathToUri resolvedProjectRoot : String)
-  let rootsResponse (id : String) (result : Json) : Json := Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson id),
-    ("result", result)
-  ]
-  let rootsResult (roots : Array Json) : Json := Json.mkObj [
-    ("roots", Json.arr roots)
-  ]
-  let rpcErrorResponse := Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson Beam.Mcp.rootsListRequestId),
-    ("error", Json.mkObj [
-      ("code", toJson (-32603 : Int)),
-      ("message", toJson "client roots failure")
-    ])
-  ]
-  let decodeRootsResponse (json : Json) : IO (Except String System.FilePath) := do
-    match Beam.Mcp.Incoming.fromJson? json with
-    | .ok (.response response) =>
-        if response.id == .string Beam.Mcp.rootsListRequestId then
-          Beam.Mcp.Roots.selectClientRootResponse response
-        else
-          pure <| .error s!"unexpected roots/list response id {response.id.label}"
-    | .ok _ => pure <| .error "roots/list reply decoded as a request or notification"
-    | .error err => pure <| .error err
-  let cases : Array (String × Json × Bool) := #[
-    (
-      "one client root",
-      rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[
-        Json.mkObj [
-          ("uri", toJson rootUri),
-          ("name", toJson "fixture")
-        ]
-      ],
-      true
-    ),
-    ("empty roots", rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[], false),
-    ("missing roots field", rootsResponse Beam.Mcp.rootsListRequestId <| Json.mkObj [], false),
-    (
-      "non-string root uri",
-      rootsResponse Beam.Mcp.rootsListRequestId <| rootsResult #[
-        Json.mkObj [
-          ("uri", toJson (3 : Nat))
-        ]
-      ],
-      false
-    ),
-    ("wrong response id", rootsResponse "other-roots-id" <| rootsResult #[], false),
-    ("JSON-RPC roots error", rpcErrorResponse, false)
-  ]
-  for (label, response, shouldDecode) in cases do
-    match ← decodeRootsResponse response with
-    | .ok root =>
-        unless shouldDecode do
-          throw <| IO.userError s!"{label}: roots/list response decoded unexpectedly"
-        if label == "one client root" then
-          require "roots/list should resolve the selected project root" (root == resolvedProjectRoot)
-    | .error err =>
-        if shouldDecode then
-          throw <| IO.userError s!"{label}: roots/list response failed to decode: {err}"
-
-  let clientRoot (uri : String) (name? : Option String := none) : Beam.Mcp.ClientRoot := {
-    uri
-    name?
-  }
-  match Beam.Mcp.Roots.selectClientRoot #[clientRoot rootUri (some "fixture")] with
-  | .ok root =>
-      require "single client root should select the project root" (root == resolvedProjectRoot)
+    ] with
+  | .ok _ => throw <| IO.userError "workspace descriptor accepted an obsolete selector field"
   | .error err =>
-      throw <| IO.userError s!"single client root was rejected: {err}"
-  let selectCases : Array (String × Array Beam.Mcp.ClientRoot) := #[
-    ("empty client roots", #[]),
-    ("multiple client roots", #[clientRoot rootUri, clientRoot (System.Uri.pathToUri (System.FilePath.mk "/tmp/other") : String)]),
-    ("non-file client root", #[clientRoot "https://example.com/lean-beam"])
-  ]
-  for (label, roots) in selectCases do
-    match Beam.Mcp.Roots.selectClientRoot roots with
+      require "closed descriptor error should reject obsolete selector fields"
+        (err.contains "accepts only the 'root' field")
+
+private def expectWorkspaceRootError
+    (label rootText expectedMessage : String) : IO Unit := do
+  match ← Beam.Lean.Workspace.resolveRoot rootText with
+  | .ok root =>
+      throw <| IO.userError s!"{label}: invalid workspace root resolved as {root}"
+  | .error err =>
+      require s!"{label}: workspace error should contain '{expectedMessage}'"
+        (err.message.contains expectedMessage)
+
+private def checkWorkspaceRootValidation : IO Unit := do
+  let fixtureRoot :=
+    System.FilePath.mk s!"/tmp/lean-beam-workspace-root-validation-{← IO.monoNanosNow}"
+  let emptyRoot := fixtureRoot / "empty"
+  let fileRoot := fixtureRoot / "not-a-directory"
+  let missingRoot := fixtureRoot / "missing"
+  try
+    IO.FS.createDirAll emptyRoot
+    IO.FS.writeFile fileRoot "not a workspace directory\n"
+    expectWorkspaceRootError "relative workspace root" "relative/project" "absolute path"
+    expectWorkspaceRootError "missing workspace root" missingRoot.toString "does not resolve"
+    expectWorkspaceRootError "workspace root file" fileRoot.toString "not a directory"
+    expectWorkspaceRootError "non-project workspace root" emptyRoot.toString
+      "not a Lean/Lake project"
+
+    let expectedRoot ← Beam.resolveExistingPath (← IO.currentDir)
+    match ← Beam.Lean.Workspace.resolveRoot expectedRoot.toString with
+    | .error err =>
+        throw <| IO.userError s!"current Lean project root was rejected: {err.message}"
     | .ok root =>
-        throw <| IO.userError s!"{label}: selected root unexpectedly: {root}"
-    | .error _ =>
-        pure ()
+        require "valid workspace root should retain its canonical spelling" (root == expectedRoot)
+  finally
+    try
+      if ← fixtureRoot.pathExists then
+        IO.FS.removeDirAll fixtureRoot
+    catch _ =>
+      pure ()
 
 private def checkRuntimeSetupErrors : IO Unit := do
   let missingRoot := System.FilePath.mk s!"/tmp/lean-beam-missing-mcp-root-{← IO.monoNanosNow}"
@@ -461,66 +483,6 @@ private def checkRuntimeSetupErrors : IO Unit := do
     catch _ =>
       pure ()
 
-private def checkWorkspaceInitPolicy : IO Unit := do
-  let root := System.FilePath.mk "/workspace"
-  let previous := System.FilePath.mk "/previous-workspace"
-  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
-      ("root", toJson root.toString)
-    ] with
-  | .ok _ => throw <| IO.userError "init workspace input without workspace_id decoded unexpectedly"
-  | .error err =>
-      require "missing init workspace id error should name workspace_id" (err.contains "workspace_id")
-  let namedInput ← expectOk "decode named init input" <|
-    fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
-      ("root", toJson root.toString),
-      ("workspace_id", toJson "fixture"),
-      ("mode", toJson "verify")
-    ]
-  require "named init input should preserve workspace id" (namedInput.workspaceId == "fixture")
-  require "named init input should preserve mode" (namedInput.mode == .verify)
-  match fromJson? (α := Beam.Workspace.InitInput) <| Json.mkObj [
-      ("root", toJson root.toString),
-      ("workspace_id", toJson "")
-    ] with
-  | .ok _ => throw <| IO.userError "empty init workspace id decoded unexpectedly"
-  | .error err =>
-      require "empty init workspace id error should explain the constraint"
-        (err.contains "workspace_id must be non-empty")
-  let emptyRuntimeIdRejected ←
-    try
-      discard <| Beam.Broker.ServerRuntime.create ({ root } : Beam.Broker.BrokerConfig) ""
-      pure false
-    catch err =>
-      pure <| err.toString.contains "workspace id must be non-empty"
-  require "broker runtime constructor should reject an empty workspace id" emptyRuntimeIdRejected
-
-  let resetResult : Beam.Workspace.InitResult := {
-    workspaceId := "fixture"
-    root
-    mode := .reset
-    runtimeReused := false
-    previousRoot? := some previous
-    invalidatedHandles := true
-  }
-  let resetJson := toJson resetResult
-  requireJsonString "reset result json" "workspace_id" "fixture" resetJson
-  requireJsonString "reset result json" "root" root.toString resetJson
-  requireJsonString "reset result json" "active_root" root.toString resetJson
-  requireJsonString "reset result json" "previous_root" previous.toString resetJson
-  requireJsonBool "reset result json" "invalidated_handles" true resetJson
-  requireJsonBool "reset result json" "runtime_reused" false resetJson
-
-  let setResultJson := toJson ({
-    workspaceId := Beam.Workspace.defaultWorkspaceId
-    root
-    mode := .set
-    runtimeReused := false
-    invalidatedHandles := false
-  } : Beam.Workspace.InitResult)
-  requireJsonString "set result json" "workspace_id" Beam.Workspace.defaultWorkspaceId setResultJson
-  requireJsonBool "set result json" "invalidated_handles" false setResultJson
-  requireFieldAbsent "set result json" "previous_root" setResultJson
-
 private def expectResponse (label : String) (value : Option Json × Bool) : IO Json := do
   match value with
   | (some json, _stop) => pure json
@@ -547,18 +509,10 @@ private def rpcNotification (method : String) (params? : Option Json := none) : 
     | some params => [("params", params)]
     | none => []
 
-private def withDefaultWorkspace (name : String) (arguments : Json) : Json :=
-  let workspaceBound :=
-    match Beam.Mcp.ToolName.fromKey? name with
-    | some (.leanOperation _) | some .beamFeedback | some .leanInitWorkspace => true
-    | _ => false
-  if workspaceBound && !(arguments.getObjVal? "workspace_id").isOk then
-    arguments.setObjVal! "workspace_id" (toJson Beam.Workspace.defaultWorkspaceId)
-  else
-    arguments
+private def withWorkspace (root : System.FilePath) (arguments : Json) : Json :=
+  arguments.setObjVal! "workspace" (toJson <| Beam.Workspace.Descriptor.ofRoot root)
 
 private def toolCallParams (name : String) (arguments : Json := Json.mkObj []) : Json :=
-  let arguments := withDefaultWorkspace name arguments
   Json.mkObj [
     ("name", toJson name),
     ("arguments", arguments)
@@ -568,7 +522,6 @@ private def toolCallParamsWithProgress
     (name : String)
     (progressToken : Json)
     (arguments : Json := Json.mkObj []) : Json :=
-  let arguments := withDefaultWorkspace name arguments
   Json.mkObj [
     ("name", toJson name),
     ("arguments", arguments),
@@ -591,6 +544,16 @@ private def checkProgressProtocol : IO Unit := do
       toolCallParamsWithProgress "lean_sync" numberToken <|
         Json.mkObj [("path", toJson "Demo.lean")]
   require "numeric progressToken should decode" (numberParams.progressToken? == some numberToken)
+
+  match Beam.Mcp.parseCallToolParams <| some <| Json.mkObj [
+      ("name", toJson "lean_sync"),
+      ("arguments", Json.mkObj [("path", toJson "Demo.lean")]),
+      ("workspace", Json.mkObj [])
+    ] with
+  | .ok _ => throw <| IO.userError "tools/call accepted an undeclared outer workspace field"
+  | .error err =>
+      require "tools/call rejects undeclared outer fields"
+        (err.contains "undeclared fields" && err.contains "workspace")
 
   match Beam.Mcp.parseCallToolParams <| some <|
       toolCallParamsWithProgress "lean_sync" (toJson true) <|
@@ -618,7 +581,7 @@ private def checkProgressProtocol : IO Unit := do
   requireJsonString "progress notification params" "message" "syncing" params
 
 private def handleRpcRequest
-    (state : IO.Ref Beam.Mcp.Server.ProtocolState)
+    (state : IO.Ref Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (label : String)
     (id : Nat)
@@ -628,7 +591,7 @@ private def handleRpcRequest
     Beam.Mcp.Server.handleJson state opts (rpcRequest id method params?)
 
 private def handleRpcRequestWithNotifications
-    (state : IO.Ref Beam.Mcp.Server.ProtocolState)
+    (state : IO.Ref Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (notifications : Beam.Mcp.Server.NotificationSink)
     (label : String)
@@ -652,7 +615,7 @@ private def expectToolErrorCode (label expectedCode : String) (resp : Json) : IO
 
 private def checkServerBasics : IO Unit := do
   let root ← IO.currentDir
-  let state ← Beam.Mcp.Server.ProtocolState.create (some root)
+  let state ← Beam.Mcp.Server.ServerState.create
   let opts : Beam.Mcp.Server.Options := {}
 
   let preInitResp ← handleRpcRequest state opts "pre-initialize tools/list rejection" 0 "tools/list"
@@ -675,10 +638,12 @@ private def checkServerBasics : IO Unit := do
 
   let setLogLevelResp ← handleRpcRequest state opts "set log level" 12 "logging/setLevel" <| some <|
     Json.mkObj [
-      ("level", toJson "warning")
+      ("level", toJson "warning"),
+      ("_meta", Json.mkObj [("traceId", toJson "logging-trace")])
     ]
   discard <| requireObjVal "set log level response" "result" setLogLevelResp
-  require "set log level should update protocol state" ((← state.get).logLevel == .warning)
+  require "set log level should update legacy protocol state"
+    ((← state.get).legacy.logLevel == .warning)
 
   let badLogLevelResp ← handleRpcRequest state opts "bad log level" 13 "logging/setLevel" <| some <|
     Json.mkObj [
@@ -712,9 +677,22 @@ private def checkServerBasics : IO Unit := do
   requireJsonString "beam version structured" "mcp_protocol" Beam.Mcp.protocolVersion versionStructured
   requireJsonBool "beam version structured" "runtime_active" false versionStructured
 
+  let statsResp ← handleRpcRequest state opts "beam stats without runtime" 20 "tools/call" <|
+    some <| toolCallParams "beam_stats"
+  let statsResult ← requireObjVal "beam stats without runtime response" "result" statsResp
+  requireJsonBool "beam stats without runtime result" "isError" false statsResult
+  let statsStructured ← requireObjVal
+    "beam stats without runtime result" "structuredContent" statsResult
+  let uptimeMs ← IO.ofExcept <| statsStructured.getObjValAs? Nat "uptimeMs"
+  require "beam stats without runtime should report zero uptime" (uptimeMs == 0)
+  let emptyWorkspaces ← requireObjVal
+    "beam stats without runtime structured result" "workspaces" statsStructured
+  require "beam stats without runtime should return an empty workspace object"
+    (emptyWorkspaces == Json.mkObj [])
+
   let feedbackResp ← handleRpcRequest state opts "beam feedback" 22 "tools/call" <|
     some <| toolCallParams "beam_feedback" <|
-      Json.mkObj [
+      withWorkspace root <| Json.mkObj [
         ("title", toJson "MCP feedback fixture"),
         ("kind", toJson "bug"),
         ("severity", toJson "medium"),
@@ -741,7 +719,7 @@ private def checkServerBasics : IO Unit := do
 
   let feedbackFullResp ← handleRpcRequest state opts "beam feedback include_collected" 23 "tools/call" <|
     some <| toolCallParams "beam_feedback" <|
-      Json.mkObj [
+      withWorkspace root <| Json.mkObj [
         ("title", toJson "MCP feedback fixture full"),
         ("kind", toJson "bug"),
         ("severity", toJson "medium"),
@@ -761,22 +739,37 @@ private def checkServerBasics : IO Unit := do
   discard <| requireObjVal "beam feedback collected" "identity" feedbackCollected
   discard <| requireObjVal "beam feedback collected" "daemon" feedbackCollected
 
+  let stateAfterFeedback ← state.get
+  require "beam_feedback should not create a broker runtime"
+    stateAfterFeedback.application.runtime?.isNone
+  require "beam_feedback should not create a workspace cache"
+    stateAfterFeedback.application.workspaces.toList.isEmpty
+
+  let uncachedDropResp ← handleRpcRequest state opts "drop uncached workspace" 24 "tools/call" <|
+    some <| toolCallParams "lean_drop_workspace" <| withWorkspace root (Json.mkObj [])
+  let uncachedDropResult ← requireObjVal "drop uncached workspace response" "result" uncachedDropResp
+  requireJsonBool "drop uncached workspace result" "isError" false uncachedDropResult
+  let uncachedDropStructured ←
+    requireObjVal "drop uncached workspace result" "structuredContent" uncachedDropResult
+  let uncachedDropWorkspace ←
+    requireObjVal "drop uncached workspace structured result" "workspace" uncachedDropStructured
+  let canonicalRoot ← Beam.resolveExistingPath root
+  requireJsonString "drop uncached workspace descriptor" "root" canonicalRoot.toString
+    uncachedDropWorkspace
+  requireJsonBool "drop uncached workspace structured result" "dropped" false uncachedDropStructured
+  requireJsonBool "drop uncached workspace structured result" "invalidated_handles" false
+    uncachedDropStructured
+  requireJsonString "drop uncached workspace structured result" "reason" "notFound"
+    uncachedDropStructured
+  let stateAfterUncachedDrop ← state.get
+  require "dropping an uncached workspace should not create a broker runtime"
+    stateAfterUncachedDrop.application.runtime?.isNone
+  require "dropping an uncached workspace should not create a workspace cache"
+    stateAfterUncachedDrop.application.workspaces.toList.isEmpty
+
   let rawToolResp ← handleRpcRequest state opts "raw tool rejection" 3 "tools/call" <|
     some <| toolCallParams Beam.LSP.RunAt.method
   discard <| expectRpcErrorCode "raw tool response" (-32602) rawToolResp
-
-  let badInitResp ← handleRpcRequest state opts "bad init workspace input" 31 "tools/call" <|
-    some <| toolCallParams "lean_init_workspace"
-  discard <| expectToolErrorCode "bad init workspace" "invalidInput" badInitResp
-
-  let relativeInitResp ← handleRpcRequest state opts "relative init workspace input" 32 "tools/call" <|
-    some <| toolCallParams "lean_init_workspace" <|
-      Json.mkObj [
-          ("root", toJson "relative/project")
-      ]
-  let relativeInitStructured ← expectToolErrorCode "relative init workspace" "invalidInput" relativeInitResp
-  let relativeMessage ← IO.ofExcept <| relativeInitStructured.getObjValAs? String "message"
-  require "relative init workspace error should require absolute path" (relativeMessage.contains "absolute")
 
   let badArgsResp ← handleRpcRequest state opts "bad args rejection" 4 "tools/call" <|
     some <| toolCallParams "lean_run_at" <|
@@ -786,6 +779,52 @@ private def checkServerBasics : IO Unit := do
           ("character", toJson (0 : Nat))
       ]
   discard <| expectToolErrorCode "bad args" "invalidInput" badArgsResp
+
+  let obsoleteSelectorResp ← handleRpcRequest state opts "obsolete workspace selector rejection" 31
+      "tools/call" <| some <| toolCallParams "lean_drop_workspace" <| Json.mkObj [
+        ("workspace", toJson <| Beam.Workspace.Descriptor.ofRoot root),
+        ("workspace_id", toJson "legacy")
+      ]
+  let obsoleteSelector ← expectToolErrorCode "obsolete workspace selector" "invalidInput"
+    obsoleteSelectorResp
+  let obsoleteSelectorMessage ← IO.ofExcept <| obsoleteSelector.getObjValAs? String "message"
+  require "obsolete workspace selector error should identify an undeclared field"
+    (obsoleteSelectorMessage.contains "workspace_id" &&
+      obsoleteSelectorMessage.contains "undeclared input fields")
+
+  let nestedExtraResp ← handleRpcRequest state opts "nested feedback field rejection" 33
+      "tools/call" <| some <| toolCallParams "beam_feedback" <|
+        withWorkspace root <| Json.mkObj [
+          ("title", toJson "Nested feedback field"),
+          ("summary", toJson "Reject nested fields omitted from the schema."),
+          ("reproduction", toJson "Pass an undeclared evidence field."),
+          ("expected", toJson "A typed invalidInput error."),
+          ("actual", toJson "Regression coverage."),
+          ("evidence", Json.arr #[Json.mkObj [
+            ("name", toJson "trace.json"),
+            ("content", Json.mkObj []),
+            ("workspace_id", toJson "legacy")
+          ]])
+        ]
+  let nestedExtra ← expectToolErrorCode "nested feedback field" "invalidInput" nestedExtraResp
+  let nestedExtraMessage ← IO.ofExcept <| nestedExtra.getObjValAs? String "message"
+  require "nested feedback error should identify the undeclared field"
+    (nestedExtraMessage.contains "workspace_id" && nestedExtraMessage.contains "undeclared fields")
+
+  let relativeWorkspaceResp ← handleRpcRequest state opts "relative workspace rejection" 32
+      "tools/call" <| some <| toolCallParams "lean_run_at" <| Json.mkObj [
+        ("path", toJson "Demo.lean"),
+        ("version", toJson (0 : Nat)),
+        ("line", toJson (0 : Nat)),
+        ("character", toJson (0 : Nat)),
+        ("text", toJson "rfl"),
+        ("workspace", toJson ({ root := "relative/project" } : Beam.Workspace.Descriptor))
+      ]
+  let relativeWorkspace ← expectToolErrorCode "relative workspace" "invalidInput"
+    relativeWorkspaceResp
+  let relativeMessage ← IO.ofExcept <| relativeWorkspace.getObjValAs? String "message"
+  require "relative workspace error should require an absolute root"
+    (relativeMessage.contains "absolute")
 
 private def diagnosticLogNotifications (notifications : Array Json) : Array Json :=
   notifications.filter fun notification =>
@@ -867,7 +906,7 @@ private def mcpOptionsWithPlugin : IO Beam.Mcp.Server.Options := do
   }
 
 private def initMcpSession
-    (state : IO.Ref Beam.Mcp.Server.ProtocolState)
+    (state : IO.Ref Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (notifications : Beam.Mcp.Server.NotificationSink) : IO Unit := do
   let _ ← handleRpcRequestWithNotifications state opts notifications "initialize" 1 "initialize" <| some <|
@@ -885,14 +924,15 @@ private def initMcpSession
       throw <| IO.userError "initialized notification should not stop the server"
 
 private def callLeanSync
-    (state : IO.Ref Beam.Mcp.Server.ProtocolState)
+    (state : IO.Ref Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (notifications : Beam.Mcp.Server.NotificationSink)
+    (root : System.FilePath)
     (id : Nat)
     (path : String)
     (fullDiagnostics : Bool := true)
     (includeDiagnostics : Bool := false) : IO Json := do
-  let arguments := Json.mkObj <|
+  let arguments := withWorkspace root <| Json.mkObj <|
     [
       ("path", toJson path),
       ("full_diagnostics", toJson fullDiagnostics)
@@ -904,16 +944,16 @@ private def callLeanSync
   handleRpcRequestWithNotifications state opts notifications s!"lean_sync {path}" id "tools/call" <|
     some <| toolCallParams "lean_sync" arguments
 
-private def shutdownMcpRuntime (state : IO.Ref Beam.Mcp.Server.ProtocolState) : IO Unit := do
+private def shutdownMcpRuntime (state : IO.Ref Beam.Mcp.Server.ServerState) : IO Unit := do
   let current ← state.get
-  match current.runtime? with
+  match current.application.runtime? with
   | none => pure ()
   | some runtime =>
       discard <| runtime.dispatchRequest { op := .shutdown }
 
 private def checkDiagnosticLogForwarding : IO Unit := do
   let root ← mkTempProjectRoot "lean-beam-mcp-diagnostic-log"
-  let state ← Beam.Mcp.Server.ProtocolState.create (some root)
+  let state ← Beam.Mcp.Server.ServerState.create
   try
     copySaveProjectFixture root
     let expectedRoot ← Beam.resolveExistingPath root
@@ -926,7 +966,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     initMcpSession state opts notifications
 
     writeSaveWarningFile root "-- mcp diagnostic log default"
-    let defaultSyncResp ← callLeanSync state opts notifications 2 "SaveSmoke/B.lean"
+    let defaultSyncResp ← callLeanSync state opts notifications root 2 "SaveSmoke/B.lean"
       (fullDiagnostics := false)
       (includeDiagnostics := true)
     let defaultSyncResult ← requireObjVal "default lean_sync response" "result" defaultSyncResp
@@ -944,7 +984,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
     notificationsRef.set #[]
     writeSaveWarningFile root "-- mcp diagnostic log full"
-    let syncResp ← callLeanSync state opts notifications 3 "SaveSmoke/B.lean"
+    let syncResp ← callLeanSync state opts notifications root 3 "SaveSmoke/B.lean"
       (fullDiagnostics := true)
       (includeDiagnostics := true)
     let syncResult ← requireObjVal "lean_sync response" "result" syncResp
@@ -976,7 +1016,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
       ]
     notificationsRef.set #[]
     writeSaveWarningFile root "-- mcp warning suppressed"
-    let suppressedResp ← callLeanSync state opts notifications 5 "SaveSmoke/B.lean"
+    let suppressedResp ← callLeanSync state opts notifications root 5 "SaveSmoke/B.lean"
     let suppressedResult ← requireObjVal "suppressed lean_sync response" "result" suppressedResp
     requireJsonBool "suppressed lean_sync result" "isError" false suppressedResult
     let suppressedStructured ← requireObjVal "suppressed lean_sync result" "structuredContent" suppressedResult
@@ -989,10 +1029,11 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     requireJsonBool "beam stats result" "isError" false statsResult
     let statsStructured ← requireObjVal "beam stats result" "structuredContent" statsResult
     let workspaces ← requireObjVal "beam stats structured" "workspaces" statsStructured
-    let defaultStats ← requireObjVal "beam stats workspaces" "default" workspaces
-    requireJsonString "beam stats default workspace" "root" expectedRoot.toString defaultStats
-    discard <| requireObjVal "beam stats default workspace" "sessions" defaultStats
-    let byBackend ← requireObjVal "beam stats default workspace" "byBackend" defaultStats
+    let workspaceKey := (Beam.Workspace.Descriptor.ofRoot expectedRoot).cacheKey
+    let workspaceStats ← requireObjVal "beam stats workspaces" workspaceKey workspaces
+    requireJsonString "beam stats workspace" "root" expectedRoot.toString workspaceStats
+    discard <| requireObjVal "beam stats workspace" "sessions" workspaceStats
+    let byBackend ← requireObjVal "beam stats workspace" "byBackend" workspaceStats
     let leanMetrics ← requireObjVal "beam stats byBackend" "lean" byBackend
     let ops ← requireObjVal "beam stats lean metrics" "ops" leanMetrics
     let syncStats ← requireObjVal "beam stats lean ops" "sync_file" ops
@@ -1001,7 +1042,7 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
     let refreshResp ← handleRpcRequestWithNotifications state opts notifications "lean refresh" 41
       "tools/call" <| some <| toolCallParams "lean_refresh" <|
-        Json.mkObj [
+        withWorkspace root <| Json.mkObj [
           ("path", toJson "SaveSmoke/B.lean"),
           ("include_diagnostics", toJson true)
         ]
@@ -1011,11 +1052,12 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     discard <| IO.ofExcept <| refreshStructured.getObjValAs? Nat "version"
     discard <| requireObjVal "lean_refresh structured result" "syncSummary" refreshStructured
     discard <| requireObjVal "lean_refresh structured result" "diagnostics" refreshStructured
-    requireJsonString "lean_refresh structured result" "active_root" expectedRoot.toString refreshStructured
+    let refreshWorkspace ← requireObjVal "lean_refresh structured result" "workspace" refreshStructured
+    requireJsonString "lean_refresh workspace" "root" expectedRoot.toString refreshWorkspace
 
     let closeSaveResp ← handleRpcRequestWithNotifications state opts notifications "lean close-save" 42
       "tools/call" <| some <| toolCallParams "lean_close_save" <|
-        Json.mkObj [
+        withWorkspace root <| Json.mkObj [
           ("path", toJson "SaveSmoke/B.lean")
         ]
     let closeSaveResult ← requireObjVal "lean_close_save response" "result" closeSaveResp
@@ -1025,11 +1067,13 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let saved ← requireObjVal "lean_close_save structured result" "saved" closeSaveStructured
     discard <| IO.ofExcept <| saved.getObjValAs? Nat "version"
     discard <| requireObjVal "lean_close_save saved result" "sync" saved
-    requireJsonString "lean_close_save structured result" "active_root" expectedRoot.toString closeSaveStructured
+    let closeSaveWorkspace ←
+      requireObjVal "lean_close_save structured result" "workspace" closeSaveStructured
+    requireJsonString "lean_close_save workspace" "root" expectedRoot.toString closeSaveWorkspace
 
     notificationsRef.set #[]
     IO.FS.writeFile (root / "SaveSmoke" / "B.lean") "def bVal : Nat := \"broken\"\n"
-    let errorResp ← callLeanSync state opts notifications 6 "SaveSmoke/B.lean"
+    let errorResp ← callLeanSync state opts notifications root 6 "SaveSmoke/B.lean"
     let errorResult ← requireObjVal "error lean_sync response" "result" errorResp
     requireJsonBool "error lean_sync result" "isError" false errorResult
     let errorLog ← requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"
@@ -1050,10 +1094,10 @@ def main : IO Unit := do
   checkVersionIdentityJson
   checkIncoming
   checkToolsListShape
-  checkRootsProtocol
+  checkWorkspaceDescriptor
+  checkWorkspaceRootValidation
   checkProgressProtocol
   checkRuntimeSetupErrors
-  checkWorkspaceInitPolicy
   checkServerBasics
   checkDiagnosticLogForwarding
 

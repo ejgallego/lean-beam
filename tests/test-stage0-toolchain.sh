@@ -50,7 +50,7 @@ HOME="$install_home" \
   BEAM_INSTALL_ROOT="$install_root" \
   bash scripts/install-beam.sh --dont-ask --custom-toolchain "$toolchain" >/dev/null
 
-rsync -a tests/save_olean_project/ "$project_root"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$project_root"/
 printf '%s\n' "$toolchain" > "$project_root/lean-toolchain"
 
 doctor_out="$(ELAN_HOME="$host_elan_home" \

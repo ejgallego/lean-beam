@@ -36,6 +36,7 @@ private def updateVersionForRocqGoals
   let resp ← sendRequest endpoint {
     op := .updateFile
     backend := .rocq
+    workspaceId? := some projectDaemonWorkspaceId
     root? := some root.toString
     path? := some path
   }
@@ -393,7 +394,10 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       let root ← projectRootAny opts
       let entry ← lookupProjectDaemon root
       if let some endpoint := Beam.Daemon.registryEndpoint? entry then
-        callBroker root endpoint { op := .openDocs, root? := some root.toString }
+        callBroker root endpoint {
+          op := .openDocs
+          root? := some root.toString
+        }
       else
         throw <| IO.userError s!"invalid Beam daemon endpoint registry for {entry.root}"
   | "cancel" :: requestId :: [] =>
@@ -402,7 +406,6 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       if let some endpoint := Beam.Daemon.registryEndpoint? entry then
         callBroker root endpoint {
           op := .cancel
-          root? := some root.toString
           cancelRequestId? := some requestId
         }
       else

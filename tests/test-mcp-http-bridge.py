@@ -205,6 +205,7 @@ def main():
         shutil.copytree(repo_root / "tests" / "save_olean_project", project_root)
         ready_file = tmp_path / "ready.json"
         child_stderr_file = tmp_path / "lean-beam-mcp.stderr"
+        workspace = {"root": str(project_root.resolve())}
         bridge_env = os.environ.copy()
         bridge_env["LEAN_BEAM_MCP_TRACE"] = "1"
         bridge_env["LEAN_BEAM_BROKER_TRACE"] = "1"
@@ -212,8 +213,6 @@ def main():
             [
                 sys.executable,
                 str(repo_root / "tests" / "mcp_http_bridge.py"),
-                "--root",
-                str(project_root),
                 "--server",
                 str(exe),
                 "--lean-cmd",
@@ -326,7 +325,7 @@ def main():
                                 "path": "PositionEmptyLine.lean",
                                 "line": 1,
                                 "character": 0,
-                                "workspace_id": "default",
+                                "workspace": workspace,
                             },
                         },
                     },
@@ -343,7 +342,7 @@ def main():
                     "method": "tools/call",
                     "params": {
                         "name": "lean_sync",
-                        "arguments": {"path": "PositionEmptyLine.lean", "workspace_id": "default"},
+                        "arguments": {"path": "PositionEmptyLine.lean", "workspace": workspace},
                     },
                 },
                 timeout=args.timeout,
@@ -369,7 +368,7 @@ def main():
                             "line": 1,
                             "character": 0,
                             "text": "def mcpHttpProbe : Nat := 1",
-                            "workspace_id": "default",
+                            "workspace": workspace,
                         },
                     },
                 },
@@ -392,7 +391,7 @@ def main():
                         "arguments": {
                             "path": "SaveSmoke/B.lean",
                             "full_diagnostics": True,
-                            "workspace_id": "default",
+                            "workspace": workspace,
                         },
                     },
                 },

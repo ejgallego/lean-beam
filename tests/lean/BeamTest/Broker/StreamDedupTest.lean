@@ -12,6 +12,9 @@ open Lean
 
 namespace BeamTest.Broker.StreamDedupTest
 
+private def fixtureWorkspaceId : Beam.Broker.WorkspaceId :=
+  "stream-dedup-fixture"
+
 private def jsonPos (line character : Nat) : Json :=
   Json.mkObj [
     ("line", toJson line),
@@ -95,7 +98,7 @@ private def fakeTrackedSession (root transcript : System.FilePath) : IO Beam.Bro
   }
   let pending ← Std.Mutex.new ({} : Std.TreeMap Lean.JsonRpc.RequestID Beam.Broker.PendingRequest)
   let session : Beam.Broker.Session := {
-    workspaceId := Beam.Broker.defaultWorkspaceId
+    workspaceId := fixtureWorkspaceId
     backend := .lean
     root
     epoch := 1
@@ -133,7 +136,7 @@ private def fakeSessionWithSyncedDoc
     syncSnapshotSeq := 1
   }
   let session : Beam.Broker.Session := {
-    workspaceId := Beam.Broker.defaultWorkspaceId
+    workspaceId := fixtureWorkspaceId
     backend := .lean
     root
     epoch := 1
@@ -152,14 +155,13 @@ private def fakeServerWithLeanSession
     (session : Beam.Broker.Session) : IO Beam.Broker.ServerRuntime := do
   let config : Beam.Broker.BrokerConfig := { root }
   let workspace : Beam.Broker.WorkspaceState := {
-    id := Beam.Broker.defaultWorkspaceId
     config
     lean := { nextEpoch := 1, session? := some session }
   }
   pure {
     state := ← Std.Mutex.new {
-      config
-      workspaces := Std.TreeMap.empty.insert Beam.Broker.defaultWorkspaceId workspace
+      bootstrapConfig := config
+      workspaces := Std.TreeMap.empty.insert fixtureWorkspaceId workspace
     }
     endpoint := .tcp 0
     stop := ← IO.mkRef false
@@ -186,6 +188,7 @@ def checkRunAtStreamsSetupDiagnostics : IO Unit := do
   try
     let (resp, _) ← server.dispatchRequest {
       op := .runAt
+      workspaceId? := some fixtureWorkspaceId
       root? := some root.toString
       path? := some "Tracked.lean"
       version? := some 1
@@ -209,7 +212,10 @@ def checkRunAtStreamsSetupDiagnostics : IO Unit := do
       session.proc.kill
     catch _ =>
       pure ()
-    discard <| session.proc.tryWait
+    try
+      discard <| session.proc.tryWait
+    catch _ =>
+      pure ()
     try
       IO.FS.removeDirAll root
     catch _ =>
@@ -263,7 +269,10 @@ def check : IO Unit := do
       session.proc.kill
     catch _ =>
       pure ()
-    discard <| session.proc.tryWait
+    try
+      discard <| session.proc.tryWait
+    catch _ =>
+      pure ()
 
 #eval check
 #eval checkRunAtStreamsSetupDiagnostics

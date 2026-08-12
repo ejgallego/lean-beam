@@ -9,6 +9,7 @@ import Beam.Path
 import Beam.Broker.Client
 import Beam.Broker.Protocol
 import Beam.Broker.Transport
+import BeamTest.Broker.ClientUtil
 import BeamTest.TestHarness
 
 namespace BeamTest.Broker.TestUtil
@@ -157,6 +158,7 @@ def spawnLeanBrokerWithPlugin
     args := #[
       "--port", toString port.toNat,
       "--root", root.toString,
+      "--workspace-id", testWorkspaceId,
       "--lean-cmd", leanCmd,
       "--lean-plugin", leanPlugin.toString
     ]
@@ -182,6 +184,7 @@ def spawnRocqBroker
     args := #[
       "--port", toString port.toNat,
       "--root", root.toString,
+      "--workspace-id", testWorkspaceId,
       "--rocq-cmd", rocqCmd
     ]
     setsid := true
@@ -201,13 +204,14 @@ partial def waitForBrokerReady
 
 private def statsRoot? (resp : Beam.Broker.Response) : Option String := do
   let result ← resp.result?
-  match result.getObjVal? "root" with
-  | .ok (.str root) => some root
-  | _ => none
+  result.getObjValAs? String "root" |>.toOption
 
 private def brokerRoot? (endpoint : Beam.Broker.Endpoint) : IO (Option String) := do
   try
-    let resp ← Beam.Broker.sendRequest endpoint { op := .stats }
+    let resp ← Beam.Broker.sendRequest endpoint {
+      op := .stats
+      workspaceId? := some testWorkspaceId
+    }
     if resp.ok then
       pure (statsRoot? resp)
     else

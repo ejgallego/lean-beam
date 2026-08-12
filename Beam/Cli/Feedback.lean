@@ -92,9 +92,17 @@ private def collectDaemonPayload
       | none =>
           pure (Json.null, Json.null, warnings.push "Beam daemon registry did not contain a valid endpoint")
       | some endpoint =>
-          let statsResp ← sendRequest endpoint { op := .stats }
+          let statsResp ← sendRequest endpoint {
+            op := .stats
+            workspaceId? := some Beam.Cli.projectDaemonWorkspaceId
+            root? := some root.toString
+          }
           let (stats, warnings) := Beam.Feedback.responsePayloadOrWarning "stats" statsResp warnings
-          let openResp ← sendRequest endpoint { op := .openDocs, root? := some root.toString }
+          let openResp ← sendRequest endpoint {
+            op := .openDocs
+            workspaceId? := some Beam.Cli.projectDaemonWorkspaceId
+            root? := some root.toString
+          }
           let (openDocs, warnings) := Beam.Feedback.responsePayloadOrWarning "open-files" openResp warnings
           pure (stats, openDocs, warnings)
 

@@ -205,10 +205,16 @@ def envFlag? (name : String) : IO (Option Bool) := do
   | some raw => pure <| some (parseEnvFlag raw)
   | none => pure none
 
+private def resolveExplicitRootArg (root : String) : IO System.FilePath := do
+  try
+    Beam.resolveExistingPath <| System.FilePath.mk root
+  catch err =>
+    throw <| IO.userError s!"workspace root does not resolve: {err.toString}"
+
 partial def parseCliOptions (opts : CliOptions) : List String → IO CliOptions
   | [] => pure opts
   | "--root" :: root :: rest => do
-      let root ← Beam.resolveExistingPath <| System.FilePath.mk root
+      let root ← resolveExplicitRootArg root
       parseCliOptions { opts with explicitRoot? := some root } rest
   | "--port" :: port :: rest => do
       let port ← IO.ofExcept <| parsePortText "port" port

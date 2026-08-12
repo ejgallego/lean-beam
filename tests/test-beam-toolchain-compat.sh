@@ -202,7 +202,7 @@ run_toolchain_admission_check() {
 prepare_stale_diagnostic_project() {
   rm -rf -- "$stale_project_root"
   mkdir -p "$stale_project_root"
-  cp -R tests/save_olean_project/. "$stale_project_root"/
+  rsync -a --exclude='.beam/' tests/save_olean_project/ "$stale_project_root"/
   printf '%s\n' "$toolchain" > "$stale_project_root/lean-toolchain"
   rm -rf -- "$stale_project_root/.beam"
   mkdir -p "$stale_project_root/.beam"

@@ -49,7 +49,7 @@ Beam lets a client try Lean commands or tactics at specific positions in saved f
 changing those files. The central Beam extension is speculative execution through
 [`runAt`](docs/STATUS.md#core-lean-surface), exposed by the CLI as
 [`lean-beam run-at`](docs/SETUP.md#use-beam-from-a-lean-project) and through MCP as
-[`lean_run_at`](docs/MCP.md#client-tool-semantics). Because these probes can be issued
+[`lean_run_at`](docs/MCP.md#public-tools). Because these probes can be issued
 concurrently, agents and tools can cheaply explore several "would this work here?" possibilities in
 the real module context.
 
@@ -86,7 +86,7 @@ The current development line includes support for:
   [`save`](docs/SYNC_AND_DIAGNOSTICS.md#command-model)
 - selected Lean/LSP features through the same
   [CLI](docs/SETUP.md#use-beam-from-a-lean-project) and
-  [MCP](docs/MCP.md#client-tool-semantics) interfaces, including hover, signature help,
+  [MCP](docs/MCP.md#public-tools) interfaces, including hover, signature help,
   definitions, references, document/workspace symbols, and proof-state inspection
 - feedback report cards for bug reports and project feedback through
   [`lean-beam feedback`](docs/FEEDBACK.md) and MCP [`beam_feedback`](docs/FEEDBACK.md#mcp)

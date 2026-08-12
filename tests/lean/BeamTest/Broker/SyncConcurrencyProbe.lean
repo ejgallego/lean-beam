@@ -32,6 +32,7 @@ private def spawnTracedLeanBrokerWithPlugin
     args := #[
       "--port", toString port.toNat,
       "--root", root.toString,
+      "--workspace-id", testWorkspaceId,
       "--lean-cmd", leanCmd,
       "--lean-plugin", leanPlugin.toString
     ]

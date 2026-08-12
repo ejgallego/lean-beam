@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import Beam.Cli.Args
 import Beam.Cli.Broker
 import Beam.Cli.Info
 import Beam.Cli.LeanOperation
@@ -11,7 +12,6 @@ import Beam.Cli.Lock
 import Beam.Cli.RuntimeBundle
 import Beam.Daemon.Debug
 import Beam.Path
-import Beam.Mcp.Projection
 import BeamTest.Broker.JsonAssert
 
 open Lean
@@ -130,39 +130,28 @@ private def requireRequestJson
     throw <| IO.userError s!"{label}: expected {expectedJson.compress}, got {actualJson.compress}"
 
 private def sampleBrokerHandle : Beam.Broker.Handle := {
+  workspaceId := Beam.Cli.projectDaemonWorkspaceId
   backend := .lean
   epoch := 3
   session := "session"
   raw := Json.mkObj [("value", toJson "raw-handle")]
 }
 
-private def mcpLeanOperationSurface : Array Beam.Lean.Operation :=
-  Beam.Mcp.toolDescriptors.foldl (init := #[]) fun acc desc =>
-    match desc.kind with
-    | .leanOperation op => acc.push op
-    | .serverInfo => acc
-    | .serverDebug => acc
-    | .feedback => acc
-    | .workspaceInit => acc
-    | .workspaceList => acc
-    | .workspaceDrop => acc
-
-private def requireSameOperationSurface
-    (label : String)
-    (actual expected : Array Beam.Lean.Operation) : IO Unit := do
-  require s!"{label}: expected size {expected.size}, got {actual.size}"
-    (actual.size == expected.size)
-  for op in expected do
-    require s!"{label}: missing operation {repr op}" (actual.contains op)
-  for op in actual do
-    require s!"{label}: unexpected operation {repr op}" (expected.contains op)
-
-private def checkMcpOperationSurface : IO Unit := do
-  requireSameOperationSurface "MCP Lean operation surface"
-    mcpLeanOperationSurface
-    Beam.Lean.Operation.all
-  require "MCP init workspace should stay outside Lean operation surface"
-    (Beam.Mcp.ToolName.leanInitWorkspace.kind == .workspaceInit)
+private def checkProjectDaemonWorkspaceRouting : IO Unit := do
+  let ensureReq := Beam.Cli.inProjectDaemonWorkspace ({ op := .ensure } : Beam.Broker.Request)
+  require "CLI workspace-bound requests should select the project daemon workspace"
+    (ensureReq.workspaceId? == some Beam.Cli.projectDaemonWorkspaceId)
+  let statsReq := Beam.Cli.inProjectDaemonWorkspace ({ op := .stats } : Beam.Broker.Request)
+  require "CLI stats should be scoped to the project daemon workspace"
+    (statsReq.workspaceId? == some Beam.Cli.projectDaemonWorkspaceId)
+  let shutdownReq := Beam.Cli.inProjectDaemonWorkspace ({ op := .shutdown } : Beam.Broker.Request)
+  require "process-wide CLI shutdown should remain unscoped" shutdownReq.workspaceId?.isNone
+  let explicitReq := Beam.Cli.inProjectDaemonWorkspace ({
+    op := .ensure
+    workspaceId? := some "maintenance-fixture"
+  } : Beam.Broker.Request)
+  require "CLI routing should preserve an explicitly selected workspace"
+    (explicitReq.workspaceId? == some "maintenance-fixture")
 
 private def checkCliRecoveryHints : IO Unit := do
   let staleData := Json.mkObj [
@@ -308,6 +297,13 @@ private def checkCancelAcknowledgementDecoding : IO Unit := do
   }
   require "failed cancel response should decode none"
     (Beam.Cli.decodeCancelAcknowledged? failed).isNone
+
+private def checkCliRootParsing : IO Unit := do
+  let missingRoot := System.FilePath.mk s!"/tmp/beam-cli-missing-root-{← IO.monoNanosNow}"
+  expectIoErrorContains
+    "missing explicit CLI root should use the workspace error boundary"
+    "workspace root does not resolve"
+    (Beam.Cli.parseCliOptions {} ["--root", missingRoot.toString, "ensure", "lean"])
 
 private def checkLeanOperationRequests : IO Unit := do
   let root := System.FilePath.mk "/repo"
@@ -1095,10 +1091,11 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
       pure ()
 
 def main : IO Unit := do
-  checkMcpOperationSurface
+  checkProjectDaemonWorkspaceRouting
   checkCliRecoveryHints
   checkSyncWaitSpecs
   checkCancelAcknowledgementDecoding
+  checkCliRootParsing
   checkLeanOperationRequests
   checkStartupRetryPolicy
   checkDaemonDebugWarnings

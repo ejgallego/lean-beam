@@ -19,6 +19,16 @@ to Lake as the `BeamTest` library. The rest of [tests](../tests) contains shell 
 entrypoints, scenario scripts, interactive golden inputs, fixture projects, and shared test helper
 scripts.
 
+When a test copies `tests/save_olean_project`, it excludes the fixture's untracked `.beam`
+directory. That directory may contain large machine-local runtime bundles from an earlier run; it
+is cache state, not fixture input, and copying it can hide cold-start behavior or exhaust disk
+space.
+
+For public CLI failure behavior, pair a cheap typed or parser-level test with the focused wrapper
+test that exercises the real command line. Run that focused entrypoint after the final error
+assertion is written; a pass obtained before the assertion or through a neighboring suite does not
+validate the public wording or exit path.
+
 The LSP surface also has a lightweight coverage registry under
 [tests/lsp-coverage](../tests/lsp-coverage). The registry ties every method registered by
 [Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean) to concrete test pointers and required coverage
@@ -74,7 +84,8 @@ Run the LSP surface when the change touches request semantics, proof-vs-command 
 Default Beam entrypoints:
 
 - [tests/test-beam-fast.sh](../tests/test-beam-fast.sh): fast broker stream, barrier, request-contract, MCP projection, MCP smoke, and toolchain CI-matrix guard coverage
-- [tests/test-beam-slow.sh](../tests/test-beam-slow.sh): wrapper, MCP stdio stress, sandbox-wrapper, and save-replay coverage
+- [tests/test-beam-slow.sh](../tests/test-beam-slow.sh): wrapper, MCP stdio stress and
+  multi-toolchain workspace coverage, sandbox-wrapper, and save-replay coverage
 - [tests/test-beam-install.sh](../tests/test-beam-install.sh): installer and installed-runtime layout
 - [tests/test-beam.sh](../tests/test-beam.sh): aggregate default Beam surface
 
@@ -92,7 +103,8 @@ Current Beam coverage includes:
   protocol tests, and validated-toolchain/release-line CI policy consistency through
   [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
-- focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
+- focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh),
+  including self-termination after the project worktree disappears
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 - zero-build save replay, structured-setup support, batch-only-argument rejection, and stale-save
   race coverage in
@@ -170,20 +182,20 @@ phase information in the daemon log.
 
 ## MCP Stdio Timeout Investigation
 
-When investigating MCP stdio timeouts, prefer the focused roots-negotiated sync repro before
+When investigating MCP stdio timeouts, prefer the focused descriptor-bound sync repro before
 rerunning the full smoke suite:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
-  --scenario progress-roots-sync \
+  --scenario progress-sync \
   --repro-runs 100 \
   --timeout 30 \
   --slow-threshold 5 \
   --server-trace
 ```
 
-That scenario repeats the path that negotiates workspace roots through MCP `roots/list`, runs
-`lean_sync` with a progress token, and checks the resulting progress notifications. On failure, the
+That scenario runs `lean_sync` with an explicit workspace descriptor and a progress token, then
+checks the resulting progress notifications. On failure, the
 timeout report includes the client label, pending request parameters, recent completed requests,
 recent server requests received from `lean-beam-mcp`, recent notifications, runner CPU/platform
 context, relevant CI and Lean thread env vars, the stderr tail, and a Beam/Lean process snapshot.
@@ -198,8 +210,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
 
 This scenario covers out-of-order tool responses, exact string/numeric request-ID separation,
 request-ID reuse after a terminal response, broker cancellation, per-request progress ordering,
-single-flight first use, non-cancellable reset while root discovery is pending, reset of active work,
-and shutdown draining.
+single-flight first use, simultaneous cold first use of distinct roots, stateless multi-root
+isolation, non-cancellable cache eviction with lazy recreation, and shutdown draining. The full
+stdio suite also rejects a proof handle carried across an MCP process restart. The slow Beam suite
+runs `--scenario multi-toolchain-workspaces` after installing both fixture toolchains and verifies
+that one MCP process keeps both project-specific Lean sessions active.
 
 If this scheduler-sensitive timeout appears on an unrelated CI PR, copy the timeout headline and
 diagnostic excerpt to [#110](https://github.com/ejgallego/lean-beam/issues/110) so repeated
@@ -243,10 +258,8 @@ are specifically checking the CI budget. The focused daemon lifecycle fixture ex
 its toolchain into one owned shared cache before timing daemon startup, so cold bundle compilation
 is not misdiagnosed as a daemon-readiness timeout.
 
-The focused harness also accepts `progress-explicit-sync`, `no-progress-roots-sync`, and
-`no-progress-explicit-sync` as `--scenario` values. Use those variants to isolate whether a timeout
-depends on MCP roots negotiation, MCP progress notifications, or the underlying `lean_sync` /
-`waitForDiagnostics` path.
+The focused harness also accepts `no-progress-sync` to isolate whether a timeout depends on MCP
+progress notifications or the underlying `lean_sync` / `waitForDiagnostics` path.
 
 ## Maintainer Surface
 

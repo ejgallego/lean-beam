@@ -27,8 +27,6 @@ inductive ToolName where
   | beamVersion
   | beamStats
   | beamFeedback
-  | leanInitWorkspace
-  | leanListWorkspaces
   | leanDropWorkspace
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -38,8 +36,6 @@ inductive ToolKind where
   | serverInfo
   | serverDebug
   | feedback
-  | workspaceInit
-  | workspaceList
   | workspaceDrop
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -68,15 +64,6 @@ def ToolName.leanSave : ToolName := .leanOperation .save
 def ToolName.leanCloseSave : ToolName := .leanOperation .closeSave
 def ToolName.leanClose : ToolName := .leanOperation .close
 
-def ToolName.leanOperation? : ToolName → Option Beam.Lean.Operation
-  | .beamVersion => none
-  | .beamStats => none
-  | .beamFeedback => none
-  | .leanInitWorkspace => none
-  | .leanListWorkspaces => none
-  | .leanDropWorkspace => none
-  | .leanOperation operation => some operation
-
 private def leanOperationToolKey (operation : Beam.Lean.Operation) : String :=
   "lean_" ++ operation.key
 
@@ -88,8 +75,6 @@ def ToolName.all : Array ToolName :=
     .beamVersion,
     .beamStats,
     .beamFeedback,
-    .leanInitWorkspace,
-    .leanListWorkspaces,
     .leanDropWorkspace
   ] ++ ToolName.leanOperationTools
 
@@ -98,8 +83,6 @@ def ToolName.key (tool : ToolName) : String :=
   | .beamVersion => "beam_version"
   | .beamStats => "beam_stats"
   | .beamFeedback => "beam_feedback"
-  | .leanInitWorkspace => "lean_init_workspace"
-  | .leanListWorkspaces => "lean_list_workspaces"
   | .leanDropWorkspace => "lean_drop_workspace"
   | .leanOperation operation => leanOperationToolKey operation
 
@@ -108,8 +91,6 @@ def ToolName.kind (tool : ToolName) : ToolKind :=
   | .beamVersion => .serverInfo
   | .beamStats => .serverDebug
   | .beamFeedback => .feedback
-  | .leanInitWorkspace => .workspaceInit
-  | .leanListWorkspaces => .workspaceList
   | .leanDropWorkspace => .workspaceDrop
   | .leanOperation operation => .leanOperation operation
 
@@ -133,51 +114,21 @@ def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
   | .serverInfo => false
   | .serverDebug => false
   | .feedback => false
-  | .workspaceInit => false
-  | .workspaceList => false
   | .workspaceDrop => false
 
-def requireEmptyInput (label : String) : Json → Except String Unit
-  | Json.obj fields =>
-      let hasField := fields.foldl (init := false) fun _ _ _ => true
-      if hasField then
-        throw s!"{label} accepts no input fields"
-      else
-        pure ()
-  | other => throw s!"{label} input must be an object, got {other.compress}"
-
-def ToolName.toBrokerRequest
-    (tool : ToolName)
+def leanOperationToBrokerRequest
+    (operation : Beam.Lean.Operation)
     (root : String)
-    (input : Json) : Except String Beam.Broker.Request :=
-  match tool.kind with
-  | .leanOperation operation => do
-      let rawWorkspaceId ←
-        match input.getObjVal? "workspace_id" with
-        | .ok rawWorkspaceId => pure rawWorkspaceId
-        | .error _ => throw "workspace_id is required"
-      let workspaceId ←
-        match fromJson? (α := Beam.Broker.WorkspaceId) rawWorkspaceId with
-        | .ok workspaceId => pure workspaceId
-        | .error err => throw s!"invalid 'workspace_id': {err}"
-      unless Beam.Workspace.validWorkspaceId workspaceId do
-        throw "workspace_id must be non-empty"
-      let req ← operation.toBrokerRequest root input
-      pure { req with workspaceId? := some workspaceId }
-  | .serverInfo => throw s!"{tool.key} reports MCP server identity and does not map to a broker request"
-  | .serverDebug => do
-      requireEmptyInput tool.key input
-      pure { op := .stats, root? := some root }
-  | .feedback => throw s!"{tool.key} produces a report card locally and does not map to a broker request"
-  | .workspaceInit => throw s!"{tool.key} initializes MCP server state and does not map to a broker request"
-  | .workspaceList => throw s!"{tool.key} reports MCP workspace state and does not map to a Lean operation request"
-  | .workspaceDrop => throw s!"{tool.key} drops MCP workspace state and does not map to a Lean operation request"
+    (workspaceId : Beam.Workspace.WorkspaceId)
+    (input : Json) : Except String Beam.Broker.Request := do
+  let req ← operation.toBrokerRequest root input
+  pure { req with workspaceId? := some workspaceId }
 
 def beamVersionDescription : String :=
   "Return the running Lean Beam MCP server identity for bug reports and refresh checks."
 
 def beamStatsDescription : String :=
-  "Return process-wide debug Beam broker runtime statistics keyed by workspace id."
+  "Return process-wide debug Beam broker runtime statistics for lazily cached workspaces."
 
 def beamFeedbackDescription : String :=
   "Produce a pasteable Beam report card for one explicit workspace, optionally with a local evidence bundle."
@@ -211,10 +162,21 @@ private def evidenceInputSchema : Json :=
     ("additionalProperties", toJson false)
   ]
 
+private def workspaceDescriptorSchema : Json :=
+  Json.mkObj [
+    ("type", toJson "object"),
+    ("description", toJson "Explicit local Lean workspace descriptor."),
+    ("properties", Json.mkObj [
+      ("root", Beam.JsonSchema.string "Absolute Lean/Lake project root path.")
+    ]),
+    ("required", toJson (#["root"] : Array String)),
+    ("additionalProperties", toJson false)
+  ]
+
 open Beam.JsonSchema in
 def feedbackInputSchema : Json :=
   inputObject [
-    ("workspace_id", string "Beam workspace id whose runtime and project context should be collected."),
+    ("workspace", workspaceDescriptorSchema),
     ("title", string "Short report title."),
     ("summary", string "What went wrong or what feedback should be reviewed."),
     ("reproduction", string "Concrete steps or commands needed to reproduce the behavior."),
@@ -232,66 +194,21 @@ def feedbackInputSchema : Json :=
     ("bundle", enumString "Optional evidence bundle mode. Defaults to none." Beam.Feedback.bundleModeKeys),
     ("redact", bool "Whether to redact the user's home directory from the rendered report. Defaults to true."),
     ("include_collected", bool "When true, include full collected Beam debug context inline in the MCP result. Defaults to false.")
-  ] (Beam.Feedback.requiredInputFields.push "workspace_id")
-
-def initWorkspaceDescription : String :=
-  "Initialize, verify, or explicitly reset a named Lean workspace root for MCP clients."
-
-def listWorkspacesDescription : String :=
-  "List Lean workspaces currently initialized in this MCP server."
+  ] (Beam.Feedback.requiredInputFields.push "workspace")
 
 def dropWorkspaceDescription : String :=
-  "Drop an explicitly named Lean workspace and invalidate handles owned by that workspace id."
-
-def initWorkspaceModeDescription : String :=
-  String.intercalate " " [
-    "Workspace init mode. Defaults to set.",
-    "Use reset to replace the selected workspace explicitly;",
-    "reset invalidates handles owned by that workspace id."
-  ]
-
-private def workspaceIdField : String × Json :=
-  ("workspace_id", Beam.JsonSchema.string
-    "Beam workspace id. Use \"default\" to select the default workspace explicitly.")
-
-private def requiredWorkspaceIdField : String × Json :=
-  ("workspace_id", Beam.JsonSchema.string
-    "Beam workspace id to drop. Use \"default\" to explicitly drop the default workspace.")
-
-open Beam.JsonSchema in
-def initWorkspaceInputSchema : Json :=
-  inputObject [
-    ("root", string "Absolute Lean/Lake project root path."),
-    workspaceIdField,
-    ("mode", enumString initWorkspaceModeDescription Beam.Workspace.initModeKeys)
-  ] #["root", "workspace_id"]
-
-open Beam.JsonSchema in
-def listWorkspacesInputSchema : Json :=
-  inputObject [] #[]
+  "Evict one local Lean workspace cache and invalidate its retained proof handles. A later request recreates it lazily."
 
 open Beam.JsonSchema in
 def dropWorkspaceInputSchema : Json :=
   inputObject [
-    requiredWorkspaceIdField
-  ] #["workspace_id"]
+    ("workspace", workspaceDescriptorSchema)
+  ] #["workspace"]
 
-private def schemaWithWorkspaceId (schema : Json) : Json :=
-  let properties :=
-    match schema.getObjVal? "properties" with
-    | .ok properties => properties
-    | .error _ => Json.mkObj []
-  let required :=
-    match schema.getObjVal? "required" with
-    | .ok required =>
-        match fromJson? (α := Array String) required with
-        | .ok required => required
-        | .error _ => #[]
-    | .error _ => #[]
-  let required :=
-    if required.contains "workspace_id" then required else required.push "workspace_id"
-  (schema.setObjVal! "properties" (properties.setObjVal! "workspace_id" workspaceIdField.snd)).setObjVal!
-    "required" (toJson required)
+private def schemaWithWorkspace (schema : Json) : Json :=
+  match Beam.JsonSchema.withRequiredProperty schema "workspace" workspaceDescriptorSchema with
+  | .ok schema => schema
+  | .error err => panic! s!"invalid generated Lean operation schema: {err}"
 
 /-- Minimal descriptor for the MCP tool list. -/
 structure ToolDescriptor where
@@ -305,19 +222,6 @@ def toolNames : Array ToolName :=
 
 def leanOperationToolNames : Array ToolName :=
   ToolName.leanOperationTools
-
-def capabilityNames : Array String :=
-  #[
-    ToolName.beamVersion.key,
-    ToolName.beamStats.key,
-    ToolName.beamFeedback.key,
-    ToolName.leanListWorkspaces.key,
-    ToolName.leanDropWorkspace.key
-  ] ++
-    leanOperationToolNames.map (·.key)
-
-def withCapabilities (json : Json) : Json :=
-  json.setObjVal! "capabilities" (toJson capabilityNames)
 
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
   match tool.kind with
@@ -347,21 +251,7 @@ def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
         name := tool
         kind := .leanOperation op
         description := op.description
-        inputSchema := schemaWithWorkspaceId op.inputSchema
-      }
-  | .workspaceInit =>
-      {
-        name := tool
-        kind := .workspaceInit
-        description := initWorkspaceDescription
-        inputSchema := initWorkspaceInputSchema
-      }
-  | .workspaceList =>
-      {
-        name := tool
-        kind := .workspaceList
-        description := listWorkspacesDescription
-        inputSchema := listWorkspacesInputSchema
+        inputSchema := schemaWithWorkspace op.inputSchema
       }
   | .workspaceDrop =>
       {
@@ -373,6 +263,24 @@ def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
 
 def toolDescriptors : Array ToolDescriptor :=
   toolNames.map ToolName.descriptor
+
+/-- Reject fields outside the closed schema advertised for one MCP tool. -/
+def ToolName.validateInputFields (tool : ToolName) (input : Json) : Except String Unit := do
+  let properties ← tool.descriptor.inputSchema.getObjVal? "properties"
+  match properties with
+  | .obj _ => pure ()
+  | other => throw s!"{tool.key} input schema properties must be an object, got {other.compress}"
+  match input with
+  | .obj fields =>
+      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
+        if (properties.getObjVal? field).isOk then
+          unexpected
+        else
+          unexpected.push field
+      unless unexpected.isEmpty do
+        throw s!"{tool.key} accepts no undeclared input fields: {String.intercalate ", " unexpected.toList}"
+  | other =>
+      throw s!"{tool.key} input must be an object, got {other.compress}"
 
 abbrev RunAtInput := Beam.Lean.RunAtInput
 abbrev PositionInput := Beam.Lean.PositionInput
@@ -386,25 +294,6 @@ abbrev RunWithInput := Beam.Lean.RunWithInput
 abbrev ReleaseInput := Beam.Lean.ReleaseInput
 abbrev PathInput := Beam.Lean.PathInput
 abbrev SyncInput := Beam.Lean.SyncInput
-abbrev InitWorkspaceMode := Beam.Workspace.InitMode
-abbrev InitWorkspaceInput := Beam.Workspace.InitInput
-
-structure DropWorkspaceInput where
-  workspaceId : Beam.Broker.WorkspaceId
-
-instance : FromJson DropWorkspaceInput where
-  fromJson? j := do
-    let rawWorkspaceId ←
-      match j.getObjVal? "workspace_id" with
-      | .ok rawWorkspaceId => pure rawWorkspaceId
-      | .error _ => throw "workspace_id is required"
-    let workspaceId ←
-      match fromJson? (α := Beam.Broker.WorkspaceId) rawWorkspaceId with
-      | .ok workspaceId => pure workspaceId
-      | .error err => throw s!"invalid 'workspace_id': {err}"
-    if !Beam.Workspace.validWorkspaceId workspaceId then
-      throw "workspace_id must be non-empty"
-    pure { workspaceId }
 
 private def optionJson (value? : Option α) [ToJson α] : Json :=
   match value? with

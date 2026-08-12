@@ -14,9 +14,6 @@ namespace Beam.Broker
 
 abbrev WorkspaceId := Beam.Workspace.WorkspaceId
 
-def defaultWorkspaceId : WorkspaceId :=
-  Beam.Workspace.defaultWorkspaceId
-
 instance : Repr Lsp.DiagnosticSeverity where
   reprPrec severity _ :=
     match severity with
@@ -53,6 +50,13 @@ inductive Op where
   | resetStats
   | shutdown
   deriving Inhabited, BEq, Repr
+
+def Op.all : Array Op := #[
+  .ensure, .openDocs, .cancel, .updateFile, .syncFile, .refreshFile, .close, .runAt,
+  .hover, .signatureHelp, .definition, .references, .documentSymbols, .workspaceSymbols,
+  .codeActionResolve, .saveOlean, .goals, .todo, .runWith, .release, .initWorkspace,
+  .listWorkspaces, .dropWorkspace, .stats, .resetStats, .shutdown
+]
 
 def Op.key : Op → String
   | .ensure => "ensure"
@@ -171,7 +175,7 @@ instance : FromJson GoalPpFormat where
     | j => .error s!"expected pp format 'Box', 'Pp', or 'Str', got {j.compress}"
 
 structure Handle where
-  workspaceId : WorkspaceId := defaultWorkspaceId
+  workspaceId : WorkspaceId
   backend : Backend
   epoch : Nat
   session : String
@@ -210,7 +214,135 @@ structure Request where
   rocqCmd? : Option String := none
   handle? : Option Handle := none
   codeAction? : Option Lsp.CodeAction := none
-  deriving Inhabited, ToJson
+  deriving Inhabited
+
+inductive WorkspaceScope where
+  | none
+  | optional
+  | required
+  deriving BEq, Repr
+
+/-- Describe whether a broker operation is process-wide or resolves one workspace. -/
+def Op.workspaceScope : Op → WorkspaceScope
+  | .cancel | .listWorkspaces | .resetStats | .shutdown => .none
+  | .openDocs | .stats => .optional
+  | .ensure | .updateFile | .syncFile | .refreshFile | .close | .runAt | .hover
+  | .signatureHelp | .definition | .references | .documentSymbols | .workspaceSymbols
+  | .codeActionResolve | .saveOlean | .goals | .todo | .runWith | .release
+  | .initWorkspace | .dropWorkspace => .required
+
+private def Op.optionalRequestFields (op : Op) : Array String :=
+  #["clientRequestId"] ++
+  (match op.workspaceScope with
+  | .none => #[]
+  | .optional | .required => #["workspaceId"]) ++
+  match op with
+  | .ensure => #["root"]
+  | .openDocs | .stats => #["root"]
+  | .cancel => #["cancelRequestId"]
+  | .updateFile => #["root", "path"]
+  | .syncFile | .refreshFile =>
+      #["root", "path", "fullDiagnostics", "includeDiagnostics"]
+  | .close => #["root", "path", "fullDiagnostics", "saveArtifacts"]
+  | .runAt =>
+      #["root", "path", "version", "line", "character", "text", "storeHandle"]
+  | .hover | .signatureHelp | .definition =>
+      #["root", "path", "version", "line", "character"]
+  | .references =>
+      #["root", "path", "version", "line", "character", "includeDeclaration"]
+  | .documentSymbols => #["root", "path", "version"]
+  | .workspaceSymbols => #["root", "query"]
+  | .codeActionResolve => #["root", "path", "version", "codeAction"]
+  | .saveOlean => #["root", "path", "fullDiagnostics"]
+  | .goals =>
+      #[
+        "root", "path", "version", "line", "character", "text", "mode", "compact",
+        "ppFormat"
+      ]
+  | .todo =>
+      #[
+        "root", "path", "version", "line", "character", "endLine", "endCharacter", "kinds",
+        "suggest"
+      ]
+  | .runWith =>
+      #["root", "path", "text", "storeHandle", "linear", "handle"]
+  | .release => #["root", "path", "handle"]
+  | .initWorkspace =>
+      #["workspaceMode", "root", "leanCmd", "leanPlugin", "rocqCmd"]
+  | .dropWorkspace => #[]
+  | .listWorkspaces | .resetStats | .shutdown => #[]
+
+private def Op.usesBackend : Op → Bool
+  | .ensure | .updateFile | .syncFile | .refreshFile | .close | .runAt | .hover
+  | .signatureHelp | .definition | .references | .documentSymbols | .workspaceSymbols
+  | .codeActionResolve | .saveOlean | .goals | .todo | .runWith | .release => true
+  | .openDocs | .cancel | .initWorkspace | .listWorkspaces | .dropWorkspace | .stats
+  | .resetStats | .shutdown => false
+
+private def optionalJsonField [ToJson α] (name : String) : Option α → List (String × Json)
+  | some value => [(name, toJson value)]
+  | none => []
+
+private def Request.optionalJsonFields (req : Request) : List (String × Json) :=
+  optionalJsonField "workspaceId" req.workspaceId? ++
+  optionalJsonField "workspaceMode" req.workspaceMode? ++
+  optionalJsonField "clientRequestId" req.clientRequestId? ++
+  optionalJsonField "cancelRequestId" req.cancelRequestId? ++
+  optionalJsonField "root" req.root? ++
+  optionalJsonField "path" req.path? ++
+  optionalJsonField "version" req.version? ++
+  optionalJsonField "line" req.line? ++
+  optionalJsonField "character" req.character? ++
+  optionalJsonField "endLine" req.endLine? ++
+  optionalJsonField "endCharacter" req.endCharacter? ++
+  optionalJsonField "text" req.text? ++
+  optionalJsonField "query" req.query? ++
+  optionalJsonField "includeDeclaration" req.includeDeclaration? ++
+  optionalJsonField "kinds" req.kinds? ++
+  optionalJsonField "suggest" req.suggest? ++
+  optionalJsonField "storeHandle" req.storeHandle? ++
+  optionalJsonField "linear" req.linear? ++
+  optionalJsonField "mode" req.mode? ++
+  optionalJsonField "compact" req.compact? ++
+  optionalJsonField "ppFormat" req.ppFormat? ++
+  optionalJsonField "fullDiagnostics" req.fullDiagnostics? ++
+  optionalJsonField "includeDiagnostics" req.includeDiagnostics? ++
+  optionalJsonField "saveArtifacts" req.saveArtifacts? ++
+  optionalJsonField "leanCmd" req.leanCmd? ++
+  optionalJsonField "leanPlugin" req.leanPlugin? ++
+  optionalJsonField "rocqCmd" req.rocqCmd? ++
+  optionalJsonField "handle" req.handle? ++
+  optionalJsonField "codeAction" req.codeAction?
+
+instance : ToJson Request where
+  toJson req := Json.mkObj <|
+    [("op", toJson req.op)] ++
+    (if req.op.usesBackend then [("backend", toJson req.backend)] else []) ++
+    req.optionalJsonFields
+
+private def requireRequestJsonFields (op : Op) : Json → Except String Unit
+  | .obj fields =>
+      let backendFields := if op.usesBackend then #["backend"] else #[]
+      let allowed := #["op"] ++ backendFields ++ op.optionalRequestFields
+      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
+        if allowed.contains field then unexpected else unexpected.push field
+      unless unexpected.isEmpty do
+        throw s!"broker op '{op.key}' accepts no undeclared or unrelated fields: {String.intercalate ", " unexpected.toList}"
+  | other => throw s!"broker request must be an object, got {other.compress}"
+
+private def Request.presentOptionalFields (req : Request) : Array String :=
+  req.optionalJsonFields.toArray.map (fun (field, _) => field)
+
+/-- Reject request fields that have no meaning for the selected broker operation. -/
+def Request.validateFields (req : Request) : Except String Unit := do
+  let allowed := req.op.optionalRequestFields
+  let unexpected := req.presentOptionalFields.filter fun field => !allowed.contains field
+  unless unexpected.isEmpty do
+    throw s!"broker op '{req.op.key}' accepts no unrelated fields: {String.intercalate ", " unexpected.toList}"
+  if !req.op.usesBackend && req.backend != .lean then
+    throw s!"broker op '{req.op.key}' does not select a backend"
+  if (req.op == .stats || req.op == .openDocs) && req.root?.isSome && req.workspaceId?.isNone then
+    throw s!"broker op '{req.op.key}' requires 'workspaceId' when 'root' is present"
 
 private def optionalField? [FromJson α] (j : Json) (field : String) : Except String (Option α) := do
   match j.getObjVal? field with
@@ -224,6 +356,7 @@ private def optionalField? [FromJson α] (j : Json) (field : String) : Except St
 instance : FromJson Request where
   fromJson? j := do
     let op ← j.getObjValAs? Op "op"
+    requireRequestJsonFields op j
     let backend ←
       match ← optionalField? (α := Backend) j "backend" with
       | some backend => pure backend
@@ -257,13 +390,15 @@ instance : FromJson Request where
     let rocqCmd? ← optionalField? (α := String) j "rocqCmd"
     let handle? ← optionalField? (α := Handle) j "handle"
     let codeAction? ← optionalField? (α := Lsp.CodeAction) j "codeAction"
-    pure {
+    let request : Request := {
       op, backend, workspaceId?, workspaceMode?, clientRequestId?, cancelRequestId?,
       root?, path?, version?, line?, character?, endLine?, endCharacter?,
       text?, query?, includeDeclaration?, kinds?, suggest?, storeHandle?,
       linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
       saveArtifacts?, leanCmd?, leanPlugin?, rocqCmd?, handle?, codeAction?
     }
+    request.validateFields
+    pure request
 
 structure Error where
   code : String
@@ -645,11 +780,18 @@ def Response.error (code : String) (message : String := "") (data? : Option Json
 def Response.withClientRequestId (resp : Response) (clientRequestId? : Option String) : Response :=
   { resp with clientRequestId? := clientRequestId? <|> resp.clientRequestId? }
 
-def Request.workspaceId (req : Request) : WorkspaceId :=
+def Request.resolvedWorkspaceId? (req : Request) : Option WorkspaceId :=
   match req.workspaceId?, req.handle? with
-  | some workspaceId, _ => workspaceId
-  | none, some handle => handle.workspaceId
-  | none, none => defaultWorkspaceId
+  | some workspaceId, _ => some workspaceId
+  | none, some handle => some handle.workspaceId
+  | none, none => none
+
+def Request.requireWorkspaceId (req : Request) : Except String WorkspaceId := do
+  let some workspaceId := req.resolvedWorkspaceId?
+    | throw "workspaceId is required"
+  unless Beam.Workspace.validWorkspaceId workspaceId do
+    throw "workspaceId must be non-empty"
+  pure workspaceId
 
 def Request.requireRoot (req : Request) : Except String System.FilePath := do
   let some root := req.root?

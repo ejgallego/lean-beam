@@ -14,6 +14,19 @@ namespace Beam.Cli
 
 open Beam.Broker
 
+/--
+Address a request to the private workspace of the CLI's one-project daemon.
+
+Process-wide control operations deliberately remain unscoped. An explicitly supplied workspace is
+preserved so this adapter does not rewrite lower-level test or maintenance requests.
+-/
+def inProjectDaemonWorkspace (req : Request) : Request :=
+  match req.op.workspaceScope with
+  | .none => req
+  | .optional | .required =>
+      if req.workspaceId?.isSome then req
+      else { req with workspaceId? := some projectDaemonWorkspaceId }
+
 def withBrokerErrorContext {α} (root : System.FilePath) (action : IO α) : IO α := do
   try
     action
@@ -22,14 +35,14 @@ def withBrokerErrorContext {α} (root : System.FilePath) (action : IO α) : IO �
 
 def callBroker (root : System.FilePath) (endpoint : Transport.Endpoint) (req : Request) : IO Unit :=
   withBrokerErrorContext root do
-    let req ← withEnvClientRequestId req
+    let req ← withEnvClientRequestId (inProjectDaemonWorkspace req)
     let resp ← sendRequest endpoint req
     printResponse resp
     failOnError resp
 
 def callBrokerQuiet (root : System.FilePath) (endpoint : Transport.Endpoint) (req : Request) : IO Unit :=
   withBrokerErrorContext root do
-    let req ← withEnvClientRequestId req
+    let req ← withEnvClientRequestId (inProjectDaemonWorkspace req)
     let resp ← sendRequest endpoint req
     failOnError resp
 
@@ -109,7 +122,6 @@ private def sendBrokerCancellation
     (req : Request) : IO (Option Bool) := do
   let cancelReq : Request := {
     op := .cancel
-    root? := req.root?
     cancelRequestId? := req.clientRequestId?
   }
   try
@@ -389,7 +401,7 @@ def callBrokerWithProgress
     (req : Request)
     (spec : BrokerWaitSpec) : IO Unit :=
   withBrokerErrorContext root do
-    let wrapperReq ← withWrapperClientRequestId req
+    let wrapperReq ← withWrapperClientRequestId (inProjectDaemonWorkspace req)
     let req := wrapperReq.request
     let visibleClientRequestId? := wrapperReq.visibleClientRequestId?
     let showProgress ← progressEnabled

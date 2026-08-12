@@ -108,25 +108,6 @@ structure CancelledParams where
   requestId : RequestId
   reason? : Option String := none
 
-structure ClientRoot where
-  uri : String
-  name? : Option String := none
-  deriving Inhabited
-
-instance : FromJson ClientRoot where
-  fromJson? json := do
-    let uri ← json.getObjValAs? String "uri"
-    let name? ← optionalField? (α := String) json "name"
-    pure { uri, name? }
-
-structure ListRootsResult where
-  roots : Array ClientRoot
-
-instance : FromJson ListRootsResult where
-  fromJson? json := do
-    let roots ← json.getObjValAs? (Array ClientRoot) "roots"
-    pure { roots }
-
 inductive Incoming where
   | request (request : Request)
   | notification (notification : Notification)
@@ -141,11 +122,14 @@ def Incoming.fromJson? (json : Json) : Except String Incoming := do
       let method ← json.getObjValAs? String "method"
       let params? ← optionalField? (α := Json) json "params"
       match json.getObjVal? "id" with
-      | .ok id =>
+      | .ok id => do
+          requireOnlyFields "JSON-RPC request" #["jsonrpc", "id", "method", "params"] json
           pure <| .request { id := ← RequestId.fromJson? id, method, params? }
-      | .error _ =>
+      | .error _ => do
+          requireOnlyFields "JSON-RPC notification" #["jsonrpc", "method", "params"] json
           pure <| .notification { method, params? }
   | .error _ =>
+      requireOnlyFields "JSON-RPC response" #["jsonrpc", "id", "result", "error"] json
       let id ← RequestId.fromJson? (← json.getObjVal? "id")
       let result? ← optionalField? (α := Json) json "result"
       let error? ← optionalField? (α := RpcError) json "error"
@@ -159,27 +143,6 @@ def Incoming.fromJson? (json : Json) : Except String Incoming := do
       | some _, some _ =>
           throw "JSON-RPC response must not contain both result and error"
 
-def clientSupportsRoots (params? : Option Json) : Bool :=
-  match params? with
-  | none => false
-  | some params =>
-      match params.getObjVal? "capabilities" with
-      | .error _ => false
-      | .ok capabilities =>
-          match capabilities.getObjVal? "roots" with
-          | .ok _ => true
-          | .error _ => false
-
-def rootsListRequestId : String :=
-  "lean-beam-roots-1"
-
-def rootsListRequest : Json :=
-  Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson rootsListRequestId),
-    ("method", toJson "roots/list")
-  ]
-
 def requireObject (label : String) : Json → Except String Json
   | obj@(.obj _) => pure obj
   | other => throw s!"{label} must be an object, got {other.compress}"
@@ -189,6 +152,7 @@ def parseCancelledParams (params? : Option Json) : Except String CancelledParams
     match params? with
     | some params => requireObject "notifications/cancelled params" params
     | none => throw "notifications/cancelled params are required"
+  requireOnlyFields "notifications/cancelled params" #["requestId", "reason", "_meta"] params
   let requestId ← RequestId.fromJson? (← params.getObjVal? "requestId")
   let reason? ← optionalField? (α := String) params "reason"
   pure { requestId, reason? }
@@ -251,6 +215,7 @@ def parseSetLogLevelParams (params? : Option Json) : Except String LogLevel := d
     match params? with
     | some params => requireObject "logging/setLevel params" params
     | none => throw "logging/setLevel params are required"
+  requireOnlyFields "logging/setLevel params" #["level", "_meta"] params
   let decoded ← fromJson? (α := SetLogLevelParams) params
   pure decoded.level
 
@@ -341,6 +306,7 @@ def parseCallToolParams (params? : Option Json) : Except String CallToolParams :
     match params? with
     | some params => requireObject "tools/call params" params
     | none => throw "tools/call params are required"
+  requireOnlyFields "tools/call params" #["name", "arguments", "_meta"] params
   let rawName ← params.getObjVal? "name"
   let name ← fromJson? (α := ToolName) rawName
   let progressToken? ← parseProgressToken? params

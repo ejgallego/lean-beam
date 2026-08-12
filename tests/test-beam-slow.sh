@@ -40,6 +40,7 @@ trap cleanup EXIT
 mkdir -p "$tmp_env_root/home" "$tmp_env_root/codex" "$tmp_env_root/claude"
 
 toolchain="$(awk 'NR==1 {print $1}' lean-toolchain)"
+fixture_toolchain="$(awk 'NR==1 {print $1}' tests/save_olean_project/lean-toolchain)"
 # Fake agent homes isolate install state; the wrapper still needs the host Lean toolchain cache.
 host_elan_home="${ELAN_HOME:-$HOME/.elan}"
 
@@ -66,6 +67,17 @@ run_step "MCP stdio stress" env ${mcp_stdio_env[@]+"${mcp_stdio_env[@]}"} \
 
 run_step "bundle install" env BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
   ./.lake/build/bin/beam-cli bundle-install "$toolchain"
+
+if [ "$fixture_toolchain" != "$toolchain" ]; then
+  run_step "fixture bundle install" env BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+    ./.lake/build/bin/beam-cli bundle-install "$fixture_toolchain"
+fi
+
+run_step "MCP multi-toolchain workspaces" env \
+  BEAM_INSTALL_BUNDLE_DIR="$tmp_bundle_dir" \
+  python3 tests/test-mcp-stdio.py \
+    --scenario multi-toolchain-workspaces \
+    --timeout "$mcp_stdio_timeout"
 
 run_step "wrapper daemon tests" env \
   HOME="$tmp_env_root/home" CODEX_HOME="$tmp_env_root/codex" CLAUDE_HOME="$tmp_env_root/claude" \
