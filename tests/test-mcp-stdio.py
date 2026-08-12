@@ -1805,9 +1805,14 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
         root_a = tmp_root / "project-a"
         root_b = tmp_root / "project-b"
         alias_a = tmp_root / "project-a-alias"
+        missing_root = tmp_root / "missing-project"
+        file_root = tmp_root / "not-a-directory"
+        empty_root = tmp_root / "not-a-project"
         copy_project_fixture(fixture_root, root_a)
         copy_project_fixture(fixture_root, root_b)
         alias_a.symlink_to(root_a, target_is_directory=True)
+        file_root.write_text("not a workspace directory\n", encoding="utf-8")
+        empty_root.mkdir()
         client = McpClient(repo_root, root_a, timeout, label="stateless-workspaces")
         try:
             client.initialize()
@@ -1837,6 +1842,39 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
             require(
                 "absolute path" in relative_error.get("message", ""),
                 f"relative workspace root should fail explicitly: {relative_error}",
+            )
+
+            invalid_roots = [
+                ("missing", missing_root, "does not resolve"),
+                ("regular file", file_root, "not a directory"),
+                ("non-project directory", empty_root, "not a Lean/Lake project"),
+            ]
+            for label, invalid_root, expected_message in invalid_roots:
+                response = client.request(
+                    "tools/call",
+                    {
+                        "name": "lean_sync",
+                        "arguments": {
+                            "path": "PositionEmptyLine.lean",
+                            "workspace": workspace_descriptor(invalid_root),
+                        },
+                    },
+                )
+                error = expect_tool_error_code(response, "invalidInput")
+                require(
+                    expected_message in error.get("message", ""),
+                    f"{label} workspace root should fail explicitly: {error}",
+                )
+
+            version_before_valid_root = client.call_tool("beam_version")
+            require(
+                version_before_valid_root.get("runtime_active") is False,
+                f"rejected workspace roots should not create a broker runtime: {version_before_valid_root}",
+            )
+            stats_before_valid_root = client.call_tool("beam_stats").get("workspaces", {})
+            require(
+                stats_before_valid_root == {},
+                f"rejected workspace roots should not create workspace caches: {stats_before_valid_root}",
             )
 
             first_a = client.call_tool("lean_sync", {"path": "PositionEmptyLine.lean"})

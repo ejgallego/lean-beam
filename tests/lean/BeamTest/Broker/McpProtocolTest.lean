@@ -417,6 +417,43 @@ private def checkWorkspaceDescriptor : IO Unit := do
       require "closed descriptor error should reject obsolete selector fields"
         (err.contains "accepts only the 'root' field")
 
+private def expectWorkspaceRootError
+    (label rootText expectedMessage : String) : IO Unit := do
+  match ← Beam.Lean.Workspace.resolveRoot rootText with
+  | .ok root =>
+      throw <| IO.userError s!"{label}: invalid workspace root resolved as {root}"
+  | .error err =>
+      require s!"{label}: workspace error should contain '{expectedMessage}'"
+        (err.message.contains expectedMessage)
+
+private def checkWorkspaceRootValidation : IO Unit := do
+  let fixtureRoot :=
+    System.FilePath.mk s!"/tmp/lean-beam-workspace-root-validation-{← IO.monoNanosNow}"
+  let emptyRoot := fixtureRoot / "empty"
+  let fileRoot := fixtureRoot / "not-a-directory"
+  let missingRoot := fixtureRoot / "missing"
+  try
+    IO.FS.createDirAll emptyRoot
+    IO.FS.writeFile fileRoot "not a workspace directory\n"
+    expectWorkspaceRootError "relative workspace root" "relative/project" "absolute path"
+    expectWorkspaceRootError "missing workspace root" missingRoot.toString "does not resolve"
+    expectWorkspaceRootError "workspace root file" fileRoot.toString "not a directory"
+    expectWorkspaceRootError "non-project workspace root" emptyRoot.toString
+      "not a Lean/Lake project"
+
+    let expectedRoot ← Beam.resolveExistingPath (← IO.currentDir)
+    match ← Beam.Lean.Workspace.resolveRoot expectedRoot.toString with
+    | .error err =>
+        throw <| IO.userError s!"current Lean project root was rejected: {err.message}"
+    | .ok root =>
+        require "valid workspace root should retain its canonical spelling" (root == expectedRoot)
+  finally
+    try
+      if ← fixtureRoot.pathExists then
+        IO.FS.removeDirAll fixtureRoot
+    catch _ =>
+      pure ()
+
 private def checkRuntimeSetupErrors : IO Unit := do
   let missingRoot := System.FilePath.mk s!"/tmp/lean-beam-missing-mcp-root-{← IO.monoNanosNow}"
   match ← Beam.Mcp.Runtime.mkBrokerConfig {} missingRoot with
@@ -1030,6 +1067,7 @@ def main : IO Unit := do
   checkIncoming
   checkToolsListShape
   checkWorkspaceDescriptor
+  checkWorkspaceRootValidation
   checkProgressProtocol
   checkRuntimeSetupErrors
   checkServerBasics

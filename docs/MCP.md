@@ -36,7 +36,9 @@ The current local descriptor is:
 `workspace` is required on `beam_feedback`, `lean_drop_workspace`, and every Lean operation. The
 root must be an absolute path to an existing Lean/Lake project. Beam resolves it to a canonical path
 and derives a private, deterministic broker cache key from that path. Canonical aliases therefore
-share one runtime; clients do not choose process-local workspace ids.
+share one runtime; clients do not choose process-local workspace ids. For this local transport, any
+Lean/Lake project accessible to the MCP server process may be selected; the root is not restricted
+to the directory from which the server was started.
 
 There is no distinguished default workspace, `lean-beam-mcp --root`, `lean_init_workspace`,
 `lean_list_workspaces`, or MCP `roots/list` fallback. A first ordinary request is sufficient:
