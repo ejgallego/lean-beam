@@ -12,6 +12,19 @@ open Lean
 
 namespace BeamTest.Broker.TestUtil
 
+def testWorkspaceId : Beam.Broker.WorkspaceId :=
+  "beam-test-project"
+
+def inTestWorkspace (req : Beam.Broker.Request) : Beam.Broker.Request :=
+  match req.op with
+  | .ensure | .updateFile | .syncFile | .refreshFile | .close | .runAt | .hover
+  | .signatureHelp | .definition | .references | .documentSymbols | .workspaceSymbols
+  | .codeActionResolve | .saveOlean | .goals | .todo | .runWith | .release =>
+      if req.workspaceId?.isSome || req.handle?.isSome then req
+      else { req with workspaceId? := some testWorkspaceId }
+  | .openDocs | .cancel | .initWorkspace | .listWorkspaces | .dropWorkspace | .stats
+  | .resetStats | .shutdown => req
+
 structure ProgressEvent where
   clientRequestId? : Option String := none
   progress : Beam.Broker.SyncFileProgress
@@ -22,7 +35,7 @@ def runClientWithStream
     IO (Beam.Broker.Response × Array Beam.Broker.SyncFileProgress × Array Beam.Broker.StreamDiagnostic) := do
   let progressRef ← IO.mkRef #[]
   let diagnosticRef ← IO.mkRef #[]
-  let resp ← Beam.Broker.sendRequestWithCallbacks endpoint req {
+  let resp ← Beam.Broker.sendRequestWithCallbacks endpoint (inTestWorkspace req) {
     onFileProgress := fun _ progress =>
       progressRef.modify fun seen => seen.push progress
     onDiagnostic := fun _ diagnostic =>
@@ -34,7 +47,7 @@ def runClientWithProgress
     (endpoint : Beam.Broker.Endpoint)
     (req : Beam.Broker.Request) : IO (Beam.Broker.Response × Array ProgressEvent) := do
   let progressRef ← IO.mkRef #[]
-  let resp ← Beam.Broker.sendRequestWithCallbacks endpoint req {
+  let resp ← Beam.Broker.sendRequestWithCallbacks endpoint (inTestWorkspace req) {
     onFileProgress := fun clientRequestId? progress =>
       progressRef.modify fun seen => seen.push { clientRequestId?, progress }
   }

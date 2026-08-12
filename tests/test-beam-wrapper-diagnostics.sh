@@ -337,7 +337,7 @@ EOF
     client9="$client"
   fi
 
-  stream_req="$(printf '{"op":"sync_file","root":"%s","path":"SaveSmoke/B.lean","fullDiagnostics":true}' "$warn_full_root")"
+  stream_req="$(printf '{"op":"sync_file","workspaceId":"beam-cli-project","root":"%s","path":"SaveSmoke/B.lean","fullDiagnostics":true}' "$warn_full_root")"
   stream_out="$(beam_wrapper_mktemp_file stream-out)"
   stream_err="$(beam_wrapper_mktemp_file stream-err)"
   "$client9" --port "$port9" request-stream "$stream_req" >"$stream_out" 2>"$stream_err"

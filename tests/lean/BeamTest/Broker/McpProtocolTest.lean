@@ -739,6 +739,34 @@ private def checkServerBasics : IO Unit := do
   discard <| requireObjVal "beam feedback collected" "identity" feedbackCollected
   discard <| requireObjVal "beam feedback collected" "daemon" feedbackCollected
 
+  let stateAfterFeedback ← state.get
+  require "beam_feedback should not create a broker runtime"
+    stateAfterFeedback.application.runtime?.isNone
+  require "beam_feedback should not create a workspace cache"
+    stateAfterFeedback.application.workspaces.toList.isEmpty
+
+  let uncachedDropResp ← handleRpcRequest state opts "drop uncached workspace" 24 "tools/call" <|
+    some <| toolCallParams "lean_drop_workspace" <| withWorkspace root (Json.mkObj [])
+  let uncachedDropResult ← requireObjVal "drop uncached workspace response" "result" uncachedDropResp
+  requireJsonBool "drop uncached workspace result" "isError" false uncachedDropResult
+  let uncachedDropStructured ←
+    requireObjVal "drop uncached workspace result" "structuredContent" uncachedDropResult
+  let uncachedDropWorkspace ←
+    requireObjVal "drop uncached workspace structured result" "workspace" uncachedDropStructured
+  let canonicalRoot ← Beam.resolveExistingPath root
+  requireJsonString "drop uncached workspace descriptor" "root" canonicalRoot.toString
+    uncachedDropWorkspace
+  requireJsonBool "drop uncached workspace structured result" "dropped" false uncachedDropStructured
+  requireJsonBool "drop uncached workspace structured result" "invalidated_handles" false
+    uncachedDropStructured
+  requireJsonString "drop uncached workspace structured result" "reason" "notFound"
+    uncachedDropStructured
+  let stateAfterUncachedDrop ← state.get
+  require "dropping an uncached workspace should not create a broker runtime"
+    stateAfterUncachedDrop.application.runtime?.isNone
+  require "dropping an uncached workspace should not create a workspace cache"
+    stateAfterUncachedDrop.application.workspaces.toList.isEmpty
+
   let rawToolResp ← handleRpcRequest state opts "raw tool rejection" 3 "tools/call" <|
     some <| toolCallParams Beam.LSP.RunAt.method
   discard <| expectRpcErrorCode "raw tool response" (-32602) rawToolResp

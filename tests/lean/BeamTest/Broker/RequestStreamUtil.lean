@@ -33,6 +33,7 @@ private def decodeStreamLines (output : String) : IO (Array Beam.Broker.StreamMe
 def runRequestStream
     (port : UInt16)
     (req : Beam.Broker.Request) : IO StreamRun := do
+  let req := inTestWorkspace req
   let out ← IO.Process.output {
     cmd := (← clientExe).toString
     args := #["--port", toString port.toNat, "request-stream", (toJson req).compress]

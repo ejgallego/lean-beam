@@ -209,10 +209,13 @@ private def sessionExited (session : Session) : IO Bool := do
 
 private def mkWorkspaceState (config : BrokerConfig) : WorkspaceState := { config }
 
-private def mkInitialState (config : BrokerConfig) (startMonoNanos : Nat) : State := {
+private def mkInitialState
+    (config : BrokerConfig)
+    (workspaceId : WorkspaceId)
+    (startMonoNanos : Nat) : State := {
   bootstrapConfig := config
   startMonoNanos
-  workspaces := Std.TreeMap.empty.insert defaultWorkspaceId (mkWorkspaceState config)
+  workspaces := Std.TreeMap.empty.insert workspaceId (mkWorkspaceState config)
 }
 
 private def validWorkspaceId (workspaceId : WorkspaceId) : Bool :=
@@ -225,11 +228,7 @@ private def setWorkspace
     (state : State)
     (workspaceId : WorkspaceId)
     (workspace : WorkspaceState) : State :=
-  let state := { state with workspaces := state.workspaces.insert workspaceId workspace }
-  if workspaceId == defaultWorkspaceId then
-    { state with bootstrapConfig := workspace.config }
-  else
-    state
+  { state with workspaces := state.workspaces.insert workspaceId workspace }
 
 private def getBackendState (workspace : WorkspaceState) (backend : Backend) : BackendState :=
   match backend with
@@ -335,21 +334,7 @@ private def statsPayload (workspaceId? : Option WorkspaceId := none) : M Json :=
   | none =>
       let workspaceFields := state.workspaces.toList.map fun (workspaceId, workspace) =>
         (workspaceId, workspaceStatsJson workspaceId workspace)
-      let defaultFields :=
-        match getWorkspace? state defaultWorkspaceId with
-        | some defaultWorkspace => [
-            ("root", toJson defaultWorkspace.config.root.toString),
-            ("sessions", Json.mkObj [
-              ("lean", sessionSnapshotJson defaultWorkspace.lean.session?),
-              ("rocq", sessionSnapshotJson defaultWorkspace.rocq.session?)
-            ]),
-            ("byBackend", Json.mkObj [
-              ("lean", backendMetricsJson defaultWorkspace.leanMetrics),
-              ("rocq", backendMetricsJson defaultWorkspace.rocqMetrics)
-            ])
-          ]
-        | none => []
-      pure <| Json.mkObj <| defaultFields ++ [
+      pure <| Json.mkObj [
         ("uptimeMs", toJson uptimeMs),
         ("workspaces", Json.mkObj workspaceFields)
       ]
@@ -818,11 +803,7 @@ private def openDocsPayload (workspaceId? : Option WorkspaceId := none) : M Json
   | none =>
       let workspaceFields ← state.workspaces.toList.mapM fun (workspaceId, workspace) => do
         pure (workspaceId, ← openDocsWorkspacePayload workspace)
-      let defaultPayload :=
-        match workspaceFields.find? fun (workspaceId, _) => workspaceId == defaultWorkspaceId with
-        | some (_, payload) => payload
-        | none => Json.mkObj []
-      pure <| defaultPayload.setObjVal! "workspaces" (Json.mkObj workspaceFields)
+      pure <| Json.mkObj [("workspaces", Json.mkObj workspaceFields)]
 
 private def wrapHandle (session : Session) (raw : Json) : Json :=
   toJson ({
@@ -928,15 +909,12 @@ def ServerRuntime.withState (server : ServerRuntime) (act : M α) : IO α := do
 
 def ServerRuntime.create
     (config : BrokerConfig)
-    (workspaceId : WorkspaceId := defaultWorkspaceId)
+    (workspaceId : WorkspaceId)
     (endpoint : Transport.Endpoint := .tcp 0) : IO ServerRuntime := do
   unless validWorkspaceId workspaceId do
     throw <| IO.userError "workspace id must be non-empty"
   let startMonoNanos ← IO.monoNanosNow
-  let state := {
-    (mkInitialState config startMonoNanos) with
-    workspaces := Std.TreeMap.empty.insert workspaceId (mkWorkspaceState config)
-  }
+  let state := mkInitialState config workspaceId startMonoNanos
   pure {
     state := ← Std.Mutex.new state
     endpoint := endpoint
@@ -1066,8 +1044,9 @@ private def recordDispatchMetrics
   if requestTracksActiveRequest req.op then
     let finishedAt ← IO.monoNanosNow
     let latencyMs := (finishedAt - startedAt) / 1000000
-    server.withState do
-      recordRequestMetrics req.workspaceId req.backend req.op.key resp.ok (resp.error?.map (·.code)) latencyMs
+    if let some workspaceId := req.resolvedWorkspaceId? then
+      server.withState do
+        recordRequestMetrics workspaceId req.backend req.op.key resp.ok (resp.error?.map (·.code)) latencyMs
 
 private def cancelActiveRequest
     (server : ServerRuntime)
@@ -1101,9 +1080,10 @@ private def requestStop (server : ServerRuntime) : IO Unit := do
 private def validateRequestWorkspace
     (server : ServerRuntime)
     (req : Request) : IO (Except Response WorkspaceId) := do
-  let workspaceId := req.workspaceId
-  if !validWorkspaceId workspaceId then
-    return .error (reqError "invalidParams" "workspace id must be non-empty")
+  let workspaceId ←
+    match req.requireWorkspaceId with
+    | .ok workspaceId => pure workspaceId
+    | .error err => return .error (reqError "invalidParams" err)
   if let some explicitWorkspaceId := req.workspaceId? then
     if let some handle := req.handle? then
       if explicitWorkspaceId != handle.workspaceId then
@@ -2092,11 +2072,11 @@ private def initWorkspaceConfigFromRequest
     catch e =>
       return .error (reqError "invalidParams" e.toString)
   if req.leanCmd?.isNone && leanPlugin?.isNone && req.rocqCmd?.isNone then
-    let defaultConfig ← server.withState do
+    let bootstrapConfig ← server.withState do
       let state ← get
-      pure <| (getWorkspace? state defaultWorkspaceId).map (·.config) |>.getD state.bootstrapConfig
-    if root == defaultConfig.root then
-      return .ok defaultConfig
+      pure state.bootstrapConfig
+    if root == bootstrapConfig.root then
+      return .ok bootstrapConfig
   pure <| .ok {
     root
     leanCmd? := req.leanCmd?
@@ -2145,14 +2125,20 @@ private def handleRequestIO
           | .ok workspaceId =>
               pure (Response.success (← server.withState <| openDocsPayload (some workspaceId)), false)
   | .initWorkspace =>
-      match ← initWorkspaceConfigFromRequest server req with
-      | .error resp => pure (resp, false)
-      | .ok config =>
-          let resp ← server.initWorkspaceWithConfig req.workspaceId config req.workspaceMode?
-          pure (resp, false)
+      match req.requireWorkspaceId with
+      | .error err => pure (reqError "invalidParams" err, false)
+      | .ok workspaceId =>
+          match ← initWorkspaceConfigFromRequest server req with
+          | .error resp => pure (resp, false)
+          | .ok config =>
+              let resp ← server.initWorkspaceWithConfig workspaceId config req.workspaceMode?
+              pure (resp, false)
   | .dropWorkspace =>
-      let resp ← server.dropWorkspace req.workspaceId
-      pure (resp, false)
+      match req.requireWorkspaceId with
+      | .error err => pure (reqError "invalidParams" err, false)
+      | .ok workspaceId =>
+          let resp ← server.dropWorkspace workspaceId
+          pure (resp, false)
   | .cancel =>
       let targetClientRequestId ←
         match req.cancelRequestIdArg with
@@ -2326,6 +2312,7 @@ private partial def acceptLoop (server : ServerRuntime) (listener : Transport.Li
 private structure CliOptions where
   endpoint : Transport.Endpoint := .tcp 8765
   root? : Option String := none
+  workspaceId? : Option WorkspaceId := none
   leanCmd? : Option String := none
   leanPlugin? : Option String := none
   rocqCmd? : Option String := none
@@ -2349,6 +2336,8 @@ private partial def parseCliOptions (opts : CliOptions) : List String → Except
       parseCliOptions { opts with endpoint := .tcp port } rest
   | "--root" :: root :: rest =>
       parseCliOptions { opts with root? := some root } rest
+  | "--workspace-id" :: workspaceId :: rest =>
+      parseCliOptions { opts with workspaceId? := some workspaceId } rest
   | "--lean-cmd" :: leanCmd :: rest =>
       parseCliOptions { opts with leanCmd? := some leanCmd } rest
   | "--lean-plugin" :: leanPlugin :: rest =>
@@ -2362,6 +2351,10 @@ def main (args : List String) : IO Unit := do
   let opts ← IO.ofExcept <| parseCliOptions {} args
   let some root := opts.root?
     | throw <| IO.userError "missing Beam daemon --root PATH"
+  let some workspaceId := opts.workspaceId?
+    | throw <| IO.userError "missing Beam daemon --workspace-id ID"
+  unless validWorkspaceId workspaceId do
+    throw <| IO.userError "workspace id must be non-empty"
   let root ← Beam.resolveExistingPath <| System.FilePath.mk root
   let leanPlugin? ← opts.leanPlugin?.mapM (fun path => Beam.resolveExistingPath <| System.FilePath.mk path)
   let config : BrokerConfig := {
@@ -2373,7 +2366,7 @@ def main (args : List String) : IO Unit := do
   let listener ← Transport.bindAndListen opts.endpoint 16
   let startMonoNanos ← IO.monoNanosNow
   let runtime : ServerRuntime := {
-    state := ← Std.Mutex.new (mkInitialState config startMonoNanos)
+    state := ← Std.Mutex.new (mkInitialState config workspaceId startMonoNanos)
     endpoint := opts.endpoint
     stop := ← IO.mkRef false
     activeRequests := ← ActiveRequestRegistry.create

@@ -155,7 +155,10 @@ def main : IO Unit := do
     }
     expectSurfacedError zeroGoalResp
 
-    let stats ← expectOk <| ← runClient endpoint { op := .stats }
+    let stats ← expectOk <| ← runClient endpoint {
+      op := .stats
+      workspaceId? := some testWorkspaceId
+    }
     expectOpCountAtLeast stats "rocq" "goals" 5
     discard <| expectOk <| ← runClient endpoint { op := .shutdown }
   finally

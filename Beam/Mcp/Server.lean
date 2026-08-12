@@ -271,7 +271,7 @@ private def ensureRuntimeForWorkspace
             }
             pure <| .ok (runtime, canonicalRoot)
 
-private def workspaceErrorToToolError (err : Beam.Workspace.InitError) : ToolError :=
+private def workspaceErrorToToolError (err : Beam.Workspace.RootError) : ToolError :=
   ToolError.invalidInput err.message
 
 private structure ResolvedWorkspace where

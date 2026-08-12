@@ -173,11 +173,6 @@ run `lake build` from clean artifacts. If no successful clean CI result is avail
 one-time clean local check outside MCP. See the
 [checkpoint contract](SYNC_AND_DIAGNOSTICS.md#development-checkpoints-and-batch-validation).
 
-The running Lean server is not guaranteed to pick up Lake workspace configuration changes. After
-editing a lakefile, manifest, package override, `lean-toolchain`, Lean options, plugins, or dynamic
-libraries, drop that workspace or restart the MCP server before the next request. Calling
-`lean_sync` in the existing runtime is not sufficient.
-
 ## Process-Wide Utilities And Feedback
 
 `beam_version` and `beam_stats` are process-wide and accept no workspace descriptor. `beam_stats`

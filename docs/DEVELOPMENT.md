@@ -143,6 +143,13 @@ The cheap regression guard is [scripts/check-daemon-safety.sh](../scripts/check-
 It is intentionally conservative and should be updated when a new daemon-safe wrapper around an
 exit-capable Lean/Lake API is introduced.
 
+The broker has no default workspace. Every workspace-bound broker request names a workspace or
+carries a continuation handle that names one, and daemon startup receives its initial workspace id
+explicitly through `--workspace-id`. The public CLI still manages one daemon per project, but that
+policy stays in `Beam.Cli`: its request adapter supplies the private `beam-cli-project` id. Broker
+stats and open-document requests without an id remain process-wide and return only the
+`workspaces` map; the CLI scopes those requests before sending them.
+
 ## MCP Projection Changes
 
 MCP work should go through the shared Lean operation layer in

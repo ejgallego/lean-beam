@@ -28,6 +28,7 @@ private def expectToolError (label expectedCode : String) (result : Except Beam.
       pure err
 
 private def sampleBrokerHandle : Beam.Broker.Handle := {
+  workspaceId := "local:/repo"
   backend := .lean
   epoch := 3
   session := "session"

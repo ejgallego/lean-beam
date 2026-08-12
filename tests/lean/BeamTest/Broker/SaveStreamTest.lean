@@ -220,7 +220,7 @@ def main : IO Unit := do
 
     let openDocsPayload ← expectOk <| ← runClient endpoint {
       op := .openDocs
-      workspaceId? := some Beam.Broker.defaultWorkspaceId
+      workspaceId? := some testWorkspaceId
       root? := some root.toString
     }
     expectNoTrackedLeanDoc openDocsPayload "SaveSmoke/B.lean"

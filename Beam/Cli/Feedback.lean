@@ -94,13 +94,13 @@ private def collectDaemonPayload
       | some endpoint =>
           let statsResp ← sendRequest endpoint {
             op := .stats
-            workspaceId? := some Beam.Broker.defaultWorkspaceId
+            workspaceId? := some Beam.Cli.projectDaemonWorkspaceId
             root? := some root.toString
           }
           let (stats, warnings) := Beam.Feedback.responsePayloadOrWarning "stats" statsResp warnings
           let openResp ← sendRequest endpoint {
             op := .openDocs
-            workspaceId? := some Beam.Broker.defaultWorkspaceId
+            workspaceId? := some Beam.Cli.projectDaemonWorkspaceId
             root? := some root.toString
           }
           let (openDocs, warnings) := Beam.Feedback.responsePayloadOrWarning "open-files" openResp warnings

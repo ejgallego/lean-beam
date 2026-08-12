@@ -14,10 +14,10 @@ namespace Beam.Workspace
 def addWorkspaceDescriptor (root : System.FilePath) (json : Json) : Json :=
   json.setObjVal! "workspace" (toJson <| Descriptor.ofRoot root)
 
-structure InitError where
+structure RootError where
   message : String
 
-instance : ToString InitError where
+instance : ToString RootError where
   toString err := err.message
 
 end Beam.Workspace

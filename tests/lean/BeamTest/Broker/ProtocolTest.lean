@@ -538,9 +538,9 @@ private def checkWorkspaceRoutingFields : IO Unit := do
       fromJson? (α := Request) (toJson request)
     require s!"minimal {op.key} request lost its operation" (decoded.op == op)
 
-  let defaultReq : Request := { op := .stats }
-  require "missing workspace id defaults to default" (defaultReq.workspaceId == defaultWorkspaceId)
-  requireFieldAbsent "stats request serialization" "backend" (toJson defaultReq)
+  let unscopedReq : Request := { op := .stats }
+  require "missing workspace id remains unscoped" unscopedReq.resolvedWorkspaceId?.isNone
+  requireFieldAbsent "stats request serialization" "backend" (toJson unscopedReq)
 
   let leanReq : Request := { op := .ensure }
   requireJsonString "backend-scoped request serialization" "backend" "lean" (toJson leanReq)
@@ -549,7 +549,7 @@ private def checkWorkspaceRoutingFields : IO Unit := do
     op := .stats
     workspaceId? := some "fixture"
   }
-  require "explicit workspace id wins" (explicitReq.workspaceId == "fixture")
+  require "explicit workspace id wins" (explicitReq.resolvedWorkspaceId? == some "fixture")
 
   let handle : Handle := {
     workspaceId := "handle-workspace"
@@ -563,7 +563,7 @@ private def checkWorkspaceRoutingFields : IO Unit := do
     handle? := some handle
   }
   require "handle workspace id routes omitted request workspace"
-    (handleReq.workspaceId == "handle-workspace")
+    (handleReq.resolvedWorkspaceId? == some "handle-workspace")
 
   let explicitHandleReq : Request := {
     op := .runWith
@@ -571,7 +571,7 @@ private def checkWorkspaceRoutingFields : IO Unit := do
     handle? := some handle
   }
   require "explicit workspace id overrides handle for validation"
-    (explicitHandleReq.workspaceId == "explicit")
+    (explicitHandleReq.resolvedWorkspaceId? == some "explicit")
 
   let unrelatedStats : Request := {
     op := .stats
@@ -633,6 +633,20 @@ private def checkWorkspaceLifecycleProtocol : IO Unit := do
       pure <| err.toString.contains "workspace id must be non-empty"
   require "broker runtime constructor should reject an empty workspace id" emptyRuntimeIdRejected
 
+  let runtime ← Beam.Broker.ServerRuntime.create
+    ({ root } : Beam.Broker.BrokerConfig) "fixture"
+  let (missingWorkspaceResp, _) ← runtime.dispatchRequest { op := .ensure }
+  require "workspace-bound broker requests should reject omitted workspace identity"
+    (missingWorkspaceResp.error?.any fun err =>
+      err.code == "invalidParams" && err.message.contains "workspaceId is required")
+  let (processStatsResp, _) ← runtime.dispatchRequest { op := .stats }
+  let some processStats := processStatsResp.result?
+    | throw <| IO.userError s!"process-wide stats failed: {(toJson processStatsResp).compress}"
+  requireFieldAbsent "process-wide stats" "root" processStats
+  requireFieldAbsent "process-wide stats" "sessions" processStats
+  requireFieldAbsent "process-wide stats" "byBackend" processStats
+  discard <| IO.ofExcept <| processStats.getObjVal? "workspaces"
+
   let resetResult : Beam.Workspace.InitResult := {
     workspaceId := "fixture"
     root
@@ -655,13 +669,13 @@ private def checkWorkspaceLifecycleProtocol : IO Unit := do
       decodedReset.previousRoot? == some previous && decodedReset.invalidatedHandles)
 
   let setResultJson := toJson ({
-    workspaceId := Beam.Workspace.defaultWorkspaceId
+    workspaceId := "fixture"
     root
     mode := .set
     runtimeReused := false
     invalidatedHandles := false
   } : Beam.Workspace.InitResult)
-  requireJsonString "set result json" "workspace_id" Beam.Workspace.defaultWorkspaceId setResultJson
+  requireJsonString "set result json" "workspace_id" "fixture" setResultJson
   requireJsonBool "set result json" "invalidated_handles" false setResultJson
   requireFieldAbsent "set result json" "previous_root" setResultJson
 

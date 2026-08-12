@@ -800,7 +800,10 @@ private def runSaveAndStatsSmoke
   if !saveProgress.done then
     throw <| IO.userError s!"expected save_olean fileProgress.done = true, got {(toJson saveProgress).compress}"
 
-  let stats ← expectOk <| ← runClient endpoint { op := .stats }
+  let stats ← expectOk <| ← runClient endpoint {
+    op := .stats
+    workspaceId? := some testWorkspaceId
+  }
   expectOpCountAtLeast stats "lean" "sync_file" 1
   expectOpCountAtLeast stats "lean" "refresh_file" 1
   expectOpCountAtLeast stats "lean" "update_file" 1
@@ -952,7 +955,7 @@ private def runWorkspaceLifecycleSmoke
 
   let wrongWorkspaceHandle ← runClient endpoint {
     op := .runWith
-    workspaceId? := some Beam.Broker.defaultWorkspaceId
+    workspaceId? := some testWorkspaceId
     root? := some root.toString
     path? := some "GoalSmoke.lean"
     handle? := some postResetHandle
@@ -1003,20 +1006,20 @@ private def runWorkspaceLifecycleSmoke
   }
   expectErrCode droppedEnsure "invalidParams"
 
-private def runDefaultDropDebugPayloadSmoke (endpoint : Beam.Broker.Endpoint) : IO Unit := do
+private def runInitialWorkspaceDropDebugPayloadSmoke (endpoint : Beam.Broker.Endpoint) : IO Unit := do
   let drop ← expectOk (← runClient endpoint {
     op := .dropWorkspace
-    workspaceId? := some Beam.Broker.defaultWorkspaceId
+    workspaceId? := some testWorkspaceId
   })
-  requireJsonBool "drop default workspace" "dropped" true drop
+  requireJsonBool "drop initial workspace" "dropped" true drop
   let stats ← expectOk (← runClient endpoint { op := .stats })
   for field in ["root", "sessions", "byBackend"] do
-    requireFieldAbsent "stats after default workspace drop" field stats
-  discard <| requireObjVal "stats after default workspace drop" "workspaces" stats
+    requireFieldAbsent "stats after initial workspace drop" field stats
+  discard <| requireObjVal "stats after initial workspace drop" "workspaces" stats
   let openDocs ← expectOk (← runClient endpoint { op := .openDocs })
   for field in ["root", "sessions"] do
-    requireFieldAbsent "open_docs after default workspace drop" field openDocs
-  discard <| requireObjVal "open_docs after default workspace drop" "workspaces" openDocs
+    requireFieldAbsent "open_docs after initial workspace drop" field openDocs
+  discard <| requireObjVal "open_docs after initial workspace drop" "workspaces" openDocs
 
 def smokeMain : IO Unit := do
   let endpoint ← freshTcpEndpoint
@@ -1046,7 +1049,7 @@ def smokeMain : IO Unit := do
     runWorkerExitSmoke endpoint root
     runHandleSmoke endpoint root
     runSaveAndStatsSmoke endpoint root
-    runDefaultDropDebugPayloadSmoke endpoint
+    runInitialWorkspaceDropDebugPayloadSmoke endpoint
 
     let shutdownResp ← runClient endpoint { op := .shutdown }
     discard <| expectOk shutdownResp

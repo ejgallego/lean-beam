@@ -12,9 +12,6 @@ namespace Beam.Workspace
 
 abbrev WorkspaceId := String
 
-def defaultWorkspaceId : WorkspaceId :=
-  "default"
-
 def validWorkspaceId (workspaceId : WorkspaceId) : Bool :=
   !workspaceId.isEmpty
 
@@ -118,7 +115,7 @@ instance : FromJson InitMode where
     | j => .error s!"expected init workspace mode 'set', 'verify', or 'reset', got {j.compress}"
 
 structure InitResult where
-  workspaceId : WorkspaceId := defaultWorkspaceId
+  workspaceId : WorkspaceId
   root : System.FilePath
   mode : InitMode
   runtimeReused : Bool

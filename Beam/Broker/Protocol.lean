@@ -14,9 +14,6 @@ namespace Beam.Broker
 
 abbrev WorkspaceId := Beam.Workspace.WorkspaceId
 
-def defaultWorkspaceId : WorkspaceId :=
-  Beam.Workspace.defaultWorkspaceId
-
 instance : Repr Lsp.DiagnosticSeverity where
   reprPrec severity _ :=
     match severity with
@@ -178,7 +175,7 @@ instance : FromJson GoalPpFormat where
     | j => .error s!"expected pp format 'Box', 'Pp', or 'Str', got {j.compress}"
 
 structure Handle where
-  workspaceId : WorkspaceId := defaultWorkspaceId
+  workspaceId : WorkspaceId
   backend : Backend
   epoch : Nat
   session : String
@@ -764,11 +761,22 @@ def Response.error (code : String) (message : String := "") (data? : Option Json
 def Response.withClientRequestId (resp : Response) (clientRequestId? : Option String) : Response :=
   { resp with clientRequestId? := clientRequestId? <|> resp.clientRequestId? }
 
-def Request.workspaceId (req : Request) : WorkspaceId :=
+def Request.resolvedWorkspaceId? (req : Request) : Option WorkspaceId :=
   match req.workspaceId?, req.handle? with
-  | some workspaceId, _ => workspaceId
-  | none, some handle => handle.workspaceId
-  | none, none => defaultWorkspaceId
+  | some workspaceId, _ => some workspaceId
+  | none, some handle => some handle.workspaceId
+  | none, none => none
+
+def Request.requireWorkspaceId (req : Request) : Except String WorkspaceId := do
+  let some workspaceId := req.resolvedWorkspaceId?
+    | throw "workspaceId is required"
+  unless Beam.Workspace.validWorkspaceId workspaceId do
+    throw "workspaceId must be non-empty"
+  pure workspaceId
+
+/-- Internal routing accessor; call `requireWorkspaceId` before using it for a request. -/
+def Request.workspaceId (req : Request) : WorkspaceId :=
+  req.resolvedWorkspaceId?.getD ""
 
 def Request.requireRoot (req : Request) : Except String System.FilePath := do
   let some root := req.root?

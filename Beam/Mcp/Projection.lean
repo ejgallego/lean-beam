@@ -294,7 +294,6 @@ abbrev RunWithInput := Beam.Lean.RunWithInput
 abbrev ReleaseInput := Beam.Lean.ReleaseInput
 abbrev PathInput := Beam.Lean.PathInput
 abbrev SyncInput := Beam.Lean.SyncInput
-abbrev WorkspaceDescriptor := Beam.Workspace.Descriptor
 
 private def optionJson (value? : Option α) [ToJson α] : Json :=
   match value? with

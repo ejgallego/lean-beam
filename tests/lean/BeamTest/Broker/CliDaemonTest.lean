@@ -131,6 +131,7 @@ private def requireRequestJson
     throw <| IO.userError s!"{label}: expected {expectedJson.compress}, got {actualJson.compress}"
 
 private def sampleBrokerHandle : Beam.Broker.Handle := {
+  workspaceId := Beam.Cli.projectDaemonWorkspaceId
   backend := .lean
   epoch := 3
   session := "session"
@@ -163,6 +164,22 @@ private def checkMcpOperationSurface : IO Unit := do
   require "MCP lifecycle setup tools should not be exposed"
     (Beam.Mcp.ToolName.fromKey? "lean_init_workspace" == none &&
       Beam.Mcp.ToolName.fromKey? "lean_list_workspaces" == none)
+
+private def checkProjectDaemonWorkspaceRouting : IO Unit := do
+  let ensureReq := Beam.Cli.inProjectDaemonWorkspace ({ op := .ensure } : Beam.Broker.Request)
+  require "CLI workspace-bound requests should select the project daemon workspace"
+    (ensureReq.workspaceId? == some Beam.Cli.projectDaemonWorkspaceId)
+  let statsReq := Beam.Cli.inProjectDaemonWorkspace ({ op := .stats } : Beam.Broker.Request)
+  require "CLI stats should be scoped to the project daemon workspace"
+    (statsReq.workspaceId? == some Beam.Cli.projectDaemonWorkspaceId)
+  let shutdownReq := Beam.Cli.inProjectDaemonWorkspace ({ op := .shutdown } : Beam.Broker.Request)
+  require "process-wide CLI shutdown should remain unscoped" shutdownReq.workspaceId?.isNone
+  let explicitReq := Beam.Cli.inProjectDaemonWorkspace ({
+    op := .ensure
+    workspaceId? := some "maintenance-fixture"
+  } : Beam.Broker.Request)
+  require "CLI routing should preserve an explicitly selected workspace"
+    (explicitReq.workspaceId? == some "maintenance-fixture")
 
 private def checkCliRecoveryHints : IO Unit := do
   let staleData := Json.mkObj [
@@ -1103,6 +1120,7 @@ private def checkRuntimeBundleMetadataAcceptance : IO Unit := do
 
 def main : IO Unit := do
   checkMcpOperationSurface
+  checkProjectDaemonWorkspaceRouting
   checkCliRecoveryHints
   checkSyncWaitSpecs
   checkCancelAcknowledgementDecoding

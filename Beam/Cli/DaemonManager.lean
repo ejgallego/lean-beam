@@ -19,6 +19,10 @@ namespace Beam.Cli
 open Beam.Broker
 open Beam.Daemon
 
+/-- Private broker workspace used by the one-project daemon managed by the CLI. -/
+def projectDaemonWorkspaceId : WorkspaceId :=
+  "beam-cli-project"
+
 def controlDir (root : System.FilePath) : IO System.FilePath := do
   Beam.Daemon.controlDir root
 
@@ -107,7 +111,7 @@ private def stopDaemonEntry (entry : RegistryEntry) : IO Unit := do
   let mayKillPid ←
     match registryEndpoint? entry with
     | some endpoint =>
-        match ← daemonRoot? endpoint with
+        match ← daemonRoot? endpoint projectDaemonWorkspaceId with
         | some daemonRoot =>
             if ← Beam.sameFilePath (System.FilePath.mk daemonRoot) (System.FilePath.mk entry.root) then
               try
@@ -159,7 +163,7 @@ private partial def selectUnoccupiedEndpoint
     (opts : CliOptions)
     (tries : Nat := 10) : IO Transport.Endpoint := do
   let endpoint ← selectEndpoint opts
-  match ← daemonRoot? endpoint with
+  match ← daemonRoot? endpoint projectDaemonWorkspaceId with
   | none =>
       pure ()
   | some daemonRoot =>
@@ -329,7 +333,10 @@ private def startupFailureMessage (endpoint : Transport.Endpoint) (logPath : Sys
 
 private def startDaemon (desired : DesiredConfig) (endpoint : Transport.Endpoint) (logPath : System.FilePath) :
     IO Nat := do
-  let mut args : List String := ["--root", desired.root.toString]
+  let mut args : List String := [
+    "--root", desired.root.toString,
+    "--workspace-id", projectDaemonWorkspaceId
+  ]
   match endpoint with
   | .tcp port =>
       args := args ++ ["--port", toString port.toNat]
@@ -361,7 +368,7 @@ private partial def waitForDaemon
     (logPath : System.FilePath)
     (root : System.FilePath)
     (tries : Nat := 300) : IO Unit := do
-  match ← daemonRoot? endpoint with
+  match ← daemonRoot? endpoint projectDaemonWorkspaceId with
   | some daemonRoot =>
       if ← Beam.sameFilePath (System.FilePath.mk daemonRoot) root then
         pure ()
@@ -482,7 +489,7 @@ def registryLiveFor (root : System.FilePath) (expectedHash? : Option String := n
       else if let some endpoint := registryEndpoint? entry then
         -- In PID-isolated sandboxes, the recorded daemon pid can be meaningless outside
         -- the namespace that started it. Prefer a root-matching endpoint over pid probes.
-        if ← daemonServesRoot endpoint root then
+        if ← daemonServesRoot endpoint projectDaemonWorkspaceId root then
           pure (some entry)
         else if entry.pid == 0 || !(← pidAlive entry.pid) then
           pure none

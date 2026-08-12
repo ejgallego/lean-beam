@@ -59,15 +59,15 @@ def endpointFromEntry (entry : RegistryEntry) : IO Transport.Endpoint := do
 def endpointSummary (endpoint : Transport.Endpoint) : String :=
   Transport.endpointDescription endpoint
 
-def statsRoot? (resp : Response) : Option String := do
+private def statsRoot? (resp : Response) : Option String := do
   let result ← resp.result?
-  match result.getObjVal? "root" with
-  | .ok (.str root) => some root
-  | _ => none
+  result.getObjValAs? String "root" |>.toOption
 
-def daemonRoot? (endpoint : Transport.Endpoint) : IO (Option String) := do
+def daemonRoot?
+    (endpoint : Transport.Endpoint)
+    (workspaceId : WorkspaceId) : IO (Option String) := do
   try
-    let resp ← sendRequest endpoint { op := .stats }
+    let resp ← sendRequest endpoint { op := .stats, workspaceId? := some workspaceId }
     if resp.ok then
       pure (statsRoot? resp)
     else
@@ -95,8 +95,11 @@ def shouldRetryAutomaticStartup
 
 -- A listening TCP port is not enough evidence that it belongs to this project:
 -- random auto-port selection can collide with an unrelated Beam daemon.
-def daemonServesRoot (endpoint : Transport.Endpoint) (root : System.FilePath) : IO Bool := do
-  match ← daemonRoot? endpoint with
+def daemonServesRoot
+    (endpoint : Transport.Endpoint)
+    (workspaceId : WorkspaceId)
+    (root : System.FilePath) : IO Bool := do
+  match ← daemonRoot? endpoint workspaceId with
   | some daemonRoot => Beam.sameFilePath (System.FilePath.mk daemonRoot) root
   | none => pure false
 
