@@ -19,6 +19,11 @@ to Lake as the `BeamTest` library. The rest of [tests](../tests) contains shell 
 entrypoints, scenario scripts, interactive golden inputs, fixture projects, and shared test helper
 scripts.
 
+When a test copies `tests/save_olean_project`, it excludes the fixture's untracked `.beam`
+directory. That directory may contain large machine-local runtime bundles from an earlier run; it
+is cache state, not fixture input, and copying it can hide cold-start behavior or exhaust disk
+space.
+
 The LSP surface also has a lightweight coverage registry under
 [tests/lsp-coverage](../tests/lsp-coverage). The registry ties every method registered by
 [Beam/LSP/Plugin.lean](../Beam/LSP/Plugin.lean) to concrete test pointers and required coverage
@@ -74,7 +79,8 @@ Run the LSP surface when the change touches request semantics, proof-vs-command 
 Default Beam entrypoints:
 
 - [tests/test-beam-fast.sh](../tests/test-beam-fast.sh): fast broker stream, barrier, request-contract, MCP projection, MCP smoke, and toolchain CI-matrix guard coverage
-- [tests/test-beam-slow.sh](../tests/test-beam-slow.sh): wrapper, MCP stdio stress, sandbox-wrapper, and save-replay coverage
+- [tests/test-beam-slow.sh](../tests/test-beam-slow.sh): wrapper, MCP stdio stress and
+  multi-toolchain workspace coverage, sandbox-wrapper, and save-replay coverage
 - [tests/test-beam-install.sh](../tests/test-beam-install.sh): installer and installed-runtime layout
 - [tests/test-beam.sh](../tests/test-beam.sh): aggregate default Beam surface
 
@@ -92,7 +98,8 @@ Current Beam coverage includes:
   protocol tests, and validated-toolchain/release-line CI policy consistency through
   [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
-- focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh)
+- focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh),
+  including self-termination after the project worktree disappears
 - Linux-only PID-isolated sandbox wrapper coverage in [tests/test-beam-wrapper-sandbox.sh](../tests/test-beam-wrapper-sandbox.sh)
 - zero-build save replay, structured-setup support, batch-only-argument rejection, and stale-save
   race coverage in
@@ -198,8 +205,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
 
 This scenario covers out-of-order tool responses, exact string/numeric request-ID separation,
 request-ID reuse after a terminal response, broker cancellation, per-request progress ordering,
-single-flight first use, stateless multi-root isolation, non-cancellable cache eviction with lazy
-recreation, and shutdown draining.
+single-flight first use, simultaneous cold first use of distinct roots, stateless multi-root
+isolation, non-cancellable cache eviction with lazy recreation, and shutdown draining. The full
+stdio suite also rejects a proof handle carried across an MCP process restart. The slow Beam suite
+runs `--scenario multi-toolchain-workspaces` after installing both fixture toolchains and verifies
+that one MCP process keeps both project-specific Lean sessions active.
 
 If this scheduler-sensitive timeout appears on an unrelated CI PR, copy the timeout headline and
 diagnostic excerpt to [#110](https://github.com/ejgallego/lean-beam/issues/110) so repeated

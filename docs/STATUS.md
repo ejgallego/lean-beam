@@ -171,6 +171,11 @@ discriminator.
 - Beam daemon disappearance errors include registry/log context and write a JSON incident record under
   `.beam/daemon-failures/` or the per-root subdirectory of `BEAM_CONTROL_DIR`. Beam keeps the latest
   50 incident records and `lean-beam doctor` lists recent incident paths.
+- A standalone Beam daemon watches its canonical project root. If a git worktree or project
+  directory is removed while the daemon is active, it shuts down its backend sessions and exits
+  instead of remaining undiscoverable after its project-local registry disappears. A later wrapper
+  request for that path fails root validation with a direct `workspace root does not resolve`
+  error; it does not start a replacement daemon for a missing directory.
 - Cancellation is cooperative; prompt stopping depends on inner elaboration polling interruption.
 - The Beam daemon can manage multiple local workspaces, with one active session per backend per
   workspace. Remote workspaces and same-source multi-toolchain mirrors are not implemented yet.

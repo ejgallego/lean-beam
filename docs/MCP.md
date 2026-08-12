@@ -239,7 +239,8 @@ update will make logging request-scoped.
 - [McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean) checks JSON-RPC shapes,
   descriptor decoding, lifecycle gating, progress, errors, and diagnostic forwarding.
 - [test-mcp-stdio.py](../tests/test-mcp-stdio.py) checks real lazy first use, canonical aliases,
-  concurrent multi-root isolation, cross-workspace handles, scoped feedback, eviction/recreation,
+  simultaneous cold first use of distinct roots, different toolchains in one process,
+  cross-workspace and cross-process handle rejection, scoped feedback, eviction/recreation,
   cancellation, response routing, progress, and shutdown.
 - [test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py) checks the local test-only HTTP adapter.
 - [test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) runs the pinned external conformance

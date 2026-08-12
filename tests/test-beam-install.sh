@@ -934,7 +934,7 @@ run_custom_toolchain_install_test() (
   assert_bundle_layout "$custom_install_root/state/install-bundles" "$custom_toolchain"
 
   custom_project_root="$tmp_root/custom-project"
-  rsync -a tests/save_olean_project/ "$custom_project_root"/
+  rsync -a --exclude='.beam/' tests/save_olean_project/ "$custom_project_root"/
   printf '%s\n' "$custom_toolchain" > "$custom_project_root/lean-toolchain"
   custom_doctor_out="$(ELAN_HOME="$custom_elan_home" "$custom_installed_lean_beam" --root "$custom_project_root" doctor)"
   assert_doctor_contains "custom toolchain" "$custom_doctor_out" 'project toolchain admission: custom'
@@ -1305,7 +1305,7 @@ assert_not_exists "$blocked_codex_home/skills/rocq-beam"
 remove_tmp_tree "$source_checkout"
 
 project_root="$tmp_root/external-project"
-rsync -a tests/save_olean_project/ "$project_root"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$project_root"/
 project_toolchain="$(awk 'NR==1 {print $1}' "$project_root/lean-toolchain")"
 if [ -z "$project_toolchain" ]; then
   echo "missing Lean toolchain in external install smoke project" >&2
@@ -1500,7 +1500,7 @@ if ! printf '%s\n' "$mcp_self_check_out" | grep -q 'workspace: explicit root des
 fi
 
 unsupported_project_root="$tmp_root/external-project-unsupported"
-rsync -a tests/save_olean_project/ "$unsupported_project_root"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$unsupported_project_root"/
 printf 'leanprover/lean4:v4.26.0\n' > "$unsupported_project_root/lean-toolchain"
 
 unsupported_doctor_out="$("$installed_lean_beam" --root "$unsupported_project_root" doctor)"
@@ -1571,7 +1571,7 @@ fi
 remove_tmp_file "$stale_sync_err"
 
 project_root_standalone="$tmp_root/external-project-standalone"
-rsync -a tests/save_olean_project/ "$project_root_standalone"/
+rsync -a --exclude='.beam/' tests/save_olean_project/ "$project_root_standalone"/
 
 cat > "$project_root_standalone/StandaloneSaveSmoke.lean" <<'EOF'
 import SaveSmoke.B

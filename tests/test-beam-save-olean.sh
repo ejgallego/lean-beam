@@ -63,7 +63,7 @@ mkproj() {
   expect_owned_tmp_path "$dest"
   remove_owned_tmp_tree "$dest"
   mkdir -p "$dest"
-  rsync -a tests/save_olean_project/ "$dest"/
+  rsync -a --exclude='.beam/' tests/save_olean_project/ "$dest"/
 }
 
 mk_setup_sensitive_proj() {

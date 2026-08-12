@@ -472,7 +472,7 @@ beam_wrapper_prepare_project_root() {
   local root="$beam_wrapper_tmp_root/$name"
 
   mkdir -p "$root"
-  rsync -a tests/save_olean_project/ "$root"/
+  rsync -a --exclude='.beam/' tests/save_olean_project/ "$root"/
   rm -rf -- "$root/.beam"
   mkdir -p "$root/.beam"
   beam_wrapper_register_root "$root"

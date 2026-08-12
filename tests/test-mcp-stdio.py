@@ -66,6 +66,10 @@ def env_enabled(name):
     return value.lower() not in ("", "0", "false", "no", "off")
 
 
+def copy_project_fixture(source, target):
+    shutil.copytree(source, target, ignore=shutil.ignore_patterns(".beam"))
+
+
 def runtime_context_lines():
     lines = [
         f"platform: {platform.platform()}",
@@ -170,6 +174,7 @@ class McpClient:
         server_trace=False,
         drain_stdout=True,
         extra_env=None,
+        resolve_with_beam_cli=False,
     ):
         self.repo_root = repo_root
         self.project_root = project_root
@@ -193,19 +198,24 @@ class McpClient:
         self.last_notification_at = None
         self.stderr_lines = collections.deque(maxlen=80)
         exe = repo_root / ".lake" / "build" / "bin" / "lean-beam-mcp"
-        plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
-        lean_cmd = shutil.which("lean") or "lean"
         require(exe.exists(), f"missing lean-beam-mcp executable at {exe}")
-        require(plugin.exists(), f"missing Beam LSP plugin shared library at {plugin}")
         cmd = [str(exe)]
-        cmd.extend(
-            [
-                "--lean-cmd",
-                lean_cmd,
-                "--lean-plugin",
-                str(plugin),
-            ]
-        )
+        if resolve_with_beam_cli:
+            beam_cli = repo_root / ".lake" / "build" / "bin" / "beam-cli"
+            require(beam_cli.exists(), f"missing beam-cli executable at {beam_cli}")
+            cmd.extend(["--beam-cli", str(beam_cli)])
+        else:
+            plugin = repo_root / ".lake" / "build" / "lib" / shared_lib_name()
+            lean_cmd = shutil.which("lean") or "lean"
+            require(plugin.exists(), f"missing Beam LSP plugin shared library at {plugin}")
+            cmd.extend(
+                [
+                    "--lean-cmd",
+                    lean_cmd,
+                    "--lean-plugin",
+                    str(plugin),
+                ]
+            )
         env = os.environ.copy()
         if extra_env is not None:
             env.update({str(key): str(value) for key, value in extra_env.items()})
@@ -687,6 +697,30 @@ def workspace_cache_key(root):
     return f"local:{Path(root).resolve()}"
 
 
+def beam_cli_mcp_config(repo_root, root, timeout):
+    beam_cli = repo_root / ".lake" / "build" / "bin" / "beam-cli"
+    completed = subprocess.run(
+        [str(beam_cli), "--root", str(root), "mcp-config"],
+        cwd=str(repo_root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        timeout=timeout,
+        check=False,
+    )
+    require(
+        completed.returncode == 0,
+        f"beam-cli mcp-config failed for {root}:\n{completed.stdout}\n{completed.stderr}",
+    )
+    try:
+        config = json.loads(completed.stdout)
+    except json.JSONDecodeError as err:
+        fail(f"beam-cli mcp-config returned invalid JSON for {root}: {err}: {completed.stdout!r}")
+    require(isinstance(config, dict), f"beam-cli mcp-config returned no object for {root}: {config}")
+    return config
+
+
 def require_version_mismatch_data(error, expected_version, accepted_version, label, *, expected_uri_suffix=None):
     data = error.get("data")
     require(isinstance(data, dict), f"{label}: tool error missing data: {error}")
@@ -993,7 +1027,7 @@ def run_cycle(
 ):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-") as tmp:
         project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
+        copy_project_fixture(fixture_root, project_root)
         client = McpClient(
             repo_root,
             project_root,
@@ -1062,7 +1096,7 @@ def run_cycle(
 def run_diagnostic_logging(repo_root, fixture_root, timeout):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-diagnostic-logs-") as tmp:
         project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
+        copy_project_fixture(fixture_root, project_root)
         client = McpClient(repo_root, project_root, timeout, label="diagnostic-logging")
         try:
             client.initialize()
@@ -1131,7 +1165,7 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
     config = FOCUSED_SYNC_SCENARIOS[scenario]
     with tempfile.TemporaryDirectory(prefix=f"lean-beam-mcp-{scenario}-") as tmp:
         project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
+        copy_project_fixture(fixture_root, project_root)
         client = McpClient(
             repo_root,
             project_root,
@@ -1190,7 +1224,7 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
 def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_trace=False, label_prefix="progress"):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-progress-") as tmp:
         project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
+        copy_project_fixture(fixture_root, project_root)
         client = McpClient(
             repo_root,
             project_root,
@@ -1315,6 +1349,7 @@ def run_focused_sync_repro(repo_root, fixture_root, timeout, runs, slow_threshol
 
 PARALLEL_PROGRESS_SMOKE_SCENARIO = "progress-smoke-parallel"
 CONCURRENT_DISPATCH_SCENARIO = "concurrent-dispatch"
+MULTI_TOOLCHAIN_SCENARIO = "multi-toolchain-workspaces"
 
 
 def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False):
@@ -1323,7 +1358,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
         project_root = tmp_root / "project"
         started_path = tmp_root / "gate-started"
         release_path = tmp_root / "gate-release"
-        shutil.copytree(fixture_root, project_root)
+        copy_project_fixture(fixture_root, project_root)
         client = McpClient(
             repo_root,
             project_root,
@@ -1507,7 +1542,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
 def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=False):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-first-use-") as tmp:
         project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
+        copy_project_fixture(fixture_root, project_root)
         client = McpClient(
             repo_root,
             project_root,
@@ -1558,6 +1593,138 @@ def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=Fals
             )
         finally:
             client.close()
+
+
+def run_concurrent_workspace_updates(client, roots, label):
+    pending = []
+    for index, root in enumerate(roots):
+        request_id = f"{label}-{index}"
+        client.send_request(
+            "tools/call",
+            {
+                "name": "lean_update",
+                "arguments": {
+                    "path": "PositionEmptyLine.lean",
+                    "workspace": workspace_descriptor(root),
+                },
+            },
+            request_id=request_id,
+        )
+        pending.append((request_id, root))
+    for request_id, root in reversed(pending):
+        result = expect_result(client.read_response(request_id))
+        require(result.get("isError") is not True, f"{label} update failed: {result}")
+        structured = result.get("structuredContent")
+        require(isinstance(structured, dict), f"{label} update has no result: {result}")
+        require(
+            result_workspace_root(structured, request_id).resolve() == root.resolve(),
+            f"{label} request crossed workspace descriptors: {structured}",
+        )
+        require(
+            isinstance(structured.get("version"), int),
+            f"{label} update returned no version: {structured}",
+        )
+
+
+def require_active_lean_workspaces(client, roots, label):
+    stats = client.call_tool("beam_stats").get("workspaces", {})
+    require(
+        set(stats) == {workspace_cache_key(root) for root in roots},
+        f"{label} should retain exactly the requested workspace caches: {stats}",
+    )
+    for root in roots:
+        workspace_stats = stats.get(workspace_cache_key(root), {})
+        require(
+            workspace_stats.get("sessions", {}).get("lean", {}).get("active") is True,
+            f"{label} did not retain an active Lean session for {root}: {stats}",
+        )
+        require(
+            workspace_stats.get("byBackend", {}).get("lean", {}).get("sessionStarts") == 1,
+            f"{label} should start one Lean session for {root}: {stats}",
+        )
+
+
+def run_concurrent_multi_workspace_first_use(repo_root, fixture_root, timeout, server_trace=False):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-workspaces-") as tmp:
+        tmp_root = Path(tmp)
+        roots = [tmp_root / "project-a", tmp_root / "project-b"]
+        for root in roots:
+            copy_project_fixture(fixture_root, root)
+        client = McpClient(
+            repo_root,
+            roots[0],
+            timeout,
+            label="concurrent-multi-workspace-first-use",
+            server_trace=server_trace,
+        )
+        try:
+            client.initialize()
+            run_concurrent_workspace_updates(client, roots, "cold-workspace")
+            require_active_lean_workspaces(client, roots, "cold first use")
+        finally:
+            client.close()
+
+
+def run_multi_toolchain_workspaces(repo_root, fixture_root, timeout, server_trace=False):
+    current_toolchain = (repo_root / "lean-toolchain").read_text(encoding="utf-8").strip()
+    fixture_toolchain = (fixture_root / "lean-toolchain").read_text(encoding="utf-8").strip()
+    require(
+        current_toolchain != fixture_toolchain,
+        "multi-toolchain MCP coverage requires the repository and fixture toolchains to differ",
+    )
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-multi-toolchain-") as tmp:
+        tmp_root = Path(tmp)
+        roots = [tmp_root / "fixture-toolchain", tmp_root / "current-toolchain"]
+        for root in roots:
+            copy_project_fixture(fixture_root, root)
+        (roots[1] / "lean-toolchain").write_text(current_toolchain + "\n", encoding="utf-8")
+        expected_toolchains = [fixture_toolchain, current_toolchain]
+        configs = [beam_cli_mcp_config(repo_root, root, timeout) for root in roots]
+        for root, expected_toolchain, config in zip(roots, expected_toolchains, configs):
+            require(
+                config.get("toolchain") == expected_toolchain,
+                f"beam-cli selected the wrong toolchain for {root}: {config}",
+            )
+            lean_cmd = config.get("lean_cmd")
+            require(isinstance(lean_cmd, str) and lean_cmd, f"mcp-config omitted lean_cmd for {root}: {config}")
+            version = subprocess.run(
+                [lean_cmd, "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                timeout=timeout,
+                check=False,
+            )
+            require(
+                version.returncode == 0 and expected_toolchain.rsplit(":v", 1)[-1] in version.stdout,
+                f"resolved Lean command did not match {expected_toolchain} for {root}: "
+                f"{version.stdout}{version.stderr}",
+            )
+        require(
+            configs[0].get("lean_cmd") != configs[1].get("lean_cmd"),
+            f"different toolchains resolved to the same Lean command: {configs}",
+        )
+        require(
+            configs[0].get("lean_plugin") != configs[1].get("lean_plugin"),
+            f"different toolchains resolved to the same Beam plugin: {configs}",
+        )
+
+        client = McpClient(
+            repo_root,
+            roots[0],
+            timeout,
+            label="multi-toolchain-workspaces",
+            server_trace=server_trace,
+            resolve_with_beam_cli=True,
+        )
+        try:
+            client.initialize()
+            run_concurrent_workspace_updates(client, roots, "toolchain-first-use")
+            require_active_lean_workspaces(client, roots, "multi-toolchain process")
+        finally:
+            client.close()
+
 
 def run_parallel_progress_smoke_repro(
     repo_root,
@@ -1638,8 +1805,8 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
         root_a = tmp_root / "project-a"
         root_b = tmp_root / "project-b"
         alias_a = tmp_root / "project-a-alias"
-        shutil.copytree(fixture_root, root_a)
-        shutil.copytree(fixture_root, root_b)
+        copy_project_fixture(fixture_root, root_a)
+        copy_project_fixture(fixture_root, root_b)
         alias_a.symlink_to(root_a, target_is_directory=True)
         client = McpClient(repo_root, root_a, timeout, label="stateless-workspaces")
         try:
@@ -1883,6 +2050,41 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
             client.close()
 
 
+def run_cross_process_handle_rejection(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-cross-process-handle-") as tmp:
+        project_root = Path(tmp) / "project"
+        copy_project_fixture(fixture_root, project_root)
+        first = McpClient(repo_root, project_root, timeout, label="handle-origin-process")
+        handle = None
+        try:
+            first.initialize()
+            update = first.call_tool("lean_update", {"path": "PositionEmptyLine.lean"})
+            version = update.get("version")
+            require(isinstance(version, int), f"cross-process handle update returned no version: {update}")
+            minted = first.call_tool(
+                "lean_run_at_handle",
+                {
+                    "path": "PositionEmptyLine.lean",
+                    "version": version,
+                    "line": 1,
+                    "character": 0,
+                    "text": "def crossProcessHandleBase : Nat := 1",
+                },
+            )
+            require_success("cross-process handle mint", minted)
+            handle = minted.get("next_handle")
+            require(isinstance(handle, dict), f"cross-process handle mint returned no handle: {minted}")
+        finally:
+            first.close()
+
+        second = McpClient(repo_root, project_root, timeout, label="handle-restart-process")
+        try:
+            second.initialize()
+            expect_stale_handle(second, handle, "fresh MCP process")
+        finally:
+            second.close()
+
+
 def initialize_params(capabilities=None):
     return {
         "protocolVersion": MCP_PROTOCOL_VERSION,
@@ -1980,7 +2182,7 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
     for case in cases:
         with tempfile.TemporaryDirectory(prefix=f"lean-beam-mcp-{case['name']}-") as tmp:
             project_root = Path(tmp) / "project"
-            shutil.copytree(fixture_root, project_root)
+            copy_project_fixture(fixture_root, project_root)
             client = McpClient(repo_root, project_root, timeout, label=f"lifecycle-{case['name']}")
             stopped = False
             try:
@@ -2006,7 +2208,7 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
 def run_closed_stdout_regression(repo_root, fixture_root, timeout):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-closed-stdout-") as tmp:
         project_root = Path(tmp) / "project"
-        shutil.copytree(fixture_root, project_root)
+        copy_project_fixture(fixture_root, project_root)
         client = McpClient(
             repo_root,
             project_root,
@@ -2059,7 +2261,12 @@ def main():
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument(
         "--scenario",
-        choices=["full", CONCURRENT_DISPATCH_SCENARIO, PARALLEL_PROGRESS_SMOKE_SCENARIO]
+        choices=[
+            "full",
+            CONCURRENT_DISPATCH_SCENARIO,
+            MULTI_TOOLCHAIN_SCENARIO,
+            PARALLEL_PROGRESS_SMOKE_SCENARIO,
+        ]
         + sorted(FOCUSED_SYNC_SCENARIOS),
         default="full",
         help="run the full smoke suite or a focused repro scenario",
@@ -2113,6 +2320,14 @@ def main():
             args.server_trace,
         )
         return
+    if args.scenario == MULTI_TOOLCHAIN_SCENARIO:
+        run_multi_toolchain_workspaces(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            server_trace=args.server_trace,
+        )
+        return
     if args.scenario == CONCURRENT_DISPATCH_SCENARIO:
         run_concurrent_dispatch(
             repo_root,
@@ -2126,6 +2341,12 @@ def main():
             args.timeout,
             server_trace=args.server_trace,
         )
+        run_concurrent_multi_workspace_first_use(
+            repo_root,
+            fixture_root,
+            args.timeout,
+            server_trace=args.server_trace,
+        )
         run_stateless_workspace_matrix(repo_root, fixture_root, args.timeout)
         return
     for cycle in range(args.restart_cycles):
@@ -2134,7 +2355,14 @@ def main():
     run_progress_notification_smoke(repo_root, fixture_root, args.timeout)
     run_concurrent_dispatch(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
     run_concurrent_first_use(repo_root, fixture_root, args.timeout, server_trace=args.server_trace)
+    run_concurrent_multi_workspace_first_use(
+        repo_root,
+        fixture_root,
+        args.timeout,
+        server_trace=args.server_trace,
+    )
     run_stateless_workspace_matrix(repo_root, fixture_root, args.timeout)
+    run_cross_process_handle_rejection(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)
     run_closed_stdout_regression(repo_root, fixture_root, args.timeout)
 

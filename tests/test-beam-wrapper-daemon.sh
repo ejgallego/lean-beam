@@ -61,12 +61,21 @@ if [ -z "${BEAM_INSTALL_BUNDLE_DIR:-}" ]; then
 fi
 busy_pid=""
 hold_pid=""
+removed_root_pid=""
+removed_root_err=""
 
 cleanup() {
   stop_hold_process
   if [ -n "$busy_pid" ]; then
     kill "$busy_pid" > /dev/null 2>&1 || true
     wait "$busy_pid" 2>/dev/null || true
+  fi
+  if [ -n "$removed_root_pid" ]; then
+    kill "$removed_root_pid" > /dev/null 2>&1 || true
+    wait "$removed_root_pid" 2>/dev/null || true
+  fi
+  if [ -n "$removed_root_err" ]; then
+    rm -f "$removed_root_err"
   fi
   "$beam_script" --root "$tmp1" shutdown > /dev/null 2>&1 || true
   "$beam_script" --root "$tmp3" shutdown > /dev/null 2>&1 || true
@@ -89,7 +98,7 @@ fixture_toolchain="$(awk 'NR==1 {print $1}' tests/save_olean_project/lean-toolch
 
 for tmp in "$tmp1" "$tmp3" "$tmp9"; do
   expect_owned_tmp_dir "$tmp"
-  rsync -a tests/save_olean_project/ "$tmp"/
+  rsync -a --exclude='.beam/' tests/save_olean_project/ "$tmp"/
   remove_tmp_tree_within "$tmp/.beam" "$tmp"
   mkdir -p "$tmp/.beam"
 done
@@ -295,3 +304,26 @@ kill "$busy_pid" > /dev/null 2>&1 || true
 wait "$busy_pid" 2>/dev/null || true
 busy_pid=""
 rm -f "$busy_port_file"
+
+# Git removes the project-local registry together with a worktree. The daemon must observe the
+# missing canonical root and stop itself, because no later wrapper invocation can discover it.
+removed_root_pid="$pid1"
+remove_owned_tmp_tree "$tmp1"
+if ! wait_for_exit "$removed_root_pid" "daemon whose worktree was removed" 100 0.1; then
+  echo "expected Beam daemon $removed_root_pid to exit after its project root disappeared" >&2
+  exit 1
+fi
+removed_root_pid=""
+
+removed_root_err="$(mktemp /tmp/beam-wrapper-removed-root-XXXXXX)"
+if "$beam_script" --root "$tmp1" ensure lean > /dev/null 2>"$removed_root_err"; then
+  echo "expected a wrapper request for the removed worktree to fail" >&2
+  exit 1
+fi
+if ! grep -Fq 'workspace root does not resolve' "$removed_root_err"; then
+  echo "expected a removed-worktree request to report that its workspace root no longer resolves" >&2
+  cat "$removed_root_err" >&2
+  exit 1
+fi
+rm -f "$removed_root_err"
+removed_root_err=""

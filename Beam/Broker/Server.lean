@@ -2246,6 +2246,31 @@ def ServerRuntime.dispatchRequest
     recordDispatchMetrics server req resp startedAt
     pure (resp, false)
 
+private def rootWatchPollMs : UInt32 :=
+  250
+
+/--
+A standalone daemon cannot rely on its registry after the project directory disappears: the
+default registry lives below that directory and is removed with it. Stop the broker proactively so
+removing a git worktree does not strand either the daemon or its backend processes.
+-/
+private partial def watchRoot (server : ServerRuntime) (root : System.FilePath) : IO Unit := do
+  if ← server.stop.get then
+    pure ()
+  else
+    let rootAvailable ←
+      try
+        root.isDir
+      catch _ =>
+        pure false
+    if !rootAvailable then
+      IO.eprintln s!"Beam daemon root is no longer available; shutting down: {root}"
+      discard <| server.dispatchRequest { op := .shutdown }
+      requestStop server
+    else
+      IO.sleep rootWatchPollMs
+      watchRoot server root
+
 private def handleClient (server : ServerRuntime) (client : Transport.Connection) : IO Unit := do
   let clientRequestIdRef ← IO.mkRef (none : Option String)
   try
@@ -2353,9 +2378,12 @@ def main (args : List String) : IO Unit := do
     stop := ← IO.mkRef false
     activeRequests := ← ActiveRequestRegistry.create
   }
+  let rootWatcher ← IO.asTask (prio := Task.Priority.dedicated) <| watchRoot runtime root
   try
     acceptLoop runtime listener
   finally
+    runtime.stop.set true
     Transport.closeListener listener
+    discard <| IO.wait rootWatcher
 
 end Beam.Broker
