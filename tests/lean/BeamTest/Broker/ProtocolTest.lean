@@ -540,6 +540,10 @@ private def checkWorkspaceRoutingFields : IO Unit := do
 
   let defaultReq : Request := { op := .stats }
   require "missing workspace id defaults to default" (defaultReq.workspaceId == defaultWorkspaceId)
+  requireFieldAbsent "stats request serialization" "backend" (toJson defaultReq)
+
+  let leanReq : Request := { op := .ensure }
+  requireJsonString "backend-scoped request serialization" "backend" "lean" (toJson leanReq)
 
   let explicitReq : Request := {
     op := .stats
@@ -592,17 +596,15 @@ private def checkWorkspaceRoutingFields : IO Unit := do
   for (label, json, field) in #[
       ("unknown broker field", Json.mkObj [
         ("op", toJson "stats"),
-        ("backend", toJson "lean"),
         ("mystery", toJson true)
       ], "mystery"),
       ("known field owned by another operation", Json.mkObj [
         ("op", toJson "stats"),
-        ("backend", toJson "lean"),
         ("query", toJson "ignored-before-strict-validation")
       ], "query"),
       ("backend on process operation", Json.mkObj [
         ("op", toJson "stats"),
-        ("backend", toJson "rocq")
+        ("backend", toJson "lean")
       ], "backend")
     ] do
     match fromJson? (α := Request) json with

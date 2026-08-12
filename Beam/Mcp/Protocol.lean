@@ -152,7 +152,7 @@ def parseCancelledParams (params? : Option Json) : Except String CancelledParams
     match params? with
     | some params => requireObject "notifications/cancelled params" params
     | none => throw "notifications/cancelled params are required"
-  requireOnlyFields "notifications/cancelled params" #["requestId", "reason"] params
+  requireOnlyFields "notifications/cancelled params" #["requestId", "reason", "_meta"] params
   let requestId ← RequestId.fromJson? (← params.getObjVal? "requestId")
   let reason? ← optionalField? (α := String) params "reason"
   pure { requestId, reason? }
@@ -215,7 +215,7 @@ def parseSetLogLevelParams (params? : Option Json) : Except String LogLevel := d
     match params? with
     | some params => requireObject "logging/setLevel params" params
     | none => throw "logging/setLevel params are required"
-  requireOnlyFields "logging/setLevel params" #["level"] params
+  requireOnlyFields "logging/setLevel params" #["level", "_meta"] params
   let decoded ← fromJson? (α := SetLogLevelParams) params
   pure decoded.level
 

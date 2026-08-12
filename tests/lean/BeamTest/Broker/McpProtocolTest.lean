@@ -133,7 +133,8 @@ private def checkIncoming : IO Unit := do
   let cancelled ← expectOk "decode cancellation params" <|
     Beam.Mcp.parseCancelledParams <| some <| Json.mkObj [
       ("requestId", toJson "slow-request"),
-      ("reason", toJson "client no longer needs the result")
+      ("reason", toJson "client no longer needs the result"),
+      ("_meta", Json.mkObj [("traceId", toJson "cancel-trace")])
     ]
   require "cancellation request id" (cancelled.requestId == .string "slow-request")
   require "cancellation reason" (cancelled.reason? == some "client no longer needs the result")
@@ -600,7 +601,8 @@ private def checkServerBasics : IO Unit := do
 
   let setLogLevelResp ← handleRpcRequest state opts "set log level" 12 "logging/setLevel" <| some <|
     Json.mkObj [
-      ("level", toJson "warning")
+      ("level", toJson "warning"),
+      ("_meta", Json.mkObj [("traceId", toJson "logging-trace")])
     ]
   discard <| requireObjVal "set log level response" "result" setLogLevelResp
   require "set log level should update legacy protocol state"

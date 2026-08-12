@@ -217,7 +217,7 @@ structure Request where
   rocqCmd? : Option String := none
   handle? : Option Handle := none
   codeAction? : Option Lsp.CodeAction := none
-  deriving Inhabited, ToJson
+  deriving Inhabited
 
 private def Op.optionalRequestFields (op : Op) : Array String :=
   #["clientRequestId"] ++ match op with
@@ -263,9 +263,51 @@ private def Op.usesBackend : Op → Bool
   | .openDocs | .cancel | .initWorkspace | .listWorkspaces | .dropWorkspace | .stats
   | .resetStats | .shutdown => false
 
+private def optionalJsonField [ToJson α] (name : String) : Option α → List (String × Json)
+  | some value => [(name, toJson value)]
+  | none => []
+
+private def Request.optionalJsonFields (req : Request) : List (String × Json) :=
+  optionalJsonField "workspaceId" req.workspaceId? ++
+  optionalJsonField "workspaceMode" req.workspaceMode? ++
+  optionalJsonField "clientRequestId" req.clientRequestId? ++
+  optionalJsonField "cancelRequestId" req.cancelRequestId? ++
+  optionalJsonField "root" req.root? ++
+  optionalJsonField "path" req.path? ++
+  optionalJsonField "version" req.version? ++
+  optionalJsonField "line" req.line? ++
+  optionalJsonField "character" req.character? ++
+  optionalJsonField "endLine" req.endLine? ++
+  optionalJsonField "endCharacter" req.endCharacter? ++
+  optionalJsonField "text" req.text? ++
+  optionalJsonField "query" req.query? ++
+  optionalJsonField "includeDeclaration" req.includeDeclaration? ++
+  optionalJsonField "kinds" req.kinds? ++
+  optionalJsonField "suggest" req.suggest? ++
+  optionalJsonField "storeHandle" req.storeHandle? ++
+  optionalJsonField "linear" req.linear? ++
+  optionalJsonField "mode" req.mode? ++
+  optionalJsonField "compact" req.compact? ++
+  optionalJsonField "ppFormat" req.ppFormat? ++
+  optionalJsonField "fullDiagnostics" req.fullDiagnostics? ++
+  optionalJsonField "includeDiagnostics" req.includeDiagnostics? ++
+  optionalJsonField "saveArtifacts" req.saveArtifacts? ++
+  optionalJsonField "leanCmd" req.leanCmd? ++
+  optionalJsonField "leanPlugin" req.leanPlugin? ++
+  optionalJsonField "rocqCmd" req.rocqCmd? ++
+  optionalJsonField "handle" req.handle? ++
+  optionalJsonField "codeAction" req.codeAction?
+
+instance : ToJson Request where
+  toJson req := Json.mkObj <|
+    [("op", toJson req.op)] ++
+    (if req.op.usesBackend then [("backend", toJson req.backend)] else []) ++
+    req.optionalJsonFields
+
 private def requireRequestJsonFields (op : Op) : Json → Except String Unit
   | .obj fields =>
-      let allowed := #["op", "backend"] ++ op.optionalRequestFields
+      let backendFields := if op.usesBackend then #["backend"] else #[]
+      let allowed := #["op"] ++ backendFields ++ op.optionalRequestFields
       let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
         if allowed.contains field then unexpected else unexpected.push field
       unless unexpected.isEmpty do
@@ -273,37 +315,7 @@ private def requireRequestJsonFields (op : Op) : Json → Except String Unit
   | other => throw s!"broker request must be an object, got {other.compress}"
 
 private def Request.presentOptionalFields (req : Request) : Array String :=
-  #[
-    ("workspaceId", req.workspaceId?.isSome),
-    ("workspaceMode", req.workspaceMode?.isSome),
-    ("clientRequestId", req.clientRequestId?.isSome),
-    ("cancelRequestId", req.cancelRequestId?.isSome),
-    ("root", req.root?.isSome),
-    ("path", req.path?.isSome),
-    ("version", req.version?.isSome),
-    ("line", req.line?.isSome),
-    ("character", req.character?.isSome),
-    ("endLine", req.endLine?.isSome),
-    ("endCharacter", req.endCharacter?.isSome),
-    ("text", req.text?.isSome),
-    ("query", req.query?.isSome),
-    ("includeDeclaration", req.includeDeclaration?.isSome),
-    ("kinds", req.kinds?.isSome),
-    ("suggest", req.suggest?.isSome),
-    ("storeHandle", req.storeHandle?.isSome),
-    ("linear", req.linear?.isSome),
-    ("mode", req.mode?.isSome),
-    ("compact", req.compact?.isSome),
-    ("ppFormat", req.ppFormat?.isSome),
-    ("fullDiagnostics", req.fullDiagnostics?.isSome),
-    ("includeDiagnostics", req.includeDiagnostics?.isSome),
-    ("saveArtifacts", req.saveArtifacts?.isSome),
-    ("leanCmd", req.leanCmd?.isSome),
-    ("leanPlugin", req.leanPlugin?.isSome),
-    ("rocqCmd", req.rocqCmd?.isSome),
-    ("handle", req.handle?.isSome),
-    ("codeAction", req.codeAction?.isSome)
-  ].filterMap fun (field, present) => if present then some field else none
+  req.optionalJsonFields.toArray.map (fun (field, _) => field)
 
 /-- Reject request fields that have no meaning for the selected broker operation. -/
 def Request.validateFields (req : Request) : Except String Unit := do
