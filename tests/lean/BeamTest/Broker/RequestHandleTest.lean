@@ -52,6 +52,7 @@ private def checkStaleHandleIsolation
 def checkCancellationAndLifetime : IO Unit := do
   let root := System.FilePath.mk s!"/tmp/beam-request-handle-{← IO.monoNanosNow}"
   IO.FS.createDirAll root
+  let root ← Beam.resolveExistingPath root
   let workspaceId : Beam.Broker.WorkspaceId := "request-handle-workspace"
   let server ← Beam.Broker.ServerRuntime.create { root } workspaceId
   let req : Beam.Broker.Request := {

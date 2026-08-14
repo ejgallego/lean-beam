@@ -326,13 +326,6 @@ private structure ActiveRequestRegistryState where
 structure ActiveRequestRegistry where
   private mutex : Std.Mutex ActiveRequestRegistryState
 
-namespace ActiveRequest
-
-def isCancelled (active : ActiveRequest) : IO Bool :=
-  active.cancelRef.get
-
-end ActiveRequest
-
 namespace ActiveRequestRegistry
 
 def create : BaseIO ActiveRequestRegistry := do

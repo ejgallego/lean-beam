@@ -217,8 +217,9 @@ When adding an MCP-facing operation:
 Broker requests remain a shared record for the CLI, MCP projection, and daemon transport, but field
 ownership is operation-specific. Update `Op.optionalRequestFields` with every new broker field and
 keep `Request.validateFields` at both the JSON decoder and direct dispatch boundary. Do not let an
-operation silently ignore a field owned by another operation. Cancellation is process-wide and is
-identified only by `cancelRequestId`; it does not carry a workspace or root selector.
+operation silently ignore a field owned by another operation. The broker protocol's `.cancel`
+operation is process-wide and is identified only by `cancelRequestId`; it does not carry a workspace
+or root selector.
 
 Lean/Lake root validation remains shared with the CLI. MCP descriptors use
 `Beam.Lean.Workspace.resolveRoot`, which requires absolute paths; ordinary `lean-beam` CLI paths use
