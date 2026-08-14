@@ -28,6 +28,10 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Changed
 
+- Feedback report-card entry points are now named `lean-beam feedback-report` and MCP
+  `beam_feedback_report`; their help and tool descriptions state that Beam returns reports to callers
+  and does not upload or submit them
+  ([#233](https://github.com/ejgallego/lean-beam/pull/233)).
 - The exact-validation registry and CLI command are now named `validated-lean-toolchains` and
   `validated-toolchains`; `--all-validated` prebuilds that finite exact matrix.
 - `lean-beam open-files` now reports tracked-document state through `diskStatus`, `checkpointed`, and

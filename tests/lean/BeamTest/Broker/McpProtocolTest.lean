@@ -252,7 +252,7 @@ private def checkToolInputParameterUniqueness (tools : Array Json) : IO Unit := 
     for alias in forbiddenAliases do
       require s!"{name} exposes ambiguous or obsolete top-level parameter '{alias}'"
         (!propertyNames.contains alias)
-    let workspaceBound := name == "beam_feedback" || name == "lean_drop_workspace" ||
+    let workspaceBound := name == "beam_feedback_report" || name == "lean_drop_workspace" ||
       name.startsWith "lean_"
     require s!"{name} workspace selector requirement is inconsistent"
       (required.contains "workspace" == workspaceBound)
@@ -301,6 +301,9 @@ private def checkToolDescriptionContracts (tools : Array Json) : IO Unit := do
   require "lean_code_action_resolve description should leave edits to the client"
     (resolveDescription.contains "LSP WorkspaceEdit" &&
       resolveDescription.contains "client must apply it")
+  let feedbackReportDescription ← requireToolDescription tools "beam_feedback_report"
+  require "beam_feedback_report description should state the no-upload contract"
+    (feedbackReportDescription.startsWith "Beam does not upload or submit feedback.")
 
 private def checkToolsListShape : IO Unit := do
   let result := Beam.Mcp.toolsListResult
@@ -308,10 +311,14 @@ private def checkToolsListShape : IO Unit := do
   let tools ← requireJsonArray "tools/list tools" tools
   require "tools/list is non-empty" (!tools.isEmpty)
   checkToolInputParameterUniqueness tools
+  require "tools/list must not expose obsolete tool beam_feedback"
+    (!(tools.any fun tool =>
+      (tool.getObjValAs? String "name").toOption == some "beam_feedback"))
+
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
     ("beam_stats", #[]),
-    ("beam_feedback", Beam.Feedback.requiredInputFields.push "workspace"),
+    ("beam_feedback_report", Beam.Feedback.requiredInputFields.push "workspace"),
     ("lean_drop_workspace", #["workspace"]),
     ("lean_run_at", #["path", "version", "line", "character", "text", "workspace"]),
     ("lean_run_at_handle", #["path", "version", "line", "character", "text", "workspace"]),
@@ -364,17 +371,17 @@ private def checkToolsListShape : IO Unit := do
   let closeSaveSchema ← requireClosedInputSchema "lean_close_save input schema" closeSaveTool
   let closeSaveProperties ← requireObjVal "lean_close_save input schema" "properties" closeSaveSchema
   requireFieldAbsent "lean_close_save input schema" "include_diagnostics" closeSaveProperties
-  let feedbackTool ← requireTool tools "beam_feedback"
-  let feedbackSchema ← requireClosedInputSchema "beam_feedback input schema" feedbackTool
-  let feedbackProperties ← requireObjVal "beam_feedback input schema" "properties" feedbackSchema
-  let bundleSchema ← requireObjVal "beam_feedback input schema" "bundle" feedbackProperties
-  let bundleEnum ← requireObjVal "beam_feedback bundle schema" "enum" bundleSchema
-  require "beam_feedback bundle enum should expose none/dir/zip"
+  let feedbackTool ← requireTool tools "beam_feedback_report"
+  let feedbackSchema ← requireClosedInputSchema "beam_feedback_report input schema" feedbackTool
+  let feedbackProperties ← requireObjVal "beam_feedback_report input schema" "properties" feedbackSchema
+  let bundleSchema ← requireObjVal "beam_feedback_report input schema" "bundle" feedbackProperties
+  let bundleEnum ← requireObjVal "beam_feedback_report bundle schema" "enum" bundleSchema
+  require "beam_feedback_report bundle enum should expose none/dir/zip"
     (bundleEnum == toJson (#["none", "dir", "zip"] : Array String))
-  requireFieldPresent "beam_feedback input schema" "kind" feedbackProperties
-  requireFieldPresent "beam_feedback input schema" "severity" feedbackProperties
-  requireFieldPresent "beam_feedback input schema" "confidential" feedbackProperties
-  requireFieldPresent "beam_feedback input schema" "include_collected" feedbackProperties
+  requireFieldPresent "beam_feedback_report input schema" "kind" feedbackProperties
+  requireFieldPresent "beam_feedback_report input schema" "severity" feedbackProperties
+  requireFieldPresent "beam_feedback_report input schema" "confidential" feedbackProperties
+  requireFieldPresent "beam_feedback_report input schema" "include_collected" feedbackProperties
 
   let rawExposed := tools.any fun tool =>
     (tool.getObjValAs? String "name").toOption == some Beam.LSP.RunAt.method ||
@@ -697,7 +704,12 @@ private def checkModernProtocol : IO Unit := do
   requireModernResultEnvelope "modern tools/list result" listResult
   requireJsonInt "modern tools/list result" "ttlMs" (Int.ofNat Beam.Mcp.publicCacheTtlMs) listResult
   requireJsonString "modern tools/list result" "cacheScope" "public" listResult
-  discard <| requireObjVal "modern tools/list result" "tools" listResult
+  let modernToolsJson ← requireObjVal "modern tools/list result" "tools" listResult
+  let modernTools ← requireJsonArray "modern tools/list result tools" modernToolsJson
+  let hasModernTool (name : String) : Bool :=
+    modernTools.any fun tool => (tool.getObjValAs? String "name").toOption == some name
+  require "modern tools/list exposes beam_feedback_report" (hasModernTool "beam_feedback_report")
+  require "modern tools/list omits obsolete beam_feedback" (!hasModernTool "beam_feedback")
   match ← state.protocolState with
   | .modern => pure ()
   | other => throw <| IO.userError s!"modern tools/list did not select modern protocol state: {repr other}"
@@ -712,13 +724,13 @@ private def checkModernProtocol : IO Unit := do
   requireJsonBool "modern beam_version result" "isError" false callResult
 
   let confidentialSecret := "PRIVATE_MODERN_MCP_CODE_b136"
-  let feedbackResp ← handleRpcRequest state opts "modern confidential beam_feedback" 1021
+  let feedbackResp ← handleRpcRequest state opts "modern confidential beam_feedback_report" 1021
     "tools/call" <| some <| modernParams [
-      ("name", toJson "beam_feedback"),
+      ("name", toJson "beam_feedback_report"),
       ("arguments", withWorkspace root <| Json.mkObj [
         ("title", toJson "Modern MCP confidential feedback fixture"),
         ("summary", toJson "Feedback report from a private workspace."),
-        ("reproduction", toJson "Call beam_feedback through stateless MCP."),
+        ("reproduction", toJson "Call beam_feedback_report through stateless MCP."),
         ("expected", toJson "A confidential report card is returned."),
         ("actual", toJson "A confidential report card is returned."),
         ("request", Json.mkObj [("source", toJson confidentialSecret)]),
@@ -726,15 +738,15 @@ private def checkModernProtocol : IO Unit := do
         ("include_collected", toJson true)
       ])
     ]
-  let feedbackResult ← requireObjVal "modern confidential beam_feedback response" "result"
+  let feedbackResult ← requireObjVal "modern confidential beam_feedback_report response" "result"
     feedbackResp
-  requireModernResultEnvelope "modern confidential beam_feedback result" feedbackResult
-  requireConfidentialFeedbackResult "modern confidential beam_feedback" confidentialSecret
+  requireModernResultEnvelope "modern confidential beam_feedback_report result" feedbackResult
+  requireConfidentialFeedbackResult "modern confidential beam_feedback_report" confidentialSecret
     feedbackResult
   let stateAfterFeedback ← state.applicationState
-  require "modern beam_feedback should not create a broker runtime"
+  require "modern beam_feedback_report should not create a broker runtime"
     stateAfterFeedback.runtime?.isNone
-  require "modern beam_feedback should not create a workspace cache"
+  require "modern beam_feedback_report should not create a workspace cache"
     stateAfterFeedback.workspaces.toList.isEmpty
 
   let preservedMetaResult := Beam.Mcp.modernResult <| Json.mkObj [
@@ -970,13 +982,13 @@ private def checkServerBasics : IO Unit := do
     (emptyWorkspaces == Json.mkObj [])
 
   let feedbackResp ← handleRpcRequest state opts "beam feedback" 22 "tools/call" <|
-    some <| toolCallParams "beam_feedback" <|
+    some <| toolCallParams "beam_feedback_report" <|
       withWorkspace root <| Json.mkObj [
         ("title", toJson "MCP feedback fixture"),
         ("kind", toJson "bug"),
         ("severity", toJson "medium"),
         ("summary", toJson "Feedback report from protocol test."),
-        ("reproduction", toJson "Call beam_feedback through tools/call."),
+        ("reproduction", toJson "Call beam_feedback_report through tools/call."),
         ("expected", toJson "A structured report card is returned."),
         ("actual", toJson "A structured report card is returned.")
       ]
@@ -1001,13 +1013,13 @@ private def checkServerBasics : IO Unit := do
   requireFieldPresent "beam feedback compact structured" "collection_warnings" feedbackStructured
 
   let feedbackFullResp ← handleRpcRequest state opts "beam feedback include_collected" 23 "tools/call" <|
-    some <| toolCallParams "beam_feedback" <|
+    some <| toolCallParams "beam_feedback_report" <|
       withWorkspace root <| Json.mkObj [
         ("title", toJson "MCP feedback fixture full"),
         ("kind", toJson "bug"),
         ("severity", toJson "medium"),
         ("summary", toJson "Feedback report from protocol test."),
-        ("reproduction", toJson "Call beam_feedback through tools/call."),
+        ("reproduction", toJson "Call beam_feedback_report through tools/call."),
         ("expected", toJson "A structured report card is returned."),
         ("actual", toJson "A structured report card is returned."),
         ("include_collected", toJson true)
@@ -1025,11 +1037,11 @@ private def checkServerBasics : IO Unit := do
   let confidentialSecret := "PRIVATE_MCP_CODE_91bc"
   let feedbackConfidentialResp ←
     handleRpcRequest state opts "beam feedback confidential" 25 "tools/call" <|
-      some <| toolCallParams "beam_feedback" <|
+      some <| toolCallParams "beam_feedback_report" <|
         withWorkspace root <| Json.mkObj [
           ("title", toJson "MCP confidential feedback fixture"),
           ("summary", toJson "Feedback report from a private workspace."),
-          ("reproduction", toJson "Call beam_feedback through tools/call."),
+          ("reproduction", toJson "Call beam_feedback_report through tools/call."),
           ("expected", toJson "A confidential report card is returned."),
           ("actual", toJson "A confidential report card is returned."),
           ("request", Json.mkObj [("source", toJson confidentialSecret)]),
@@ -1042,9 +1054,9 @@ private def checkServerBasics : IO Unit := do
     feedbackConfidentialResult
 
   let stateAfterFeedback ← state.applicationState
-  require "beam_feedback should not create a broker runtime"
+  require "beam_feedback_report should not create a broker runtime"
     stateAfterFeedback.runtime?.isNone
-  require "beam_feedback should not create a workspace cache"
+  require "beam_feedback_report should not create a workspace cache"
     stateAfterFeedback.workspaces.toList.isEmpty
 
   let uncachedDropResp ← handleRpcRequest state opts "drop uncached workspace" 24 "tools/call" <|
@@ -1096,7 +1108,7 @@ private def checkServerBasics : IO Unit := do
 
   let misspelledConfidentialResp ←
     handleRpcRequest state opts "misspelled confidential feedback field rejection" 34
-      "tools/call" <| some <| toolCallParams "beam_feedback" <|
+      "tools/call" <| some <| toolCallParams "beam_feedback_report" <|
         withWorkspace root <| Json.mkObj [
           ("title", toJson "Misspelled confidential feedback field"),
           ("summary", toJson "Reject a misspelled privacy control."),
@@ -1114,7 +1126,7 @@ private def checkServerBasics : IO Unit := do
       misspelledConfidentialMessage.contains "undeclared input fields")
 
   let nestedExtraResp ← handleRpcRequest state opts "nested feedback field rejection" 33
-      "tools/call" <| some <| toolCallParams "beam_feedback" <|
+      "tools/call" <| some <| toolCallParams "beam_feedback_report" <|
         withWorkspace root <| Json.mkObj [
           ("title", toJson "Nested feedback field"),
           ("summary", toJson "Reject nested fields omitted from the schema."),

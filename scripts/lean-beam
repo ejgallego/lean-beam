@@ -33,7 +33,7 @@ usage:
   lean-beam [--root PATH] [--port N] close-save <path> [+full]
   lean-beam [--root PATH] [--port N] rocq-goals-after <path> <line> <character> [text...]
   lean-beam [--root PATH] [--port N] rocq-goals-prev <path> <line> <character> [text...]
-  lean-beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]
+  lean-beam [--root PATH] feedback-report --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]
   lean-beam prune [--apply] [--bundles]
   lean-beam validated-toolchains [lean]
   lean-beam compatible-release-lines
@@ -57,8 +57,8 @@ notes:
   - validated-toolchains lists exact CI-validated versions; compatible-release-lines lists canonical RC/patch families qualified locally
   - prune previews old installed runtimes; restart active agents and MCP clients before using --apply
   - prune --bundles also selects stale installed bundle-cache entries
-  - use `lean-beam feedback` with JSON object input to produce a pasteable Beam report card with debug context
-  - Beam returns feedback locally and does not submit it; review non-confidential output before posting it publicly
+  - Beam does not upload or submit feedback; use `lean-beam feedback-report` to print a pasteable report with debug context
+  - review non-confidential output before posting it publicly
   - set feedback `confidential` to true for non-public workspaces; confidential reports must not be posted publicly
 EOF
 }
@@ -257,8 +257,8 @@ case "$cmd" in
       mapped=("validated-toolchains")
     fi
     ;;
-  feedback)
-    mapped=("feedback")
+  feedback-report)
+    mapped=("feedback-report")
     display_cmd="$cmd"
     ;;
   *)
@@ -272,7 +272,7 @@ else
   unset BEAM_WRAPPER_COMMAND
 fi
 case "$cmd" in
-  version|--version|feedback)
+  version|--version|feedback-report)
     export BEAM_WRAPPER_PATH="$script_path"
     export BEAM_PUBLIC_COMMAND="lean-beam"
     ;;

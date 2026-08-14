@@ -93,7 +93,7 @@ feedback_failure_output() {
   # Capture stderr in memory while discarding any unexpected stdout.
   if output="$(
     printf '%s\n' "$input" \
-      | scripts/lean-beam --root tests/save_olean_project feedback --stdin "$@" \
+      | scripts/lean-beam --root tests/save_olean_project feedback-report --stdin "$@" \
           2>&1 > /dev/null
   )"; then
     echo "expected $label" >&2
@@ -144,42 +144,47 @@ if [ -n "$source_tree_dirty" ]; then
   assert_output_contains "lean-beam --version" "$lean_beam_version" "source dirty: $source_tree_dirty"
 fi
 
-feedback_help="$(scripts/lean-beam feedback --help)"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "input must be a JSON object"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "title, summary, reproduction, expected, actual"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "kind values: bug, ux, perf, docs, question"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "severity values: low, medium, high, critical"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "confidential"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "does not submit it"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "request and response must be JSON objects"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "retain narrative except for HOME-path redaction"
-assert_output_contains "lean-beam feedback --help" "$feedback_help" "requested bundle paths remain in the local result"
+if scripts/lean-beam feedback --help > /dev/null 2>&1; then
+  echo "expected obsolete lean-beam feedback command to be rejected" >&2
+  exit 1
+fi
+
+feedback_help="$(scripts/lean-beam feedback-report --help)"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "does not upload or submit feedback"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "input must be a JSON object"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "title, summary, reproduction, expected, actual"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "kind values: bug, ux, perf, docs, question"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "severity values: low, medium, high, critical"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "confidential"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "request and response must be JSON objects"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "retain narrative except for HOME-path redaction"
+assert_output_contains "lean-beam feedback-report --help" "$feedback_help" "requested bundle paths remain in the local result"
 
 feedback_invalid_output="$(
-  feedback_failure_output "lean-beam feedback to reject an empty JSON object" '{}'
+  feedback_failure_output "lean-beam feedback-report to reject an empty JSON object" '{}'
 )"
-assert_output_contains "lean-beam feedback invalid input" "$feedback_invalid_output" "missing required string field 'title'"
+assert_output_contains "lean-beam feedback-report invalid input" "$feedback_invalid_output" "missing required string field 'title'"
 
 feedback_unknown_input='{"title":"Misspelled privacy field","summary":"Private report.","reproduction":"Call feedback.","expected":"A report.","actual":"An error.","confidental":true}'
 feedback_unknown_output="$(
-  feedback_failure_output "lean-beam feedback to reject unknown JSON fields" \
+  feedback_failure_output "lean-beam feedback-report to reject unknown JSON fields" \
     "$feedback_unknown_input"
 )"
-assert_output_contains "lean-beam feedback unknown input" "$feedback_unknown_output" "feedback input accepts no undeclared fields: confidental"
+assert_output_contains "lean-beam feedback-report unknown input" "$feedback_unknown_output" "feedback input accepts no undeclared fields: confidental"
 
-feedback_smoke_input='{"title":"CLI feedback fixture","kind":"bug","severity":"medium","summary":"Smoke report.","reproduction":"scripts/lean-beam feedback --stdin","expected":"A report card is returned.","actual":"A report card is returned."}'
-feedback_smoke_output="$(printf '%s\n' "$feedback_smoke_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin)"
-assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"markdown"'
-assert_output_contains "lean-beam feedback" "$feedback_smoke_output" 'CLI feedback fixture'
-assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"kind": "bug"'
-assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"severity": "medium"'
-assert_output_contains "lean-beam feedback" "$feedback_smoke_output" '"daemon"'
-assert_output_contains "lean-beam feedback" "$feedback_smoke_output" 'Review before posting publicly'
-assert_output_contains "lean-beam feedback" "$feedback_smoke_output" 'Beam does not submit feedback automatically'
+feedback_smoke_input='{"title":"CLI feedback fixture","kind":"bug","severity":"medium","summary":"Smoke report.","reproduction":"scripts/lean-beam feedback-report --stdin","expected":"A report card is returned.","actual":"A report card is returned."}'
+feedback_smoke_output="$(printf '%s\n' "$feedback_smoke_input" | scripts/lean-beam --root tests/save_olean_project feedback-report --stdin)"
+assert_output_contains "lean-beam feedback-report" "$feedback_smoke_output" '"markdown"'
+assert_output_contains "lean-beam feedback-report" "$feedback_smoke_output" 'CLI feedback fixture'
+assert_output_contains "lean-beam feedback-report" "$feedback_smoke_output" '"kind": "bug"'
+assert_output_contains "lean-beam feedback-report" "$feedback_smoke_output" '"severity": "medium"'
+assert_output_contains "lean-beam feedback-report" "$feedback_smoke_output" '"daemon"'
+assert_output_contains "lean-beam feedback-report" "$feedback_smoke_output" 'Review before posting publicly'
+assert_output_contains "lean-beam feedback-report" "$feedback_smoke_output" 'Beam does not submit feedback automatically'
 
 feedback_confidential_secret='PRIVATE_CLI_CODE_57de'
-feedback_confidential_input="{\"title\":\"CLI confidential feedback fixture\",\"summary\":\"Private workspace report.\",\"reproduction\":\"scripts/lean-beam feedback --stdin\",\"expected\":\"A confidential report card is returned.\",\"actual\":\"A confidential report card is returned.\",\"request\":{\"source\":\"$feedback_confidential_secret\"},\"confidential\":true}"
-feedback_confidential_output="$(printf '%s\n' "$feedback_confidential_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin)"
+feedback_confidential_input="{\"title\":\"CLI confidential feedback fixture\",\"summary\":\"Private workspace report.\",\"reproduction\":\"scripts/lean-beam feedback-report --stdin\",\"expected\":\"A confidential report card is returned.\",\"actual\":\"A confidential report card is returned.\",\"request\":{\"source\":\"$feedback_confidential_secret\"},\"confidential\":true}"
+feedback_confidential_output="$(printf '%s\n' "$feedback_confidential_input" | scripts/lean-beam --root tests/save_olean_project feedback-report --stdin)"
 assert_output_contains "lean-beam confidential feedback" "$feedback_confidential_output" '"confidential": true'
 assert_output_contains "lean-beam confidential feedback" "$feedback_confidential_output" 'do not post this report publicly'
 assert_output_contains "lean-beam confidential feedback" "$feedback_confidential_output" '"collection_warnings": []'
@@ -196,7 +201,7 @@ if [ -e "$feedback_confidential_non_project_root/lakefile.lean" ] \
 fi
 feedback_confidential_non_project_root_output="$(
   printf '%s\n' "$feedback_confidential_input" \
-    | scripts/lean-beam --root "$feedback_confidential_non_project_root" feedback --stdin
+    | scripts/lean-beam --root "$feedback_confidential_non_project_root" feedback-report --stdin
 )"
 assert_output_contains "lean-beam confidential feedback without project root" \
   "$feedback_confidential_non_project_root_output" '"confidential": true'
@@ -523,14 +528,14 @@ feedback = request({
     "id": 8,
     "method": "tools/call",
     "params": {
-        "name": "beam_feedback",
+        "name": "beam_feedback_report",
         "arguments": {
             "workspace": workspace,
             "title": "MCP feedback fixture",
             "kind": "bug",
             "severity": "medium",
             "summary": "Smoke report.",
-            "reproduction": "Call beam_feedback through tools/call.",
+            "reproduction": "Call beam_feedback_report through tools/call.",
             "expected": "A report card is returned.",
             "actual": "A report card is returned.",
         },
@@ -541,14 +546,14 @@ feedback_full = request({
     "id": 9,
     "method": "tools/call",
     "params": {
-        "name": "beam_feedback",
+        "name": "beam_feedback_report",
         "arguments": {
             "workspace": workspace,
             "title": "MCP feedback fixture full",
             "kind": "bug",
             "severity": "medium",
             "summary": "Smoke report with inline collection.",
-            "reproduction": "Call beam_feedback through tools/call.",
+            "reproduction": "Call beam_feedback_report through tools/call.",
             "expected": "A report card is returned with collected context.",
             "actual": "A report card is returned with collected context.",
             "include_collected": True,
@@ -563,7 +568,7 @@ if init.get("result", {}).get("protocolVersion") != "2025-11-25":
 tool_names = {tool.get("name") for tool in tools.get("result", {}).get("tools", [])}
 if (
     "beam_version" not in tool_names
-    or "beam_feedback" not in tool_names
+    or "beam_feedback_report" not in tool_names
     or "lean_update" not in tool_names
     or "lean_run_at" not in tool_names
     or "lean_todo" not in tool_names
@@ -619,44 +624,44 @@ if "run_at_text" in todo_items[0]:
 
 feedback_content = feedback.get("result", {}).get("structuredContent", {})
 if "# MCP feedback fixture" not in feedback_content.get("markdown", ""):
-    print(f"expected beam_feedback MCP smoke to return a report card: {feedback}", file=sys.stderr)
+    print(f"expected beam_feedback_report MCP smoke to return a report card: {feedback}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 
 if "## Beam Runtime" not in feedback_content.get("markdown", ""):
-    print(f"expected compact beam_feedback MCP smoke to include runtime summary: {feedback}", file=sys.stderr)
+    print(f"expected compact beam_feedback_report MCP smoke to include runtime summary: {feedback}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 
 if "## Beam Debug Context" in feedback_content.get("markdown", ""):
-    print(f"expected compact beam_feedback MCP smoke to omit full debug context: {feedback}", file=sys.stderr)
+    print(f"expected compact beam_feedback_report MCP smoke to omit full debug context: {feedback}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 
 feedback_metadata = feedback_content.get("metadata", {})
 if feedback_metadata.get("kind") != "bug" or feedback_metadata.get("severity") != "medium":
-    print(f"expected beam_feedback MCP smoke metadata to include kind/severity: {feedback}", file=sys.stderr)
+    print(f"expected beam_feedback_report MCP smoke metadata to include kind/severity: {feedback}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 
 if "collected" in feedback_content:
-    print(f"expected compact beam_feedback MCP smoke to omit collected context: {feedback}", file=sys.stderr)
+    print(f"expected compact beam_feedback_report MCP smoke to omit collected context: {feedback}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 
 if "collection_warnings" not in feedback_content:
-    print(f"expected compact beam_feedback MCP smoke to include collection warnings: {feedback}", file=sys.stderr)
+    print(f"expected compact beam_feedback_report MCP smoke to include collection warnings: {feedback}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 
 feedback_full_content = feedback_full.get("result", {}).get("structuredContent", {})
 if "## Beam Debug Context" not in feedback_full_content.get("markdown", ""):
-    print(f"expected beam_feedback include_collected MCP smoke to include debug markdown: {feedback_full}", file=sys.stderr)
+    print(f"expected beam_feedback_report include_collected MCP smoke to include debug markdown: {feedback_full}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 
 if "daemon" not in feedback_full_content.get("collected", {}):
-    print(f"expected beam_feedback include_collected MCP smoke to include daemon context: {feedback_full}", file=sys.stderr)
+    print(f"expected beam_feedback_report include_collected MCP smoke to include daemon context: {feedback_full}", file=sys.stderr)
     proc.kill()
     sys.exit(1)
 

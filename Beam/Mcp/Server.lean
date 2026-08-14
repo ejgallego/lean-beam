@@ -539,19 +539,19 @@ private def handleBeamFeedback
     match fromJson? (α := Beam.Feedback.Input) (feedbackCoreInputArguments arguments) with
     | .ok input => pure input
     | .error err =>
-        emitProgress? progress? "beam_feedback failed"
+        emitProgress? progress? "beam_feedback_report failed"
         return callToolErrorResult <| ToolError.invalidInput err
   let includeCollected ←
     match feedbackIncludeCollected arguments with
     | .ok includeCollected => pure includeCollected
     | .error err =>
-        emitProgress? progress? "beam_feedback failed"
+        emitProgress? progress? "beam_feedback_report failed"
         return callToolErrorResult <| ToolError.invalidInput err
   emitProgress? progress? <|
     if input.confidential then
-      "preparing confidential beam_feedback report"
+      "preparing confidential beam_feedback_report"
     else
-      "collecting beam_feedback context"
+      "collecting beam_feedback_report context"
   let generatedAt ← Beam.utcTimestamp
   let collection ←
     if input.confidential then
@@ -588,14 +588,14 @@ private def handleBeamFeedback
       allowedRoots
     }
     let markdown ← Beam.Feedback.renderMcpMarkdown input collection includeCollected
-    emitProgress? progress? "completed beam_feedback"
+    emitProgress? progress? "completed beam_feedback_report"
     let result := Beam.Feedback.resultMcpJson result markdown includeCollected
     let result :=
       if input.confidential then result
       else result.setObjVal! "workspace" (toJson descriptor)
     pure <| callToolResult result
   catch e =>
-    emitProgress? progress? "beam_feedback failed"
+    emitProgress? progress? "beam_feedback_report failed"
     pure <| callToolErrorResult <| ToolError.invalidInput e.toString
 
 private def brokerRequestForTool
@@ -660,7 +660,7 @@ def Internal.handleToolCall
         return .ok <| callToolErrorResult err
   Internal.traceMcp
     s!"tools/call workspace resolved id={req.id.label} root={workspace.root}"
-  if params.name == .beamFeedback then
+  if params.name == .beamFeedbackReport then
     emitProgress? progress? s!"starting {params.name.key}"
     let application ← state.applicationState
     let selectedRuntime? :=

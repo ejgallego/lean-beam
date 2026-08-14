@@ -1,12 +1,16 @@
 # Feedback Report Cards
 
-`lean-beam feedback` and MCP `beam_feedback` produce a structured Beam report card for bug reports
-and project feedback. The output is JSON with a pasteable Markdown `markdown` field, structured
-`metadata`, non-fatal collection warnings, and optional evidence bundle paths. The CLI includes the
-collected Beam debug context by default; MCP output is compact by default and includes that context
-only when requested.
+`lean-beam feedback-report` and MCP `beam_feedback_report` produce a structured Beam report card
+for bug reports and project feedback. Both entry points return the report to their caller and may
+write a local bundle; Beam itself does not upload or submit feedback. The surrounding MCP client may
+retain or transmit returned tool output under its own data policy; Beam does not control that client.
+Sharing through [GitHub issues](https://github.com/ejgallego/lean-beam/issues),
+[Lean Zulip](https://leanprover.zulipchat.com), or another channel is a separate action.
 
-Neither command submits feedback. They return a local report for the caller to review and share.
+The output is JSON with a pasteable Markdown `markdown` field, structured `metadata`, non-fatal
+collection warnings, and optional evidence bundle paths. The CLI includes the collected Beam debug
+context by default; MCP output is compact by default and includes that context only when requested.
+
 Every non-confidential card warns that it may contain caller-authored narrative, request/response
 payloads, local paths, Beam stats, open-file data, daemon logs or incidents, and bundle evidence.
 Review those categories before posting the report publicly.
@@ -14,9 +18,9 @@ Review those categories before posting the report publicly.
 ## CLI
 
 ```bash
-lean-beam --root /path/to/project feedback --stdin
-lean-beam --root /path/to/project feedback --input report.json --bundle dir
-lean-beam --root /path/to/project feedback --input report.json --bundle zip --output-dir /tmp/beam-report
+lean-beam --root /path/to/project feedback-report --stdin
+lean-beam --root /path/to/project feedback-report --input report.json --bundle dir
+lean-beam --root /path/to/project feedback-report --input report.json --bundle zip --output-dir /tmp/beam-report
 ```
 
 Input JSON:
@@ -65,8 +69,8 @@ narrative before sharing the report through an authorized private channel, and n
 confidential report publicly.
 
 Free-form notes are not accepted directly. Wrap notes in the required JSON object fields above;
-`lean-beam feedback --help` prints the accepted input shape. Unknown fields are rejected so that a
-misspelled privacy option cannot silently fall back to non-confidential output.
+`lean-beam feedback-report --help` prints the accepted input shape. Unknown fields are rejected so
+that a misspelled privacy option cannot silently fall back to non-confidential output.
 The optional `request` and `response` fields must be JSON objects.
 
 Evidence entries, when present, must have a simple `name` and exactly one source: inline `content`
@@ -83,7 +87,8 @@ daemon registry status, startup log tail, and recent daemon incident records.
 
 ## MCP
 
-Call `beam_feedback` with the same required fields plus an explicit local workspace descriptor:
+Call `beam_feedback_report` with the same required fields plus an explicit local workspace
+descriptor. Beam validates that local target even when confidential mode omits project context:
 
 ```json
 {

@@ -26,7 +26,7 @@ such as `$/lean/runAt` are not accepted here.
 inductive ToolName where
   | beamVersion
   | beamStats
-  | beamFeedback
+  | beamFeedbackReport
   | leanDropWorkspace
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
@@ -74,7 +74,7 @@ def ToolName.all : Array ToolName :=
   #[
     .beamVersion,
     .beamStats,
-    .beamFeedback,
+    .beamFeedbackReport,
     .leanDropWorkspace
   ] ++ ToolName.leanOperationTools
 
@@ -82,7 +82,7 @@ def ToolName.key (tool : ToolName) : String :=
   match tool with
   | .beamVersion => "beam_version"
   | .beamStats => "beam_stats"
-  | .beamFeedback => "beam_feedback"
+  | .beamFeedbackReport => "beam_feedback_report"
   | .leanDropWorkspace => "lean_drop_workspace"
   | .leanOperation operation => leanOperationToolKey operation
 
@@ -90,7 +90,7 @@ def ToolName.kind (tool : ToolName) : ToolKind :=
   match tool with
   | .beamVersion => .serverInfo
   | .beamStats => .serverDebug
-  | .beamFeedback => .feedback
+  | .beamFeedbackReport => .feedback
   | .leanDropWorkspace => .workspaceDrop
   | .leanOperation operation => .leanOperation operation
 
@@ -130,9 +130,9 @@ def beamVersionDescription : String :=
 def beamStatsDescription : String :=
   "Return process-wide debug Beam broker runtime statistics for lazily cached workspaces."
 
-def beamFeedbackDescription : String :=
+def beamFeedbackReportDescription : String :=
   String.intercalate " " [
-    "Produce a local, pasteable Beam report card for one explicit workspace; this tool does not submit feedback.",
+    "Beam does not upload or submit feedback. This tool creates and returns a pasteable feedback report for one explicit workspace.",
     "Non-confidential output may contain project context and caller payloads, so review it before posting.",
     "Set confidential for non-public workspaces; confidential results retain caller-authored narrative",
     "except for HOME-path redaction and do not scan it for other secrets; never post them publicly.",
@@ -180,7 +180,7 @@ private def workspaceDescriptorSchema : Json :=
   ]
 
 open Beam.JsonSchema in
-def feedbackInputSchema : Json :=
+def feedbackReportInputSchema : Json :=
   inputObject [
     ("workspace", workspaceDescriptorSchema),
     ("title", string "Short report title."),
@@ -250,8 +250,8 @@ def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
       {
         name := tool
         kind := .feedback
-        description := beamFeedbackDescription
-        inputSchema := feedbackInputSchema
+        description := beamFeedbackReportDescription
+        inputSchema := feedbackReportInputSchema
       }
   | .leanOperation op =>
       {
