@@ -528,26 +528,6 @@ def sendRequestJsonTrackedDetailed
   | .ok pending => pure <| .ok (session, pending.result, pending.progress?, pending.diagnostics)
   | .error resp => pure <| .error resp
 
-private def sendRequestJsonTracked
-    (session : Session)
-    (method : String)
-    (param : Json)
-    (clientRequestId? : Option String := none)
-    (tracked : Option (DocumentUri × Nat) := none)
-    (initialProgress? : Option SyncFileProgress := none)
-    (emitProgress? : Option (SyncFileProgress → IO Unit) := none) :
-    HandlerM (Session × Json × Option SyncFileProgress) := do
-  let (session, result, progress?, _) ←
-    liftResponseIO <|
-      sendRequestJsonTrackedDetailed session method param clientRequestId? tracked initialProgress?
-        emitProgress?
-  pure (session, result, progress?)
-
-private def sendRequestJson (session : Session) (method : String) (param : Json) :
-    HandlerM (Session × Json) := do
-  let (session, result, _) ← sendRequestJsonTracked session method param
-  pure (session, result)
-
 private partial def awaitInitializeResponse (stdout : IO.FS.Stream) : IO Unit := do
   let msg ← stdout.readLspMessage
   match msg with
@@ -1176,18 +1156,6 @@ private def recordCompletedSyncSummary
   withCurrentMatchingSession server session fun current => do
     let current := markDocSyncedVersion current uri version
     updateSession current
-
-private def sendCurrentSessionRequestDecode [FromJson α]
-    (server : ServerRuntime)
-    (session : Session)
-    (method : String)
-    (params : Json) : HandlerM α := do
-  let (_, promise) ← withCurrentMatchingSession server session fun current => do
-    let (current, promise) ← startRequestJsonTrackedDetailed current method params
-    updateSession current
-    pure (current, promise)
-  let pending ← awaitPending promise
-  liftHandlerIO <| decodeResponseAs pending.result
 
 private structure StartedSyncedRequest where
   session : Session
