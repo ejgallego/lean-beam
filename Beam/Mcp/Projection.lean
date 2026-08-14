@@ -421,7 +421,8 @@ private def diagnosticSeverityName : Option Lean.Lsp.DiagnosticSeverity → Stri
   | some .hint => "hint"
   | none => "unknown"
 
-private def mcpDiagnosticJson (diagnostic : Beam.Broker.StreamDiagnostic) : Json :=
+/-- Project a broker diagnostic onto the shared MCP log and result representation. -/
+def diagnosticJson (diagnostic : Beam.Broker.StreamDiagnostic) : Json :=
   Json.mkObj <|
     [
       ("path", toJson diagnostic.path),
@@ -441,9 +442,9 @@ private def mcpDiagnosticJson (diagnostic : Beam.Broker.StreamDiagnostic) : Json
 private def normalizeSyncResult (result : Json) : Except ToolError Json := do
   match result.getObjVal? "diagnostics" with
   | .ok (Json.arr diagnostics) =>
-      let diagnostics ← diagnostics.mapM fun diagnosticJson =>
-        match fromJson? (α := Beam.Broker.StreamDiagnostic) diagnosticJson with
-        | .ok diagnostic => pure <| mcpDiagnosticJson diagnostic
+      let diagnostics ← diagnostics.mapM fun rawDiagnostic =>
+        match fromJson? (α := Beam.Broker.StreamDiagnostic) rawDiagnostic with
+        | .ok diagnostic => pure <| diagnosticJson diagnostic
         | .error err => throw <| ToolError.invalidResult s!"sync diagnostic result is invalid: {err}"
       pure <| result.setObjVal! "diagnostics" (Json.arr diagnostics)
   | .ok _ =>
@@ -476,15 +477,10 @@ private def ensureObject (json : Json) : Json :=
 
 private def withMetadata
     (json : Json)
-    (fileProgress? : Option Beam.Broker.SyncFileProgress)
-    (clientRequestId? : Option String) : Json :=
+    (fileProgress? : Option Beam.Broker.SyncFileProgress) : Json :=
   let json := ensureObject json
-  let json :=
-    match fileProgress? with
-    | some progress => json.setObjVal! "file_progress" (toJson progress)
-    | none => json
-  match clientRequestId? with
-  | some clientRequestId => json.setObjVal! "client_request_id" (toJson clientRequestId)
+  match fileProgress? with
+  | some progress => json.setObjVal! "file_progress" (toJson progress)
   | none => json
 
 /--
@@ -505,6 +501,6 @@ def normalizeBrokerResponse (tool : ToolName) (resp : Beam.Broker.Response) : Ex
       | throw <| ToolError.invalidEnvelope "ok=false must include an error"
     throw <| ToolError.fromBrokerError err
   let result? ← normalizeResult? tool resp.result?
-  pure <| withMetadata (result?.getD (Json.mkObj [])) resp.fileProgress? resp.clientRequestId?
+  pure <| withMetadata (result?.getD (Json.mkObj [])) resp.fileProgress?
 
 end Beam.Mcp

@@ -209,36 +209,12 @@ private def emitProgress?
   | some progress => progress.emit message total?
   | none => pure ()
 
-private def diagnosticSeverityName : Option Lean.Lsp.DiagnosticSeverity → String
-  | some .error => "error"
-  | some .warning => "warning"
-  | some .information => "information"
-  | some .hint => "hint"
-  | none => "unknown"
-
 private def diagnosticLogLevel : Option Lean.Lsp.DiagnosticSeverity → LogLevel
   | some .error => .error
   | some .warning => .warning
   | some .information => .info
   | some .hint => .debug
   | none => .info
-
-private def streamDiagnosticLogData (diagnostic : Beam.Broker.StreamDiagnostic) : Json :=
-  Json.mkObj <|
-    [
-      ("path", toJson diagnostic.path),
-      ("uri", toJson diagnostic.uri),
-      ("severity", toJson <| diagnosticSeverityName diagnostic.severity?),
-      ("range", toJson diagnostic.range),
-      ("message", toJson diagnostic.message),
-      ("completionBlocking", toJson diagnostic.completionBlocking)
-    ] ++
-    (match diagnostic.saveBlocking? with
-    | some saveBlocking => [("saveBlocking", toJson saveBlocking)]
-    | none => []) ++
-    match diagnostic.version? with
-    | some version => [("version", toJson version)]
-    | none => []
 
 inductive Internal.StreamDiagnosticProjection where
   | setupStatus (message : String)
@@ -292,7 +268,7 @@ private def emitDiagnosticLog
     (notifier : Notifier)
     (diagnostic : Beam.Broker.StreamDiagnostic) : IO Unit := do
   let level := diagnosticLogLevel diagnostic.severity?
-  notifier.emitLog level "lean.diagnostic" (streamDiagnosticLogData diagnostic)
+  notifier.emitLog level "lean.diagnostic" (diagnosticJson diagnostic)
 
 private def emitToolStatusLog
     (notifier : Notifier)
@@ -370,6 +346,16 @@ private def RequestStatusEmitter.create
 private def toolPath? (arguments : Json) : Option String :=
   (arguments.getObjValAs? String "path").toOption
 
+private def decodeDropWorkspaceDescriptor
+    (arguments : Json) : Except ToolError Beam.Workspace.Descriptor := do
+  let descriptor ←
+    match Beam.Workspace.decodeDescriptorField arguments with
+    | .ok descriptor => pure descriptor
+    | .error err => throw <| ToolError.invalidInput err
+  unless (System.FilePath.mk descriptor.root).isAbsolute do
+    throw <| ToolError.invalidInput "workspace root must be an absolute path"
+  pure descriptor
+
 structure Internal.PreDispatchReporter where
   initialProgress : Nat := 0
   stop : IO Unit
@@ -388,6 +374,9 @@ def Internal.createPreDispatchReporter?
   match params.name.validateInputFields params.arguments with
   | .error _ => return none
   | .ok () => pure ()
+  match decodeDropWorkspaceDescriptor params.arguments with
+  | .error _ => return none
+  | .ok _ => pure ()
   let notifier := notifierFor state admitted notifications
   match params.progressToken? with
   | some progressToken =>
@@ -558,12 +547,10 @@ request remains sufficient to evict or idempotently re-evict its cache.
 private def resolveWorkspaceForDrop
     (arguments : Json) : IO (Except ToolError ResolvedWorkspace) := do
   let descriptor ←
-    match Beam.Workspace.decodeDescriptorField arguments with
+    match decodeDropWorkspaceDescriptor arguments with
     | .ok descriptor => pure descriptor
-    | .error err => return .error <| ToolError.invalidInput err
+    | .error err => return .error err
   let rootPath := System.FilePath.mk descriptor.root
-  if !rootPath.isAbsolute then
-    return .error <| ToolError.invalidInput "workspace root must be an absolute path"
   let root ←
     try
       Beam.resolveExistingPath rootPath
@@ -618,12 +605,7 @@ private def handleBeamStats
 
 private def handleDropWorkspace
     (state : ServerState)
-    (arguments : Json) : IO Json := do
-  let workspace ←
-    match ← resolveWorkspaceForDrop arguments with
-    | .ok workspace => pure workspace
-    | .error err =>
-        return callToolErrorResult err
+    (workspace : ResolvedWorkspace) : IO Json := do
   let application ← state.applicationState
   let updateTrackedState : IO Unit :=
     state.application.modify fun application => {
@@ -853,10 +835,14 @@ def Internal.handleToolCall
       return .ok <| callToolErrorResult <| ToolError.invalidInput err
   | .ok () => pure ()
   if params.name == .leanDropWorkspace then
+    let workspace ←
+      match ← resolveWorkspaceForDrop params.arguments with
+      | .ok workspace => pure workspace
+      | .error err => return .ok <| callToolErrorResult err
     if initialProgress == 0 then
       emitProgress? progress? s!"{params.name.key}: preparing workspace eviction"
     let result ← setupMutex.atomically do
-      handleDropWorkspace state params.arguments
+      handleDropWorkspace state workspace
     Internal.traceMcp
       s!"tools/call workspace drop complete id={req.id.label} tool={params.name.key}"
     return .ok result

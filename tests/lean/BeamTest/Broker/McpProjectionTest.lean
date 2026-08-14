@@ -573,7 +573,7 @@ private def checkRunAtNormalization : IO Unit := do
   requireJsonString "next handle raw" "value" "raw-handle" rawHandle
   let progress ← requireObjVal "handle result" "file_progress" normalizedHandle
   requireJsonBool "handle result progress" "done" true progress
-  requireJsonString "handle result request id" "client_request_id" "req-1" normalizedHandle
+  requireFieldAbsent "handle result" "client_request_id" normalizedHandle
   requireFieldAbsent "handle result" "handle" normalizedHandle
 
 private def checkTransportErrorNormalization : IO Unit := do

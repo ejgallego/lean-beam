@@ -307,6 +307,8 @@ With a progress token, Beam emits one contextual preparation update followed by 
 throttled Lake setup and Lean file-progress changes. It does not send separate generic `starting`,
 `preparing`, and `running` updates, and it streams at most one terminal `done=true` file-progress
 event. The final result still contains `file_progress` for clients that do not retain notifications.
+It is the latest observation available when the response is constructed and may therefore be newer
+than the last throttled notification or reused from already-observed document state.
 The full `structuredContent` object is also serialized in `content[0].text`, as the
 [MCP 2025-11-25 compatibility guidance](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
 recommends. Those are two representations of one result; clients should render one rather than

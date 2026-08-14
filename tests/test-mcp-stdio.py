@@ -1631,6 +1631,10 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
             require(result.get("isError") is not True, f"lean_sync with progress token failed: {result}")
             structured = result.get("structuredContent")
             require(isinstance(structured, dict), f"lean_sync with progress token missing structuredContent: {result}")
+            require(
+                "client_request_id" not in structured,
+                f"lean_sync leaked its internal broker request id: {structured}",
+            )
             require_file_progress_range_end(structured, "lean_sync progress", 1)
             token_notifications = [
                 notification
@@ -2697,6 +2701,25 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
             require(
                 str(root_a.resolve()) not in json.dumps(collected, sort_keys=True),
                 f"workspace feedback leaked workspace A: {collected}",
+            )
+
+            invalid_drop_token = "invalid-workspace-drop-progress"
+            invalid_drop = client.request(
+                "tools/call",
+                {
+                    "name": "lean_drop_workspace",
+                    "arguments": {"workspace": {"root": "relative-workspace"}},
+                    "_meta": {"progressToken": invalid_drop_token},
+                },
+            )
+            invalid_drop_error = expect_tool_error_code(invalid_drop, "invalidInput")
+            require(
+                "absolute path" in invalid_drop_error.get("message", ""),
+                f"relative workspace drop should explain its invalid root: {invalid_drop_error}",
+            )
+            require(
+                client.progress_notifications(invalid_drop_token) == [],
+                "invalid workspace drop emitted progress before semantic input validation",
             )
 
             missing_drop = client.request(

@@ -164,8 +164,11 @@ defined in [MCP.md](MCP.md#display-control-matrix).
 They always report `updates` and `done`; when Lean publishes range-bearing progress, they may also
 report `rangeStartLine` and/or `rangeEndLine`. `rangeEndLine` is the upper line bound reported by
 Lean's progress ranges, not the source file's line count; diagnostics may legitimately refer to
-lines beyond it. Use these fields for coarse UI progress only. Final machine decisions should use
-the readiness and diagnostic summary fields.
+lines beyond it. The final response contains the latest observation available when that response is
+constructed, so it may be newer than the last throttled live notification. An operation can also
+reuse a previously observed value without emitting live file progress; `updates` is not a count of
+work performed by the current request. Use these fields for coarse UI progress only. Final machine
+decisions should use the readiness and diagnostic summary fields.
 
 For `sync`, `save`, and `close-save`, completed Lean file progress is one input to the
 diagnostics-complete barrier. For non-barrier calls, file progress may be partial because the
