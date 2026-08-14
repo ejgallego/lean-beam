@@ -231,9 +231,7 @@ discriminator.
 - `error.data.staleDirectDeps` recovery hints are still broker-derived metadata. Beam currently
   uses direct imports returned by Beam's diagnostics barrier request from Lean's accepted header
   snapshot and combines those imports with broker sync/save history to infer stale direct
-  dependencies and `needsSave`. The planned Lean-side backlog item is to expose structured
-  stale-dependency metadata from Lean's watchdog/file-worker
-  path, so Beam can derive these hints from Lean instead of duplicating that state in the broker.
+  dependencies and `needsSave`.
 
 ### Distribution And Rocq
 
@@ -246,24 +244,17 @@ discriminator.
 
 Near-term work is mostly about hardening and simplifying:
 
+Roadmap cards for sorting feedback and upstream Lean API work live in
+[Beam Roadmap Cards](roadmap/README.md). This status document stays focused on
+current behavior, limitations, and release posture.
+
 - keep the base `runAt` request small
 - preserve strict per-request isolation
 - reduce packaging and workspace rough edges
 - publish a smoother distribution path, likely GitHub-backed install for Codex and plugin
   marketplace packaging for Claude
-- improve stale-dependency handling, especially by moving structured stale-dependency metadata into
-  Lean's native stale-dependency signal instead of broker-side reconstruction
-- upstream structured JSON-RPC error data for Lean request failures, so plugin-level
-  `contentModified` errors can carry machine-readable recovery fields such as
-  `documentVersionMismatch` without requiring broker-side preflight rejection
-- replace broker-side diagnostics/fileProgress barrier inference with a stronger backend-facing
-  readiness primitive, so `lean-beam sync` / `lean-beam save` can trust one authoritative completion
-  signal instead of reconstructing barrier completeness from multiple LSP channels
-- track an upstream Lean API improvement for a pure frontend readiness/reporting helper, close to
-  `SnapshotTree.runAndReport` but returning the build-blocking decision and message counts without
-  printing
-- add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
-  structured MCP log messages for incremental diagnostics rather than overloading progress
+- improve actionable recovery for sync, save, stale-import, and `runAt` failures
+- keep structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result
 - keep the `sync`, `save`, and `close-save` summary projections aligned as the sync-summary schema
   evolves
@@ -272,7 +263,7 @@ Near-term work is mostly about hardening and simplifying:
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in
   shared Beam modules, not copied across CLI, broker, MCP, and test helpers
 
-## First Alpha Release Focus
+## Pre-Stable Release Focus
 
 The first public Lean release should stay conservative:
 
