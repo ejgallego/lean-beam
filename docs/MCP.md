@@ -3,23 +3,59 @@
 This is maintainer documentation for the experimental `lean-beam-mcp` server. User setup lives in
 the [setup guide](SETUP.md#mcp-setup).
 
-## Current Protocol And State Model
+## Protocol And State Model
 
 `lean-beam-mcp` is a stdio MCP server over the shared Beam broker runtime. It is not a raw Lean LSP
 proxy and does not auto-expose editor-oriented LSP methods as agent tools.
 
-The server currently advertises MCP `2025-11-25` and requires `initialize` followed by
-`notifications/initialized`. The application model is already request-stateless in preparation for
-MCP `2026-07-28`:
+The server prefers stateless
+[MCP `2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28/). It also supports
+initialization-based MCP `2025-11-25` while clients migrate. `server/discover` lists the modern
+revisions that clients may send in per-request metadata; legacy clients continue to start with
+`initialize`, so `2025-11-25` is not a discovery result.
+
+One stdio transport uses one protocol family. `server/discover` is a neutral compatibility probe:
+after discovery, a client may still choose either family. A successful legacy `initialize` selects
+the legacy family, while the first supported operation carrying valid modern protocol metadata
+selects the modern family. Once selected, requests from the other family return JSON-RPC `-32600`.
+Modern request metadata remains request-local: it is validated independently and never retained for
+a later request.
+
+Modern clients do not initialize a session. Every request instead includes:
+
+```json
+{
+  "_meta": {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientCapabilities": {},
+    "io.modelcontextprotocol/clientInfo": {
+      "name": "example-client",
+      "version": "1.0"
+    }
+  }
+}
+```
+
+The protocol version and client capabilities are required; client identity is optional. Each
+successful modern result has `resultType: "complete"` and identifies the server in
+`_meta["io.modelcontextprotocol/serverInfo"]`. `server/discover` and `tools/list` are public-cache
+results with a one-hour TTL because their contents do not depend on a user, workspace, or prior
+request. MCP `2026-07-28` deprecates Logging, so Beam writes operational logs to `stderr`. Discovery
+still advertises `logging` for clients that need request-scoped, structured Lean diagnostics on the
+MCP stream; those clients opt in on each request.
+
+The application model is request-stateless in both protocol eras:
 
 - every workspace-bound request includes an explicit workspace descriptor
 - no request depends on a root or workspace selected by earlier MCP traffic
 - continuation state is explicit in proof handles
 - warm Lean processes, document mirrors, metrics, and diagnostics remain implementation caches
 
-The modern wire-protocol update is separate work. It will add `server/discover`, per-request
-protocol metadata, modern result envelopes and caching hints, and request-scoped logging. MRTR
-`requestState` is request-local continuation data and will not be used as a workspace identifier.
+The server does not currently initiate Multi Round-Trip Requests. It recognizes the standard
+`inputResponses` and `requestState` fields on `tools/call`, but rejects them with JSON-RPC `-32602`
+because Beam never returned the `input_required` result that would authorize a continuation. If
+MRTR is added later, `requestState` will remain continuation data for one logical request; it will
+not select a workspace.
 
 ## Local Workspace Descriptor
 
@@ -111,7 +147,8 @@ inside the old Lean process is not sufficient to reload workspace configuration.
 - [Beam/Mcp/Runtime.lean](../Beam/Mcp/Runtime.lean) owns root-to-runtime configuration.
 - [Beam/Mcp/SelfCheck.lean](../Beam/Mcp/SelfCheck.lean) owns the installed-wrapper self-check.
 - [Beam/Mcp/Server.lean](../Beam/Mcp/Server.lean) owns descriptor resolution, lazy cache dispatch,
-  the separate legacy-protocol/application state records, and the synchronous protocol-test seam.
+  the typed protocol-family state machine, the physically separate application registry, and the
+  synchronous protocol-test seam.
 - [Beam/Mcp/StdioServer.lean](../Beam/Mcp/StdioServer.lean) owns the permanent stdin reader,
   concurrent coordination, cancellation, cache-control barriers, and serialized output.
 
@@ -128,13 +165,14 @@ The Lean operations include update/sync/refresh/save/close operations, runAt and
 handle operations, hover and navigation, document/workspace symbols, goals, todo discovery, and
 code-action resolution. Raw LSP methods and generic broker escape hatches are intentionally absent.
 
-`beam_version` returns the running server identity in `structuredContent`. Installed runtime
-identities include the optional Boolean `runtime_current`: `true` means the process belongs to the
-runtime selected by the install root's `current` link, while `false` means it is stale or that the
-link is missing. Source-checkout identities omit this field. Invalid installed state also includes
-the optional string `runtime_error`; the tool call still succeeds so clients can report the broken
-identity. Restart an agent or MCP client for `runtime_current: false`. For `runtime_error`, stop Beam
-clients and follow the error-specific
+`beam_version` returns the running server identity in `structuredContent`. Its `mcp_protocol` field
+is the server's preferred revision, not mutable negotiated state for the current request. Installed
+runtime identities include the optional Boolean `runtime_current`: `true` means the process belongs
+to the runtime selected by the install root's `current` link, while `false` means it is stale or
+that the link is missing. Source-checkout identities omit this field. Invalid installed state also
+includes the optional string `runtime_error`; the tool call still succeeds so clients can report
+the broken identity. Restart an agent or MCP client for `runtime_current: false`. For
+`runtime_error`, stop Beam clients and follow the error-specific
 [installed-runtime recovery guidance](SETUP.md#prune-old-installed-state) before resuming normal
 work.
 
@@ -185,12 +223,13 @@ already cached, its in-process stats and open files are included; another worksp
 
 ## Protocol Errors
 
-For MCP `2025-11-25`:
+In both supported revisions:
 
 - malformed or unknown tools are JSON-RPC errors
-- request, notification, and response envelopes reject mixed or undeclared top-level members
-- `tools/call` accepts only `name`, `arguments`, and `_meta`; `_meta` remains the protocol extension
-  point
+- request and notification envelopes reject mixed or undeclared top-level members; unsolicited
+  client responses are rejected because the server does not send requests
+- `tools/call` accepts `name`, `arguments`, and `_meta`; the standard MRTR continuation fields are
+  recognized but rejected until Beam can issue an `input_required` result
 - invalid inputs for known tools are MCP tool errors with `isError=true`
 - undeclared tool-input fields, including undeclared workspace selector aliases, are rejected as
   structured `invalidInput` errors rather than ignored
@@ -198,11 +237,29 @@ For MCP `2025-11-25`:
 - Lean semantic failures remain successful tool returns with Lean-specific success fields
 - stale or cross-workspace handles remain structured transport/tool errors
 
+Once a request is identified as MCP `2026-07-28`, missing required per-request metadata returns
+JSON-RPC `-32602`. `server/discover` is always treated as modern; another request is treated as
+modern when it carries any reserved modern MCP metadata key. Before a protocol family is selected,
+a bare non-discovery request remains legacy-era input because stdio has no other signal with which
+to distinguish a legacy client. The same bare request returns `-32602` after modern operation
+traffic has selected the per-request protocol family. An unsupported modern protocol version
+returns `-32022` with the requested revision and the server's supported per-request revision list.
+Modern `initialize`, `ping`, and `logging/setLevel` requests return `-32601`.
+
+For MCP `2025-11-25`, a well-formed `initialize` followed by `notifications/initialized` remains
+required. Beam validates that the client supplied a protocol-version string, capabilities object,
+and client identity before changing legacy lifecycle state. The initialize result selects Beam's
+supported legacy revision, `2025-11-25`; the client's proposed revision need not already match it.
+
 ## Concurrency, Cancellation, And Shutdown
 
 The server has one permanent stdin reader and one serialized stdout sink. Ordinary tool calls may
 overlap, and responses may arrive out of request order. Clients must correlate exact JSON-RPC IDs;
 string and numeric IDs are distinct.
+
+A request ID is owned from admission through terminal stdout flush. Reuse is valid in the modern
+family after that terminal point. A malformed second request using an ID that is still active is
+ignored so it cannot create two indistinguishable terminal responses for the same ID.
 
 The server never sends JSON-RPC requests to the client. Under the current protocol it emits only
 responses and request-related notifications. In particular, descriptor resolution never invokes
@@ -214,35 +271,57 @@ non-cancellable once admitted because partial cache eviction cannot be rolled ba
 eviction is a full stream-order fence: previously admitted calls drain before the drop runs, while
 later calls wait for its terminal result and may then recreate the same descriptor.
 
-EOF is the normal transport shutdown. The current legacy `shutdown` request is also supported.
+EOF is the transport shutdown in both supported revisions. `lean-beam-mcp` defines no private
+shutdown request. This is separate from `lean-beam shutdown`, which sends the typed shutdown
+operation directly to a Beam broker daemon.
 
 ## Progress And Diagnostic Logs
 
-For `tools/call`, clients may pass `params._meta.progressToken` as a string or integer. Progress
+For `tools/call`, clients may pass `params._meta.progressToken` as a string or number. Progress
 updates for one request are monotonic and precede that request's final response.
 
 Incremental Lean diagnostics are separate `notifications/message` events with logger
-`lean.diagnostic`. Clients that cannot collect interleaved notifications can pass
-`include_diagnostics: true` to sync-style tools. Use `full_diagnostics: true` when the final reply
-should include warnings, information, and hints rather than only errors.
-
-The current global `logging/setLevel` behavior belongs to the `2025-11-25` path. The modern protocol
-update will make logging request-scoped.
+`lean.diagnostic`. Modern requests receive them only when that request includes
+`_meta["io.modelcontextprotocol/logLevel"]`; the setting is not retained for later calls. Legacy
+clients continue to use global `logging/setLevel`. Clients that cannot collect interleaved
+notifications can pass `include_diagnostics: true` to sync-style tools. Use
+`full_diagnostics: true` when the final reply should include warnings, information, and hints rather
+than only errors.
 
 ## Testing And Conformance
 
 - [McpProjectionTest.lean](../tests/lean/BeamTest/Broker/McpProjectionTest.lean) checks the curated
   tool surface, descriptor schemas, adapters, and normalized results.
 - [McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean) checks JSON-RPC shapes,
-  descriptor decoding, lifecycle gating, progress, errors, and diagnostic forwarding.
-- [test-mcp-stdio.py](../tests/test-mcp-stdio.py) checks real lazy first use, canonical aliases,
-  simultaneous cold first use of distinct roots, different toolchains in one process,
-  cross-workspace and cross-process handle rejection, scoped feedback, eviction/recreation,
-  cancellation, response routing, progress, and shutdown.
+  protocol-family routing and selection, discovery version scope, metadata validation, result/cache
+  envelopes, descriptor decoding, lifecycle gating, progress, errors, and diagnostic forwarding.
+- [test-mcp-stdio.py](../tests/test-mcp-stdio.py) checks real modern discovery and direct calls,
+  malformed modern metadata, modern progress and tool-error envelopes, per-request logging, EOF
+  teardown, legacy lifecycle compatibility, lazy first use, canonical aliases, simultaneous cold
+  first use of distinct roots, different toolchains in one process, cross-workspace and
+  cross-process handle rejection, scoped feedback, eviction/recreation, cancellation, response
+  routing, and progress.
 - [test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py) checks the local test-only HTTP adapter.
-- [test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) runs the pinned external conformance
-  scenarios supported by the current protocol.
+- [test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) runs the pinned external
+  `2025-11-25` conformance scenarios.
+- [test-mcp-modern-sdk.sh](../tests/test-mcp-modern-sdk.sh) uses a pinned release of the official
+  `@modelcontextprotocol/client` package against the real stdio executable. It checks automatic and
+  pinned modern negotiation, discovery, tool listing, an explicit-workspace Lean call, progress,
+  request-scoped diagnostic logging, and clean process teardown. The script owns the package pin.
+- [test-mcp-modern-conformance.sh](../tests/test-mcp-modern-conformance.sh) runs pinned modern alpha
+  `@modelcontextprotocol/conformance` scenarios that apply to Beam: tool-list structure, Streamable
+  HTTP header validation, and DNS-rebinding protection. This is deliberately labeled an alpha lane
+  until the upstream modern suite is stable; the script owns the package and scenario pins.
+
+The alpha suite's broad `server-stateless` and `caching` scenarios are not product-neutral today.
+They require synthetic diagnostic tools such as `test_missing_capability` and methods that Beam
+does not advertise, including prompts and resources. Beam does not add test-only tools to its
+public surface to satisfy those scenarios. The protocol test, real stdio harness, and official SDK
+test cover Beam's per-request metadata, stateless workspace selection, request-scoped logging, and
+absence of server-to-client requests directly.
 
 The Streamable HTTP bridge is a test adapter over the stdio product, not a separate deployment
-model. Remote and load-balanced deployment requires an explicit transport-safe workspace design and
-must not infer application identity from a connection.
+model. Its modern mode validates the headers and HTTP statuses needed by the conformance runner,
+then forwards the same JSON-RPC message to `lean-beam-mcp`; it does not implement a second tool
+surface. Remote and load-balanced deployment requires an explicit transport-safe workspace design
+and must not infer application identity from a connection.

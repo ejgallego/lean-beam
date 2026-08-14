@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Beam.Feedback
+import Beam.Version
 import BeamTest.Broker.JsonAssert
 
 open Lean
@@ -37,7 +38,7 @@ private def sampleCollection (home : String) : Beam.Feedback.Collection := {
     ("identity", Json.mkObj [
       ("name", toJson "lean-beam-mcp"),
       ("version", toJson "0.2.0-beta"),
-      ("mcp_protocol", toJson "2025-11-25"),
+      ("mcp_protocol", toJson Beam.Version.mcpProtocolVersion),
       ("beam_cli", toJson s!"{home}/beam-cli"),
       ("source_commit", toJson "0123456789abcdef"),
       ("source_branch", toJson "feedback"),

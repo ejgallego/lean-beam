@@ -22,6 +22,9 @@ fi
 tmp_dir="$(mktemp -d /tmp/lean-beam-mcp-conformance-XXXXXX)"
 npm_cache="${MCP_CONFORMANCE_NPM_CACHE:-$tmp_dir/npm-cache}"
 conformance_package="${MCP_CONFORMANCE_PACKAGE:-@modelcontextprotocol/conformance@0.1.16}"
+protocol_version="${MCP_CONFORMANCE_PROTOCOL_VERSION:-2025-11-25}"
+bridge_era="${MCP_CONFORMANCE_BRIDGE_ERA:-legacy}"
+conformance_suite="${MCP_CONFORMANCE_SUITE:-}"
 bridge_pid=""
 bridge_url=""
 
@@ -82,6 +85,7 @@ start_bridge() {
     --server .lake/build/bin/lean-beam-mcp \
     --lean-cmd "$(command -v lean)" \
     --lean-plugin ".lake/build/lib/$(beam_shared_lib_name beam_Beam_LSP)" \
+    --protocol-era "$bridge_era" \
     --ready-file "$ready_file" \
     > "$scenario_dir/bridge.stdout" \
     2> "$scenario_dir/bridge.stderr" &
@@ -97,22 +101,30 @@ run_conformance_scenario() {
   local scenario="$1"
   local url
   local rc=0
+  local -a suite_args=()
   if ! start_bridge "$scenario"; then
     stop_bridge
     return 1
   fi
   url="$bridge_url"
+  if [ -n "$conformance_suite" ]; then
+    suite_args=(--suite "$conformance_suite")
+  fi
   if [ -n "${MCP_CONFORMANCE_EXPECTED_FAILURES:-}" ]; then
     npm_config_cache="$npm_cache" npm_config_update_notifier=false \
       npx -y "$conformance_package" server \
       --url "$url" \
       --scenario "$scenario" \
+      --spec-version "$protocol_version" \
+      ${suite_args[@]+"${suite_args[@]}"} \
       --expected-failures "$MCP_CONFORMANCE_EXPECTED_FAILURES" || rc=$?
   else
     npm_config_cache="$npm_cache" npm_config_update_notifier=false \
       npx -y "$conformance_package" server \
       --url "$url" \
-      --scenario "$scenario" || rc=$?
+      --scenario "$scenario" \
+      --spec-version "$protocol_version" \
+      ${suite_args[@]+"${suite_args[@]}"} || rc=$?
   fi
   stop_bridge
   return "$rc"

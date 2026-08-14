@@ -6,6 +6,7 @@ import concurrent.futures
 import json
 import os
 import platform
+import select
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,9 @@ import time
 from pathlib import Path
 
 from mcp_test_util import (
-    MCP_PROTOCOL_VERSION,
+    MCP_LEGACY_PROTOCOL_VERSION,
+    MCP_MODERN_PROTOCOL_VERSION,
+    MCP_PUBLIC_CACHE_TTL_MS,
     fail,
     notification_params,
     notifications_by_method,
@@ -158,9 +161,28 @@ def notification_summary(notification):
 def request_id_key(request_id):
     if isinstance(request_id, str):
         return ("string", request_id)
-    if isinstance(request_id, bool) or not isinstance(request_id, (int, float)):
-        fail(f"MCP request id must be a string or number, got {request_id!r}")
-    return ("number", json.dumps(request_id, separators=(",", ":")))
+    if isinstance(request_id, bool) or not isinstance(request_id, int):
+        fail(f"MCP request id must be a string or integer, got {request_id!r}")
+    return ("number", request_id)
+
+
+def with_modern_metadata(params=None, *, log_level=None):
+    params = dict(params or {})
+    meta = dict(params.get("_meta") or {})
+    meta.update(
+        {
+            "io.modelcontextprotocol/protocolVersion": MCP_MODERN_PROTOCOL_VERSION,
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/clientInfo": {
+                "name": "lean-beam-mcp-test",
+                "version": "0",
+            },
+        }
+    )
+    if log_level is not None:
+        meta["io.modelcontextprotocol/logLevel"] = log_level
+    params["_meta"] = meta
+    return params
 
 
 class McpClient:
@@ -190,7 +212,6 @@ class McpClient:
         self.responses = {}
         self.stdout_error = None
         self.stdout_eof = False
-        self.shutdown_complete = False
         self.completed_requests = collections.deque(maxlen=20)
         self.notifications = []
         self.event_log = collections.deque(maxlen=80)
@@ -297,7 +318,7 @@ class McpClient:
     def close(self):
         if self.proc.poll() is None:
             try:
-                self.shutdown()
+                self.close_input()
             except Exception:
                 self.proc.kill()
         try:
@@ -528,6 +549,17 @@ class McpClient:
         )
         return self.read_response(request_id)
 
+    def modern_request(self, method, params=None, *, request_id=None, log_level=None):
+        return self.request(
+            method,
+            with_modern_metadata(params, log_level=log_level),
+            request_id=request_id,
+        )
+
+    def close_input(self):
+        if self.proc.stdin and not self.proc.stdin.closed:
+            self.proc.stdin.close()
+
     def response_ready(self, request_id):
         with self.state_changed:
             return request_id_key(request_id) in self.responses
@@ -552,14 +584,14 @@ class McpClient:
         response = self.request(
             "initialize",
             {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "protocolVersion": MCP_LEGACY_PROTOCOL_VERSION,
                 "capabilities": {},
                 "clientInfo": {"name": "lean-beam-mcp-test", "version": "0"},
             },
         )
         result = expect_result(response)
         require(
-            result.get("protocolVersion") == MCP_PROTOCOL_VERSION,
+            result.get("protocolVersion") == MCP_LEGACY_PROTOCOL_VERSION,
             f"server negotiated unexpected protocol version: {result}",
         )
         tools = result.get("capabilities", {}).get("tools")
@@ -567,14 +599,6 @@ class McpClient:
         logging = result.get("capabilities", {}).get("logging")
         require(isinstance(logging, dict), f"initialize did not advertise logging capability: {result}")
         self.notify("notifications/initialized")
-
-    def shutdown(self):
-        if self.proc.poll() is None and not self.shutdown_complete:
-            response = self.request("shutdown")
-            expect_result(response)
-            self.shutdown_complete = True
-        if self.proc.stdin and not self.proc.stdin.closed:
-            self.proc.stdin.close()
 
     def call_tool(self, name, arguments=None):
         params = {"name": name}
@@ -614,6 +638,15 @@ def expect_error_code(response, code):
     require(isinstance(error, dict), f"expected JSON-RPC error response, got {response}")
     require(error.get("code") == code, f"expected JSON-RPC error code {code}, got {response}")
     return error
+
+
+def require_modern_result_envelope(result, label):
+    require(result.get("resultType") == "complete", f"{label} missing resultType: {result}")
+    server_info = result.get("_meta", {}).get("io.modelcontextprotocol/serverInfo")
+    require(
+        isinstance(server_info, dict) and server_info.get("name") == "lean-beam-mcp",
+        f"{label} missing serverInfo: {result}",
+    )
 
 
 def write_save_warning_file(project_root, marker):
@@ -763,15 +796,6 @@ def wait_for_file(path, timeout, label):
             return
         time.sleep(0.02)
     fail(f"timed out waiting for {label} at {path}")
-
-
-def wait_until(predicate, timeout, label):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.02)
-    fail(f"timed out waiting for {label}")
 
 
 def require_message_contains(label, structured, needle):
@@ -1018,6 +1042,191 @@ def run_iteration(client, suffix):
     client.call_tool("lean_close", {"path": "GoalSmoke.lean"})
 
 
+def run_modern_protocol_smoke(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-modern-") as tmp:
+        project_root = Path(tmp) / "project"
+        copy_project_fixture(fixture_root, project_root)
+        client = McpClient(repo_root, project_root, timeout, label="modern-protocol")
+        try:
+            discovery = expect_result(client.modern_request("server/discover"))
+            require_modern_result_envelope(discovery, "server/discover")
+            require(
+                discovery.get("supportedVersions") == [MCP_MODERN_PROTOCOL_VERSION],
+                f"unexpected supported protocol versions: {discovery}",
+            )
+            require(
+                discovery.get("ttlMs") == MCP_PUBLIC_CACHE_TTL_MS,
+                f"discovery missing ttlMs: {discovery}",
+            )
+            require(discovery.get("cacheScope") == "public", f"discovery missing cacheScope: {discovery}")
+            capabilities = discovery.get("capabilities", {})
+            require(
+                isinstance(capabilities.get("logging"), dict),
+                f"discovery did not advertise request-scoped logging: {discovery}",
+            )
+            require(
+                capabilities.get("tools", {}).get("listChanged") is False,
+                f"discovery did not advertise its static tool list: {discovery}",
+            )
+            listed = expect_result(client.modern_request("tools/list"))
+            require_modern_result_envelope(listed, "modern tools/list")
+            require(
+                listed.get("ttlMs") == MCP_PUBLIC_CACHE_TTL_MS,
+                f"modern tools/list missing ttlMs: {listed}",
+            )
+            require(listed.get("cacheScope") == "public", f"modern tools/list missing cacheScope: {listed}")
+            require(isinstance(listed.get("tools"), list), f"modern tools/list missing tools: {listed}")
+            reuse_id = "modern-request-id-reuse"
+            expect_result(client.modern_request("tools/list", request_id=reuse_id))
+            expect_result(client.modern_request("tools/list", request_id=reuse_id))
+            expect_error_message_contains(
+                client.request("tools/list"),
+                -32602,
+                "protocolVersion",
+            )
+            expect_error_message_contains(
+                client.request("initialize", initialize_params()),
+                -32600,
+                "modern protocol family",
+            )
+
+            version_result = expect_result(
+                client.modern_request(
+                    "tools/call",
+                    {"name": "beam_version", "arguments": {}},
+                )
+            )
+            require_modern_result_envelope(version_result, "modern tools/call")
+            require(version_result.get("isError") is False, f"modern beam_version failed: {version_result}")
+
+            expect_error_message_contains(
+                client.modern_request(
+                    "tools/call",
+                    {
+                        "name": "beam_version",
+                        "arguments": {},
+                        "requestState": {},
+                    },
+                ),
+                -32602,
+                "input_required",
+            )
+            expect_error_message_contains(
+                client.modern_request(
+                    "tools/call",
+                    {
+                        "name": "beam_version",
+                        "arguments": {},
+                        "inputResponses": [],
+                    },
+                ),
+                -32602,
+                "input_required",
+            )
+
+            expect_error_code(client.request("server/discover", {}), -32602)
+            expect_error_code(
+                client.request(
+                    "tools/list",
+                    {
+                        "_meta": {
+                            "io.modelcontextprotocol/protocolVersion": MCP_MODERN_PROTOCOL_VERSION,
+                        }
+                    },
+                ),
+                -32602,
+            )
+            unsupported = expect_error_code(
+                client.request(
+                    "tools/list",
+                    {
+                        "_meta": {
+                            "io.modelcontextprotocol/protocolVersion": "1900-01-01",
+                            "io.modelcontextprotocol/clientCapabilities": {},
+                        }
+                    },
+                ),
+                -32022,
+            )
+            require(
+                unsupported.get("data", {}).get("supported") == [MCP_MODERN_PROTOCOL_VERSION],
+                f"unsupported-version error missing supported versions: {unsupported}",
+            )
+            expect_error_code(
+                client.modern_request("tools/list", log_level="verbose"),
+                -32602,
+            )
+            expect_error_code(
+                client.request(
+                    "tools/list",
+                    {
+                        "_meta": {
+                            "io.modelcontextprotocol/protocolVersion": MCP_MODERN_PROTOCOL_VERSION,
+                            "io.modelcontextprotocol/clientCapabilities": {},
+                            "io.modelcontextprotocol/clientInfo": {"name": "incomplete-client"},
+                        }
+                    },
+                ),
+                -32602,
+            )
+            expect_error_code(
+                client.request(
+                    "tools/list",
+                    {
+                        "_meta": {
+                            "io.modelcontextprotocol/protocolVersion": MCP_MODERN_PROTOCOL_VERSION,
+                            "io.modelcontextprotocol/clientCapabilities": [],
+                        }
+                    },
+                ),
+                -32602,
+            )
+
+            semantic_error_response = client.modern_request(
+                "tools/call",
+                {"name": "lean_sync", "arguments": {}},
+            )
+            expect_tool_error_code(semantic_error_response, "invalidInput")
+            require_modern_result_envelope(
+                expect_result(semantic_error_response),
+                "modern known-tool input error",
+            )
+
+            progress_token = "modern-sync-progress"
+            progress_result = expect_result(
+                client.modern_request(
+                    "tools/call",
+                    {
+                        "name": "lean_sync",
+                        "arguments": {"path": "PositionEmptyLine.lean"},
+                        "_meta": {"progressToken": progress_token},
+                    },
+                )
+            )
+            require_modern_result_envelope(progress_result, "modern lean_sync")
+            require(progress_result.get("isError") is not True, f"modern lean_sync failed: {progress_result}")
+            progress_notifications = client.progress_notifications(progress_token)
+            require_progress_sequence(progress_notifications, progress_token, "modern lean_sync progress")
+            require_progress_message_contains(
+                progress_notifications,
+                "modern lean_sync progress",
+                "preparing lean_sync",
+                "running lean_sync",
+                "lean_sync fileProgress",
+            )
+            expect_error_code(
+                client.modern_request("logging/setLevel", {"level": "error"}),
+                -32601,
+            )
+            expect_error_code(client.modern_request("ping"), -32601)
+            require(not client.server_requests, f"modern server emitted JSON-RPC requests: {client.server_requests}")
+            client.close_input()
+            returncode = client.proc.wait(timeout=timeout)
+            require(returncode == 0, f"modern server exited with code {returncode} after EOF")
+        finally:
+            client.close()
+
+
 def run_cycle(
     repo_root,
     fixture_root,
@@ -1038,6 +1247,11 @@ def run_cycle(
             pre_init = client.request("tools/list")
             expect_error_code(pre_init, -32600)
             client.initialize()
+            expect_error_message_contains(
+                client.modern_request("tools/list"),
+                -32600,
+                "legacy protocol family",
+            )
 
             raw_tool = client.request(
                 "tools/call",
@@ -1063,8 +1277,6 @@ def run_cycle(
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("beam_stats" in names, f"tools/list missing beam_stats: {tools}")
             require("beam_feedback" in names, f"tools/list missing beam_feedback: {tools}")
-            require("lean_init_workspace" not in names, f"tools/list exposed removed lean_init_workspace: {tools}")
-            require("lean_list_workspaces" not in names, f"tools/list exposed removed lean_list_workspaces: {tools}")
             require("lean_drop_workspace" in names, f"tools/list missing lean_drop_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
@@ -1083,7 +1295,7 @@ def run_cycle(
             version = client.call_tool("beam_version")
             require(version.get("name") == "lean-beam-mcp", f"beam_version returned wrong name: {version}")
             require(version.get("version") == "0.2.0-beta", f"beam_version returned wrong version: {version}")
-            require(version.get("mcp_protocol") == MCP_PROTOCOL_VERSION, f"beam_version returned wrong protocol: {version}")
+            require(version.get("mcp_protocol") == MCP_MODERN_PROTOCOL_VERSION, f"beam_version returned wrong protocol: {version}")
             require(isinstance(version.get("server_binary"), str) and version["server_binary"], f"beam_version missing server_binary: {version}")
             require(version.get("runtime_active") is False, f"beam_version should not start runtime: {version}")
 
@@ -1153,6 +1365,52 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             expect_diagnostic_log(client, level="error", severity="error", path="SaveSmoke/B.lean")
         finally:
             client.close()
+
+        modern_client = McpClient(repo_root, project_root, timeout, label="modern-diagnostic-logging")
+        try:
+            write_save_warning_file(project_root, "-- modern request without log opt-in")
+            modern_silent = expect_result(
+                modern_client.modern_request(
+                    "tools/call",
+                    {
+                        "name": "lean_sync",
+                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                    },
+                )
+            )
+            require(
+                modern_silent.get("resultType") == "complete",
+                f"modern lean_sync missing resultType: {modern_silent}",
+            )
+            require(
+                diagnostic_log_notifications(modern_client) == [],
+                f"modern request emitted logs without logLevel: {modern_client.notifications}",
+            )
+
+            modern_client.notifications.clear()
+            write_save_warning_file(project_root, "-- modern request warning opt-in")
+            modern_logged = expect_result(
+                modern_client.modern_request(
+                    "tools/call",
+                    {
+                        "name": "lean_sync",
+                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                    },
+                    log_level="warning",
+                )
+            )
+            require(
+                modern_logged.get("resultType") == "complete",
+                f"modern logged lean_sync missing resultType: {modern_logged}",
+            )
+            expect_diagnostic_log(
+                modern_client,
+                level="warning",
+                severity="warning",
+                path="SaveSmoke/B.lean",
+            )
+        finally:
+            modern_client.close()
 
 
 FOCUSED_SYNC_SCENARIOS = {
@@ -1252,7 +1510,17 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
                     "_meta": {"progressToken": 1.5},
                 },
             )
-            expect_error_code(decimal_token, -32602)
+            decimal_result = expect_result(decimal_token)
+            require(
+                decimal_result.get("isError") is not True,
+                f"lean_sync with decimal progress token failed: {decimal_result}",
+            )
+            decimal_notifications = client.progress_notifications(1.5)
+            require_progress_sequence(
+                decimal_notifications,
+                1.5,
+                "lean_sync decimal progress token",
+            )
 
             before_no_token = len(client.notifications)
             no_token = client.request(
@@ -1356,9 +1624,11 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-dispatch-") as tmp:
         tmp_root = Path(tmp)
         project_root = tmp_root / "project"
+        other_project_root = tmp_root / "other-project"
         started_path = tmp_root / "gate-started"
         release_path = tmp_root / "gate-release"
         copy_project_fixture(fixture_root, project_root)
+        copy_project_fixture(fixture_root, other_project_root)
         client = McpClient(
             repo_root,
             project_root,
@@ -1371,11 +1641,24 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             },
         )
         slow_id = "77"
+        overlap_timeout = min(timeout, 10.0)
         try:
             client.initialize()
             update = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
             version = update.get("version")
             require(isinstance(version, int), f"concurrency update missing version: {update}")
+            other_update = client.call_tool(
+                "lean_update",
+                {
+                    "workspace": workspace_descriptor(other_project_root),
+                    "path": "McpConcurrency.lean",
+                },
+            )
+            other_version = other_update.get("version")
+            require(
+                isinstance(other_version, int),
+                f"cross-workspace concurrency update missing version: {other_update}",
+            )
             source_lines = (project_root / "McpConcurrency.lean").read_text(encoding="utf-8").splitlines()
             line = source_lines.index("  trivial")
             slow_params = {
@@ -1398,10 +1681,45 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                     "text": "exact trivial",
                 },
             }
+            cross_workspace_fast_params = {
+                "name": "lean_run_at",
+                "arguments": {
+                    "workspace": workspace_descriptor(other_project_root),
+                    "path": "McpConcurrency.lean",
+                    "version": other_version,
+                    "line": line,
+                    "character": 2,
+                    "text": "exact trivial",
+                },
+            }
             client.send_request("tools/call", slow_params, request_id=slow_id)
             wait_for_file(started_path, timeout, "slow runAt gate sentinel")
+            cross_workspace_fast_id = client.send_request(
+                "tools/call",
+                cross_workspace_fast_params,
+                request_id="cross-workspace-fast",
+            )
+            cross_workspace_fast_response = client.read_response(
+                cross_workspace_fast_id,
+                timeout=overlap_timeout,
+            )
+            cross_workspace_fast_result = expect_result(cross_workspace_fast_response)
+            require(
+                cross_workspace_fast_result.get("isError") is not True,
+                f"cross-workspace fast runAt returned a tool error: {cross_workspace_fast_result}",
+            )
+            cross_workspace_fast_structured = cross_workspace_fast_result.get("structuredContent")
+            require(
+                isinstance(cross_workspace_fast_structured, dict),
+                f"cross-workspace fast runAt missing structured content: {cross_workspace_fast_result}",
+            )
+            require_success("cross-workspace fast runAt", cross_workspace_fast_structured)
+            require(
+                not client.response_ready(slow_id),
+                "workspace A gated runAt completed while workspace B overlap was checked",
+            )
             fast_id = client.send_request("tools/call", fast_params, request_id=77)
-            fast_response = client.read_response(fast_id, timeout=min(timeout, 5.0))
+            fast_response = client.read_response(fast_id, timeout=overlap_timeout)
             fast_result = expect_result(fast_response)
             require(fast_result.get("isError") is not True, f"fast runAt returned a tool error: {fast_result}")
             fast_structured = fast_result.get("structuredContent")
@@ -1418,8 +1736,6 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             slow_structured = slow_result.get("structuredContent")
             require(isinstance(slow_structured, dict), f"slow runAt missing structured content: {slow_result}")
             require_success("slow concurrent runAt", slow_structured)
-            expect_result(client.request("ping", request_id=slow_id))
-
             started_path.unlink()
             release_path.unlink()
             cancel_id = "cancelled-run-at"
@@ -1429,12 +1745,22 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 {
                     "jsonrpc": "2.0",
                     "id": cancel_id,
-                    "method": "tools/call",
-                    "params": [],
+                    "method": "tools/list",
                 }
             )
-            duplicate_response = client.read_response(cancel_id, timeout=min(timeout, 5.0))
-            expect_error_message_contains(duplicate_response, -32600, "already active")
+            client.send_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": cancel_id,
+                    "method": "tools/list",
+                    "unexpected": True,
+                }
+            )
+            expect_result(client.request("ping", request_id="after-duplicate-active-id"))
+            require(
+                not client.response_ready(cancel_id),
+                "duplicate active request ID produced a second ambiguous terminal response",
+            )
             client.notify(
                 "notifications/cancelled",
                 {
@@ -1501,10 +1827,22 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 },
                 request_id="drop-fence-control",
             )
-            time.sleep(0.1)
+            post_drop_id = client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_update",
+                    "arguments": {"path": "McpConcurrency.lean"},
+                },
+                request_id="post-drop-update",
+            )
+            expect_result(client.request("ping", request_id="after-drop-fence-admission"))
             require(
                 not client.response_ready(drop_id),
                 "workspace drop completed before previously admitted work drained",
+            )
+            require(
+                not client.response_ready(post_drop_id),
+                "work admitted after workspace drop bypassed the global control fence",
             )
             release_path.write_text("release\n", encoding="utf-8")
             slow_response = client.read_response(drop_fence_id)
@@ -1520,19 +1858,30 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 isinstance(dropped, dict) and dropped.get("dropped") is True,
                 f"workspace drop fence did not evict the runtime: {drop_response}",
             )
-
-            update = client.call_tool("lean_update", {"path": "McpConcurrency.lean"})
-            version = update.get("version")
-            require(isinstance(version, int), f"post-drop concurrency update missing version: {update}")
+            post_drop_result = expect_result(client.read_response(post_drop_id))
+            require(
+                post_drop_result.get("isError") is not True,
+                f"work admitted after workspace drop failed: {post_drop_result}",
+            )
+            post_drop_update = post_drop_result.get("structuredContent")
+            require(
+                isinstance(post_drop_update, dict),
+                f"post-drop concurrency update missing structured content: {post_drop_result}",
+            )
+            version = post_drop_update.get("version")
+            require(
+                isinstance(version, int),
+                f"post-drop concurrency update missing version: {post_drop_update}",
+            )
             slow_params["arguments"]["version"] = version
 
             started_path.unlink()
             release_path.unlink()
-            shutdown_id = "shutdown-inflight"
-            client.send_request("tools/call", slow_params, request_id=shutdown_id)
-            wait_for_file(started_path, timeout, "shutdown runAt gate sentinel")
-            client.shutdown()
-            client.forget_request(shutdown_id)
+            eof_request_id = "eof-inflight"
+            client.send_request("tools/call", slow_params, request_id=eof_request_id)
+            wait_for_file(started_path, timeout, "EOF runAt gate sentinel")
+            client.close_input()
+            client.forget_request(eof_request_id)
         finally:
             if not release_path.exists():
                 release_path.write_text("release\n", encoding="utf-8")
@@ -2128,9 +2477,9 @@ def run_cross_process_handle_rejection(repo_root, fixture_root, timeout):
             second.close()
 
 
-def initialize_params(capabilities=None):
+def initialize_params(capabilities=None, protocol_version=MCP_LEGACY_PROTOCOL_VERSION):
     return {
-        "protocolVersion": MCP_PROTOCOL_VERSION,
+        "protocolVersion": protocol_version,
         "capabilities": capabilities if capabilities is not None else {},
         "clientInfo": {"name": "lean-beam-mcp-lifecycle-test", "version": "0"},
     }
@@ -2139,7 +2488,13 @@ def initialize_params(capabilities=None):
 def check_response(response, expectation, label):
     kind = expectation["kind"]
     if kind == "result":
-        expect_result(response)
+        result = expect_result(response)
+        expected_protocol_version = expectation.get("protocol_version")
+        if expected_protocol_version is not None:
+            require(
+                result.get("protocolVersion") == expected_protocol_version,
+                f"{label}: expected protocol version {expected_protocol_version!r}, got {response}",
+            )
     elif kind == "error":
         error = expect_error_code(response, expectation["code"])
         needle = expectation.get("message_contains")
@@ -2153,15 +2508,50 @@ def check_response(response, expectation, label):
 def run_lifecycle_matrix(repo_root, fixture_root, timeout):
     cases = [
         {
-            "name": "ping_before_initialize",
+            "name": "discover_does_not_select_protocol_family",
             "actions": [
-                {"request": "ping", "expect": {"kind": "result"}},
+                {
+                    "request": "server/discover",
+                    "params": with_modern_metadata(),
+                    "expect": {"kind": "result"},
+                },
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
+                {"notify": "notifications/initialized"},
+                {"request": "tools/list", "expect": {"kind": "result"}},
             ],
         },
         {
-            "name": "shutdown_before_initialize",
+            "name": "ping_before_initialize_is_rejected",
             "actions": [
-                {"request": "shutdown", "expect": {"kind": "result"}, "stops": True},
+                {
+                    "request": "ping",
+                    "expect": {"kind": "error", "code": -32600, "message_contains": "initialize"},
+                },
+            ],
+        },
+        {
+            "name": "initialize_selects_supported_legacy_version",
+            "actions": [
+                {
+                    "request": "initialize",
+                    "params": initialize_params(protocol_version="2025-06-18"),
+                    "expect": {"kind": "result", "protocol_version": MCP_LEGACY_PROTOCOL_VERSION},
+                },
+            ],
+        },
+        {
+            "name": "malformed_initialize_does_not_change_state",
+            "actions": [
+                {
+                    "request": "initialize",
+                    "params": {
+                        "protocolVersion": MCP_LEGACY_PROTOCOL_VERSION,
+                        "capabilities": [],
+                        "clientInfo": {"name": "invalid", "version": "0"},
+                    },
+                    "expect": {"kind": "error", "code": -32602},
+                },
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
             ],
         },
         {
@@ -2208,6 +2598,49 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
             ],
         },
         {
+            "name": "malformed_initialized_does_not_ready_server",
+            "actions": [
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
+                {"notify": "notifications/initialized", "params": []},
+                {
+                    "request": "tools/list",
+                    "expect": {"kind": "error", "code": -32600, "message_contains": "notifications/initialized"},
+                },
+            ],
+        },
+        {
+            "name": "legacy_utility_params_are_closed",
+            "actions": [
+                {"request": "initialize", "params": initialize_params(), "expect": {"kind": "result"}},
+                {"notify": "notifications/initialized"},
+                {
+                    "request": "ping",
+                    "params": [],
+                    "expect": {"kind": "error", "code": -32602},
+                },
+                {
+                    "request": "ping",
+                    "params": {"unexpected": True},
+                    "expect": {"kind": "error", "code": -32602},
+                },
+                {
+                    "request": "tools/list",
+                    "params": {"cursor": "not-issued-by-beam"},
+                    "expect": {"kind": "error", "code": -32602},
+                },
+                {
+                    "request": "tools/list",
+                    "params": {"_meta": []},
+                    "expect": {"kind": "error", "code": -32602},
+                },
+                {
+                    "request": "ping",
+                    "params": {"_meta": {}},
+                    "expect": {"kind": "result"},
+                },
+            ],
+        },
+        {
             "name": "unknown_method_before_initialize",
             "actions": [
                 {"request": "unknown/method", "expect": {"kind": "error", "code": -32600, "message_contains": "initialize"}},
@@ -2227,7 +2660,6 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
             project_root = Path(tmp) / "project"
             copy_project_fixture(fixture_root, project_root)
             client = McpClient(repo_root, project_root, timeout, label=f"lifecycle-{case['name']}")
-            stopped = False
             try:
                 for action in case["actions"]:
                     if "notify" in action:
@@ -2235,17 +2667,72 @@ def run_lifecycle_matrix(repo_root, fixture_root, timeout):
                         continue
                     response = client.request(action["request"], action.get("params"))
                     check_response(response, action["expect"], f"{case['name']} {action['request']}")
-                    if action.get("stops"):
-                        stopped = True
-                        break
             finally:
-                if stopped and client.proc.stdin and not client.proc.stdin.closed:
-                    client.proc.stdin.close()
-                    try:
-                        client.proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        pass
                 client.close()
+
+
+def run_blank_line_regression(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-blank-line-") as tmp:
+        project_root = Path(tmp) / "project"
+        copy_project_fixture(fixture_root, project_root)
+        client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            label="blank-line-regression",
+            drain_stdout=False,
+        )
+        try:
+            with client.stdin_lock:
+                client.proc.stdin.write("\n")
+                client.proc.stdin.flush()
+            ready, _, _ = select.select([client.proc.stdout], [], [], timeout)
+            require(ready, "blank input did not produce a JSON-RPC parse error")
+            parse_error = json.loads(client.proc.stdout.readline())
+            expect_error_code(parse_error, -32700)
+            require(parse_error.get("id") is None, f"blank-line error should have null id: {parse_error}")
+
+            discover_request = {
+                "jsonrpc": "2.0",
+                "id": 1.5,
+                "method": "server/discover",
+                "params": {
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": MCP_MODERN_PROTOCOL_VERSION,
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                    }
+                },
+            }
+            client.send_message(discover_request)
+            ready, _, _ = select.select([client.proc.stdout], [], [], timeout)
+            require(ready, "fractional request id did not produce a JSON-RPC error")
+            invalid_id = json.loads(client.proc.stdout.readline())
+            expect_error_code(invalid_id, -32600)
+            require(invalid_id.get("id") is None, f"fractional-id error should have null id: {invalid_id}")
+
+            discover_request["id"] = "after-blank-line"
+            client.send_message(discover_request)
+            ready, _, _ = select.select([client.proc.stdout], [], [], timeout)
+            require(ready, "server stopped reading requests after a blank input line")
+            discover = json.loads(client.proc.stdout.readline())
+            require(discover.get("id") == "after-blank-line", f"wrong discover response: {discover}")
+            require_modern_result_envelope(expect_result(discover), "discover after blank line")
+        finally:
+            client.close()
+
+
+def run_legacy_eof_teardown(repo_root, fixture_root, timeout):
+    with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-legacy-eof-") as tmp:
+        project_root = Path(tmp) / "project"
+        copy_project_fixture(fixture_root, project_root)
+        client = McpClient(repo_root, project_root, timeout, label="legacy-eof-teardown")
+        try:
+            client.initialize()
+            client.close_input()
+            returncode = client.proc.wait(timeout=timeout)
+            require(returncode == 0, f"legacy server exited with code {returncode} after EOF")
+        finally:
+            client.close()
 
 
 def run_closed_stdout_regression(repo_root, fixture_root, timeout):
@@ -2392,6 +2879,7 @@ def main():
         )
         run_stateless_workspace_matrix(repo_root, fixture_root, args.timeout)
         return
+    run_modern_protocol_smoke(repo_root, fixture_root, args.timeout)
     for cycle in range(args.restart_cycles):
         run_cycle(repo_root, fixture_root, cycle, args.iterations, args.timeout)
     run_diagnostic_logging(repo_root, fixture_root, args.timeout)
@@ -2407,6 +2895,8 @@ def main():
     run_stateless_workspace_matrix(repo_root, fixture_root, args.timeout)
     run_cross_process_handle_rejection(repo_root, fixture_root, args.timeout)
     run_lifecycle_matrix(repo_root, fixture_root, args.timeout)
+    run_blank_line_regression(repo_root, fixture_root, args.timeout)
+    run_legacy_eof_teardown(repo_root, fixture_root, args.timeout)
     run_closed_stdout_regression(repo_root, fixture_root, args.timeout)
 
 

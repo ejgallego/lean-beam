@@ -95,7 +95,12 @@ Additional Beam lanes:
   validated or release-line-compatible bundle qualification, admission diagnostics, and stale-import
   diagnostic wording compatibility
 - [tests/test-beam-rocq.sh](../tests/test-beam-rocq.sh): Rocq broker and wrapper coverage
-- [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): external MCP conformance scenarios over the local Streamable HTTP bridge
+- [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh): external MCP `2025-11-25`
+  conformance scenarios over the local Streamable HTTP bridge
+- [tests/test-mcp-modern-sdk.sh](../tests/test-mcp-modern-sdk.sh): released official TypeScript
+  client interoperability with the real `2026-07-28` stdio server
+- [tests/test-mcp-modern-conformance.sh](../tests/test-mcp-modern-conformance.sh): applicable
+  `2026-07-28` scenarios from the pinned alpha conformance runner over the test-only HTTP bridge
 
 Current Beam coverage includes:
 
@@ -116,7 +121,8 @@ Current Beam coverage includes:
   `compatible-release-lines`, `doctor`, installed-state pruning, and installed MCP wrapper coverage
   in [tests/test-beam-install.sh](../tests/test-beam-install.sh), with focused prune safety and
   invalid-runtime identity cases in [tests/test-beam-prune.sh](../tests/test-beam-prune.sh)
-- MCP protocol, projection, stdio, HTTP bridge, self-check, and external conformance coverage
+- MCP protocol-family selection, projection, modern and legacy stdio, HTTP bridge, self-check, released
+  official-client interoperability, and external legacy/modern conformance coverage
 - Rocq wrapper and broker smoke coverage in [tests/test-beam-wrapper-rocq.sh](../tests/test-beam-wrapper-rocq.sh) and [tests/lean/BeamTest/Broker/RocqSmokeTest.lean](../tests/lean/BeamTest/Broker/RocqSmokeTest.lean)
 
 Run the Beam surface when the change touches broker protocol or transport, request/progress/diagnostics streams, daemon session or restart logic, wrapper CLI behavior, bundle resolution, install layout, `doctor`, `validated-toolchains`, save replay, save barriers, MCP, or Rocq integration.
@@ -186,6 +192,7 @@ When investigating MCP stdio timeouts, prefer the focused descriptor-bound sync 
 rerunning the full smoke suite:
 
 ```bash
+lake build Beam.LSP:shared lean-beam-mcp
 PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
   --scenario progress-sync \
   --repro-runs 100 \
@@ -203,18 +210,21 @@ context, relevant CI and Lean thread env vars, the stderr tail, and a Beam/Lean 
 For the same-process concurrency contract, run:
 
 ```bash
+lake build Beam.LSP:shared lean-beam-mcp
 PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
   --scenario concurrent-dispatch \
   --timeout 40
 ```
 
 This scenario covers out-of-order tool responses, exact string/numeric request-ID separation,
-request-ID reuse after a terminal response, broker cancellation, per-request progress ordering,
-single-flight first use, simultaneous cold first use of distinct roots, stateless multi-root
-isolation, non-cancellable cache eviction with lazy recreation, and shutdown draining. The full
-stdio suite also rejects a proof handle carried across an MCP process restart. The slow Beam suite
-runs `--scenario multi-toolchain-workspaces` after installing both fixture toolchains and verifies
-that one MCP process keeps both project-specific Lean sessions active.
+duplicate active-ID suppression, broker cancellation, per-request progress ordering, deterministic
+overlap between a gated request in one workspace and a fast request in another, single-flight first
+use, simultaneous cold first use of distinct roots, stateless multi-root isolation, non-cancellable
+cache eviction with ordering on both sides of the global fence, lazy recreation, and EOF
+cancellation and teardown. The full stdio suite also checks modern request-ID reuse after a terminal
+response and rejects a proof handle carried across an MCP process restart. The slow Beam suite runs
+`--scenario multi-toolchain-workspaces` after installing both fixture toolchains and verifies that
+one MCP process keeps both project-specific Lean sessions active.
 
 If this scheduler-sensitive timeout appears on an unrelated CI PR, copy the timeout headline and
 diagnostic excerpt to [#110](https://github.com/ejgallego/lean-beam/issues/110) so repeated
@@ -280,6 +290,8 @@ The current GitHub Actions workflow maps to the testing surfaces like this:
 - `lsp`: [tests/test-lsp.sh](../tests/test-lsp.sh)
 - `beam-fast`: [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
 - `mcp-conformance`: [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh)
+- `mcp-modern`: [tests/test-mcp-modern-sdk.sh](../tests/test-mcp-modern-sdk.sh) followed by
+  [tests/test-mcp-modern-conformance.sh](../tests/test-mcp-modern-conformance.sh)
 - `beam-slow`: [tests/test-beam-slow.sh](../tests/test-beam-slow.sh)
 - `beam-install`: [tests/test-beam-install.sh](../tests/test-beam-install.sh)
 - `beam-toolchain-compat`: [tests/test-beam-toolchain-compat.sh](../tests/test-beam-toolchain-compat.sh) `<toolchain>`

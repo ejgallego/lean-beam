@@ -57,8 +57,6 @@ private def checkIncoming : IO Unit := do
       require "decoded request method" (req.method == "tools/list")
   | .notification _ =>
       throw <| IO.userError "request decoded as notification"
-  | .response _ =>
-      throw <| IO.userError "request decoded as response"
 
   let notificationJson := Json.mkObj [
     ("jsonrpc", toJson "2.0"),
@@ -69,8 +67,6 @@ private def checkIncoming : IO Unit := do
       require "decoded notification method" (notification.method == "notifications/initialized")
   | .request _ =>
       throw <| IO.userError "notification decoded as request"
-  | .response _ =>
-      throw <| IO.userError "notification decoded as response"
 
   match Beam.Mcp.Incoming.fromJson? <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
@@ -82,53 +78,55 @@ private def checkIncoming : IO Unit := do
   | .error _ =>
       pure ()
 
-  let responseJson := Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson "server-request"),
-    ("result", Json.mkObj [("ok", toJson true)])
-  ]
-  match ← expectOk "decode response" <| Beam.Mcp.Incoming.fromJson? responseJson with
-  | .response response =>
-      require "decoded response id" (response.id == .string "server-request")
-      match response.outcome with
-      | .result result =>
-          require "decoded response result" (result == Json.mkObj [("ok", toJson true)])
-      | .error _ =>
-          throw <| IO.userError "result response decoded as an error"
-  | .request _ | .notification _ =>
-      throw <| IO.userError "response decoded as request or notification"
-
-  let errorResponseJson := Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson "server-request-error"),
-    ("error", Json.mkObj [
-      ("code", toJson (-32603 : Int)),
-      ("message", toJson "server request failed")
-    ])
-  ]
-  match ← expectOk "decode error response" <| Beam.Mcp.Incoming.fromJson? errorResponseJson with
-  | .response response =>
-      require "decoded error response id" (response.id == .string "server-request-error")
-      match response.outcome with
-      | .error error =>
-          require "decoded response error code" (error.code == -32603)
-          require "decoded response error message" (error.message == "server request failed")
-      | .result _ =>
-          throw <| IO.userError "error response decoded as a result"
-  | .request _ | .notification _ =>
-      throw <| IO.userError "error response decoded as request or notification"
+  match Beam.Mcp.Incoming.fromJson? <| Json.mkObj [
+      ("jsonrpc", toJson "2.0"),
+      ("id", toJson "unsolicited-response"),
+      ("result", Json.mkObj [("ok", toJson true)])
+    ] with
+  | .ok _ => throw <| IO.userError "unsolicited client response decoded successfully"
+  | .error err =>
+      require "client response rejection explains the accepted message kinds"
+        (err.contains "request or notification")
 
   let stringId ← expectOk "decode string request id" <|
     Beam.Mcp.RequestId.fromJson? (toJson "1")
   let numberId ← expectOk "decode numeric request id" <|
     Beam.Mcp.RequestId.fromJson? (toJson (1 : Nat))
+  let wholeDecimalId ← expectOk "decode integral decimal request id" <|
+    Beam.Mcp.RequestId.fromJson? (Json.num { mantissa := 10, exponent := 1 })
+  let zeroId ← expectOk "decode zero request id with a large decimal exponent" <|
+    Beam.Mcp.RequestId.fromJson? (Json.num { mantissa := 0, exponent := 100000 })
   require "string and numeric request ids are distinct" (stringId != numberId)
+  require "integral numeric request ids are canonical" (wholeDecimalId == numberId)
+  require "integral numeric request ids retain their wire spelling"
+    (wholeDecimalId.json == Json.num { mantissa := 10, exponent := 1 })
+  require "zero request ids are canonical" (zeroId == (← expectOk "decode plain zero request id" <|
+    Beam.Mcp.RequestId.fromJson? (toJson (0 : Nat))))
+  let envelopeId? := Beam.Mcp.RequestId.fromEnvelope? <| Json.mkObj [
+    ("id", Json.num { mantissa := 10, exponent := 1 }),
+    ("unexpected", toJson true)
+  ]
+  require "request ids can be recovered from otherwise invalid envelopes"
+    (envelopeId?.map Beam.Mcp.RequestId.json ==
+      some (Json.num { mantissa := 10, exponent := 1 }))
+  require "invalid envelope request ids are not recovered"
+    ((Beam.Mcp.RequestId.fromEnvelope? <| Json.mkObj [("id", Json.null)]).isNone)
+  require "missing envelope request ids are not recovered"
+    ((Beam.Mcp.RequestId.fromEnvelope? <| Json.mkObj [("jsonrpc", toJson "2.0")]).isNone)
   let keyed :=
     ({} : Std.TreeMap Beam.Mcp.RequestId String)
       |>.insert stringId "string"
       |>.insert numberId "number"
+      |>.insert wholeDecimalId "canonical number"
   require "request id map preserves string key" (keyed.get? stringId == some "string")
-  require "request id map preserves numeric key" (keyed.get? numberId == some "number")
+  require "request id map canonicalizes equivalent numeric keys"
+    (keyed.get? numberId == some "canonical number")
+
+  match Beam.Mcp.RequestId.fromJson? (Json.num { mantissa := 15, exponent := 1 }) with
+  | .ok id =>
+      throw <| IO.userError s!"fractional request id decoded unexpectedly: {id.json.compress}"
+  | .error err =>
+      require "fractional request id error should require an integer" (err.contains "integer")
 
   let cancelled ← expectOk "decode cancellation params" <|
     Beam.Mcp.parseCancelledParams <| some <| Json.mkObj [
@@ -310,10 +308,6 @@ private def checkToolsListShape : IO Unit := do
   let tools ← requireJsonArray "tools/list tools" tools
   require "tools/list is non-empty" (!tools.isEmpty)
   checkToolInputParameterUniqueness tools
-  for removed in #["lean_init_workspace", "lean_list_workspaces"] do
-    require s!"tools/list must not expose removed lifecycle tool {removed}"
-      (!(tools.any fun tool => (tool.getObjValAs? String "name").toOption == some removed))
-
   let schemaCases : Array (String × Array String) := #[
     ("beam_version", #[]),
     ("beam_stats", #[]),
@@ -483,10 +477,10 @@ private def checkRuntimeSetupErrors : IO Unit := do
     catch _ =>
       pure ()
 
-private def expectResponse (label : String) (value : Option Json × Bool) : IO Json := do
+private def expectResponse (label : String) (value : Option Json) : IO Json := do
   match value with
-  | (some json, _stop) => pure json
-  | (none, _stop) => throw <| IO.userError s!"{label}: expected JSON-RPC response"
+  | some json => pure json
+  | none => throw <| IO.userError s!"{label}: expected JSON-RPC response"
 
 private def rpcRequest (id : Nat) (method : String) (params? : Option Json := none) : Json :=
   Json.mkObj <|
@@ -564,13 +558,11 @@ private def checkProgressProtocol : IO Unit := do
       require "invalid progressToken error should name progressToken" (err.contains "progressToken")
 
   let decimalToken := Json.num { mantissa := 15, exponent := 1 }
-  match Beam.Mcp.parseCallToolParams <| some <|
+  let decimalParams ← expectOk "decode decimal progressToken" <|
+    Beam.Mcp.parseCallToolParams <| some <|
       toolCallParamsWithProgress "lean_sync" decimalToken <|
-        Json.mkObj [("path", toJson "Demo.lean")] with
-  | .ok params =>
-      throw <| IO.userError s!"decimal progressToken decoded unexpectedly: {(toJson params.progressToken?).compress}"
-  | .error err =>
-      require "decimal progressToken error should require integer" (err.contains "integer")
+        Json.mkObj [("path", toJson "Demo.lean")]
+  require "decimal progressToken is preserved" (decimalParams.progressToken? == some decimalToken)
 
   let notification := Beam.Mcp.progressNotification stringToken 3 (some "syncing") (some 8)
   requireJsonString "progress notification" "method" "notifications/progress" notification
@@ -581,7 +573,7 @@ private def checkProgressProtocol : IO Unit := do
   requireJsonString "progress notification params" "message" "syncing" params
 
 private def handleRpcRequest
-    (state : IO.Ref Beam.Mcp.Server.ServerState)
+    (state : Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (label : String)
     (id : Nat)
@@ -591,7 +583,7 @@ private def handleRpcRequest
     Beam.Mcp.Server.handleJson state opts (rpcRequest id method params?)
 
 private def handleRpcRequestWithNotifications
-    (state : IO.Ref Beam.Mcp.Server.ServerState)
+    (state : Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (notifications : Beam.Mcp.Server.NotificationSink)
     (label : String)
@@ -600,6 +592,37 @@ private def handleRpcRequestWithNotifications
     (params? : Option Json := none) : IO Json := do
   expectResponse label =<<
     Beam.Mcp.Server.handleJson state opts (rpcRequest id method params?) notifications
+
+private def modernMeta
+    (version : String := Beam.Mcp.protocolVersion)
+    (logLevel? : Option String := none) : Json :=
+  Json.mkObj <| [
+    ("io.modelcontextprotocol/protocolVersion", toJson version),
+    ("io.modelcontextprotocol/clientCapabilities", Json.mkObj []),
+    ("io.modelcontextprotocol/clientInfo", Json.mkObj [
+      ("name", toJson "beam-mcp-protocol-test"),
+      ("version", toJson "0")
+    ])
+  ] ++ match logLevel? with
+    | some level => [("io.modelcontextprotocol/logLevel", toJson level)]
+    | none => []
+
+private def modernParams
+    (fields : List (String × Json) := [])
+    (version : String := Beam.Mcp.protocolVersion)
+    (logLevel? : Option String := none) : Json :=
+  Json.mkObj <| fields ++ [("_meta", modernMeta version logLevel?)]
+
+private def legacyInitializeParams
+    (version : String := Beam.Mcp.legacyProtocolVersion) : Json :=
+  Json.mkObj [
+    ("protocolVersion", toJson version),
+    ("capabilities", Json.mkObj []),
+    ("clientInfo", Json.mkObj [
+      ("name", toJson "beam-mcp-protocol-test"),
+      ("version", toJson "0")
+    ])
+  ]
 
 private def expectRpcErrorCode (label : String) (expected : Int) (resp : Json) : IO Json := do
   let err ← requireObjVal label "error" resp
@@ -613,6 +636,172 @@ private def expectToolErrorCode (label expectedCode : String) (resp : Json) : IO
   requireJsonString s!"{label} structured error" "code" expectedCode structured
   pure structured
 
+private def requireModernResultEnvelope (label : String) (result : Json) : IO Unit := do
+  requireJsonString label "resultType" "complete" result
+  let resultMeta ← requireObjVal label "_meta" result
+  let serverInfo ← requireObjVal label "io.modelcontextprotocol/serverInfo" resultMeta
+  requireJsonString label "name" Beam.Mcp.serverName serverInfo
+
+private def checkModernProtocol : IO Unit := do
+  let state ← Beam.Mcp.Server.ServerState.create
+  let opts : Beam.Mcp.Server.Options := {}
+
+  let discoverResp ← handleRpcRequest state opts "server/discover" 100 "server/discover" <|
+    some modernParams
+  let discover ← requireObjVal "server/discover response" "result" discoverResp
+  requireModernResultEnvelope "server/discover result" discover
+  requireJsonInt "server/discover result" "ttlMs" (Int.ofNat Beam.Mcp.publicCacheTtlMs) discover
+  requireJsonString "server/discover result" "cacheScope" "public" discover
+  let supportedJson ← requireObjVal "server/discover result" "supportedVersions" discover
+  let supported ← requireJsonArray "server/discover supportedVersions" supportedJson
+  require "server/discover advertises exactly the modern per-request protocol revisions"
+    (supported == #[toJson Beam.Mcp.protocolVersion])
+  let discoverCapabilities ← requireObjVal "server/discover result" "capabilities" discover
+  discard <| requireObjVal "server/discover capabilities" "logging" discoverCapabilities
+  let discoverTools ← requireObjVal "server/discover capabilities" "tools" discoverCapabilities
+  requireJsonBool "server/discover tools capability" "listChanged" false discoverTools
+  match ← state.protocolState with
+  | .undecided => pure ()
+  | other => throw <| IO.userError s!"server/discover selected a protocol family: {repr other}"
+  let listResp ← handleRpcRequest state opts "modern tools/list" 101 "tools/list" <|
+    some modernParams
+  let listResult ← requireObjVal "modern tools/list response" "result" listResp
+  requireModernResultEnvelope "modern tools/list result" listResult
+  requireJsonInt "modern tools/list result" "ttlMs" (Int.ofNat Beam.Mcp.publicCacheTtlMs) listResult
+  requireJsonString "modern tools/list result" "cacheScope" "public" listResult
+  discard <| requireObjVal "modern tools/list result" "tools" listResult
+  match ← state.protocolState with
+  | .modern => pure ()
+  | other => throw <| IO.userError s!"modern tools/list did not select modern protocol state: {repr other}"
+
+  let callResp ← handleRpcRequest state opts "modern beam_version" 102 "tools/call" <|
+    some <| modernParams [
+      ("name", toJson "beam_version"),
+      ("arguments", Json.mkObj [])
+    ]
+  let callResult ← requireObjVal "modern beam_version response" "result" callResp
+  requireModernResultEnvelope "modern beam_version result" callResult
+  requireJsonBool "modern beam_version result" "isError" false callResult
+  let preservedMetaResult := Beam.Mcp.modernResult <| Json.mkObj [
+    ("_meta", Json.mkObj [("example.test/value", toJson "preserved")])
+  ]
+  let preservedMeta ← requireObjVal "modern result" "_meta" preservedMetaResult
+  requireJsonString "modern result metadata" "example.test/value" "preserved" preservedMeta
+
+  let missingMetaResp ← handleRpcRequest state opts "server/discover missing metadata" 103
+    "server/discover" <| some <| Json.mkObj []
+  discard <| expectRpcErrorCode "server/discover missing metadata" (-32602) missingMetaResp
+
+  let modernInitializeResp ← handleRpcRequest state opts "modern initialize is removed" 1031
+    "initialize" <| some modernParams
+  discard <| expectRpcErrorCode "modern initialize is removed" (-32601) modernInitializeResp
+
+  let missingCapabilitiesResp ← handleRpcRequest state opts "modern missing capabilities" 104
+    "tools/list" <| some <| Json.mkObj [
+      ("_meta", Json.mkObj [
+        ("io.modelcontextprotocol/protocolVersion", toJson Beam.Mcp.protocolVersion)
+      ])
+    ]
+  discard <| expectRpcErrorCode "modern missing capabilities" (-32602) missingCapabilitiesResp
+
+  let unsupportedResp ← handleRpcRequest state opts "unsupported modern version" 105
+    "tools/list" <| some <| modernParams (version := "1900-01-01")
+  let unsupported ← expectRpcErrorCode "unsupported modern version" (-32022) unsupportedResp
+  let unsupportedData ← requireObjVal "unsupported modern version" "data" unsupported
+  requireJsonString "unsupported modern version" "requested" "1900-01-01" unsupportedData
+  let unsupportedVersionsJson ← requireObjVal "unsupported modern version" "supported" unsupportedData
+  let unsupportedVersions ← requireJsonArray "unsupported modern version supported" unsupportedVersionsJson
+  require "unsupported modern version lists exactly the per-request revisions"
+    (unsupportedVersions == #[toJson Beam.Mcp.protocolVersion])
+
+  let invalidLogLevelResp ← handleRpcRequest state opts "invalid modern log level" 112
+    "tools/list" <| some <| modernParams (logLevel? := some "verbose")
+  discard <| expectRpcErrorCode "invalid modern log level" (-32602) invalidLogLevelResp
+
+  let invalidClientInfoResp ← handleRpcRequest state opts "invalid modern client info" 113
+    "tools/list" <| some <| Json.mkObj [
+      ("_meta", Json.mkObj [
+        ("io.modelcontextprotocol/protocolVersion", toJson Beam.Mcp.protocolVersion),
+        ("io.modelcontextprotocol/clientCapabilities", Json.mkObj []),
+        ("io.modelcontextprotocol/clientInfo", Json.mkObj [
+          ("name", toJson "beam-mcp-protocol-test")
+        ])
+      ])
+    ]
+  discard <| expectRpcErrorCode "invalid modern client info" (-32602) invalidClientInfoResp
+
+  let invalidCapabilitiesResp ← handleRpcRequest state opts "invalid modern capabilities" 114
+    "tools/list" <| some <| Json.mkObj [
+      ("_meta", Json.mkObj [
+        ("io.modelcontextprotocol/protocolVersion", toJson Beam.Mcp.protocolVersion),
+        ("io.modelcontextprotocol/clientCapabilities", Json.arr #[toJson "not-an-object"])
+      ])
+    ]
+  discard <| expectRpcErrorCode "invalid modern capabilities" (-32602) invalidCapabilitiesResp
+
+  let semanticErrorResp ← handleRpcRequest state opts "modern known-tool input error" 115
+    "tools/call" <| some <| modernParams [
+      ("name", toJson "lean_sync"),
+      ("arguments", Json.mkObj [])
+    ]
+  discard <| expectToolErrorCode "modern known-tool input error" "invalidInput" semanticErrorResp
+  let semanticErrorResult ← requireObjVal "modern known-tool input error response" "result"
+    semanticErrorResp
+  requireModernResultEnvelope "modern known-tool input error result" semanticErrorResult
+
+  let requestStateResp ← handleRpcRequest state opts "unsupported requestState" 116
+    "tools/call" <| some <| modernParams [
+      ("name", toJson "beam_version"),
+      ("requestState", Json.mkObj [])
+    ]
+  let requestStateError ← expectRpcErrorCode "unsupported requestState" (-32602) requestStateResp
+  let requestStateMessage ← expectOk "unsupported requestState message" <|
+    requestStateError.getObjValAs? String "message"
+  require "unsupported requestState explains the missing MRTR origin"
+    (requestStateMessage.contains "input_required")
+
+  let inputResponsesResp ← handleRpcRequest state opts "unsupported inputResponses" 117
+    "tools/call" <| some <| modernParams [
+      ("name", toJson "beam_version"),
+      ("inputResponses", Json.arr #[])
+    ]
+  let inputResponsesError ←
+    expectRpcErrorCode "unsupported inputResponses" (-32602) inputResponsesResp
+  let inputResponsesMessage ← expectOk "unsupported inputResponses message" <|
+    inputResponsesError.getObjValAs? String "message"
+  require "unsupported inputResponses explains the missing MRTR origin"
+    (inputResponsesMessage.contains "input_required")
+
+  let modernLoggingResp ← handleRpcRequest state opts "modern logging/setLevel" 106
+    "logging/setLevel" <| some <| modernParams [("level", toJson "error")]
+  discard <| expectRpcErrorCode "modern logging/setLevel" (-32601) modernLoggingResp
+
+  let modernPingResp ← handleRpcRequest state opts "modern ping" 107 "ping" <|
+    some modernParams
+  discard <| expectRpcErrorCode "modern ping" (-32601) modernPingResp
+
+  let unknownNotificationResp? ←
+    Beam.Mcp.Server.handleJson state opts (rpcNotification "notifications/example-unknown")
+  require "unknown notification should not produce a response" unknownNotificationResp?.isNone
+
+  let initResp ← handleRpcRequest state opts "legacy initialize after modern requests" 108
+    "initialize" <| some legacyInitializeParams
+  discard <| expectRpcErrorCode "legacy initialize after modern requests" (-32600) initResp
+  let unmarkedListResp ← handleRpcRequest state opts "unmarked tools/list after modern requests" 109
+    "tools/list"
+  let unmarkedListError ←
+    expectRpcErrorCode "unmarked tools/list after modern requests" (-32602) unmarkedListResp
+  let unmarkedListMessage ← expectOk "unmarked tools/list message" <|
+    unmarkedListError.getObjValAs? String "message"
+  require "unmarked modern request names the missing metadata"
+    (unmarkedListMessage.contains "protocolVersion" &&
+      unmarkedListMessage.contains "clientCapabilities")
+  let modernListAgainResp ← handleRpcRequest state opts "modern tools/list after rejected legacy traffic" 110
+    "tools/list" <| some modernParams
+  let modernListAgain ← requireObjVal "modern tools/list after rejected legacy traffic" "result"
+    modernListAgainResp
+  requireModernResultEnvelope "modern tools/list after rejected legacy traffic" modernListAgain
+
 private def checkServerBasics : IO Unit := do
   let root ← IO.currentDir
   let state ← Beam.Mcp.Server.ServerState.create
@@ -621,13 +810,37 @@ private def checkServerBasics : IO Unit := do
   let preInitResp ← handleRpcRequest state opts "pre-initialize tools/list rejection" 0 "tools/list"
   discard <| expectRpcErrorCode "pre-initialize tools/list response" (-32600) preInitResp
 
-  let initResp ← handleRpcRequest state opts "initialize" 1 "initialize" <| some <|
-    Json.mkObj [
-        ("protocolVersion", toJson Beam.Mcp.protocolVersion),
-        ("capabilities", Json.mkObj [])
+  let missingInitParams ← handleRpcRequest state opts "missing initialize params" 1000 "initialize"
+  discard <| expectRpcErrorCode "missing initialize params" (-32602) missingInitParams
+  match ← state.protocolState with
+  | .undecided => pure ()
+  | other => throw <| IO.userError s!"invalid initialize selected a protocol family: {repr other}"
+
+  let missingClientInfo ← handleRpcRequest state opts "missing initialize clientInfo" 1001
+    "initialize" <| some <| Json.mkObj [
+      ("protocolVersion", toJson Beam.Mcp.legacyProtocolVersion),
+      ("capabilities", Json.mkObj [])
     ]
+  discard <| expectRpcErrorCode "missing initialize clientInfo" (-32602) missingClientInfo
+
+  let invalidCapabilities ← handleRpcRequest state opts "invalid initialize capabilities" 1002
+    "initialize" <| some <| (legacyInitializeParams.setObjVal! "capabilities" (Json.arr #[]))
+  discard <| expectRpcErrorCode "invalid initialize capabilities" (-32602) invalidCapabilities
+
+  let invalidClientInfo ← handleRpcRequest state opts "invalid initialize clientInfo" 1003
+    "initialize" <| some <| (legacyInitializeParams.setObjVal! "clientInfo" <| Json.mkObj [
+      ("name", toJson "beam-mcp-protocol-test")
+    ])
+  discard <| expectRpcErrorCode "invalid initialize clientInfo" (-32602) invalidClientInfo
+
+  let undeclaredInitField ← handleRpcRequest state opts "undeclared initialize field" 1004
+    "initialize" <| some <| (legacyInitializeParams.setObjVal! "workspace" (Json.mkObj []))
+  discard <| expectRpcErrorCode "undeclared initialize field" (-32602) undeclaredInitField
+
+  let initResp ← handleRpcRequest state opts "initialize" 1 "initialize" <| some <|
+    legacyInitializeParams
   let initResult ← requireObjVal "initialize response" "result" initResp
-  requireJsonString "initialize result" "protocolVersion" Beam.Mcp.protocolVersion initResult
+  requireJsonString "initialize result" "protocolVersion" Beam.Mcp.legacyProtocolVersion initResult
   let serverInfo ← requireObjVal "initialize result" "serverInfo" initResult
   requireJsonString "initialize serverInfo" "name" Beam.Mcp.serverName serverInfo
   requireJsonString "initialize serverInfo" "version" Beam.Mcp.serverVersion serverInfo
@@ -635,6 +848,11 @@ private def checkServerBasics : IO Unit := do
   discard <| requireObjVal "initialize capabilities" "logging" capabilities
   let toolsCapability ← requireObjVal "initialize capabilities" "tools" capabilities
   requireJsonBool "initialize tools capability" "listChanged" false toolsCapability
+  match ← state.protocolState with
+  | .legacy legacy =>
+      require "initialize should await notifications/initialized"
+        (legacy.phase == .awaitingInitialized)
+  | other => throw <| IO.userError s!"initialize did not select legacy protocol state: {repr other}"
 
   let setLogLevelResp ← handleRpcRequest state opts "set log level" 12 "logging/setLevel" <| some <|
     Json.mkObj [
@@ -642,8 +860,10 @@ private def checkServerBasics : IO Unit := do
       ("_meta", Json.mkObj [("traceId", toJson "logging-trace")])
     ]
   discard <| requireObjVal "set log level response" "result" setLogLevelResp
-  require "set log level should update legacy protocol state"
-    ((← state.get).legacy.logLevel == .warning)
+  match ← state.protocolState with
+  | .legacy legacy =>
+      require "set log level should update legacy protocol state" (legacy.logLevel == .warning)
+  | other => throw <| IO.userError s!"logging request left legacy protocol state: {repr other}"
 
   let badLogLevelResp ← handleRpcRequest state opts "bad log level" 13 "logging/setLevel" <| some <|
     Json.mkObj [
@@ -654,14 +874,18 @@ private def checkServerBasics : IO Unit := do
   let preReadyResp ← handleRpcRequest state opts "pre-ready tools/list rejection" 11 "tools/list"
   discard <| expectRpcErrorCode "pre-ready tools/list response" (-32600) preReadyResp
 
-  let initializedResp ←
+  let initializedResp? ←
     Beam.Mcp.Server.handleJson state opts (rpcNotification "notifications/initialized")
-  match initializedResp with
-  | (none, false) => pure ()
-  | (some json, stop) =>
-      throw <| IO.userError s!"initialized notification should not produce a response/stop: {json.compress}, {stop}"
-  | (none, true) =>
-      throw <| IO.userError "initialized notification should not stop the server"
+  require "initialized notification should not produce a response" initializedResp?.isNone
+  match ← state.protocolState with
+  | .legacy legacy =>
+      require "initialized notification should make the legacy protocol ready"
+        (legacy.phase == .ready)
+  | other => throw <| IO.userError s!"initialized notification left legacy protocol state: {repr other}"
+
+  let modernAfterLegacy ← handleRpcRequest state opts "modern tools/list after legacy initialize" 1100
+    "tools/list" <| some modernParams
+  discard <| expectRpcErrorCode "modern tools/list after legacy initialize" (-32600) modernAfterLegacy
 
   let listResp ← handleRpcRequest state opts "tools/list" 2 "tools/list"
   let listResult ← requireObjVal "tools/list response" "result" listResp
@@ -739,11 +963,11 @@ private def checkServerBasics : IO Unit := do
   discard <| requireObjVal "beam feedback collected" "identity" feedbackCollected
   discard <| requireObjVal "beam feedback collected" "daemon" feedbackCollected
 
-  let stateAfterFeedback ← state.get
+  let stateAfterFeedback ← state.applicationState
   require "beam_feedback should not create a broker runtime"
-    stateAfterFeedback.application.runtime?.isNone
+    stateAfterFeedback.runtime?.isNone
   require "beam_feedback should not create a workspace cache"
-    stateAfterFeedback.application.workspaces.toList.isEmpty
+    stateAfterFeedback.workspaces.toList.isEmpty
 
   let uncachedDropResp ← handleRpcRequest state opts "drop uncached workspace" 24 "tools/call" <|
     some <| toolCallParams "lean_drop_workspace" <| withWorkspace root (Json.mkObj [])
@@ -761,11 +985,11 @@ private def checkServerBasics : IO Unit := do
     uncachedDropStructured
   requireJsonString "drop uncached workspace structured result" "reason" "notFound"
     uncachedDropStructured
-  let stateAfterUncachedDrop ← state.get
+  let stateAfterUncachedDrop ← state.applicationState
   require "dropping an uncached workspace should not create a broker runtime"
-    stateAfterUncachedDrop.application.runtime?.isNone
+    stateAfterUncachedDrop.runtime?.isNone
   require "dropping an uncached workspace should not create a workspace cache"
-    stateAfterUncachedDrop.application.workspaces.toList.isEmpty
+    stateAfterUncachedDrop.workspaces.toList.isEmpty
 
   let rawToolResp ← handleRpcRequest state opts "raw tool rejection" 3 "tools/call" <|
     some <| toolCallParams Beam.LSP.RunAt.method
@@ -906,25 +1130,17 @@ private def mcpOptionsWithPlugin : IO Beam.Mcp.Server.Options := do
   }
 
 private def initMcpSession
-    (state : IO.Ref Beam.Mcp.Server.ServerState)
+    (state : Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (notifications : Beam.Mcp.Server.NotificationSink) : IO Unit := do
   let _ ← handleRpcRequestWithNotifications state opts notifications "initialize" 1 "initialize" <| some <|
-    Json.mkObj [
-      ("protocolVersion", toJson Beam.Mcp.protocolVersion),
-      ("capabilities", Json.mkObj [])
-    ]
-  let initializedResp ←
+    legacyInitializeParams
+  let initializedResp? ←
     Beam.Mcp.Server.handleJson state opts (rpcNotification "notifications/initialized") notifications
-  match initializedResp with
-  | (none, false) => pure ()
-  | (some json, stop) =>
-      throw <| IO.userError s!"initialized notification should not produce a response/stop: {json.compress}, {stop}"
-  | (none, true) =>
-      throw <| IO.userError "initialized notification should not stop the server"
+  require "initialized notification should not produce a response" initializedResp?.isNone
 
 private def callLeanSync
-    (state : IO.Ref Beam.Mcp.Server.ServerState)
+    (state : Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
     (notifications : Beam.Mcp.Server.NotificationSink)
     (root : System.FilePath)
@@ -944,9 +1160,8 @@ private def callLeanSync
   handleRpcRequestWithNotifications state opts notifications s!"lean_sync {path}" id "tools/call" <|
     some <| toolCallParams "lean_sync" arguments
 
-private def shutdownMcpRuntime (state : IO.Ref Beam.Mcp.Server.ServerState) : IO Unit := do
-  let current ← state.get
-  match current.application.runtime? with
+private def shutdownMcpRuntime (state : Beam.Mcp.Server.ServerState) : IO Unit := do
+  match (← state.applicationState).runtime? with
   | none => pure ()
   | some runtime =>
       discard <| runtime.dispatchRequest { op := .shutdown }
@@ -1098,6 +1313,7 @@ def main : IO Unit := do
   checkWorkspaceRootValidation
   checkProgressProtocol
   checkRuntimeSetupErrors
+  checkModernProtocol
   checkServerBasics
   checkDiagnosticLogForwarding
 

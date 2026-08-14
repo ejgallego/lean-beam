@@ -20,7 +20,9 @@ A Lean release line is the canonical `major.minor` family recorded in
 - Runtime bundle metadata schema 2 and install manifest schema 3. Install manifest schema 2 is
   cleanup-only compatibility during the 0.2 release line: identity and `lean-beam prune` may read it,
   but the installer does not reuse it. Remove the schema-2 decoder when 0.3 development opens.
-- The MCP protocol revision currently advertised by `lean-beam-mcp` and its conformance baseline.
+- MCP `2026-07-28` is the preferred stdio protocol revision. MCP `2025-11-25` remains a named
+  transition target for initialization-based clients. Reconsider the legacy path before the 0.3
+  release once the clients named by the setup guide can all use per-request metadata.
 - Documented real client requirements, when they name an owner and removal condition.
 
 ## Change Rule

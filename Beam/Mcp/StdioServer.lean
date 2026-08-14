@@ -96,16 +96,21 @@ private structure RoutingState where
   controlBarrier? : Option (IO.Promise Unit) := none
   closing : Bool := false
 
+private inductive RequestRegistrationError where
+  | duplicate
+  | closing
+
 /-
-Nested locks flow toward the routing and output locks:
+Nested coordinator locks flow in one direction:
 
-* setup → routing/output while roots and runtimes are initialized
-* progress → request → routing/output while notifications and terminal responses are ordered
+* setup → progress → request → output during workspace cache eviction
+* progress → request → output for request notifications
+* request → output for active request messages
 
-Routing and output code must not acquire setup, progress, or request locks.
+Routing is released before setup, request, or output is acquired. Output acquires no coordinator lock.
 -/
 private structure Coordinator where
-  state : IO.Ref ServerState
+  state : ServerState
   setupMutex : Std.Mutex Unit
   routing : Std.Mutex RoutingState
   output : OutputSink
@@ -121,7 +126,8 @@ private def Coordinator.create : IO Coordinator := do
 private def Coordinator.registerRequest
     (coordinator : Coordinator)
     (id : RequestId)
-    (cancellationPolicy : ClientCancellationPolicy) : IO (Except RpcError InFlightRequest) := do
+    (cancellationPolicy : ClientCancellationPolicy) :
+    IO (Except RequestRegistrationError InFlightRequest) := do
   let request : InFlightRequest := {
     id
     brokerId := ""
@@ -131,10 +137,10 @@ private def Coordinator.registerRequest
   }
   coordinator.routing.atomically do
     let routing ← get
-    if routing.closing then
-      pure <| .error <| RpcError.invalidRequest "MCP server is shutting down"
-    else if routing.inFlight.contains id then
-      pure <| .error <| RpcError.invalidRequest s!"request id {id.label} is already active"
+    if routing.inFlight.contains id then
+      pure <| .error .duplicate
+    else if routing.closing then
+      pure <| .error .closing
     else
       let brokerId := s!"mcp:{routing.nextBrokerId}"
       let request := { request with brokerId }
@@ -222,18 +228,19 @@ private def Coordinator.finishRequest
     (request : InFlightRequest)
     (response : Json) : IO Unit := do
   try
-    request.state.atomically do
+    let sendResponse ← request.state.atomically do
       let current ← get
       match current.phase with
       | .active =>
           set { current with phase := .completed }
-          coordinator.eraseRequest request
-          coordinator.output.send response
+          pure true
       | .clientCancelled =>
           set { current with phase := .completed }
-          coordinator.eraseRequest request
+          pure false
       | .completed =>
-          pure ()
+          pure false
+    if sendResponse then
+      coordinator.output.send response
   finally
     coordinator.eraseRequest request
     request.resolveDone
@@ -327,8 +334,8 @@ private def Coordinator.closeTransport (coordinator : Coordinator) : IO Unit := 
   coordinator.awaitRequests requests
   unless alreadyClosing do
     coordinator.setupMutex.atomically do
-      let currentState ← coordinator.state.get
-      match currentState.application.runtime? with
+      let application ← coordinator.state.applicationState
+      match application.runtime? with
       | none => pure ()
       | some runtime =>
           discard <| runtime.dispatchRequest { op := .shutdown }
@@ -336,23 +343,16 @@ private def Coordinator.closeTransport (coordinator : Coordinator) : IO Unit := 
 private def Coordinator.admitToolRequest
     (coordinator : Coordinator)
     (req : Request)
-    (cancellationPolicy : ClientCancellationPolicy) :
-    IO (Except Json InFlightRequest) := do
-  let currentState ← coordinator.state.get
-  if !currentState.legacy.initializeComplete then
-    return .error <| errorResponse req.id <|
-        RpcError.invalidRequest "initialize must complete before MCP operation requests"
-  if !currentState.legacy.initializedNotificationSeen then
-    return .error <| errorResponse req.id <|
-        RpcError.invalidRequest "notifications/initialized is required before MCP operation requests"
-  match ← coordinator.registerRequest req.id cancellationPolicy with
-  | .ok request => pure <| .ok request
-  | .error err => pure <| .error <| errorResponse req.id err
+    (evidence : RequestProtocolEvidence) : IO (Except Json AdmittedRequestContext) := do
+  match ← Internal.admitOperationRequest coordinator.state evidence with
+  | .ok admitted => pure <| .ok admitted
+  | .error err => return .error <| errorResponse req.id err
 
 private def Coordinator.executeToolRequest
     (coordinator : Coordinator)
     (opts : Options)
     (req : Request)
+    (admitted : AdmittedRequestContext)
     (parsedParams : Except String CallToolParams)
     (request : InFlightRequest) : IO Json := do
   let notifications : NotificationSink := {
@@ -366,9 +366,10 @@ private def Coordinator.executeToolRequest
         request.brokerId
         request.bindRuntime
         req
+        admitted
         parsedParams
         notifications with
-    | .ok result => pure <| successResponse req.id result
+    | .ok result => pure <| successResponseForEra admitted.era req.id result
     | .error err => pure <| errorResponse req.id err
   catch e =>
     pure <| errorResponse req.id (RpcError.internalError e.toString)
@@ -377,6 +378,7 @@ private def Coordinator.runToolRequest
     (coordinator : Coordinator)
     (opts : Options)
     (req : Request)
+    (admitted : AdmittedRequestContext)
     (parsedParams : Except String CallToolParams)
     (request : InFlightRequest)
     (barrier? : Option (IO.Promise Unit)) : IO Unit := do
@@ -384,7 +386,7 @@ private def Coordinator.runToolRequest
     try
       awaitControlBarrier barrier?
       if ← request.isActive then
-        coordinator.executeToolRequest opts req parsedParams request
+        coordinator.executeToolRequest opts req admitted parsedParams request
       else
         pure <| errorResponse req.id <|
           RpcError.invalidRequest "request was cancelled before execution"
@@ -396,17 +398,19 @@ private def Coordinator.spawnToolRequest
     (coordinator : Coordinator)
     (opts : Options)
     (req : Request)
-    (parsedParams : Except String CallToolParams) : IO Unit := do
-  let request ←
-    match ← coordinator.admitToolRequest req .cooperative with
-    | .ok request => pure request
+    (evidence : RequestProtocolEvidence)
+    (parsedParams : Except String CallToolParams)
+    (request : InFlightRequest) : IO Unit := do
+  let admitted ←
+    match ← coordinator.admitToolRequest req evidence with
+    | .ok admitted => pure admitted
     | .error response =>
-        coordinator.output.send response
+        coordinator.finishRequest request response
         return
   let barrier? ← coordinator.currentControlBarrier?
   let _ ← IO.asTask (prio := Task.Priority.dedicated) do
     try
-      coordinator.runToolRequest opts req parsedParams request barrier?
+      coordinator.runToolRequest opts req admitted parsedParams request barrier?
     catch e =>
       if !Beam.Mcp.Stdio.isBrokenPipeError e then
         Internal.traceMcp s!"request completion failed id={req.id.label}: {e.toString}"
@@ -416,10 +420,12 @@ private def Coordinator.handleControlToolRequest
     (coordinator : Coordinator)
     (opts : Options)
     (req : Request)
-    (parsedParams : Except String CallToolParams) : IO Unit := do
-  match ← coordinator.admitToolRequest req .nonCancellable with
-  | .error response => coordinator.output.send response
-  | .ok request =>
+    (evidence : RequestProtocolEvidence)
+    (parsedParams : Except String CallToolParams)
+    (request : InFlightRequest) : IO Unit := do
+  match ← coordinator.admitToolRequest req evidence with
+  | .error response => coordinator.finishRequest request response
+  | .ok admitted =>
       let (previous?, done) ← coordinator.pushControlBarrier
       let priorRequests ← coordinator.otherInFlightRequests request
       let _ ← IO.asTask (prio := Task.Priority.dedicated) do
@@ -427,10 +433,12 @@ private def Coordinator.handleControlToolRequest
           -- A control operation is a full stream-order fence: work admitted before it drains,
           -- while work admitted afterward waits on `done`.
           coordinator.awaitRequests priorRequests
-          coordinator.runToolRequest opts req parsedParams request previous?
+          coordinator.runToolRequest opts req admitted parsedParams request previous?
         catch e =>
           if !Beam.Mcp.Stdio.isBrokenPipeError e then
             Internal.traceMcp s!"workspace control completion failed id={req.id.label}: {e.toString}"
+          coordinator.finishRequest request <|
+            errorResponse req.id (RpcError.internalError e.toString)
         finally
           resolvePromise done
       pure ()
@@ -439,87 +447,108 @@ private def isWorkspaceControl : Except String CallToolParams → Bool
   | .ok params => params.name == .leanDropWorkspace
   | .error _ => false
 
+private def Coordinator.reserveRequestId
+    (coordinator : Coordinator)
+    (id : RequestId)
+    (cancellationPolicy : ClientCancellationPolicy) : IO (Option InFlightRequest) := do
+  match ← coordinator.registerRequest id cancellationPolicy with
+  | .ok request => pure <| some request
+  | .error .duplicate =>
+      Internal.traceMcp s!"ignoring duplicate active request id={id.label}"
+      pure none
+  | .error .closing =>
+      coordinator.output.send <| errorResponse id <|
+        RpcError.invalidRequest "MCP server is shutting down"
+      pure none
+
+private def Coordinator.reserveRequest
+    (coordinator : Coordinator)
+    (req : Request)
+    (cancellationPolicy : ClientCancellationPolicy) : IO (Option InFlightRequest) :=
+  coordinator.reserveRequestId req.id cancellationPolicy
+
+private def Coordinator.handleInvalidMessage
+    (coordinator : Coordinator)
+    (json : Json)
+    (message : String) : IO Unit := do
+  let invalidRequest := RpcError.invalidRequest message
+  match RequestId.fromEnvelope? json with
+  | none =>
+      coordinator.output.send <| errorResponse Json.null invalidRequest
+  | some id =>
+      let some request ← coordinator.reserveRequestId id .nonCancellable
+        | return
+      coordinator.finishRequest request <| errorResponse id invalidRequest
+
 private def Coordinator.handleNotification
     (coordinator : Coordinator)
-    (notification : Notification) : IO Bool := do
+    (notification : Notification) : IO Unit := do
   match notification.method with
   | "notifications/cancelled" =>
       match parseCancelledParams notification.params? with
       | .ok params => coordinator.cancelRequest params.requestId
       | .error err => Internal.traceMcp s!"ignoring invalid notifications/cancelled: {err}"
-      pure false
+      pure ()
   | _ =>
       Beam.Mcp.Server.handleNotification coordinator.state notification
-
-private def Coordinator.handleShutdown
-    (coordinator : Coordinator)
-    (req : Request) : IO Unit := do
-  let (_, requests) ← coordinator.beginClosing
-  coordinator.awaitRequests requests
-  let response ← coordinator.setupMutex.atomically do
-    let currentState ← coordinator.state.get
-    match currentState.application.runtime? with
-    | none =>
-        pure <| successResponse req.id (Json.mkObj [])
-    | some runtime =>
-        let (brokerResp, _) ← runtime.dispatchRequest { op := .shutdown }
-        if brokerResp.ok then
-          pure <| successResponse req.id (Json.mkObj [])
-        else
-          let message := (brokerResp.error?.map (·.message)).getD "Beam broker shutdown failed"
-          pure <| errorResponse req.id (RpcError.internalError message)
-  coordinator.output.send response
 
 private def Coordinator.handleIncoming
     (coordinator : Coordinator)
     (opts : Options)
-    (incoming : Incoming) : IO Bool := do
+    (incoming : Incoming) : IO Unit := do
   match incoming with
   | .request req =>
-      if req.method == "shutdown" then
-        coordinator.handleShutdown req
-        pure true
-      else if req.method == "tools/call" then
-        let parsedParams := parseCallToolParams req.params?
+      let parsedToolParams? :=
+        if req.method == "tools/call" then some <| parseCallToolParams req.params? else none
+      let cancellationPolicy :=
+        match parsedToolParams? with
+        | some parsedParams =>
+            if isWorkspaceControl parsedParams then .nonCancellable else .cooperative
+        | none => .nonCancellable
+      let some request ← coordinator.reserveRequest req cancellationPolicy
+        | return
+      let evidence ←
+        match req.protocolEvidence with
+        | .ok evidence => pure evidence
+        | .error err =>
+            coordinator.finishRequest request <| errorResponse req.id err
+            return
+      match parsedToolParams? with
+      | some parsedParams =>
         if isWorkspaceControl parsedParams then
-          coordinator.handleControlToolRequest opts req parsedParams
+          coordinator.handleControlToolRequest opts req evidence parsedParams request
         else
-          coordinator.spawnToolRequest opts req parsedParams
-        pure false
-      else
-        let (response, stop) ← handleRequest coordinator.state opts req {
-          send := coordinator.output.send
-        }
-        coordinator.output.send response
-        pure stop
+          coordinator.spawnToolRequest opts req evidence parsedParams request
+        pure ()
+      | none =>
+        let response ←
+          try
+            Internal.handleRequestForProtocol coordinator.state opts req evidence {
+              send := coordinator.output.send
+            }
+          catch e =>
+            pure <| errorResponse req.id (RpcError.internalError e.toString)
+        coordinator.finishRequest request response
   | .notification notification =>
       coordinator.handleNotification notification
-  | .response response =>
-      Internal.traceMcp s!"ignoring unexpected client response id={response.id.label}"
-      pure false
 
 partial def runStdio (opts : Options) : IO Unit := do
   let stdin ← IO.getStdin
   let coordinator ← Coordinator.create
   let rec loop : IO Unit := do
-    let line := Beam.Mcp.Stdio.stripLineEnding (← stdin.getLine)
-    if line.isEmpty then
+    let input ← stdin.getLine
+    if input.isEmpty then
       pure ()
     else
+      let line := Beam.Mcp.Stdio.stripLineEnding input
       match Json.parse line with
       | .error err =>
           coordinator.output.send <| errorResponse Json.null (RpcError.parseError err)
-          loop
       | .ok json =>
-          let stop ←
-            match Incoming.fromJson? json with
-            | .ok incoming => coordinator.handleIncoming opts incoming
-            | .error err =>
-                coordinator.output.send <|
-                  errorResponse (Internal.invalidRequestId json) (RpcError.invalidRequest err)
-                pure false
-          unless stop do
-            loop
+          match Incoming.fromJson? json with
+          | .ok incoming => coordinator.handleIncoming opts incoming
+          | .error err => coordinator.handleInvalidMessage json err
+      loop
   try
     loop
   catch e =>

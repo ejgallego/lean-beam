@@ -120,10 +120,12 @@ broker JSON stream exposed by `beam-client request-stream`.
 ## MCP Diagnostics
 
 The MCP server advertises logging and forwards incremental Lean diagnostics as structured
-`notifications/message` log events. These events include path, URI, version, range, severity,
-message data, and `completionBlocking=true` when a diagnostic is known to block file completion.
-They are request-scoped observations; save-blocking evidence is attached to the final sync/save
-verdict.
+`notifications/message` log events. Modern callers opt in for each request with
+`_meta["io.modelcontextprotocol/logLevel"]`; legacy callers set the connection-wide level with
+`logging/setLevel`. [MCP.md](MCP.md#progress-and-diagnostic-logs) defines the exact behavior for
+both protocol eras. Events include path, URI, version, range, severity, message data, and
+`completionBlocking=true` when a diagnostic is known to block file completion. They are
+request-scoped observations; save-blocking evidence is attached to the final sync/save verdict.
 
 MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
 `include_diagnostics: true` to replay diagnostics in the final structured result. By default replay

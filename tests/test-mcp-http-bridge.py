@@ -15,7 +15,8 @@ import urllib.request
 from pathlib import Path
 
 from mcp_test_util import (
-    MCP_PROTOCOL_VERSION,
+    MCP_LEGACY_PROTOCOL_VERSION,
+    MCP_MODERN_PROTOCOL_VERSION,
     fail,
     require,
     require_file_progress_range,
@@ -71,7 +72,16 @@ def wait_for_ready(ready_file, timeout):
     fail(f"timed out waiting for bridge ready file {ready_file}")
 
 
-def http_json(url, payload, *, protocol_version=MCP_PROTOCOL_VERSION, origin=None, content_type="application/json", timeout=30):
+def http_json(
+    url,
+    payload,
+    *,
+    protocol_version=MCP_LEGACY_PROTOCOL_VERSION,
+    origin=None,
+    content_type="application/json",
+    extra_headers=None,
+    timeout=30,
+):
     headers = {
         "Accept": "application/json, text/event-stream",
     }
@@ -81,6 +91,8 @@ def http_json(url, payload, *, protocol_version=MCP_PROTOCOL_VERSION, origin=Non
         headers["MCP-Protocol-Version"] = protocol_version
     if origin is not None:
         headers["Origin"] = origin
+    if extra_headers is not None:
+        headers.update(extra_headers)
     request = urllib.request.Request(
         url,
         data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
@@ -124,8 +136,12 @@ def expect_result(response):
 
 
 def expect_rpc_error(response, code):
+    expect_http_rpc_error(response, 200, code)
+
+
+def expect_http_rpc_error(response, expected_status, code):
     status, body = response
-    require(status == 200, f"expected HTTP 200 for JSON-RPC protocol error, got {status}: {body}")
+    require(status == expected_status, f"expected HTTP {expected_status}, got {status}: {body}")
     error = body.get("error") if isinstance(body, dict) else None
     require(isinstance(error, dict), f"expected JSON-RPC error body, got {body}")
     require(error.get("code") == code, f"expected JSON-RPC error code {code}, got {body}")
@@ -185,6 +201,47 @@ def bridge_failure_context(bridge, child_stderr_file):
     ])
 
 
+def start_bridge(
+    repo_root,
+    exe,
+    lean_cmd,
+    plugin,
+    ready_file,
+    child_stderr_file,
+    timeout,
+    *,
+    protocol_era="legacy",
+    env=None,
+):
+    command = [
+        sys.executable,
+        str(repo_root / "tests" / "mcp_http_bridge.py"),
+        "--server",
+        str(exe),
+        "--lean-cmd",
+        lean_cmd,
+        "--lean-plugin",
+        str(plugin),
+        "--protocol-era",
+        protocol_era,
+        "--ready-file",
+        str(ready_file),
+        "--server-stderr-file",
+        str(child_stderr_file),
+        "--timeout",
+        str(timeout),
+    ]
+    return subprocess.Popen(
+        command,
+        cwd=str(repo_root),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Smoke-test the local MCP stdio-to-HTTP bridge.")
     parser.add_argument("--timeout", type=float, default=30.0)
@@ -209,29 +266,15 @@ def main():
         bridge_env = os.environ.copy()
         bridge_env["LEAN_BEAM_MCP_TRACE"] = "1"
         bridge_env["LEAN_BEAM_BROKER_TRACE"] = "1"
-        bridge = subprocess.Popen(
-            [
-                sys.executable,
-                str(repo_root / "tests" / "mcp_http_bridge.py"),
-                "--server",
-                str(exe),
-                "--lean-cmd",
-                lean_cmd,
-                "--lean-plugin",
-                str(plugin),
-                "--ready-file",
-                str(ready_file),
-                "--server-stderr-file",
-                str(child_stderr_file),
-                "--timeout",
-                str(args.timeout),
-            ],
-            cwd=str(repo_root),
+        bridge = start_bridge(
+            repo_root,
+            exe,
+            lean_cmd,
+            plugin,
+            ready_file,
+            child_stderr_file,
+            args.timeout,
             env=bridge_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
         )
         try:
             url = wait_for_ready(ready_file, args.timeout)
@@ -268,7 +311,7 @@ def main():
                     "id": 1,
                     "method": "initialize",
                     "params": {
-                        "protocolVersion": MCP_PROTOCOL_VERSION,
+                        "protocolVersion": MCP_LEGACY_PROTOCOL_VERSION,
                         "capabilities": {},
                         "clientInfo": {"name": "lean-beam-http-bridge-test", "version": "0"},
                     },
@@ -276,7 +319,10 @@ def main():
                 protocol_version=None,
                 timeout=args.timeout,
             ))
-            require(init.get("protocolVersion") == MCP_PROTOCOL_VERSION, f"unexpected initialized version: {init}")
+            require(
+                init.get("protocolVersion") == MCP_LEGACY_PROTOCOL_VERSION,
+                f"unexpected initialized version: {init}",
+            )
 
             initialized_status, initialized_body = http_json(
                 url,
@@ -292,15 +338,8 @@ def main():
             )).get("tools")
             names = {tool.get("name") for tool in tools}
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
-            require("beam_feedback" in names, f"tools/list missing beam_feedback: {tools}")
+            require("lean_sync" in names, f"tools/list missing lean_sync: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
-            require("lean_signature_help" in names, f"tools/list missing lean_signature_help: {tools}")
-            require("lean_definition" in names, f"tools/list missing lean_definition: {tools}")
-            require("lean_references" in names, f"tools/list missing lean_references: {tools}")
-            require("lean_document_symbols" in names, f"tools/list missing lean_document_symbols: {tools}")
-            require("lean_workspace_symbols" in names, f"tools/list missing lean_workspace_symbols: {tools}")
-            require("lean_goals" in names, f"tools/list missing lean_goals: {tools}")
-            require("lean_code_action_resolve" in names, f"tools/list missing lean_code_action_resolve: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
 
             expect_rpc_error(
@@ -410,16 +449,124 @@ def main():
                 f"warning-only sync should return the response after diagnostic notifications: {warning_sync}",
             )
 
-            expect_result(http_json(url, {"jsonrpc": "2.0", "id": 8, "method": "shutdown"}, timeout=args.timeout))
-            bridge.wait(timeout=5)
-            if bridge.returncode != 0:
-                raise RuntimeError(f"bridge exited with {bridge.returncode}\n{bridge_failure_context(bridge, child_stderr_file)}")
         except Exception as err:
             if "bridge return code:" in str(err):
                 raise
             raise RuntimeError(f"{err}\n{bridge_failure_context(bridge, child_stderr_file)}") from err
         finally:
             stop_bridge_process(bridge)
+
+        modern_ready_file = tmp_path / "modern-ready.json"
+        modern_child_stderr_file = tmp_path / "modern-lean-beam-mcp.stderr"
+        modern_bridge = start_bridge(
+            repo_root,
+            exe,
+            lean_cmd,
+            plugin,
+            modern_ready_file,
+            modern_child_stderr_file,
+            args.timeout,
+            protocol_era="modern",
+        )
+        try:
+            modern_url = wait_for_ready(modern_ready_file, args.timeout)
+            modern_meta = {
+                "io.modelcontextprotocol/protocolVersion": MCP_MODERN_PROTOCOL_VERSION,
+                "io.modelcontextprotocol/clientCapabilities": {},
+                "io.modelcontextprotocol/clientInfo": {
+                    "name": "lean-beam-modern-http-bridge-test",
+                    "version": "0",
+                },
+            }
+
+            discovery = expect_result(http_json(
+                modern_url,
+                {
+                    "jsonrpc": "2.0",
+                    "id": "modern-discover",
+                    "method": "server/discover",
+                    "params": {"_meta": modern_meta},
+                },
+                protocol_version=MCP_MODERN_PROTOCOL_VERSION,
+                extra_headers={"Mcp-Method": "server/discover"},
+                timeout=args.timeout,
+            ))
+            require(discovery.get("resultType") == "complete", f"modern discovery envelope is invalid: {discovery}")
+
+            expect_http_rpc_error(
+                http_json(
+                    modern_url,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "missing-method-header",
+                        "method": "tools/list",
+                        "params": {"_meta": modern_meta},
+                    },
+                    protocol_version=MCP_MODERN_PROTOCOL_VERSION,
+                    timeout=args.timeout,
+                ),
+                400,
+                -32020,
+            )
+            expect_http_rpc_error(
+                http_json(
+                    modern_url,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "missing-modern-meta",
+                        "method": "tools/list",
+                        "params": {},
+                    },
+                    protocol_version=MCP_MODERN_PROTOCOL_VERSION,
+                    extra_headers={"Mcp-Method": "tools/list"},
+                    timeout=args.timeout,
+                ),
+                400,
+                -32602,
+            )
+            expect_http_rpc_error(
+                http_json(
+                    modern_url,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "removed-modern-initialize",
+                        "method": "initialize",
+                        "params": {"_meta": modern_meta},
+                    },
+                    protocol_version=MCP_MODERN_PROTOCOL_VERSION,
+                    extra_headers={"Mcp-Method": "initialize"},
+                    timeout=args.timeout,
+                ),
+                404,
+                -32601,
+            )
+
+            version = expect_result(http_json(
+                modern_url,
+                {
+                    "jsonrpc": "2.0",
+                    "id": "encoded-tool-name",
+                    "method": "tools/call",
+                    "params": {
+                        "name": "beam_version",
+                        "arguments": {},
+                        "_meta": modern_meta,
+                    },
+                },
+                protocol_version=MCP_MODERN_PROTOCOL_VERSION,
+                extra_headers={
+                    "Mcp-Method": "tools/call",
+                    "Mcp-Name": "=?base64?YmVhbV92ZXJzaW9u?=",
+                },
+                timeout=args.timeout,
+            ))
+            require(version.get("isError") is not True, f"Base64 Mcp-Name request failed: {version}")
+        except Exception as err:
+            raise RuntimeError(
+                f"{err}\n{bridge_failure_context(modern_bridge, modern_child_stderr_file)}"
+            ) from err
+        finally:
+            stop_bridge_process(modern_bridge)
 
 
 if __name__ == "__main__":

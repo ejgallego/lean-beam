@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import base64
+import binascii
 import json
 import select
 import socketserver
@@ -13,7 +15,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from mcp_test_util import MCP_PROTOCOL_VERSION
+from mcp_test_util import MCP_LEGACY_PROTOCOL_VERSION, MCP_MODERN_PROTOCOL_VERSION
+
+
+MCP_PROTOCOL_VERSION_META = "io.modelcontextprotocol/protocolVersion"
+MCP_NAME_SOURCE = {
+    "tools/call": "name",
+    "resources/read": "uri",
+    "prompts/get": "name",
+}
 
 
 class BridgeError(Exception):
@@ -22,7 +32,6 @@ class BridgeError(Exception):
 
 class StdioMcpServer:
     def __init__(self, command, cwd, timeout, *, mirror_stderr=False, stderr_file=None):
-        self.command = command
         self.timeout = timeout
         self.mirror_stderr = mirror_stderr
         self.stderr_file = stderr_file
@@ -38,7 +47,6 @@ class StdioMcpServer:
             encoding="utf-8",
             bufsize=1,
         )
-        self.notifications = []
         self.stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self.stderr_thread.start()
 
@@ -63,12 +71,17 @@ class StdioMcpServer:
 
     def close(self):
         if self.proc.poll() is None:
-            self.proc.terminate()
+            if self.proc.stdin is not None:
+                self.proc.stdin.close()
             try:
                 self.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait(timeout=5)
 
     def send_notification(self, message):
         with self.lock:
@@ -109,7 +122,6 @@ class StdioMcpServer:
             except json.JSONDecodeError as err:
                 raise BridgeError(f"lean-beam-mcp wrote invalid JSON: {err}: {line!r}") from err
             if "method" in message and "id" not in message:
-                self.notifications.append(message)
                 continue
             return message
 
@@ -117,11 +129,21 @@ class StdioMcpServer:
 class BridgeHttpServer(HTTPServer):
     allow_reuse_address = True
 
-    def __init__(self, server_address, handler_cls, *, endpoint, allowed_origins, mcp):
+    def __init__(
+        self,
+        server_address,
+        handler_cls,
+        *,
+        endpoint,
+        allowed_origins,
+        mcp,
+        protocol_era="legacy",
+    ):
         super().__init__(server_address, handler_cls)
         self.endpoint = endpoint
         self.allowed_origins = allowed_origins
         self.mcp = mcp
+        self.protocol_era = protocol_era
 
     def server_bind(self):
         socketserver.TCPServer.server_bind(self)
@@ -156,9 +178,6 @@ class McpBridgeHandler(BaseHTTPRequestHandler):
             return
         if not self._check_accept():
             return
-        if not self._check_protocol_version_header():
-            return
-
         try:
             body = self._read_json_body()
         except BridgeError as err:
@@ -170,12 +189,12 @@ class McpBridgeHandler(BaseHTTPRequestHandler):
             return
 
         is_request = "id" in body
+        if is_request and not self._check_request_headers(body):
+            return
         try:
             if is_request:
                 response = self.server.mcp.send_request(body)
-                self._send_json(HTTPStatus.OK, response)
-                if body.get("method") == "shutdown":
-                    threading.Thread(target=self.server.shutdown, daemon=True).start()
+                self._send_json(self._response_status(response), response)
             else:
                 self.server.mcp.send_notification(body)
                 self._send_empty(HTTPStatus.ACCEPTED)
@@ -211,12 +230,114 @@ class McpBridgeHandler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def _check_protocol_version_header(self):
-        version = self.headers.get("MCP-Protocol-Version")
-        if version is not None and version != MCP_PROTOCOL_VERSION:
+    def _check_request_headers(self, body):
+        if self.server.protocol_era == "modern":
+            return self._check_modern_request_headers(body)
+        return self._check_legacy_protocol_version_header()
+
+    def _check_legacy_protocol_version_header(self):
+        version = self._header_value("MCP-Protocol-Version")
+        if version is not None and version != MCP_LEGACY_PROTOCOL_VERSION:
             self._send_empty(HTTPStatus.BAD_REQUEST)
             return False
         return True
+
+    def _check_modern_request_headers(self, body):
+        request_id = body.get("id")
+        header_version = self._header_value("MCP-Protocol-Version")
+        params = body.get("params")
+        meta = params.get("_meta") if isinstance(params, dict) else None
+        body_version = meta.get(MCP_PROTOCOL_VERSION_META) if isinstance(meta, dict) else None
+        if not isinstance(header_version, str) or header_version == "":
+            return self._reject_header_mismatch(request_id, "missing MCP-Protocol-Version header")
+        if not isinstance(body_version, str) or body_version == "":
+            self._send_json_error(
+                HTTPStatus.BAD_REQUEST,
+                request_id,
+                -32602,
+                "request body is missing required protocol-version metadata",
+            )
+            return False
+        if header_version != body_version:
+            return self._reject_header_mismatch(
+                request_id,
+                "MCP-Protocol-Version header does not match request body metadata",
+            )
+        if header_version != MCP_MODERN_PROTOCOL_VERSION:
+            self._send_json_error(
+                HTTPStatus.BAD_REQUEST,
+                request_id,
+                -32022,
+                f"unsupported MCP protocol version '{header_version}'",
+                data={
+                    "supported": [MCP_MODERN_PROTOCOL_VERSION],
+                    "requested": header_version,
+                },
+            )
+            return False
+
+        method = body.get("method")
+        header_method = self._header_value("Mcp-Method")
+        if not isinstance(method, str) or header_method != method:
+            return self._reject_header_mismatch(
+                request_id,
+                "Mcp-Method header is missing or does not match the request body",
+            )
+
+        source_field = MCP_NAME_SOURCE.get(method)
+        if source_field is None:
+            return True
+        body_name = params.get(source_field) if isinstance(params, dict) else None
+        header_name = self._header_value("Mcp-Name")
+        try:
+            decoded_name = self._decode_header_value(header_name)
+        except BridgeError as err:
+            return self._reject_header_mismatch(request_id, str(err))
+        if not isinstance(body_name, str) or decoded_name != body_name:
+            return self._reject_header_mismatch(
+                request_id,
+                "Mcp-Name header is missing or does not match the request body",
+            )
+        return True
+
+    def _header_value(self, name):
+        value = self.headers.get(name)
+        return value.strip(" \t") if isinstance(value, str) else None
+
+    @staticmethod
+    def _decode_header_value(value):
+        if not isinstance(value, str):
+            raise BridgeError("missing required header value")
+        if value.startswith("=?base64?") and value.endswith("?="):
+            encoded = value[len("=?base64?"):-len("?=")]
+            try:
+                return base64.b64decode(encoded, validate=True).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError) as err:
+                raise BridgeError("malformed Base64 header value") from err
+        if any(character != "\t" and not (" " <= character <= "~") for character in value):
+            raise BridgeError("header value contains invalid characters")
+        return value
+
+    def _reject_header_mismatch(self, request_id, message):
+        self._send_json_error(
+            HTTPStatus.BAD_REQUEST,
+            request_id,
+            -32020,
+            f"header mismatch: {message}",
+        )
+        return False
+
+    def _response_status(self, response):
+        if self.server.protocol_era != "modern" or not isinstance(response, dict):
+            return HTTPStatus.OK
+        error = response.get("error")
+        if not isinstance(error, dict):
+            return HTTPStatus.OK
+        if error.get("code") == -32601:
+            return HTTPStatus.NOT_FOUND
+        if error.get("code") == -32603:
+            return HTTPStatus.INTERNAL_SERVER_ERROR
+        return HTTPStatus.BAD_REQUEST
 
     def _read_json_body(self):
         try:
@@ -244,11 +365,14 @@ class McpBridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    def _send_json_error(self, status, id_value, code, message):
+    def _send_json_error(self, status, id_value, code, message, *, data=None):
+        error = {"code": code, "message": message}
+        if data is not None:
+            error["data"] = data
         self._send_json(status, {
             "jsonrpc": "2.0",
             "id": id_value,
-            "error": {"code": code, "message": message},
+            "error": error,
         })
 
 
@@ -260,6 +384,7 @@ def parse_args():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--endpoint", default="/mcp")
+    parser.add_argument("--protocol-era", choices=("legacy", "modern"), default="legacy")
     parser.add_argument("--ready-file")
     parser.add_argument("--server-trace", action="store_true")
     parser.add_argument("--server-stderr-file")
@@ -290,13 +415,9 @@ def main():
             (args.host, args.port),
             McpBridgeHandler,
             endpoint=args.endpoint,
-            allowed_origins={
-                f"http://{args.host}:{0}",
-                f"http://{args.host}:{args.port}",
-                f"http://127.0.0.1:{args.port}",
-                f"http://localhost:{args.port}",
-            },
+            allowed_origins=set(),
             mcp=mcp,
+            protocol_era=args.protocol_era,
         )
         server.verbose = args.verbose
         host, port = server.server_address
