@@ -131,7 +131,13 @@ def beamStatsDescription : String :=
   "Return process-wide debug Beam broker runtime statistics for lazily cached workspaces."
 
 def beamFeedbackDescription : String :=
-  "Produce a pasteable Beam report card for one explicit workspace, optionally with a local evidence bundle."
+  String.intercalate " " [
+    "Produce a local, pasteable Beam report card for one explicit workspace; this tool does not submit feedback.",
+    "Non-confidential output may contain project context and caller payloads, so review it before posting.",
+    "Set confidential for non-public workspaces; confidential results retain caller-authored narrative",
+    "except for HOME-path redaction and do not scan it for other secrets; never post them publicly.",
+    "A local evidence bundle is optional."
+  ]
 
 open Beam.JsonSchema in
 def emptyInputSchema : Json :=
@@ -193,7 +199,8 @@ def feedbackInputSchema : Json :=
     ("evidence", arraySchema "Optional evidence entries to include in a bundle." evidenceInputSchema),
     ("bundle", enumString "Optional evidence bundle mode. Defaults to none." Beam.Feedback.bundleModeKeys),
     ("redact", bool "Whether to redact the user's home directory from the rendered report. Defaults to true."),
-    ("include_collected", bool "When true, include full collected Beam debug context inline in the MCP result. Defaults to false.")
+    ("confidential", bool "Set true for a non-public workspace. Forces HOME-path redaction; omits automatically collected project debug context, caller-supplied request, response, evidence, and the echoed workspace descriptor; retains other caller-authored narrative without scanning it for arbitrary secrets; and marks the report as confidential. Defaults to false."),
+    ("include_collected", bool "When true, include collected Beam debug context inline in the MCP result. In confidential mode, include only the restricted runtime identity. Defaults to false.")
   ] (Beam.Feedback.requiredInputFields.push "workspace")
 
 def dropWorkspaceDescription : String :=

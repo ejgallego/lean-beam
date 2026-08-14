@@ -1371,12 +1371,14 @@ mcp_smoke_out="$(mktemp "$tmp_root/install-mcp-smoke-out-XXXXXX")"
 mcp_smoke_err="$(mktemp "$tmp_root/install-mcp-smoke-err-XXXXXX")"
 if ! python3 - "$installed_mcp" "$project_root" >"$mcp_smoke_out" 2>"$mcp_smoke_err" <<'PY'
 import json
+import os
 import select
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+SHUTDOWN_TIMEOUT_SECONDS = int(os.environ.get("BEAM_MCP_SMOKE_SHUTDOWN_TIMEOUT", "30"))
 server, project_root = sys.argv[1:]
 workspace = {"root": str(Path(project_root).resolve())}
 proc = subprocess.Popen(
@@ -1466,8 +1468,18 @@ if range_start is not None and (
     raise RuntimeError(f"lean_sync result has invalid file_progress rangeStartLine: {progress}")
 
 proc.stdin.close()
-proc.wait(timeout=5)
+try:
+    code = proc.wait(timeout=SHUTDOWN_TIMEOUT_SECONDS)
+except subprocess.TimeoutExpired:
+    proc.kill()
+    proc.wait()
+    stderr = proc.stderr.read()
+    raise RuntimeError(
+        f"lean-beam-mcp did not exit within {SHUTDOWN_TIMEOUT_SECONDS}s after EOF: {stderr}"
+    )
 stderr = proc.stderr.read()
+if code != 0:
+    raise RuntimeError(f"lean-beam-mcp exited with code {code}: {stderr}")
 if stderr.strip():
     raise RuntimeError(f"lean-beam-mcp wrote stderr: {stderr}")
 print(json.dumps({"ok": True, "progress": progress}, sort_keys=True))

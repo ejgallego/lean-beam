@@ -22,26 +22,30 @@ namespace Beam.Cli.Feedback
 
 open Beam.Broker
 
-structure Options where
+private structure Options where
   input? : Option String := none
   bundle? : Option Beam.Feedback.BundleMode := none
   outputDir? : Option System.FilePath := none
   redact? : Option Bool := none
 
-def usage : String :=
+private def usage : String :=
   "usage: beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]"
 
-def inputShapeHelp : String :=
+private def inputShapeHelp : String :=
   s!"input must be a JSON object with required string fields: {Beam.Feedback.requiredInputFieldsText}"
 
-def help : String :=
+private def help : String :=
   String.intercalate "\n" [
     usage,
     "",
     inputShapeHelp,
-    "optional fields: kind, severity, impact, workaround, tags, client_request_id, request, response, evidence, bundle, redact",
+    s!"optional fields: {String.intercalate ", " Beam.Feedback.optionalInputFields.toList}",
+    "request and response must be JSON objects when supplied",
     "kind values: bug, ux, perf, docs, question",
     "severity values: low, medium, high, critical",
+    "privacy: Beam returns the report locally and does not submit it; non-confidential output may contain project context and caller payloads, so review it before posting",
+    "confidential: set true for non-public workspaces; forces HOME-path redaction and omits automatically collected project debug context, request/response payloads, and evidence",
+    "confidential reports retain narrative except for HOME-path redaction; review it for secrets; requested bundle paths remain in the local result; never post a confidential report publicly",
     "example:",
     "  {\"title\":\"Daemon startup failure\",\"kind\":\"bug\",\"severity\":\"high\",\"summary\":\"Beam failed to start\",\"reproduction\":\"lean-beam run-at Demo.lean 1 0\",\"expected\":\"A response is returned.\",\"actual\":\"The daemon closed the connection.\"}"
   ]
@@ -51,7 +55,7 @@ private def parseBundleMode (raw : String) : IO Beam.Feedback.BundleMode := do
   | .ok mode => pure mode
   | .error err => throw <| IO.userError s!"invalid feedback bundle mode: {err}"
 
-partial def parseOptions (opts : Options) : List String → IO Options
+private partial def parseOptions (opts : Options) : List String → IO Options
   | [] => pure opts
   | "--stdin" :: rest => do
       let text ← (← IO.getStdin).readToEnd
@@ -69,6 +73,9 @@ partial def parseOptions (opts : Options) : List String → IO Options
   | "--no-redact" :: rest =>
       parseOptions { opts with redact? := some false } rest
   | _ => throw <| IO.userError usage
+
+private def confidentialIdentityJson : Json :=
+  ({ name := Beam.Version.cliName } : Beam.Version.Identity).asJson
 
 private def versionIdentityJson (home : System.FilePath) : IO Json := do
   let appPath ← IO.appPath
@@ -106,7 +113,7 @@ private def collectDaemonPayload
           let (openDocs, warnings) := Beam.Feedback.responsePayloadOrWarning "open-files" openResp warnings
           pure (stats, openDocs, warnings)
 
-private def collect
+private def collectNonConfidential
     (home : System.FilePath)
     (root? : Option System.FilePath)
     (warnings : Array String) : IO Beam.Feedback.Collection := do
@@ -134,6 +141,26 @@ private def collect
     warnings
   }
 
+private def collectConfidential : IO Beam.Feedback.Collection := do
+  pure {
+    generatedAt := ← utcTimestamp
+    data := Json.mkObj [("identity", confidentialIdentityJson)]
+  }
+
+private def applyOverrides
+    (input : Beam.Feedback.Input)
+    (opts : Options) : Except String Beam.Feedback.Input := do
+  if input.confidential && opts.redact? == some false then
+    throw "'confidential' cannot be combined with --no-redact"
+  let input :=
+    match opts.bundle? with
+    | some bundle => { input with bundle }
+    | none => input
+  pure <|
+    match opts.redact? with
+    | some redact => { input with redact }
+    | none => input
+
 def run (home : System.FilePath) (cliOpts : CliOptions) (args : List String) : IO Unit := do
   if args == ["--help"] || args == ["-h"] then
     IO.println help
@@ -152,20 +179,31 @@ def run (home : System.FilePath) (cliOpts : CliOptions) (args : List String) : I
     match fromJson? (α := Beam.Feedback.Input) json with
     | .ok input => pure input
     | .error err => throw <| IO.userError s!"invalid feedback input: {err}"
-  let input := (input.withBundle opts.bundle?).withRedactOverride opts.redact?
+  let input ←
+    match applyOverrides input opts with
+    | .ok input => pure input
+    | .error err => throw <| IO.userError s!"invalid feedback input: {err}"
+  let needsRoot := !input.confidential || (input.bundle != .none && opts.outputDir?.isNone)
   let (root?, warnings) ←
-    try
-      let root ← projectRootAny cliOpts
-      pure (some root, #[])
-    catch e =>
-      pure (none, #[e.toString])
-  let collection ← collect home root? warnings
+    if needsRoot then
+      try
+        let root ← projectRootAny cliOpts
+        pure (some root, #[])
+      catch e =>
+        pure (none, #[e.toString])
+    else
+      pure (none, #[])
+  let collection ←
+    if input.confidential then collectConfidential else collectNonConfidential home root? warnings
   let allowedRoots ←
-    match root? with
-    | some root => do
-        let control ← controlDir root
-        pure #[root, control]
-    | none => pure #[]
+    if Beam.Feedback.Internal.needsEvidenceRoots input then
+      match root? with
+      | some root => do
+          let control ← controlDir root
+          pure #[root, control]
+      | none => pure #[]
+    else
+      pure #[]
   let result ← Beam.Feedback.buildResult input collection {
     root?
     outputDir? := opts.outputDir?

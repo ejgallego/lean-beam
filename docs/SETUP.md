@@ -372,10 +372,10 @@ To evict one cached runtime after project-configuration changes, call `lean_drop
 ```
 
 Drop invalidates proof handles for that runtime. It does not select context for later calls; a later
-request with the same descriptor recreates the runtime. Keep the canonical `workspace` descriptor
-echoed by Lean operation and feedback results; it can still evict cached state after the project path
-or its Lean/Lake markers become unavailable. `beam_version` and `beam_stats` are process-wide and
-accept no descriptor. Exact tool and version semantics live in the
+request with the same descriptor recreates the runtime. Retain the canonical `workspace` descriptor
+when a Lean operation, non-confidential feedback result, or drop result echoes it; it can still evict
+cached state after the project path or its Lean/Lake markers become unavailable. `beam_version` and
+`beam_stats` are process-wide and accept no descriptor. Exact tool and version semantics live in the
 [MCP protocol notes](MCP.md#public-tools).
 
 The wrapper resolves the matching installed Beam runtime for each project.

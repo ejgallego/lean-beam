@@ -373,6 +373,7 @@ private def checkToolsListShape : IO Unit := do
     (bundleEnum == toJson (#["none", "dir", "zip"] : Array String))
   requireFieldPresent "beam_feedback input schema" "kind" feedbackProperties
   requireFieldPresent "beam_feedback input schema" "severity" feedbackProperties
+  requireFieldPresent "beam_feedback input schema" "confidential" feedbackProperties
   requireFieldPresent "beam_feedback input schema" "include_collected" feedbackProperties
 
   let rawExposed := tools.any fun tool =>
@@ -642,7 +643,34 @@ private def requireModernResultEnvelope (label : String) (result : Json) : IO Un
   let serverInfo ← requireObjVal label "io.modelcontextprotocol/serverInfo" resultMeta
   requireJsonString label "name" Beam.Mcp.serverName serverInfo
 
+private def requireConfidentialFeedbackResult
+    (label secret : String)
+    (result : Json) : IO Unit := do
+  requireJsonBool s!"{label} result" "isError" false result
+  let structured ← requireObjVal s!"{label} result" "structuredContent" result
+  require s!"{label} omits caller payloads" (!structured.compress.contains secret)
+  requireFieldAbsent s!"{label} structured" "workspace" structured
+  let markdown ← IO.ofExcept <| structured.getObjValAs? String "markdown"
+  require s!"{label} carries a visible warning"
+    (markdown.contains "do not post this report publicly")
+  let metadata ← requireObjVal s!"{label} structured" "metadata" structured
+  requireJsonBool s!"{label} metadata" "confidential" true metadata
+  requireJsonNull s!"{label} metadata" "active_root" metadata
+  let collected ← requireObjVal s!"{label} structured" "collected" structured
+  let identity ← requireObjVal s!"{label} collected" "identity" collected
+  requireJsonString s!"{label} identity" "name" Beam.Version.mcpServerName identity
+  requireJsonString s!"{label} identity" "version" Beam.Version.projectVersion identity
+  requireJsonString s!"{label} identity" "mcp_protocol"
+    Beam.Version.mcpProtocolVersion identity
+  requireJsonBool s!"{label} identity" "runtime_active" false identity
+  requireFieldAbsent s!"{label} identity" "beam_home" identity
+  requireFieldAbsent s!"{label} identity" "source_commit" identity
+  requireFieldAbsent s!"{label} identity" "active_root" identity
+  requireFieldAbsent s!"{label} collected" "daemon" collected
+  requireFieldAbsent s!"{label} collected" "openFiles" collected
+
 private def checkModernProtocol : IO Unit := do
+  let root ← IO.currentDir
   let state ← Beam.Mcp.Server.ServerState.create
   let opts : Beam.Mcp.Server.Options := {}
 
@@ -682,6 +710,33 @@ private def checkModernProtocol : IO Unit := do
   let callResult ← requireObjVal "modern beam_version response" "result" callResp
   requireModernResultEnvelope "modern beam_version result" callResult
   requireJsonBool "modern beam_version result" "isError" false callResult
+
+  let confidentialSecret := "PRIVATE_MODERN_MCP_CODE_b136"
+  let feedbackResp ← handleRpcRequest state opts "modern confidential beam_feedback" 1021
+    "tools/call" <| some <| modernParams [
+      ("name", toJson "beam_feedback"),
+      ("arguments", withWorkspace root <| Json.mkObj [
+        ("title", toJson "Modern MCP confidential feedback fixture"),
+        ("summary", toJson "Feedback report from a private workspace."),
+        ("reproduction", toJson "Call beam_feedback through stateless MCP."),
+        ("expected", toJson "A confidential report card is returned."),
+        ("actual", toJson "A confidential report card is returned."),
+        ("request", Json.mkObj [("source", toJson confidentialSecret)]),
+        ("confidential", toJson true),
+        ("include_collected", toJson true)
+      ])
+    ]
+  let feedbackResult ← requireObjVal "modern confidential beam_feedback response" "result"
+    feedbackResp
+  requireModernResultEnvelope "modern confidential beam_feedback result" feedbackResult
+  requireConfidentialFeedbackResult "modern confidential beam_feedback" confidentialSecret
+    feedbackResult
+  let stateAfterFeedback ← state.applicationState
+  require "modern beam_feedback should not create a broker runtime"
+    stateAfterFeedback.runtime?.isNone
+  require "modern beam_feedback should not create a workspace cache"
+    stateAfterFeedback.workspaces.toList.isEmpty
+
   let preservedMetaResult := Beam.Mcp.modernResult <| Json.mkObj [
     ("_meta", Json.mkObj [("example.test/value", toJson "preserved")])
   ]
@@ -930,14 +985,18 @@ private def checkServerBasics : IO Unit := do
   let feedbackStructured ← requireObjVal "beam feedback result" "structuredContent" feedbackResult
   let feedbackMarkdown ← IO.ofExcept <| feedbackStructured.getObjValAs? String "markdown"
   require "beam feedback markdown contains title" (feedbackMarkdown.contains "# MCP feedback fixture")
+  require "beam feedback markdown warns before public posting"
+    (feedbackMarkdown.contains "Review before posting publicly")
+  require "beam feedback markdown states that feedback is not submitted automatically"
+    (feedbackMarkdown.contains "Beam does not submit feedback automatically")
   require "beam feedback compact markdown contains runtime summary"
     (feedbackMarkdown.contains "## Beam Runtime")
   require "beam feedback compact markdown omits full debug context"
     (!feedbackMarkdown.contains "## Beam Debug Context")
-  discard <| requireObjVal "beam feedback structured" "metadata" feedbackStructured
   let feedbackMetadata ← requireObjVal "beam feedback structured" "metadata" feedbackStructured
   requireJsonString "beam feedback metadata" "kind" "bug" feedbackMetadata
   requireJsonString "beam feedback metadata" "severity" "medium" feedbackMetadata
+  requireFieldPresent "beam feedback compact structured" "workspace" feedbackStructured
   requireFieldAbsent "beam feedback compact structured" "collected" feedbackStructured
   requireFieldPresent "beam feedback compact structured" "collection_warnings" feedbackStructured
 
@@ -962,6 +1021,25 @@ private def checkServerBasics : IO Unit := do
   let feedbackCollected ← requireObjVal "beam feedback include_collected structured" "collected" feedbackFullStructured
   discard <| requireObjVal "beam feedback collected" "identity" feedbackCollected
   discard <| requireObjVal "beam feedback collected" "daemon" feedbackCollected
+
+  let confidentialSecret := "PRIVATE_MCP_CODE_91bc"
+  let feedbackConfidentialResp ←
+    handleRpcRequest state opts "beam feedback confidential" 25 "tools/call" <|
+      some <| toolCallParams "beam_feedback" <|
+        withWorkspace root <| Json.mkObj [
+          ("title", toJson "MCP confidential feedback fixture"),
+          ("summary", toJson "Feedback report from a private workspace."),
+          ("reproduction", toJson "Call beam_feedback through tools/call."),
+          ("expected", toJson "A confidential report card is returned."),
+          ("actual", toJson "A confidential report card is returned."),
+          ("request", Json.mkObj [("source", toJson confidentialSecret)]),
+          ("confidential", toJson true),
+          ("include_collected", toJson true)
+        ]
+  let feedbackConfidentialResult ←
+    requireObjVal "beam feedback confidential response" "result" feedbackConfidentialResp
+  requireConfidentialFeedbackResult "beam feedback confidential" confidentialSecret
+    feedbackConfidentialResult
 
   let stateAfterFeedback ← state.applicationState
   require "beam_feedback should not create a broker runtime"
@@ -1015,6 +1093,25 @@ private def checkServerBasics : IO Unit := do
   require "obsolete workspace selector error should identify an undeclared field"
     (obsoleteSelectorMessage.contains "workspace_id" &&
       obsoleteSelectorMessage.contains "undeclared input fields")
+
+  let misspelledConfidentialResp ←
+    handleRpcRequest state opts "misspelled confidential feedback field rejection" 34
+      "tools/call" <| some <| toolCallParams "beam_feedback" <|
+        withWorkspace root <| Json.mkObj [
+          ("title", toJson "Misspelled confidential feedback field"),
+          ("summary", toJson "Reject a misspelled privacy control."),
+          ("reproduction", toJson "Pass confidental instead of confidential."),
+          ("expected", toJson "A typed invalidInput error."),
+          ("actual", toJson "Regression coverage."),
+          ("confidental", toJson true)
+        ]
+  let misspelledConfidential ← expectToolErrorCode "misspelled confidential feedback field"
+    "invalidInput" misspelledConfidentialResp
+  let misspelledConfidentialMessage ← IO.ofExcept <|
+    misspelledConfidential.getObjValAs? String "message"
+  require "misspelled confidential feedback field should fail closed"
+    (misspelledConfidentialMessage.contains "confidental" &&
+      misspelledConfidentialMessage.contains "undeclared input fields")
 
   let nestedExtraResp ← handleRpcRequest state opts "nested feedback field rejection" 33
       "tools/call" <| some <| toolCallParams "beam_feedback" <|

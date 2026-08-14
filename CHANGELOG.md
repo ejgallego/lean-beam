@@ -8,6 +8,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
+- Confidential feedback report cards omit project-derived debug context and caller-supplied
+  request, response, and evidence payloads from CLI, MCP, and bundle output
+  ([#220](https://github.com/ejgallego/lean-beam/pull/220), @ejgallego).
 - `lean-beam prune` previews obsolete installed runtime snapshots; `--apply` removes them, and
   `--bundles` also selects stale or incomplete installed bundle-cache entries.
 - Installed runtime identities report whether the running CLI or MCP process still belongs to the
@@ -40,6 +43,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Fixed
 
+- Feedback input now rejects unknown JSON fields so misspelled privacy controls cannot silently
+  produce a non-confidential report
+  ([#220](https://github.com/ejgallego/lean-beam/pull/220), @ejgallego).
 - `lean-save` and `lean-close-save` now reuse the accepted server snapshot for structured Lake
   `leanOptions`, dynamic libraries, and plugins. Modules with batch-only `moreLeanArgs` still fail
   with `saveUnsupportedSetup`, now with guidance to use `leanOptions` or `lake build`. Running Lean
