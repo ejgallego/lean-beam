@@ -505,6 +505,12 @@ private def feedbackAllowedRoots
   let control ← Beam.Daemon.controlDir root
   pure #[root, control]
 
+private def confidentialServerIdentity (runtimeActive : Bool) : Beam.Version.Identity := {
+  name := Beam.Version.mcpServerName
+  mcpProtocol? := some Beam.Version.mcpProtocolVersion
+  runtimeActive? := some runtimeActive
+}
+
 private def feedbackIncludeCollected (arguments : Json) : Except String Bool := do
   match arguments.getObjVal? "include_collected" with
   | .ok value =>
@@ -541,16 +547,21 @@ private def handleBeamFeedback
     | .error err =>
         emitProgress? progress? "beam_feedback failed"
         return callToolErrorResult <| ToolError.invalidInput err
-  emitProgress? progress? "collecting beam_feedback context"
+  emitProgress? progress? <|
+    if input.confidential then
+      "preparing confidential beam_feedback report"
+    else
+      "collecting beam_feedback context"
   let generatedAt ← Beam.utcTimestamp
-  let identity ← serverIdentity opts (some root) (some runtime?.isSome)
   let collection ←
     if input.confidential then
-      pure ({
+      let identity := confidentialServerIdentity runtime?.isSome
+      pure {
         generatedAt
         data := Json.mkObj [("identity", identity.asJson)]
-      } : Beam.Feedback.Collection).forConfidential
+      }
     else do
+      let identity ← serverIdentity opts (some root) (some runtime?.isSome)
       let daemon ← Beam.Daemon.daemonDebugContextJson root
       let warnings := Beam.Daemon.daemonDebugWarnings daemon
       let (stats, openDocs, warnings') ←
@@ -566,7 +577,11 @@ private def handleBeamFeedback
         ]
         warnings := warnings'
       }
-  let allowedRoots ← feedbackAllowedRoots root
+  let allowedRoots ←
+    if Beam.Feedback.Internal.needsEvidenceRoots input then
+      feedbackAllowedRoots root
+    else
+      pure #[]
   try
     let result ← Beam.Feedback.buildResult input collection {
       root? := some root

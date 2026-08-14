@@ -178,6 +178,22 @@ assert_output_omits "lean-beam confidential feedback" "$feedback_confidential_ou
 assert_output_omits "lean-beam confidential feedback" "$feedback_confidential_output" '"openFiles"'
 assert_output_omits "lean-beam confidential feedback" "$feedback_confidential_output" '"daemon"'
 
+feedback_confidential_non_project_root="$PWD/docs"
+if [ -e "$feedback_confidential_non_project_root/lakefile.lean" ] \
+    || [ -e "$feedback_confidential_non_project_root/lakefile.toml" ] \
+    || [ -e "$feedback_confidential_non_project_root/lean-toolchain" ]; then
+  echo "reserved confidential feedback non-project root became a Lean/Lake project" >&2
+  exit 1
+fi
+feedback_confidential_non_project_root_output="$(
+  printf '%s\n' "$feedback_confidential_input" \
+    | scripts/lean-beam --root "$feedback_confidential_non_project_root" feedback --stdin
+)"
+assert_output_contains "lean-beam confidential feedback without project root" \
+  "$feedback_confidential_non_project_root_output" '"confidential": true'
+assert_output_omits "lean-beam confidential feedback without project root" \
+  "$feedback_confidential_non_project_root_output" "$feedback_confidential_non_project_root"
+
 feedback_confidential_err="$(mktemp /tmp/beam-feedback-confidential-XXXXXX)"
 if printf '%s\n' "$feedback_confidential_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin --no-redact > /dev/null 2>"$feedback_confidential_err"; then
   echo "expected lean-beam confidential feedback to reject --no-redact" >&2

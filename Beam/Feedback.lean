@@ -281,6 +281,11 @@ private def Input.forConfidentialOutput (input : Input) : Input :=
   else
     input
 
+/-- Whether bundle construction needs caller-approved roots for path-backed evidence. -/
+def Internal.needsEvidenceRoots (input : Input) : Bool :=
+  input.bundle != .none && !input.confidential &&
+    input.evidence.any fun evidence => evidence.content?.isNone && evidence.path?.isSome
+
 structure Collection where
   generatedAt : String
   activeRoot? : Option String := none
@@ -301,7 +306,7 @@ private def confidentialIdentity (data : Json) : Json :=
     ("runtime_active", confidentialJsonField identity "runtime_active")
   ]
 
-def Collection.forConfidential (collection : Collection) : Collection :=
+private def Collection.forConfidential (collection : Collection) : Collection :=
   {
     generatedAt := collection.generatedAt
     data := Json.mkObj [("identity", confidentialIdentity collection.data)]
@@ -715,10 +720,8 @@ private def writeEvidence
   let mut warnings := warnings
   if !input.evidence.isEmpty then
     IO.FS.createDirAll evidenceDir
-  let hasFileEvidence := input.evidence.any fun evidence =>
-    evidence.content?.isNone && evidence.path?.isSome
   let allowedRoots ←
-    if hasFileEvidence then
+    if Internal.needsEvidenceRoots input then
       resolveAllowedRoots (opts.allowedRoots ++ #[bundleDir])
     else
       pure #[]

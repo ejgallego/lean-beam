@@ -49,11 +49,13 @@ Set `"confidential": true` for feedback from a non-public workspace. Confidentia
 - marks the Markdown and metadata as confidential and says not to post the report publicly
 - forces home-path redaction and cannot be combined with `"redact": false` or `--no-redact`
 - does not collect project-derived daemon, stats, open-file, incident, or log context
+- skips CLI project-root discovery unless a requested bundle needs the default project-relative
+  output directory
 - clears the active project root and client request id from metadata; MCP also omits its echoed
   workspace descriptor
 - omits request/response payloads and caller-supplied evidence from the rendered report and bundle
   contents
-- retains only a small runtime identity containing the Beam name, version, MCP protocol version,
+- retains only the Beam name and version; MCP reports additionally retain the MCP protocol version
   and whether the MCP runtime was active
 
 The caller-authored `title`, `summary`, `reproduction`, `expected`, `actual`, `impact`, `workaround`,

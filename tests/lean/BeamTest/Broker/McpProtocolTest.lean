@@ -939,7 +939,6 @@ private def checkServerBasics : IO Unit := do
     (feedbackMarkdown.contains "## Beam Runtime")
   require "beam feedback compact markdown omits full debug context"
     (!feedbackMarkdown.contains "## Beam Debug Context")
-  discard <| requireObjVal "beam feedback structured" "metadata" feedbackStructured
   let feedbackMetadata ← requireObjVal "beam feedback structured" "metadata" feedbackStructured
   requireJsonString "beam feedback metadata" "kind" "bug" feedbackMetadata
   requireJsonString "beam feedback metadata" "severity" "medium" feedbackMetadata
@@ -1002,7 +1001,19 @@ private def checkServerBasics : IO Unit := do
   requireJsonNull "beam feedback confidential metadata" "active_root" feedbackConfidentialMetadata
   let feedbackConfidentialCollected ←
     requireObjVal "beam feedback confidential structured" "collected" feedbackConfidentialStructured
-  requireFieldPresent "beam feedback confidential collected" "identity" feedbackConfidentialCollected
+  let feedbackConfidentialIdentity ←
+    requireObjVal "beam feedback confidential collected" "identity" feedbackConfidentialCollected
+  requireJsonString "beam feedback confidential identity" "name" Beam.Version.mcpServerName
+    feedbackConfidentialIdentity
+  requireJsonString "beam feedback confidential identity" "version" Beam.Version.projectVersion
+    feedbackConfidentialIdentity
+  requireJsonString "beam feedback confidential identity" "mcp_protocol"
+    Beam.Version.mcpProtocolVersion feedbackConfidentialIdentity
+  requireJsonBool "beam feedback confidential identity" "runtime_active" false
+    feedbackConfidentialIdentity
+  requireFieldAbsent "beam feedback confidential identity" "beam_home" feedbackConfidentialIdentity
+  requireFieldAbsent "beam feedback confidential identity" "source_commit" feedbackConfidentialIdentity
+  requireFieldAbsent "beam feedback confidential identity" "active_root" feedbackConfidentialIdentity
   requireFieldAbsent "beam feedback confidential collected" "daemon" feedbackConfidentialCollected
   requireFieldAbsent "beam feedback confidential collected" "openFiles" feedbackConfidentialCollected
 

@@ -177,9 +177,11 @@ private def checkInputRoundTrip : IO Unit := do
 private def checkConfidentialOutput : IO Unit := do
   let home ← homeFixture
   let secretCode := "PRIVATE_LEAN_CODE_7f9d"
+  let narrativeMarker := "CALLER_NARRATIVE_RETAINED_7f9d"
   let privateRoot := "/srv/private/customer-project"
   let input : Beam.Feedback.Input := {
     sampleInput home with
+      summary := s!"{narrativeMarker}: Beam failed while reading {home}/project/Demo.lean"
       confidential := true
       clientRequestId? := some s!"request-{secretCode}"
       request? := some <| Json.mkObj [("source", toJson secretCode)]
@@ -212,6 +214,11 @@ private def checkConfidentialOutput : IO Unit := do
   require "confidential report explains retained caller narrative"
     (result.markdown.contains
       "Caller-authored narrative is retained except for HOME-path redaction")
+  require "confidential output retains caller-authored narrative"
+    (result.markdown.contains narrativeMarker)
+  if !home.isEmpty then
+    require "confidential caller narrative still redacts HOME paths"
+      (result.markdown.contains "~/project/Demo.lean" && !result.markdown.contains home)
   require "confidential output omits caller-supplied request, response, evidence, and ids"
     (!output.contains secretCode)
   require "confidential output omits the active project root" (!output.contains privateRoot)
