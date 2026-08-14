@@ -1815,7 +1815,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             cancel_id = "cancelled-run-at"
             client.send_request("tools/call", slow_params, request_id=cancel_id)
             wait_for_file(started_path, timeout, "cancelled runAt gate sentinel")
-            time.sleep(0.2)
+            time.sleep(0.5)
             require(
                 len(status_log_notifications(client)) == suppressed_status_count,
                 f"warning log level should suppress notice status: {client.notifications}",
@@ -1897,6 +1897,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 )
             expect_result(client.request("ping", request_id="after-burst"))
 
+            expect_result(client.request("logging/setLevel", {"level": "notice"}))
             started_path.unlink()
             release_path.unlink(missing_ok=True)
             drop_fence_id = "drop-fence-run-at"
@@ -1926,6 +1927,14 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             require(
                 not client.response_ready(post_drop_id),
                 "work admitted after workspace drop bypassed the global control fence",
+            )
+            expect_status_log(
+                client,
+                request_id=drop_id,
+                tool="lean_drop_workspace",
+                state="running",
+                timeout=min(timeout, 5.0),
+                label="delayed workspace drop status",
             )
             release_path.write_text("release\n", encoding="utf-8")
             slow_response = client.read_response(drop_fence_id)
@@ -2038,7 +2047,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                         label=f"{label} status",
                     )
                 else:
-                    time.sleep(0.2)
+                    time.sleep(0.5)
                     require(
                         status_log_notifications(modern_client, request_id) == [],
                         f"{label} should suppress notice status: {modern_client.notifications}",
@@ -2059,7 +2068,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 request_id=modern_cancel_id,
             )
             wait_for_file(started_path, timeout, "modern cancelled runAt gate sentinel")
-            time.sleep(0.2)
+            time.sleep(0.5)
             require(
                 status_log_notifications(modern_client, modern_cancel_id) == [],
                 f"modern request without logLevel emitted status: {modern_client.notifications}",

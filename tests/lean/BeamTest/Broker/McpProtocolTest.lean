@@ -580,11 +580,35 @@ private def checkProgressProtocol : IO Unit := do
   requireJsonInt "progress notification params" "total" 8 params
   requireJsonString "progress notification params" "message" "syncing" params
 
+  let setupDiagnostic : Beam.Broker.StreamDiagnostic := {
+    path := "Demo.lean"
+    uri := "file:///workspace/Demo.lean"
+    severity? := some .information
+    range := {
+      start := { line := 0, character := 0 }
+      «end» := { line := 1, character := 0 }
+    }
+    message := "✔ [1/2] Building Demo.Dependency (12s)\n"
+  }
+  let setupMessage ←
+    match Beam.Mcp.Server.Internal.projectStreamDiagnostic
+        .leanSync (some "Demo.lean") setupDiagnostic with
+    | .setupStatus message => pure message
+    | .diagnostic =>
+        throw <| IO.userError "Lake setup diagnostic projected as an ordinary MCP diagnostic"
+  require "setup status message is normalized and contextual"
+    (setupMessage ==
+      "lean_sync on Demo.lean: preparing Lean dependencies — ✔ [1/2] Building Demo.Dependency (12s)")
+  require "ordinary information diagnostic stays diagnostic" <|
+    Beam.Mcp.Server.Internal.projectStreamDiagnostic
+      .leanSync (some "Demo.lean") { setupDiagnostic with message := "ordinary Lean information" } ==
+        .diagnostic
+
   let statusNotification := Beam.Mcp.toolStatusNotification {
     requestId := toJson (42 : Nat)
     tool := "lean_sync"
-    state := .running
-    message := "lean_sync on Demo.lean is still working."
+    state := .preparingDependencies
+    message := setupMessage
     path? := some "Demo.lean"
     progressHint? := some "Pass tools/call params._meta.progressToken."
   }
@@ -595,9 +619,9 @@ private def checkProgressProtocol : IO Unit := do
   let statusData ← requireObjVal "status notification params" "data" statusParams
   requireJsonInt "status notification data" "requestId" 42 statusData
   requireJsonString "status notification data" "tool" "lean_sync" statusData
-  requireJsonString "status notification data" "state" "running" statusData
+  requireJsonString "status notification data" "state" "preparing_dependencies" statusData
   requireJsonString "status notification data" "message"
-    "lean_sync on Demo.lean is still working." statusData
+    setupMessage statusData
   requireJsonString "status notification data" "path" "Demo.lean" statusData
   requireJsonString "status notification data" "progressHint"
     "Pass tools/call params._meta.progressToken." statusData

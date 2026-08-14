@@ -162,6 +162,12 @@ private def checkStreamMessageDecode : IO Unit := do
     fromJson? (α := StreamMessage) (toJson <| StreamMessage.mkResponse response)
   require "valid response stream kind" (validResponse.kind == .response)
 
+  let correlatedResponse := { response with clientRequestId? := some "req-response" }
+  let validCorrelatedResponse ← expectOk "valid correlated response stream" <|
+    fromJson? (α := StreamMessage) (toJson <| StreamMessage.mkResponse correlatedResponse)
+  require "valid correlated response stream preserves request id"
+    (validCorrelatedResponse.clientRequestId? == some "req-response")
+
   let progress : SyncFileProgress := { updates := 2, done := false }
   let validProgress ← expectOk "valid progress stream" <|
     fromJson? (α := StreamMessage) (toJson <| StreamMessage.mkFileProgress (some "req-1") progress)
@@ -178,6 +184,17 @@ private def checkStreamMessageDecode : IO Unit := do
       ("kind", toJson "response"),
       ("response", responseJson),
       ("fileProgress", progressJson)
+    ]
+  expectStreamDecodeFailure "response stream missing outer request id" <|
+    Json.mkObj [
+      ("kind", toJson "response"),
+      ("response", toJson correlatedResponse)
+    ]
+  expectStreamDecodeFailure "response stream with mismatched request id" <|
+    Json.mkObj [
+      ("kind", toJson "response"),
+      ("response", toJson correlatedResponse),
+      ("clientRequestId", toJson "req-other")
     ]
   expectStreamDecodeFailure "stream with undeclared field" <|
     Json.mkObj [

@@ -83,6 +83,16 @@ private structure Notifier where
   logPolicy : LogPolicy
   sink : NotificationSink
 
+private def notifierFor
+    (state : ServerState)
+    (admitted : AdmittedRequestContext)
+    (notifications : NotificationSink) : Notifier :=
+  let logPolicy :=
+    match admitted with
+    | .legacy => LogPolicy.legacy state
+    | .modern context => LogPolicy.request context.logLevel?
+  { logPolicy, sink := notifications }
+
 private def Notifier.send (notifier : Notifier) (json : Json) : IO Unit :=
   notifier.sink.send json
 
@@ -177,8 +187,6 @@ private def ProgressEmitter.emitFileProgress
 
 private def ProgressEmitter.emitSetupProgress
     (emitter : ProgressEmitter)
-    (tool : ToolName)
-    (path? : Option String)
     (message : String) : IO Unit := do
   emitter.state.atomically do
     let current ← get
@@ -187,10 +195,8 @@ private def ProgressEmitter.emitSetupProgress
     if shouldEmit then
       let next := current.nextProgress + 1
       set { current with setupUpdates, nextProgress := next }
-      let detail := message.trimAscii.toString
       emitter.emitNotification <|
-        progressNotification emitter.progressToken next <|
-          some s!"{toolTarget tool path?}: preparing Lean dependencies — {detail}"
+        progressNotification emitter.progressToken next (some message)
     else
       set { current with setupUpdates }
 
@@ -233,6 +239,22 @@ private def streamDiagnosticLogData (diagnostic : Beam.Broker.StreamDiagnostic) 
     | some version => [("version", toJson version)]
     | none => []
 
+inductive Internal.StreamDiagnosticProjection where
+  | setupStatus (message : String)
+  | diagnostic
+  deriving BEq, Repr
+
+/-- Classify and format one broker diagnostic for the MCP reporting surface. -/
+def Internal.projectStreamDiagnostic
+    (tool : ToolName)
+    (path? : Option String)
+    (diagnostic : Beam.Broker.StreamDiagnostic) : Internal.StreamDiagnosticProjection :=
+  if Beam.Broker.isLakeSetupFileProgressStreamDiagnostic diagnostic then
+    let detail := diagnostic.message.trimAscii.toString
+    .setupStatus s!"{toolTarget tool path?}: preparing Lean dependencies — {detail}"
+  else
+    .diagnostic
+
 private def Notifier.minimumLogLevel? (notifier : Notifier) : IO (Option LogLevel) := do
   match notifier.logPolicy with
   | .legacy state =>
@@ -241,22 +263,29 @@ private def Notifier.minimumLogLevel? (notifier : Notifier) : IO (Option LogLeve
       | .undecided | .modern => pure none
   | .request minimum? => pure minimum?
 
-private def Notifier.mayEmitNotice (notifier : Notifier) : Bool :=
+private def Notifier.couldEmitNotice (notifier : Notifier) : Bool :=
   match notifier.logPolicy with
+  -- Legacy logging is connection-wide and may change while this request is pending.
   | .legacy _ => true
   | .request (some minimum) => minimum.allows .notice
   | .request none => false
+
+private def Notifier.emitLogNotification
+    (notifier : Notifier)
+    (level : LogLevel)
+    (notification : Json) : IO Unit := do
+  match ← notifier.minimumLogLevel? with
+  | some minimum =>
+      if minimum.allows level then
+        notifier.send notification
+  | none => pure ()
 
 private def Notifier.emitLog
     (notifier : Notifier)
     (level : LogLevel)
     (logger : String)
-    (data : Json) : IO Unit := do
-  match ← notifier.minimumLogLevel? with
-  | some minimum =>
-      if minimum.allows level then
-        notifier.send <| logMessageNotification level logger data
-  | none => pure ()
+    (data : Json) : IO Unit :=
+  notifier.emitLogNotification level <| logMessageNotification level logger data
 
 private def emitDiagnosticLog
     (notifier : Notifier)
@@ -267,7 +296,7 @@ private def emitDiagnosticLog
 private def emitToolStatusLog
     (notifier : Notifier)
     (status : ToolStatus) : IO Unit :=
-  notifier.emitLog .notice "beam.status" (toJson status)
+  notifier.emitLogNotification .notice <| toolStatusNotification status
 
 private structure RequestStatusState where
   finished : Bool := false
@@ -340,6 +369,31 @@ private def RequestStatusEmitter.create
 private def toolPath? (arguments : Json) : Option String :=
   (arguments.getObjValAs? String "path").toOption
 
+structure Internal.DelayedStatusReporter where
+  stop : IO Unit
+
+def Internal.DelayedStatusReporter.finish
+    (reporter : Internal.DelayedStatusReporter) : IO Unit :=
+  reporter.stop
+
+/-- Start the no-token liveness watchdog before a request enters a transport-level wait. -/
+def Internal.createDelayedStatusReporter?
+    (state : ServerState)
+    (requestId : RequestId)
+    (admitted : AdmittedRequestContext)
+    (params : CallToolParams)
+    (notifications : NotificationSink) : IO (Option Internal.DelayedStatusReporter) := do
+  if params.progressToken?.isSome then
+    return none
+  match params.name.validateInputFields params.arguments with
+  | .error _ => return none
+  | .ok () => pure ()
+  let notifier := notifierFor state admitted notifications
+  unless notifier.couldEmitNotice do
+    return none
+  let emitter ← RequestStatusEmitter.create notifier requestId params.name (toolPath? params.arguments)
+  pure <| some { stop := emitter.finish }
+
 private structure CallReporter where
   tool : ToolName
   path? : Option String
@@ -356,7 +410,7 @@ private def CallReporter.create
     match progress? with
     | some _ => pure none
     | none =>
-        if notifier.mayEmitNotice then
+        if notifier.couldEmitNotice then
           some <$> RequestStatusEmitter.create notifier requestId params.name path?
         else
           pure none
@@ -377,14 +431,12 @@ private def CallReporter.emitFileProgress
 
 private def CallReporter.emitSetupStatus
     (reporter : CallReporter)
-    (diagnostic : Beam.Broker.StreamDiagnostic) : IO Unit := do
+    (message : String) : IO Unit := do
   match reporter.progress?, reporter.status? with
   | some progress, _ =>
-      progress.emitSetupProgress reporter.tool reporter.path? diagnostic.message
+      progress.emitSetupProgress message
   | none, some status =>
-      let detail := diagnostic.message.trimAscii.toString
-      status.emitOnce .preparingDependencies <|
-        s!"{toolTarget reporter.tool reporter.path?}: preparing Lean dependencies — {detail}"
+      status.emitOnce .preparingDependencies message
   | none, none => pure ()
 
 private def CallReporter.finish (reporter : CallReporter) : IO Unit := do
@@ -797,11 +849,7 @@ def Internal.handleToolCall
     (admitted : AdmittedRequestContext)
     (parsedParams : Except String CallToolParams)
     (notifications : NotificationSink) : IO (Except RpcError Json) := do
-  let logPolicy :=
-    match admitted with
-    | .legacy => LogPolicy.legacy state
-    | .modern context => LogPolicy.request context.logLevel?
-  let notifier : Notifier := { logPolicy, sink := notifications }
+  let notifier := notifierFor state admitted notifications
   let params ←
     match parsedParams with
     | .ok params => pure params
@@ -817,7 +865,8 @@ def Internal.handleToolCall
     emitProgress? progress? s!"starting {params.name.key}"
     let result ← setupMutex.atomically do
       handleDropWorkspace state params.arguments progress?
-    Internal.traceMcp s!"tools/call workspace drop complete id={req.id.label} tool={params.name.key}"
+    Internal.traceMcp
+      s!"tools/call workspace drop complete id={req.id.label} tool={params.name.key}"
     return .ok result
   if params.name == .beamVersion then
     let result ← handleBeamVersion state opts
@@ -864,10 +913,9 @@ def Internal.handleToolCall
           Internal.traceMcp s!"tools/call runtime failed id={req.id.label} tool={params.name.key}"
           return .error err
     let emitDiagnostic : Beam.Broker.StreamDiagnostic → IO Unit := fun diagnostic =>
-      if Beam.Broker.isLakeSetupFileProgressStreamDiagnostic diagnostic then
-        reporter.emitSetupStatus diagnostic
-      else
-        emitDiagnosticLog notifier diagnostic
+      match Internal.projectStreamDiagnostic reporter.tool reporter.path? diagnostic with
+      | .setupStatus message => reporter.emitSetupStatus message
+      | .diagnostic => emitDiagnosticLog notifier diagnostic
     let emitBrokerProgress? : Option (Beam.Broker.SyncFileProgress → IO Unit) :=
       reporter.progress?.map fun _ => reporter.emitFileProgress
     Internal.traceMcp s!"tools/call dispatch broker id={req.id.label} tool={params.name.key}"

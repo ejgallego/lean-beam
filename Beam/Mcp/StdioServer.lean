@@ -358,7 +358,8 @@ private def Coordinator.runToolRequest
     (admitted : AdmittedRequestContext)
     (parsedParams : Except String CallToolParams)
     (request : InFlightRequest)
-    (barrier? : Option (IO.Promise Unit)) : IO Unit := do
+    (barrier? : Option (IO.Promise Unit))
+    (beforeFinish : IO Unit := pure ()) : IO Unit := do
   let response ←
     try
       awaitControlBarrier barrier?
@@ -369,6 +370,10 @@ private def Coordinator.runToolRequest
           RpcError.invalidRequest "request was cancelled before execution"
     catch e =>
       pure <| errorResponse req.id (RpcError.internalError e.toString)
+  try
+    beforeFinish
+  catch e =>
+    Internal.traceMcp s!"request reporter finish failed id={req.id.label}: {e.toString}"
   coordinator.finishRequest request response
 
 private def Coordinator.spawnToolRequest
@@ -403,6 +408,19 @@ private def Coordinator.handleControlToolRequest
   match ← coordinator.admitToolRequest req evidence with
   | .error response => coordinator.finishRequest request response
   | .ok admitted =>
+      let notifications : NotificationSink := {
+        send := fun json => request.sendIfActive coordinator.output json
+      }
+      let statusReporter? ←
+        match parsedParams with
+        | .ok params =>
+            Internal.createDelayedStatusReporter?
+              coordinator.state req.id admitted params notifications
+        | .error _ => pure none
+      let finishStatus : IO Unit :=
+        match statusReporter? with
+        | some reporter => reporter.finish
+        | none => pure ()
       let (previous?, done) ← coordinator.pushControlBarrier
       let priorRequests ← coordinator.otherInFlightRequests request
       let _ ← IO.asTask (prio := Task.Priority.dedicated) do
@@ -410,13 +428,15 @@ private def Coordinator.handleControlToolRequest
           -- A control operation is a full stream-order fence: work admitted before it drains,
           -- while work admitted afterward waits on `done`.
           coordinator.awaitRequests priorRequests
-          coordinator.runToolRequest opts req admitted parsedParams request previous?
+          coordinator.runToolRequest opts req admitted parsedParams request previous? finishStatus
         catch e =>
           if !Beam.Mcp.Stdio.isBrokenPipeError e then
             Internal.traceMcp s!"workspace control completion failed id={req.id.label}: {e.toString}"
+          finishStatus
           coordinator.finishRequest request <|
             errorResponse req.id (RpcError.internalError e.toString)
         finally
+          finishStatus
           resolvePromise done
       pure ()
 

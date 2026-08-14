@@ -204,7 +204,7 @@ def feedbackReportInputSchema : Json :=
   ] (Beam.Feedback.requiredInputFields.push "workspace")
 
 def dropWorkspaceDescription : String :=
-  "Evict one local Lean workspace cache and invalidate its retained proof handles. A later request recreates it lazily."
+  "Evict one local Lean workspace cache and invalidate its retained proof handles. A later request recreates it lazily. For detailed live updates, clients can pass `tools/call` `_meta.progressToken`; without one, Beam emits one status log when eviction is delayed and the request's logging policy admits notice-level events."
 
 open Beam.JsonSchema in
 def dropWorkspaceInputSchema : Json :=

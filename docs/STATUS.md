@@ -199,9 +199,10 @@ discriminator.
 - Tool calls that include `_meta.progressToken` receive concise live MCP progress notifications.
   Updates for one request remain strictly ordered before its final response, while different
   requests may interleave; clients should use distinct tokens for concurrently active requests.
-  Without a token, a fast call stays quiet and a call that enters Lake setup or remains pending for
-  two seconds emits at most one structured `beam.status` log with the request id and a progress-token
-  discovery hint when the active legacy or per-request modern log policy admits `notice`.
+  Without a token, fast broker-backed Lean operations and workspace drops stay quiet; if one enters
+  Lake setup or remains pending for two seconds, it emits at most one structured `beam.status` log
+  with the request id and a progress-token discovery hint when the active legacy or per-request
+  modern log policy admits `notice`. Other local MCP tools do not receive this watchdog.
 - MCP `notifications/cancelled` cooperatively cancels active broker work. Lazy runtime creation and
   workspace eviction remain serialized. Once admitted, `lean_drop_workspace` ignores client
   cancellation and returns its terminal result because partial eviction cannot be rolled back

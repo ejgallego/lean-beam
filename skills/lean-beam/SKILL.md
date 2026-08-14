@@ -432,9 +432,9 @@ Surface rule:
 - `beam-client request-stream ...` is the machine-facing streamed surface
 - do not parse wrapper `stderr` in tooling
 - MCP clients can attach `tools/call` `_meta.progressToken` for detailed live updates; without one,
-  Beam keeps fast calls quiet and emits one `beam.status` notice when Lake setup is detected or a
-  request remains pending for two seconds, provided the request's logging policy admits notice-level
-  events
+  Beam keeps fast broker-backed Lean operations and workspace drops quiet and emits at most one
+  `beam.status` notice when Lake setup is detected or the call remains pending for two seconds,
+  provided the request's logging policy admits notice-level events
 - MCP `full_diagnostics` widens diagnostic severity and `include_diagnostics` replays diagnostics in
   the final sync result; neither setting controls progress, and requested replay may intentionally
   duplicate matching diagnostics already consumed live

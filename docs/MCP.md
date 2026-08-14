@@ -287,17 +287,18 @@ operation directly to a Beam broker daemon.
 ## Progress And Diagnostic Logs
 
 For `tools/call`, clients may pass `params._meta.progressToken` as a string or integer. Progress
-updates for one request are monotonic and precede that request's final response. Every Lean tool
-description advertises this metadata so progress tuning is visible in `tools/list` even though MCP
-places it outside the tool's `arguments` object.
+updates for one request are monotonic and precede that request's final response. Every Lean
+operation tool description, plus `lean_drop_workspace`, advertises this metadata so progress tuning
+is visible in `tools/list` even though MCP places it outside the tool's `arguments` object.
 
-When a Lean tool call has no progress token, fast calls remain quiet. If Lake setup is observed or
-the call is still pending after two seconds, Beam emits at most one `notifications/message` event
-at level `notice` with logger `beam.status`. Its data contains the exact JSON-RPC `requestId`, tool,
-state, optional path, human message, and a `progressHint` naming `_meta.progressToken`. This is a
-best-effort liveness notice, not percentage progress or a readiness result. Legacy clients receive
-it under the default log level and can suppress it by raising `logging/setLevel` above `notice`.
-Modern clients receive it only when that request's
+When a broker-backed Lean operation or `lean_drop_workspace` has no progress token, fast calls
+remain quiet. If Lake setup is observed or the call is still pending after two seconds, Beam emits
+at most one `notifications/message` event at level `notice` with logger `beam.status`. Its data
+contains the exact JSON-RPC `requestId`, tool, state, optional path, human message, and a
+`progressHint` naming `_meta.progressToken`. This is a best-effort liveness notice, not percentage
+progress or a readiness result. Legacy clients receive it under the default log level and can
+suppress it by raising `logging/setLevel` above `notice`. Modern clients receive it only when that
+request's
 `_meta["io.modelcontextprotocol/logLevel"]` admits `notice`.
 
 With a progress token, Beam emits one contextual preparation update followed by meaningful,
@@ -335,7 +336,7 @@ tool arguments, but only on the tools listed below. Log delivery is session-wide
 | `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`, `lean_document_symbols`, `lean_goals`, `lean_todo`, `lean_code_action_resolve` | Preparation and file progress when Lean publishes it. | One `beam.status` after two seconds. | None | Operation-specific structured result. |
 | `lean_workspace_symbols` | Preparation phase only. | One pathless `beam.status` after two seconds. | None | Workspace-symbol result. |
 | `lean_release`, `lean_close` | Preparation, plus file progress for release when Lean publishes it. | One `beam.status` after two seconds if the normally short call is delayed. | None | Release/close result. |
-| `lean_drop_workspace` | Start and terminal phase. | No automatic status currently; a drop can wait behind earlier workspace requests. | None | Drop and handle-invalidation result. |
+| `lean_drop_workspace` | Start and terminal phase. | One pathless `beam.status` after two seconds while the drop waits for earlier requests or eviction. | None | Drop and handle-invalidation result. |
 | `beam_feedback` | Start, collection, and terminal phases. | No automatic status currently. | None | Rendered report and optional collected evidence. |
 | `beam_stats` | Terminal phase only. | Quiet. | None | Process statistics. |
 | `beam_version` | Quiet; a supplied token is not used. | Quiet. | None | Server identity. |
@@ -378,8 +379,10 @@ Useful presets are therefore:
 - normal modern call with no logs: omit the per-request log level; both diagnostics and automatic
   status logs remain quiet
 - modern no-token liveness: request log level `notice`
-- detailed progress without diagnostic noise: add `_meta.progressToken`
-- rich live sync diagnostics: add `_meta.progressToken` and `full_diagnostics: true`
+- detailed progress: add `_meta.progressToken`; progress delivery is independent of diagnostic logs
+- quiet modern detailed progress: add `_meta.progressToken` and omit the per-request log level
+- rich live sync diagnostics: set the request log level to `debug` and add
+  `full_diagnostics: true`; add `_meta.progressToken` separately when detailed progress is also useful
 - rich diagnostics for a client that cannot retain notifications: also add
   `include_diagnostics: true` on `lean_sync` or `lean_refresh`
 - warnings/errors but no automatic status: select log level `warning` and use
