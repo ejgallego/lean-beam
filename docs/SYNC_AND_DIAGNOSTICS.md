@@ -110,7 +110,8 @@ Progress, streamed diagnostics, and current summaries are separate typed concept
 
 | Concept | Scope | Current surface |
 | --- | --- | --- |
-| Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `progress` events; CLI progress text. |
+| Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `fileProgress` events; CLI progress text. |
+| Status | Best-effort notice that a no-token MCP request is doing setup or remains pending. | MCP `notifications/message` with logger `beam.status`. |
 | Streamed diagnostics | Lean-published events observed while a request is pending. | MCP `notifications/message` with logger `lean.diagnostic`; Beam stream `diagnostic` events; CLI stderr diagnostics. |
 | Current summary | Stable synced-state verdict for one document version. | Final structured tool result and broker response fields such as `syncSummary` and `file_progress`. |
 
@@ -129,27 +130,31 @@ request-scoped observations; save-blocking evidence is attached to the final syn
 
 MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
 `include_diagnostics: true` to replay diagnostics in the final structured result. By default replay
-and streaming use an error-only diagnostic filter. Beam also forwards best-effort Lake
-`setup-file` build status lines during a pending sync or `runAt` probe, because cold Lean/Lake setup
-can otherwise look like a silent hang. `runAt` does not stream ordinary file diagnostics by default;
-from this diagnostic side channel it forwards only those setup-file status lines. For synced-file
-requests, `full_diagnostics: true` widens streamed and replayed diagnostic output to warnings,
-information, and hints.
+and streaming use an error-only diagnostic filter. Final replay intentionally duplicates any
+matching diagnostics already consumed live. For synced-file requests, `full_diagnostics: true`
+widens streamed and replayed diagnostic output to warnings, information, and hints.
+
+Beam recognizes best-effort Lake `setup-file` build lines separately from ordinary diagnostics. A
+no-token call receives the first such observation as its single `beam.status` liveness notice. A
+call with `_meta.progressToken` receives throttled setup observations as
+`notifications/progress`. `runAt` does not stream ordinary file diagnostics by default.
 
 `full_diagnostics` is an output severity/detail filter, not a request for a partial diagnostic
 state. `syncSummary.diagnostics.current` still summarizes the complete current diagnostic state.
 When a first sync on a fresh or dependency-heavy Lake workspace is slow, clients should keep a
 progress token attached and retry or continue with `full_diagnostics: true` plus
 `include_diagnostics: true` if they need the current warning/info detail in the final result.
-Successful `lake setup-file` status diagnostics are transient Lean progress diagnostics; they may
-appear only as live `notifications/message` events and usually do not appear in the final
+Successful `lake setup-file` status diagnostics are transient Lean observations. They may appear
+only through live `beam.status` or tokened progress and usually do not appear in final
 `include_diagnostics` replay after Lean clears setup progress.
 
 ## Progress
 
 MCP clients can pass `_meta.progressToken` on `tools/call` requests to receive
 `notifications/progress` for setup and execution phases. Beam also reports throttled Lean
-file-progress observations when Lean publishes them.
+file-progress observations when Lean publishes them. Without a token, Beam keeps fast requests
+quiet and emits one `beam.status` notice when setup is detected or a request stays pending for two
+seconds.
 
 `fileProgress` and MCP `file_progress` fields contain compact Lean processing-range observations.
 They always report `updates` and `done`; when Lean publishes range-bearing progress, they may also

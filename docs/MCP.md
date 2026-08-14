@@ -286,16 +286,129 @@ operation directly to a Beam broker daemon.
 
 ## Progress And Diagnostic Logs
 
-For `tools/call`, clients may pass `params._meta.progressToken` as a string or number. Progress
-updates for one request are monotonic and precede that request's final response.
+For `tools/call`, clients may pass `params._meta.progressToken` as a string or integer. Progress
+updates for one request are monotonic and precede that request's final response. Every Lean tool
+description advertises this metadata so progress tuning is visible in `tools/list` even though MCP
+places it outside the tool's `arguments` object.
+
+When a Lean tool call has no progress token, fast calls remain quiet. If Lake setup is observed or
+the call is still pending after two seconds, Beam emits at most one `notifications/message` event
+at level `notice` with logger `beam.status`. Its data contains the exact JSON-RPC `requestId`, tool,
+state, optional path, human message, and a `progressHint` naming `_meta.progressToken`. This is a
+best-effort liveness notice, not percentage progress or a readiness result. Legacy clients receive
+it under the default log level and can suppress it by raising `logging/setLevel` above `notice`.
+Modern clients receive it only when that request's
+`_meta["io.modelcontextprotocol/logLevel"]` admits `notice`.
+
+With a progress token, Beam emits one contextual preparation update followed by meaningful,
+throttled Lake setup and Lean file-progress changes. It does not send separate generic `starting`,
+`preparing`, and `running` updates, and it streams at most one terminal `done=true` file-progress
+event. The final result still contains `file_progress` for clients that do not retain notifications.
+The full `structuredContent` object is also serialized in `content[0].text`, as the
+[MCP 2025-11-25 compatibility guidance](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+recommends. Those are two representations of one result; clients should render one rather than
+presenting them as two messages.
 
 Incremental Lean diagnostics are separate `notifications/message` events with logger
-`lean.diagnostic`. Modern requests receive them only when that request includes
-`_meta["io.modelcontextprotocol/logLevel"]`; the setting is not retained for later calls. Legacy
-clients continue to use global `logging/setLevel`. Clients that cannot collect interleaved
-notifications can pass `include_diagnostics: true` to sync-style tools. Use
-`full_diagnostics: true` when the final reply should include warnings, information, and hints rather
-than only errors.
+`lean.diagnostic`. Modern requests receive these logs only when that request includes
+`_meta["io.modelcontextprotocol/logLevel"]`; legacy clients use global `logging/setLevel`. Clients
+that cannot collect interleaved notifications can pass `include_diagnostics: true` to sync-style
+tools. Use `full_diagnostics: true` when the final reply should include warnings, information, and
+hints rather than only errors. Asking for final replay can intentionally repeat diagnostics already
+seen live; it is an alternate delivery path for clients that cannot consume interleaved events.
+
+### Display-Control Matrix
+
+MCP display behavior has four independent controls. `_meta.progressToken` belongs beside
+`arguments` in the `tools/call` envelope. `full_diagnostics` and `include_diagnostics` are ordinary
+tool arguments, but only on the tools listed below. Log delivery is session-wide
+`logging/setLevel` for legacy clients and per-request
+`_meta["io.modelcontextprotocol/logLevel"]` for modern clients.
+
+| Tool or family | With `_meta.progressToken` | Without a token | Diagnostic arguments | Stable final result |
+| --- | --- | --- | --- | --- |
+| `lean_sync`, `lean_refresh` | Preparation, throttled Lake setup, and file-progress updates. | One `beam.status` on the first setup observation or after two seconds. | `full_diagnostics`, `include_diagnostics` | Complete `syncSummary` and `file_progress`; optional `diagnostics` replay. |
+| `lean_save`, `lean_close_save` | Preparation, throttled Lake setup, and file-progress updates. | One `beam.status` on the first setup observation or after two seconds. | `full_diagnostics` | Checkpoint result with its sync/readiness verdict; no diagnostic replay argument. |
+| `lean_run_at`, `lean_run_at_handle` | Preparation, Lake setup when observed, and file progress when Lean publishes it. | One `beam.status` on the first setup observation or after two seconds. | None | Run result messages, traces, proof state, and optional handle; no full-file diagnostic replay. |
+| `lean_run_with`, `lean_run_with_linear` | Preparation and file progress when Lean publishes it. | One `beam.status` after two seconds. | None | Continuation result and optional next handle. |
+| `lean_update` | Preparation phase only. | One `beam.status` after two seconds. | None | New document version and changed flag; no readiness barrier. |
+| `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`, `lean_document_symbols`, `lean_goals`, `lean_todo`, `lean_code_action_resolve` | Preparation and file progress when Lean publishes it. | One `beam.status` after two seconds. | None | Operation-specific structured result. |
+| `lean_workspace_symbols` | Preparation phase only. | One pathless `beam.status` after two seconds. | None | Workspace-symbol result. |
+| `lean_release`, `lean_close` | Preparation, plus file progress for release when Lean publishes it. | One `beam.status` after two seconds if the normally short call is delayed. | None | Release/close result. |
+| `lean_drop_workspace` | Start and terminal phase. | No automatic status currently; a drop can wait behind earlier workspace requests. | None | Drop and handle-invalidation result. |
+| `beam_feedback` | Start, collection, and terminal phases. | No automatic status currently. | None | Rendered report and optional collected evidence. |
+| `beam_stats` | Terminal phase only. | Quiet. | None | Process statistics. |
+| `beam_version` | Quiet; a supplied token is not used. | Quiet. | None | Server identity. |
+
+The no-token `beam.status` cells assume that the active log policy admits `notice`; otherwise those
+calls remain quiet.
+
+For `lean_sync` and `lean_refresh`, the diagnostic argument combinations are:
+
+| `full_diagnostics` | `include_diagnostics` | Live `lean.diagnostic` candidates | Final `diagnostics` field |
+| --- | --- | --- | --- |
+| omitted or `false` | omitted or `false` | Errors only | Omitted |
+| omitted or `false` | `true` | Errors only | Current errors |
+| `true` | omitted or `false` | Errors, warnings, information, and hints | Omitted |
+| `true` | `true` | Errors, warnings, information, and hints | Current errors, warnings, information, and hints |
+
+`lean_save` and `lean_close_save` support the same `full_diagnostics` live filter but do not expose
+`include_diagnostics`. Diagnostic summaries and readiness counts remain complete regardless of
+these display choices.
+
+The active log level applies after the diagnostic filter and never suppresses
+`notifications/progress` or fields in the final result. The legacy server starts at `debug`, so all
+otherwise-selected log events are enabled until the client changes the level. Modern requests that
+omit their per-request log level receive no log notifications:
+
+| Active minimum log level | `beam.status` notice | With `full_diagnostics: true`, visible Lean diagnostic levels |
+| --- | --- | --- |
+| Modern level omitted | Hidden | None |
+| `debug` | Shown | Error, warning, information, hint |
+| `info` | Shown | Error, warning, information |
+| `notice` | Shown | Error, warning |
+| `warning` | Hidden | Error, warning |
+| `error` | Hidden | Error |
+| `critical`, `alert`, or `emergency` | Hidden | None of the current Lean diagnostic events |
+
+Useful presets are therefore:
+
+- normal legacy call: omit the per-call controls; fast calls are quiet and slow Lean operations get
+  one liveness notice under the default log level
+- normal modern call with no logs: omit the per-request log level; both diagnostics and automatic
+  status logs remain quiet
+- modern no-token liveness: request log level `notice`
+- detailed progress without diagnostic noise: add `_meta.progressToken`
+- rich live sync diagnostics: add `_meta.progressToken` and `full_diagnostics: true`
+- rich diagnostics for a client that cannot retain notifications: also add
+  `include_diagnostics: true` on `lean_sync` or `lean_refresh`
+- warnings/errors but no automatic status: select log level `warning` and use
+  `full_diagnostics: true` where supported
+
+A no-token liveness event has this shape:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/message",
+  "params": {
+    "level": "notice",
+    "logger": "beam.status",
+    "data": {
+      "requestId": 42,
+      "tool": "lean_sync",
+      "state": "running",
+      "message": "lean_sync on Main.lean is still working.",
+      "path": "Main.lean",
+      "progressHint": "For detailed live updates, pass tools/call params._meta.progressToken."
+    }
+  }
+}
+```
+
+Global `logging/setLevel` belongs only to the legacy `2025-11-25` path. Modern `2026-07-28`
+requests carry their log level independently in
+`_meta["io.modelcontextprotocol/logLevel"]`; it is not retained for later calls.
 
 ## Testing And Conformance
 
@@ -303,13 +416,14 @@ than only errors.
   tool surface, descriptor schemas, adapters, and normalized results.
 - [McpProtocolTest.lean](../tests/lean/BeamTest/Broker/McpProtocolTest.lean) checks JSON-RPC shapes,
   protocol-family routing and selection, discovery version scope, metadata validation, result/cache
-  envelopes, descriptor decoding, lifecycle gating, progress, errors, and diagnostic forwarding.
+  envelopes, descriptor decoding, lifecycle gating, progress, status logs, errors, and diagnostic
+  forwarding.
 - [test-mcp-stdio.py](../tests/test-mcp-stdio.py) checks real modern discovery and direct calls,
   malformed modern metadata, modern progress and tool-error envelopes, per-request logging, EOF
   teardown, legacy lifecycle compatibility, lazy first use, canonical aliases, simultaneous cold
   first use of distinct roots, different toolchains in one process, cross-workspace and
   cross-process handle rejection, scoped feedback, eviction/recreation, modern and legacy
-  cancellation, response routing, and progress.
+  cancellation, response routing, progress, status reporting, and shutdown.
 - [test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py) checks the local test-only HTTP adapter.
 - [test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) runs the pinned external
   `2025-11-25` conformance scenarios.

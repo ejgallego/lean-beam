@@ -114,8 +114,11 @@ private def operationDescription : Operation → String
 private def sourceFileInvariant : String :=
   "Beam never applies source edits to `.lean` files on disk; the client applies source edits."
 
+private def progressDiscovery : String :=
+  "For detailed live updates, clients can pass `tools/call` `_meta.progressToken`; without one, Beam emits one status log when setup or a long-running request is detected and the request's logging policy admits notice-level events."
+
 def Operation.description (operation : Operation) : String :=
-  s!"{operationDescription operation} {sourceFileInvariant}"
+  s!"{operationDescription operation} {progressDiscovery} {sourceFileInvariant}"
 
 private def pathField : String × Json :=
   ("path", Beam.JsonSchema.string "Lean file path, relative to the server root unless absolute.")

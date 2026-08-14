@@ -413,6 +413,45 @@ def logMessageNotification (level : LogLevel) (logger : String) (data : Json) : 
     ("data", data)
   ]
 
+inductive ToolStatusState where
+  | running
+  | preparingDependencies
+  deriving BEq, Repr
+
+def ToolStatusState.key : ToolStatusState → String
+  | .running => "running"
+  | .preparingDependencies => "preparing_dependencies"
+
+instance : ToJson ToolStatusState where
+  toJson state := toJson state.key
+
+structure ToolStatus where
+  requestId : Json
+  tool : String
+  state : ToolStatusState
+  message : String
+  path? : Option String := none
+  progressHint? : Option String := none
+
+instance : ToJson ToolStatus where
+  toJson status :=
+    Json.mkObj <|
+      [
+        ("requestId", status.requestId),
+        ("tool", toJson status.tool),
+        ("state", toJson status.state),
+        ("message", toJson status.message)
+      ] ++
+      (match status.path? with
+      | some path => [("path", toJson path)]
+      | none => []) ++
+      match status.progressHint? with
+      | some hint => [("progressHint", toJson hint)]
+      | none => []
+
+def toolStatusNotification (status : ToolStatus) : Json :=
+  logMessageNotification .notice "beam.status" (toJson status)
+
 def successResponse (id : Json) (result : Json) : Json :=
   Json.mkObj [
     ("jsonrpc", toJson "2.0"),

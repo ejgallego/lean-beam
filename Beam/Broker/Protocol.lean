@@ -756,7 +756,36 @@ structure StreamMessage where
   fileProgress? : Option SyncFileProgress := none
   diagnostic? : Option StreamDiagnostic := none
   clientRequestId? : Option String := none
-  deriving Inhabited, FromJson, ToJson
+  deriving Inhabited, ToJson
+
+private def requireStreamMessageJsonFields : Json → Except String Unit
+  | .obj fields =>
+      let allowed := #["kind", "response", "fileProgress", "diagnostic", "clientRequestId"]
+      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
+        if allowed.contains field then unexpected else unexpected.push field
+      unless unexpected.isEmpty do
+        throw s!"Beam stream message accepts no undeclared fields: {String.intercalate ", " unexpected.toList}"
+  | other => throw s!"Beam stream message must be an object, got {other.compress}"
+
+instance : FromJson StreamMessage where
+  fromJson? json := do
+    requireStreamMessageJsonFields json
+    let kind ← json.getObjValAs? StreamKind "kind"
+    let response? ← optionalField? (α := Response) json "response"
+    let fileProgress? ← optionalField? (α := SyncFileProgress) json "fileProgress"
+    let diagnostic? ← optionalField? (α := StreamDiagnostic) json "diagnostic"
+    let clientRequestId? ← optionalField? (α := String) json "clientRequestId"
+    match kind with
+    | .response =>
+        unless response?.isSome && fileProgress?.isNone && diagnostic?.isNone do
+          throw "Beam response stream message requires only a 'response' payload"
+    | .fileProgress =>
+        unless response?.isNone && fileProgress?.isSome && diagnostic?.isNone do
+          throw "Beam fileProgress stream message requires only a 'fileProgress' payload"
+    | .diagnostic =>
+        unless response?.isNone && fileProgress?.isNone && diagnostic?.isSome do
+          throw "Beam diagnostic stream message requires only a 'diagnostic' payload"
+    pure { kind, response?, fileProgress?, diagnostic?, clientRequestId? }
 
 def StreamMessage.mkResponse (resp : Response) : StreamMessage :=
   { kind := .response, response? := some resp, clientRequestId? := resp.clientRequestId? }

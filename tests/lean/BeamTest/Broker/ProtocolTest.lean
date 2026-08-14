@@ -32,6 +32,12 @@ private def expectDecodeFailure (label : String) (json : Json) : IO Unit := do
   | .error _ =>
       pure ()
 
+private def expectStreamDecodeFailure (label : String) (json : Json) : IO Unit := do
+  match fromJson? (α := StreamMessage) json with
+  | .ok stream =>
+      throw <| IO.userError s!"{label}: expected stream decode failure, got {(toJson stream).compress}"
+  | .error _ => pure ()
+
 private def expectSyncFileResultDecodeFailure (label : String) (json : Json) : IO Unit := do
   match fromJson? (α := SyncFileResult) json with
   | .ok result =>
@@ -149,6 +155,36 @@ private def checkResponseJsonShape : IO Unit := do
   requireJsonBool "error response" "ok" false errorJson
   requireFieldPresent "error response" "error" errorJson
   requireFieldAbsent "error response" "result" errorJson
+
+private def checkStreamMessageDecode : IO Unit := do
+  let response := Response.success (Json.mkObj [("value", toJson (1 : Nat))])
+  let validResponse ← expectOk "valid response stream" <|
+    fromJson? (α := StreamMessage) (toJson <| StreamMessage.mkResponse response)
+  require "valid response stream kind" (validResponse.kind == .response)
+
+  let progress : SyncFileProgress := { updates := 2, done := false }
+  let validProgress ← expectOk "valid progress stream" <|
+    fromJson? (α := StreamMessage) (toJson <| StreamMessage.mkFileProgress (some "req-1") progress)
+  require "valid progress stream kind" (validProgress.kind == .fileProgress)
+
+  let responseJson := toJson response
+  let progressJson := toJson progress
+  expectStreamDecodeFailure "response stream missing payload" <|
+    Json.mkObj [("kind", toJson "response")]
+  expectStreamDecodeFailure "progress stream with response payload" <|
+    Json.mkObj [("kind", toJson "fileProgress"), ("response", responseJson)]
+  expectStreamDecodeFailure "response stream with two payloads" <|
+    Json.mkObj [
+      ("kind", toJson "response"),
+      ("response", responseJson),
+      ("fileProgress", progressJson)
+    ]
+  expectStreamDecodeFailure "stream with undeclared field" <|
+    Json.mkObj [
+      ("kind", toJson "fileProgress"),
+      ("fileProgress", progressJson),
+      ("extra", toJson true)
+    ]
 
 private def checkResponseJsonDecode : IO Unit := do
   let success ← decodeResponse "success" <| Json.mkObj [
@@ -719,6 +755,7 @@ private def checkWorkspaceLifecycleProtocol : IO Unit := do
 
 def main : IO Unit := do
   checkResponseJsonShape
+  checkStreamMessageDecode
   checkResponseJsonDecode
   checkOrderedJsonPretty
   checkSyncFileResultDecode

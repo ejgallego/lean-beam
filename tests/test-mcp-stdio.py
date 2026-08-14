@@ -102,6 +102,7 @@ def runtime_context_lines():
         "BEAM_MCP_STDIO_TIMEOUT",
         "BEAM_MCP_SERVER_TRACE",
         "LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS",
+        "LEAN_BEAM_MCP_TEST_STATUS_DELAY_MS",
     ):
         lines.append(f"{name}: {os.environ.get(name, '<unset>')}")
     return lines
@@ -662,6 +663,36 @@ def diagnostic_log_notifications(client):
     return rows
 
 
+def status_log_notifications(client, request_id=None):
+    rows = []
+    for notification in notifications_by_method(client.notifications, "notifications/message"):
+        params = notification_params(notification, "notifications/message", "status log notification")
+        if params.get("logger") != "beam.status":
+            continue
+        data = params.get("data")
+        if request_id is not None and (
+            not isinstance(data, dict) or data.get("requestId") != request_id
+        ):
+            continue
+        rows.append(notification)
+    return rows
+
+
+def wait_for_status_log(client, request_id, timeout, label):
+    deadline = time.monotonic() + timeout
+    with client.state_changed:
+        while True:
+            for notification in status_log_notifications(client):
+                params = notification_params(notification, "notifications/message", label)
+                data = params.get("data")
+                if isinstance(data, dict) and data.get("requestId") == request_id:
+                    return notification
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                fail(f"{label}: timed out waiting for beam.status requestId={request_id!r}")
+            client.state_changed.wait(timeout=min(remaining, 0.05))
+
+
 def expect_diagnostic_log(client, *, level, severity, path):
     for notification in diagnostic_log_notifications(client):
         params = notification_params(notification, "notifications/message", "diagnostic log notification")
@@ -1219,9 +1250,9 @@ def run_modern_protocol_smoke(repo_root, fixture_root, timeout):
             require_progress_message_contains(
                 progress_notifications,
                 "modern lean_sync progress",
-                "preparing lean_sync",
-                "running lean_sync",
-                "lean_sync fileProgress",
+                "lean_sync on PositionEmptyLine.lean: preparing the Lean workspace",
+                "lean_sync: processing",
+                "done=true",
             )
             expect_error_code(
                 client.modern_request("logging/setLevel", {"level": "error"}),
@@ -1465,9 +1496,8 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
                 require_progress_message_contains(
                     notifications,
                     f"{label} progress",
-                    "preparing lean_sync",
-                    "running lean_sync",
-                    "lean_sync fileProgress",
+                    "lean_sync on PositionEmptyLine.lean: preparing the Lean workspace",
+                    "lean_sync: processing",
                     "range",
                     "done=true",
                 )
@@ -1571,10 +1601,14 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
             require_progress_message_contains(
                 token_notifications,
                 "lean_sync progress",
-                "running lean_sync",
-                "lean_sync fileProgress",
+                "lean_sync on CommandA.lean: preparing the Lean workspace",
+                "lean_sync: processing",
                 "rangeEndLine=1",
                 "done=true",
+            )
+            require(
+                sum("done=true" in (message or "") for message in progress_messages(token_notifications)) == 1,
+                f"lean_sync progress should emit one terminal file-progress update: {token_notifications}",
             )
 
             progress_count_after_response = len(client.progress_notifications(token))
@@ -1648,6 +1682,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             extra_env={
                 "BEAM_MCP_GATE_STARTED": started_path,
                 "BEAM_MCP_GATE_RELEASE": release_path,
+                "LEAN_BEAM_MCP_TEST_STATUS_DELAY_MS": "100",
             },
         )
         slow_id = "77"
@@ -1704,6 +1739,26 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             }
             client.send_request("tools/call", slow_params, request_id=slow_id)
             wait_for_file(started_path, timeout, "slow runAt gate sentinel")
+            status = wait_for_status_log(
+                client,
+                slow_id,
+                min(timeout, 5.0),
+                "slow no-token runAt status",
+            )
+            status_params = notification_params(
+                status,
+                "notifications/message",
+                "slow no-token runAt status",
+            )
+            status_data = status_params.get("data", {})
+            require(status_params.get("level") == "notice", f"slow status level: {status}")
+            require(status_data.get("tool") == "lean_run_at", f"slow status tool: {status}")
+            require(status_data.get("state") == "running", f"slow status state: {status}")
+            require(
+                "progressToken" in status_data.get("progressHint", ""),
+                f"slow status should make detailed progress discoverable: {status}",
+            )
+            status_count = len(status_log_notifications(client, slow_id))
             cross_workspace_fast_id = client.send_request(
                 "tools/call",
                 cross_workspace_fast_params,
@@ -1746,11 +1801,24 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             slow_structured = slow_result.get("structuredContent")
             require(isinstance(slow_structured, dict), f"slow runAt missing structured content: {slow_result}")
             require_success("slow concurrent runAt", slow_structured)
+            expect_result(client.request("ping", request_id=slow_id))
+            require(
+                len(status_log_notifications(client, slow_id)) == status_count,
+                f"slow no-token runAt emitted duplicate or post-response statuses: {client.notifications}",
+            )
+
             started_path.unlink()
             release_path.unlink()
+            expect_result(client.request("logging/setLevel", {"level": "warning"}))
+            suppressed_status_count = len(status_log_notifications(client))
             cancel_id = "cancelled-run-at"
             client.send_request("tools/call", slow_params, request_id=cancel_id)
             wait_for_file(started_path, timeout, "cancelled runAt gate sentinel")
+            time.sleep(0.2)
+            require(
+                len(status_log_notifications(client)) == suppressed_status_count,
+                f"warning log level should suppress notice status: {client.notifications}",
+            )
             client.send_message(
                 {
                     "jsonrpc": "2.0",

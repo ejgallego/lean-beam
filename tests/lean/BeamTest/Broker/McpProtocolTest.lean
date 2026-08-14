@@ -580,6 +580,28 @@ private def checkProgressProtocol : IO Unit := do
   requireJsonInt "progress notification params" "total" 8 params
   requireJsonString "progress notification params" "message" "syncing" params
 
+  let statusNotification := Beam.Mcp.toolStatusNotification {
+    requestId := toJson (42 : Nat)
+    tool := "lean_sync"
+    state := .running
+    message := "lean_sync on Demo.lean is still working."
+    path? := some "Demo.lean"
+    progressHint? := some "Pass tools/call params._meta.progressToken."
+  }
+  requireJsonString "status notification" "method" "notifications/message" statusNotification
+  let statusParams ← requireObjVal "status notification" "params" statusNotification
+  requireJsonString "status notification params" "level" "notice" statusParams
+  requireJsonString "status notification params" "logger" "beam.status" statusParams
+  let statusData ← requireObjVal "status notification params" "data" statusParams
+  requireJsonInt "status notification data" "requestId" 42 statusData
+  requireJsonString "status notification data" "tool" "lean_sync" statusData
+  requireJsonString "status notification data" "state" "running" statusData
+  requireJsonString "status notification data" "message"
+    "lean_sync on Demo.lean is still working." statusData
+  requireJsonString "status notification data" "path" "Demo.lean" statusData
+  requireJsonString "status notification data" "progressHint"
+    "Pass tools/call params._meta.progressToken." statusData
+
 private def handleRpcRequest
     (state : Beam.Mcp.Server.ServerState)
     (opts : Beam.Mcp.Server.Options)
