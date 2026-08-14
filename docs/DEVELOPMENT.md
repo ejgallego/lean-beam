@@ -274,7 +274,8 @@ rejection, or exception. A handle uses a per-admission token and must become ine
 lexical scope, including when a later request reuses the same client request ID. Keep ordinary
 daemon and CLI dispatch on
 `ServerRuntime.dispatchRequest`; transport layers must not mutate the active-request registry
-directly.
+directly. Pending LSP requests must retain the same per-admission cancellation identity; after a
+handle has been validated, never fall back to matching a reusable client request ID.
 
 The thick part of the broker is request orchestration. For `sync`, `runAt`, `goals`, `runWith`,
 `release`, and `save`, the broker reads the source file, updates the LSP document mirror, waits for

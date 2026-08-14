@@ -28,7 +28,7 @@ structure PendingResult where
   diagnosticsSeen : Bool := false
 
 structure PendingRequest where
-  clientRequestId? : Option String := none
+  cancelRef? : Option (IO.Ref Bool) := none
   promise : IO.Promise (Except Response PendingResult)
   tracked? : Option (DocumentUri × Nat) := none
   progressRef : IO.Ref (Option SyncFileProgress)
@@ -288,14 +288,21 @@ def sendCancelNotification (stdin : IO.FS.Stream) (id : RequestID) : IO Unit := 
     : Lean.JsonRpc.Notification Json
   })
 
+def matchesCancellation
+    (pending : PendingRequest)
+    (cancelRef : IO.Ref Bool) : IO Bool := do
+  match pending.cancelRef? with
+  | none => pure false
+  | some pendingCancelRef => pendingCancelRef.ptrEq cancelRef
+
 def cancelMatching
     (store : PendingRequestStore)
     (stdin : IO.FS.Stream)
-    (clientRequestId : String) : IO Nat := do
+    (cancelRef : IO.Ref Bool) : IO Nat := do
   let entries ← snapshotEntries store
   let mut cancelled := 0
   for (requestId, pending) in entries do
-    if pending.clientRequestId? == some clientRequestId then
+    if ← matchesCancellation pending cancelRef then
       sendCancelNotification stdin requestId
       cancelled := cancelled + 1
   pure cancelled
@@ -303,13 +310,12 @@ def cancelMatching
 def propagateCancellation
     (store : PendingRequestStore)
     (stdin : IO.FS.Stream)
-    (clientRequestId? : Option String)
     (cancelRef? : Option (IO.Ref Bool)) : IO Unit := do
-  match clientRequestId?, cancelRef? with
-  | some clientRequestId, some cancelRef =>
+  match cancelRef? with
+  | some cancelRef =>
       if ← cancelRef.get then
-        discard <| cancelMatching store stdin clientRequestId
-  | _, _ =>
+        discard <| cancelMatching store stdin cancelRef
+  | none =>
       pure ()
 
 end PendingRequestStore
@@ -333,7 +339,7 @@ def create : BaseIO ActiveRequestRegistry := do
 
 def register
     (registry : ActiveRequestRegistry)
-    (clientRequestId? : Option String) : IO (Except String (Option ActiveRequest)) := do
+    (clientRequestId? : Option String) : IO (Except BrokerFailure (Option ActiveRequest)) := do
   match clientRequestId? with
   | none =>
       pure (.ok none)
@@ -342,7 +348,10 @@ def register
       registry.mutex.atomically do
         let state ← get
         if state.requests.contains clientRequestId then
-          pure <| .error s!"clientRequestId '{clientRequestId}' is already active"
+          pure <| .error {
+            code := .invalidParams
+            message := s!"clientRequestId '{clientRequestId}' is already active"
+          }
         else
           let active : ActiveRequest := { clientRequestId, token := state.nextToken, cancelRef }
           set ({
@@ -366,31 +375,31 @@ def unregister
         | none =>
             pure ()
 
-def markCancelled (registry : ActiveRequestRegistry) (clientRequestId : String) : IO Bool := do
-  let cancelRef? ← registry.mutex.atomically do
-    pure <| (← get).requests.get? clientRequestId |>.map (·.cancelRef)
-  match cancelRef? with
-  | none =>
-      pure false
-  | some cancelRef =>
-      cancelRef.set true
-      pure true
+def markCancelled
+    (registry : ActiveRequestRegistry)
+    (clientRequestId : String) : IO (Option ActiveRequest) := do
+  registry.mutex.atomically do
+    let active? := (← get).requests.get? clientRequestId
+    match active? with
+    | none =>
+        pure none
+    | some active =>
+        active.cancelRef.set true
+        pure (some active)
 
 def markCancelledActive
     (registry : ActiveRequestRegistry)
-    (active : ActiveRequest) : IO Bool := do
-  let cancelRef? ← registry.mutex.atomically do
+    (active : ActiveRequest) : IO (Option ActiveRequest) := do
+  registry.mutex.atomically do
     match (← get).requests.get? active.clientRequestId with
-    | some current =>
-        pure <| if current.token == active.token then some current.cancelRef else none
     | none =>
-        pure none
-  match cancelRef? with
-  | none =>
-      pure false
-  | some cancelRef =>
-      cancelRef.set true
-      pure true
+      pure none
+    | some current =>
+        if current.token == active.token then
+          current.cancelRef.set true
+          pure (some current)
+        else
+          pure none
 
 end ActiveRequestRegistry
 

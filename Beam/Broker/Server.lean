@@ -473,7 +473,8 @@ private def startRequestJsonTrackedDetailed
     (initialProgress? : Option SyncFileProgress := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (fullDiagnostics : Bool := false)
-    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none)
+    (cancelRef? : Option (IO.Ref Bool) := none) :
     IO (Session × IO.Promise (Except Response PendingResult)) := do
   let (session, id) := nextRequestId session
   let progressRef ← IO.mkRef (initialProgress? <|> tracked.map (fun _ => {}))
@@ -482,7 +483,7 @@ private def startRequestJsonTrackedDetailed
   let seenDiagnosticKeysRef ← IO.mkRef ({} : Std.TreeSet String compare)
   let promise ← IO.Promise.new
   PendingRequestStore.insert session.pending id {
-      clientRequestId? := clientRequestId?
+      cancelRef? := cancelRef?
       promise := promise
       tracked? := tracked
       progressRef := progressRef
@@ -1060,24 +1061,23 @@ private def recordDispatchMetrics
 
 private def cancelRegisteredRequest
     (server : ServerRuntime)
-    (clientRequestId : String)
-    (markCancelled : IO Bool) : IO Bool := do
-  if ← markCancelled then
+    (markCancelled : IO (Option ActiveRequest)) : IO Bool := do
+  match ← markCancelled with
+  | some active =>
     let sessions ← server.withState do
       let state ← get
       pure <| state.workspaces.toList.flatMap fun (_, workspace) =>
         [workspace.lean.session?, workspace.rocq.session?]
     for session? in sessions do
       if let some session := session? then
-        discard <| PendingRequestStore.cancelMatching session.pending session.stdin clientRequestId
+        discard <| PendingRequestStore.cancelMatching session.pending session.stdin active.cancelRef
     pure true
-  else
-    pure false
+  | none => pure false
 
 private def cancelActiveRequest
     (server : ServerRuntime)
     (clientRequestId : String) : IO Bool :=
-  cancelRegisteredRequest server clientRequestId <|
+  cancelRegisteredRequest server <|
     ActiveRequestRegistry.markCancelled server.activeRequests clientRequestId
 
 /--
@@ -1090,14 +1090,13 @@ def RequestHandle.cancel (handle : RequestHandle) : IO Bool := do
   match handle.active? with
   | none => pure false
   | some active =>
-      cancelRegisteredRequest handle.runtime active.clientRequestId <|
+      cancelRegisteredRequest handle.runtime <|
         ActiveRequestRegistry.markCancelledActive handle.runtime.activeRequests active
 
 private def propagatePendingCancellation
     (session : Session)
-    (clientRequestId? : Option String)
     (cancelRef? : Option (IO.Ref Bool)) : IO Unit := do
-  PendingRequestStore.propagateCancellation session.pending session.stdin clientRequestId? cancelRef?
+  PendingRequestStore.propagateCancellation session.pending session.stdin cancelRef?
 
 private def requestStop (server : ServerRuntime) : IO Unit := do
   server.stop.set true
@@ -1231,7 +1230,8 @@ private def startSyncedDocumentRequest
     (clientRequestId? : Option String := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
     (fullDiagnostics : Bool := false)
-    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none)
+    (cancelRef? : Option (IO.Ref Bool) := none) :
     M (Except Response StartedSyncedRequest) := do
   let session ← syncFileSnapshot session snapshot
   let uri := snapshot.uri
@@ -1253,6 +1253,7 @@ private def startSyncedDocumentRequest
       (emitProgress? := emitProgress?)
       (fullDiagnostics := fullDiagnostics)
       (emitDiagnostic? := emitDiagnostic?)
+      (cancelRef? := cancelRef?)
   updateSession session
   pure <| .ok {
     session
@@ -1265,10 +1266,9 @@ private def startSyncedDocumentRequest
 
 private def awaitSyncedDocumentRequest
     (server : ServerRuntime)
-    (req : Request)
     (started : StartedSyncedRequest)
     (cancelRef? : Option (IO.Ref Bool) := none) : HandlerM PendingResult := do
-  liftHandlerIO <| propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+  liftHandlerIO <| propagatePendingCancellation started.session cancelRef?
   let pending ← awaitPending started.promise
   if started.tracked.isSome then
     liftHandlerIO <| mergeFileProgressIfCurrent server started.session started.uri pending.progress?
@@ -1304,7 +1304,8 @@ private def startTrackedDiagnosticsBarrierIO
     (req : WorkspaceRequest)
     (path : System.FilePath)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
-    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none)
+    (cancelRef? : Option (IO.Ref Bool) := none) :
     IO StartedTrackedBarrier := do
   let snapshot ← readRequestSyncSnapshot server req path
   server.withState do
@@ -1324,6 +1325,7 @@ private def startTrackedDiagnosticsBarrierIO
         (emitProgress? := emitProgress?)
         (fullDiagnostics := req.fullDiagnostics?.getD false)
         (emitDiagnostic? := emitDiagnostic?)
+        (cancelRef? := cancelRef?)
     updateSession session
     pure {
       session
@@ -1496,11 +1498,12 @@ private def saveOleanCore
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     HandlerM SaveOleanCompleted := do
   liftResponseIO <| ensureRequestNotCancelled cancelRef?
-  let started ← liftHandlerIO <| startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
+  let started ← liftHandlerIO <| startTrackedDiagnosticsBarrierIO server req path emitProgress?
+    emitDiagnostic? (cancelRef? := cancelRef?)
   let leanCmd? ← liftHandlerIO <| server.withState do
     let workspace ← requireWorkspace req.workspaceId
     pure workspace.config.leanCmd?
-  liftHandlerIO <| propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+  liftHandlerIO <| propagatePendingCancellation started.session cancelRef?
   let barrier ← awaitWaitForDiagnosticsBarrier
     s!"save_olean sync barrier clientRequestId={optionLabel req.clientRequestId?} uri={started.uri} version={started.version}"
     started.promise
@@ -1571,9 +1574,10 @@ private def saveOleanCore
   let (session, savePromise) ← withCurrentMatchingSession server started.session fun current => do
     let (current, savePromise) ← startRequestJsonTrackedDetailed current method params
       (clientRequestId? := req.clientRequestId?)
+      (cancelRef? := cancelRef?)
     updateSession current
     pure (current, savePromise)
-  liftHandlerIO <| propagatePendingCancellation session req.clientRequestId? cancelRef?
+  liftHandlerIO <| propagatePendingCancellation session cancelRef?
   let savePending ←
     match ← liftHandlerIO <| PendingRequest.awaitOutcome savePromise with
     | .ok pending => pure pending
@@ -1626,10 +1630,11 @@ private def handleSyncFileOp
     return (reqError "invalidParams" "sync_file diagnostics barrier is only supported for Lean", false)
   let path ← requestArg req.pathArg
   liftResponseIO <| ensureRequestNotCancelled cancelRef?
-  let started ← liftHandlerIO <| startTrackedDiagnosticsBarrierIO server req path emitProgress? emitDiagnostic?
+  let started ← liftHandlerIO <| startTrackedDiagnosticsBarrierIO server req path emitProgress?
+    emitDiagnostic? (cancelRef? := cancelRef?)
   liftHandlerIO <| traceBroker
     s!"sync_file await barrier clientRequestId={optionLabel req.clientRequestId?} uri={started.uri} version={started.version}"
-  liftHandlerIO <| propagatePendingCancellation started.session req.clientRequestId? cancelRef?
+  liftHandlerIO <| propagatePendingCancellation started.session cancelRef?
   let pending ← awaitWaitForDiagnosticsBarrier
     s!"sync_file clientRequestId={optionLabel req.clientRequestId?} uri={started.uri} version={started.version}"
     started.promise
@@ -1765,7 +1770,8 @@ private def handleRunAtOp
       (clientRequestId? := req.clientRequestId?)
       (emitProgress? := emitProgress?)
       (emitDiagnostic? := runAtSetupProgressEmitter? emitDiagnostic?)
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+      (cancelRef? := cancelRef?)
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   pure (
     responseWithFileProgress
       (Response.success (wrapResultHandle started.session pending.result))
@@ -1801,7 +1807,8 @@ private def handlePositionLspOp
       (expectedVersion? := some args.version)
       (clientRequestId? := req.clientRequestId?)
       (emitProgress? := emitProgress?)
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+      (cancelRef? := cancelRef?)
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
 
 private def handleHoverOp
@@ -1864,7 +1871,8 @@ private def handleDocumentSymbolsOp
       (expectedVersion? := some args.version)
       (clientRequestId? := req.clientRequestId?)
       (emitProgress? := emitProgress?)
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+      (cancelRef? := cancelRef?)
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
 
 private def handleWorkspaceSymbolsOp
@@ -1879,9 +1887,10 @@ private def handleWorkspaceSymbolsOp
     let params := toJson ({ query := args.query : WorkspaceSymbolParams })
     let (session, promise) ← startRequestJsonTrackedDetailed session args.method params
       (clientRequestId? := req.clientRequestId?)
+      (cancelRef? := cancelRef?)
     updateSession session
     pure (session, promise)
-  liftHandlerIO <| propagatePendingCancellation session req.clientRequestId? cancelRef?
+  liftHandlerIO <| propagatePendingCancellation session cancelRef?
   let pending ← awaitPending promise
   pure (Response.success pending.result, false)
 
@@ -1918,7 +1927,8 @@ private def handleCodeActionResolveOp
       (expectedVersion? := some args.version)
       (clientRequestId? := req.clientRequestId?)
       (emitProgress? := emitProgress?)
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+      (cancelRef? := cancelRef?)
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   let resolved : CodeAction ← liftHandlerIO <| decodeResponseAs pending.result
   let payload : CodeActionResolveResult := {
     version := started.version
@@ -1977,7 +1987,8 @@ private def handleGoalsOp
       (expectedVersion? := some args.version)
       (clientRequestId? := req.clientRequestId?)
       (emitProgress? := emitProgress?)
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+      (cancelRef? := cancelRef?)
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
 
 private def handleTodoOp
@@ -2010,7 +2021,8 @@ private def handleTodoOp
       (expectedVersion? := some args.version)
       (clientRequestId? := req.clientRequestId?)
       (emitProgress? := emitProgress?)
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+      (cancelRef? := cancelRef?)
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
 
 private def handleRunWithOp
@@ -2048,8 +2060,9 @@ private def handleRunWithOp
           trackedDocumentVersion
           (clientRequestId? := req.clientRequestId?)
           (emitProgress? := emitProgress?)
+          (cancelRef? := cancelRef?)
         pure startedResult
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   pure (
     responseWithFileProgress
       (Response.success (wrapResultHandle started.session pending.result))
@@ -2085,8 +2098,9 @@ private def handleReleaseOp
           trackedDocumentVersion
           (clientRequestId? := req.clientRequestId?)
           (emitProgress? := emitProgress?)
+          (cancelRef? := cancelRef?)
         pure startedResult
-  let pending ← awaitSyncedDocumentRequest server req started cancelRef?
+  let pending ← awaitSyncedDocumentRequest server started cancelRef?
   pure (responseWithFileProgress (Response.success pending.result) pending.progress?, false)
 
 private def initWorkspaceConfigFromRequest
@@ -2255,8 +2269,8 @@ private def ServerRuntime.withRequestAdmission
       if requestTracksActiveRequest req.op then
         match ← ActiveRequestRegistry.register server.activeRequests req.clientRequestId? with
         | .ok active? => pure active?
-        | .error err =>
-            let resp := reqError "invalidParams" err
+        | .error failure =>
+            let resp := BrokerFailure.toResponse failure
             let resp := resp.withClientRequestId req.clientRequestId?
             recordDispatchMetrics server req resp startedAt
             return (resp, false)

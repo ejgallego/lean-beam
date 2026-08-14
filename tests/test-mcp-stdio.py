@@ -1786,6 +1786,10 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 isinstance(cancelled_count, int) and cancelled_count >= 1,
                 f"broker did not record cancelled MCP runAt: {stats}",
             )
+            require(
+                not client.response_ready(cancel_id),
+                "legacy cancelled request produced a terminal response",
+            )
             client.forget_request(cancel_id)
             expect_result(client.request("ping", request_id="after-cancellation"))
 
