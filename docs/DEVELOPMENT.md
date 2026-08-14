@@ -186,6 +186,8 @@ Keep these stdio invariants explicit:
 - the server emits no JSON-RPC requests to clients
 - request IDs preserve their string-versus-integer type and their original JSON spelling
 - ordinary calls may overlap; cache eviction is a full stream-order fence and shutdown drains work
+- ordinary tool calls bind cancellation to the exact broker admission handle; do not reintroduce
+  request-ID polling between MCP and the broker
 - routing/output locks do not acquire setup, progress, or per-request locks
 - JSON-RPC envelopes and current-method parameter objects reject undeclared fields; protocol
   extensions belong in `_meta` or in a deliberately versioned schema change
@@ -263,6 +265,15 @@ internally it coordinates several responsibilities around the LSP process:
   goals, runAt execution, direct imports, save readiness, and save artifact generation
 - Lake owns build graph and trace semantics; broker code may preflight and translate Lake outcomes,
   but daemon paths must not enter Lake APIs that can terminate the process
+
+`ServerRuntime.dispatchRequestWithHandle` is the asynchronous admission boundary for in-process
+consumers such as MCP. It validates operation field ownership, registers the request's active
+identity, exposes one opaque `RequestHandle`, and owns unregistering that handle on success,
+rejection, or exception. A handle uses a per-admission token and must become inert after that
+lexical scope, including when a later request reuses the same client request ID. Keep ordinary
+daemon and CLI dispatch on
+`ServerRuntime.dispatchRequest`; transport layers must not mutate the active-request registry
+directly.
 
 The thick part of the broker is request orchestration. For `sync`, `runAt`, `goals`, `runWith`,
 `release`, and `save`, the broker reads the source file, updates the LSP document mirror, waits for

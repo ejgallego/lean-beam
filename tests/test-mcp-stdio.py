@@ -1887,6 +1887,100 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 release_path.write_text("release\n", encoding="utf-8")
             client.close()
 
+        # Modern MCP uses the same coordinator and broker admission path, but keep an explicit
+        # regression here so protocol-envelope changes cannot silently lose exact cancellation.
+        started_path.unlink(missing_ok=True)
+        release_path.unlink(missing_ok=True)
+        modern_client = McpClient(
+            repo_root,
+            project_root,
+            timeout,
+            label="modern-cancellation",
+            server_trace=server_trace,
+            extra_env={
+                "BEAM_MCP_GATE_STARTED": started_path,
+                "BEAM_MCP_GATE_RELEASE": release_path,
+            },
+        )
+        modern_cancel_id = "modern-cancelled-run-at"
+        try:
+            update_result = expect_result(
+                modern_client.modern_request(
+                    "tools/call",
+                    {
+                        "name": "lean_update",
+                        "arguments": {"path": "McpConcurrency.lean"},
+                    },
+                )
+            )
+            require_modern_result_envelope(update_result, "modern cancellation update")
+            update = update_result.get("structuredContent")
+            require(isinstance(update, dict), f"modern cancellation update has no result: {update_result}")
+            version = update.get("version")
+            require(isinstance(version, int), f"modern cancellation update missing version: {update}")
+            modern_slow_params = with_modern_metadata(
+                {
+                    "name": "lean_run_at",
+                    "arguments": {
+                        "path": "McpConcurrency.lean",
+                        "version": version,
+                        "line": line,
+                        "character": 2,
+                        "text": "mcp_concurrency_gate",
+                    },
+                }
+            )
+            modern_client.send_request(
+                "tools/call",
+                modern_slow_params,
+                request_id=modern_cancel_id,
+            )
+            wait_for_file(started_path, timeout, "modern cancelled runAt gate sentinel")
+            modern_client.notify(
+                "notifications/cancelled",
+                {
+                    "requestId": modern_cancel_id,
+                    "reason": "modern cancellation regression no longer needs the result",
+                },
+            )
+            cancel_deadline = time.monotonic() + timeout
+            cancelled_count = 0
+            while time.monotonic() < cancel_deadline:
+                stats_result = expect_result(
+                    modern_client.modern_request(
+                        "tools/call",
+                        {"name": "beam_stats", "arguments": {}},
+                    )
+                )
+                require_modern_result_envelope(stats_result, "modern cancellation stats")
+                stats = stats_result.get("structuredContent")
+                require(isinstance(stats, dict), f"modern cancellation stats has no result: {stats_result}")
+                lean_stats = (
+                    stats.get("workspaces", {})
+                    .get(workspace_cache_key(project_root), {})
+                    .get("byBackend", {})
+                    .get("lean", {})
+                )
+                cancelled_count = lean_stats.get("cancelledCount", 0)
+                if isinstance(cancelled_count, int) and cancelled_count >= 1:
+                    break
+                time.sleep(0.02)
+            require(
+                isinstance(cancelled_count, int) and cancelled_count >= 1,
+                f"broker did not record cancelled modern MCP runAt: {stats}",
+            )
+            require(
+                not modern_client.response_ready(modern_cancel_id),
+                "modern cancelled request produced a terminal response",
+            )
+            modern_client.forget_request(modern_cancel_id)
+            listed = expect_result(modern_client.modern_request("tools/list"))
+            require_modern_result_envelope(listed, "modern tools/list after cancellation")
+        finally:
+            if not release_path.exists():
+                release_path.write_text("release\n", encoding="utf-8")
+            modern_client.close()
+
 
 def run_concurrent_first_use(repo_root, fixture_root, timeout, server_trace=False):
     with tempfile.TemporaryDirectory(prefix="lean-beam-mcp-concurrent-first-use-") as tmp:

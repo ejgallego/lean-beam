@@ -81,6 +81,30 @@ private def checkActiveRegistry : IO Unit := do
   require "unregistered active request is no longer cancellable"
     (!(← ActiveRequestRegistry.markCancelled registry "req-1"))
 
+  let replacementResult ← ActiveRequestRegistry.register registry (some "req-1")
+  let replacement? : Option ActiveRequest ←
+    expectOk "register replacement active request" replacementResult
+  let some replacement := replacement?
+    | throw <| IO.userError "register replacement active request returned none"
+  ActiveRequestRegistry.unregister registry first?
+  require "stale active handle cannot cancel replacement"
+    (!(← ActiveRequestRegistry.markCancelledActive registry first))
+  match ← ensureRequestNotCancelled (some replacement.cancelRef) with
+  | .ok _ => pure ()
+  | .error resp =>
+      throw <| IO.userError s!"stale active handle cancelled replacement: {(toJson resp).compress}"
+  require "stale unregister preserves replacement active request"
+    (← ActiveRequestRegistry.markCancelled registry "req-1")
+  match ← ensureRequestNotCancelled (some replacement.cancelRef) with
+  | .ok _ =>
+      throw <| IO.userError "replacement active request did not observe cancellation"
+  | .error resp =>
+      discard <| requireErrorCode
+        "replacement active request reports broker cancellation"
+        "requestCancelled"
+        resp
+  ActiveRequestRegistry.unregister registry replacement?
+
 private def checkPendingStoreResolve : IO Unit := do
   let store ← PendingRequestStore.create
   let (pending, promise) ← mkPending

@@ -584,7 +584,7 @@ def Internal.handleToolCall
     (opts : Options)
     (setupMutex : Std.Mutex Unit)
     (brokerClientRequestId : String)
-    (beforeDispatch : Beam.Broker.ServerRuntime → IO Bool)
+    (beforeDispatch : Beam.Broker.RequestHandle → IO Bool)
     (req : Request)
     (admitted : AdmittedRequestContext)
     (parsedParams : Except String CallToolParams)
@@ -659,8 +659,6 @@ def Internal.handleToolCall
         emitProgress? progress? s!"failed {params.name.key}"
         Internal.traceMcp s!"tools/call runtime failed id={req.id.label} tool={params.name.key}"
         return .error err
-  unless ← beforeDispatch runtime do
-    return .error <| RpcError.invalidRequest "request was cancelled before broker dispatch"
   let emitDiagnostic : Beam.Broker.StreamDiagnostic → IO Unit := fun diagnostic =>
     emitDiagnosticLog notifier diagnostic
   let emitBrokerProgress? : Option (Beam.Broker.SyncFileProgress → IO Unit) :=
@@ -668,7 +666,7 @@ def Internal.handleToolCall
       progress.emitFileProgress params.name fileProgress
   emitProgress? progress? s!"running {params.name.key}"
   Internal.traceMcp s!"tools/call dispatch broker id={req.id.label} tool={params.name.key}"
-  let (brokerResp, _) ← runtime.dispatchRequest brokerReq
+  let (brokerResp, _) ← runtime.dispatchRequestWithHandle brokerReq beforeDispatch
     (emitProgress? := emitBrokerProgress?)
     (emitDiagnostic? := some emitDiagnostic)
   Internal.traceMcp

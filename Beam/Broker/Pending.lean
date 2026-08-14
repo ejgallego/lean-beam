@@ -316,9 +316,15 @@ end PendingRequestStore
 
 structure ActiveRequest where
   clientRequestId : String
+  token : Nat
   cancelRef : IO.Ref Bool
 
-abbrev ActiveRequestRegistry := Std.Mutex (Std.TreeMap String (IO.Ref Bool))
+private structure ActiveRequestRegistryState where
+  nextToken : Nat := 1
+  requests : Std.TreeMap String ActiveRequest := {}
+
+structure ActiveRequestRegistry where
+  private mutex : Std.Mutex ActiveRequestRegistryState
 
 namespace ActiveRequest
 
@@ -329,8 +335,8 @@ end ActiveRequest
 
 namespace ActiveRequestRegistry
 
-def create : BaseIO ActiveRequestRegistry :=
-  Std.Mutex.new ({} : Std.TreeMap String (IO.Ref Bool))
+def create : BaseIO ActiveRequestRegistry := do
+  pure { mutex := ← Std.Mutex.new {} }
 
 def register
     (registry : ActiveRequestRegistry)
@@ -340,12 +346,17 @@ def register
       pure (.ok none)
   | some clientRequestId =>
       let cancelRef ← IO.mkRef false
-      registry.atomically do
-        if (← get).contains clientRequestId then
+      registry.mutex.atomically do
+        let state ← get
+        if state.requests.contains clientRequestId then
           pure <| .error s!"clientRequestId '{clientRequestId}' is already active"
         else
-          modify (·.insert clientRequestId cancelRef)
-          pure <| .ok <| some { clientRequestId, cancelRef }
+          let active : ActiveRequest := { clientRequestId, token := state.nextToken, cancelRef }
+          set ({
+            nextToken := state.nextToken + 1
+            requests := state.requests.insert clientRequestId active
+          } : ActiveRequestRegistryState)
+          pure <| .ok <| some active
 
 def unregister
     (registry : ActiveRequestRegistry)
@@ -353,12 +364,34 @@ def unregister
   match active? with
   | none => pure ()
   | some active =>
-      registry.atomically do
-        modify (·.erase active.clientRequestId)
+      registry.mutex.atomically do
+        let state ← get
+        match state.requests.get? active.clientRequestId with
+        | some current =>
+            if current.token == active.token then
+              set { state with requests := state.requests.erase active.clientRequestId }
+        | none =>
+            pure ()
 
 def markCancelled (registry : ActiveRequestRegistry) (clientRequestId : String) : IO Bool := do
-  let cancelRef? ← registry.atomically do
-    pure <| (← get).get? clientRequestId
+  let cancelRef? ← registry.mutex.atomically do
+    pure <| (← get).requests.get? clientRequestId |>.map (·.cancelRef)
+  match cancelRef? with
+  | none =>
+      pure false
+  | some cancelRef =>
+      cancelRef.set true
+      pure true
+
+def markCancelledActive
+    (registry : ActiveRequestRegistry)
+    (active : ActiveRequest) : IO Bool := do
+  let cancelRef? ← registry.mutex.atomically do
+    match (← get).requests.get? active.clientRequestId with
+    | some current =>
+        pure <| if current.token == active.token then some current.cancelRef else none
+    | none =>
+        pure none
   match cancelRef? with
   | none =>
       pure false

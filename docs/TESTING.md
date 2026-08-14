@@ -105,7 +105,8 @@ Additional Beam lanes:
 Current Beam coverage includes:
 
 - fast Beam daemon smoke, request-stream, save-stream, startup-handshake, tracked-diagnostic dedup,
-  protocol tests, and validated-toolchain/release-line CI policy consistency through
+  exact broker request-handle lifetime, protocol tests, and validated-toolchain/release-line CI
+  policy consistency through
   [tests/test-beam-fast.sh](../tests/test-beam-fast.sh)
 - wrapper coverage through [tests/test-beam-wrapper.sh](../tests/test-beam-wrapper.sh), which aggregates focused probe, runtime, sync/save, handle, and diagnostic slices
 - focused daemon lifecycle coverage in [tests/test-beam-wrapper-daemon.sh](../tests/test-beam-wrapper-daemon.sh),
@@ -217,12 +218,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/test-mcp-stdio.py \
 ```
 
 This scenario covers out-of-order tool responses, exact string/numeric request-ID separation,
-duplicate active-ID suppression, broker cancellation, per-request progress ordering, deterministic
-overlap between a gated request in one workspace and a fast request in another, single-flight first
-use, simultaneous cold first use of distinct roots, stateless multi-root isolation, non-cancellable
-cache eviction with ordering on both sides of the global fence, lazy recreation, and EOF
-cancellation and teardown. The full stdio suite also checks modern request-ID reuse after a terminal
-response and rejects a proof handle carried across an MCP process restart. The slow Beam suite runs
+duplicate active-ID suppression, exact modern and legacy broker cancellation, per-request progress
+ordering, deterministic overlap between a gated request in one workspace and a fast request in
+another, single-flight first use, simultaneous cold first use of distinct roots, stateless
+multi-root isolation, non-cancellable cache eviction with ordering on both sides of the global
+fence, lazy recreation, and EOF cancellation and teardown. The full stdio suite also checks modern
+request-ID reuse after a terminal response and rejects a proof handle carried across an MCP process
+restart. The slow Beam suite runs
 `--scenario multi-toolchain-workspaces` after installing both fixture toolchains and verifies that
 one MCP process keeps both project-specific Lean sessions active.
 

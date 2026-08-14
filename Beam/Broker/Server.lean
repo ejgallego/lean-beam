@@ -900,6 +900,16 @@ structure ServerRuntime where
   stop : IO.Ref Bool
   activeRequests : ActiveRequestRegistry
 
+/--
+A cancellation capability bound to one active broker request admission.
+
+The handle does not expose dispatch. It becomes inert after its broker-owned
+dispatch scope exits, even if a later request reuses the same client request ID.
+-/
+structure RequestHandle where
+  private runtime : ServerRuntime
+  private active? : Option ActiveRequest
+
 def ServerRuntime.withState (server : ServerRuntime) (act : M α) : IO α := do
   server.state.atomically do
     let state ← get
@@ -1048,10 +1058,11 @@ private def recordDispatchMetrics
       server.withState do
         recordRequestMetrics workspaceId req.backend req.op.key resp.ok (resp.error?.map (·.code)) latencyMs
 
-private def cancelActiveRequest
+private def cancelRegisteredRequest
     (server : ServerRuntime)
-    (clientRequestId : String) : IO Bool := do
-  if ← ActiveRequestRegistry.markCancelled server.activeRequests clientRequestId then
+    (clientRequestId : String)
+    (markCancelled : IO Bool) : IO Bool := do
+  if ← markCancelled then
     let sessions ← server.withState do
       let state ← get
       pure <| state.workspaces.toList.flatMap fun (_, workspace) =>
@@ -1062,6 +1073,25 @@ private def cancelActiveRequest
     pure true
   else
     pure false
+
+private def cancelActiveRequest
+    (server : ServerRuntime)
+    (clientRequestId : String) : IO Bool :=
+  cancelRegisteredRequest server clientRequestId <|
+    ActiveRequestRegistry.markCancelled server.activeRequests clientRequestId
+
+/--
+Cancel the exact active admission represented by `handle`.
+
+Returns `false` when the request does not track cancellation or the handle is no
+longer active.
+-/
+def RequestHandle.cancel (handle : RequestHandle) : IO Bool := do
+  match handle.active? with
+  | none => pure false
+  | some active =>
+      cancelRegisteredRequest handle.runtime active.clientRequestId <|
+        ActiveRequestRegistry.markCancelledActive handle.runtime.activeRequests active
 
 private def propagatePendingCancellation
     (session : Session)
@@ -2205,11 +2235,10 @@ private def handleRequestIO
           | .cancel | .initWorkspace | .listWorkspaces | .dropWorkspace =>
               unreachable!
 
-def ServerRuntime.dispatchRequest
+private def ServerRuntime.withRequestAdmission
     (server : ServerRuntime)
     (req : Request)
-    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
-    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) : IO (Response × Bool) := do
+    (act : RequestHandle → IO (Response × Bool)) : IO (Response × Bool) := do
   let startedAt ← IO.monoNanosNow
   traceBroker
     s!"dispatch start op={req.op.key} clientRequestId={optionLabel req.clientRequestId?}"
@@ -2234,8 +2263,8 @@ def ServerRuntime.dispatchRequest
       else
         pure none
     try
-      let (resp, shouldStop) ←
-        handleRequestIO server req (active?.map (·.cancelRef)) emitProgress? emitDiagnostic?
+      let handle : RequestHandle := { runtime := server, active? }
+      let (resp, shouldStop) ← act handle
       let resp := resp.withClientRequestId req.clientRequestId?
       traceBroker
         s!"dispatch complete op={req.op.key} clientRequestId={optionLabel req.clientRequestId?} ok={resp.ok}"
@@ -2249,6 +2278,39 @@ def ServerRuntime.dispatchRequest
       s!"dispatch exception op={req.op.key} clientRequestId={optionLabel req.clientRequestId?} error={e.toString}"
     recordDispatchMetrics server req resp startedAt
     pure (resp, false)
+
+/--
+Admit `req`, expose its exact cancellation handle to `beforeDispatch`, and
+retain broker ownership of the one allowed dispatch.
+
+When `beforeDispatch` returns `false`, the request is unregistered without
+dispatch and receives a `requestCancelled` response. Registration cleanup also
+runs if `beforeDispatch` or the request handler throws. Operation field-shape
+errors are rejected before admission and do not invoke `beforeDispatch`.
+-/
+def ServerRuntime.dispatchRequestWithHandle
+    (server : ServerRuntime)
+    (req : Request)
+    (beforeDispatch : RequestHandle → IO Bool)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) : IO (Response × Bool) := do
+  server.withRequestAdmission req fun handle => do
+    unless ← beforeDispatch handle do
+      return (
+        BrokerFailure.toResponse {
+          code := .requestCancelled
+          message := "request was cancelled before broker dispatch"
+        },
+        false
+      )
+    handleRequestIO server req (handle.active?.map (·.cancelRef)) emitProgress? emitDiagnostic?
+
+def ServerRuntime.dispatchRequest
+    (server : ServerRuntime)
+    (req : Request)
+    (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
+    (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) : IO (Response × Bool) := do
+  server.dispatchRequestWithHandle req (fun _ => pure true) emitProgress? emitDiagnostic?
 
 private def rootWatchPollMs : UInt32 :=
   250
