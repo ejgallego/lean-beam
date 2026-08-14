@@ -304,6 +304,9 @@ private def checkToolDescriptionContracts (tools : Array Json) : IO Unit := do
   let feedbackReportDescription ← requireToolDescription tools "beam_feedback_report"
   require "beam_feedback_report description should state the no-upload contract"
     (feedbackReportDescription.startsWith "Beam does not upload or submit feedback.")
+  require "beam_feedback_report description should advertise live-status tuning"
+    (feedbackReportDescription.contains "_meta.progressToken" &&
+      feedbackReportDescription.contains "one status log")
 
 private def checkToolsListShape : IO Unit := do
   let result := Beam.Mcp.toolsListResult

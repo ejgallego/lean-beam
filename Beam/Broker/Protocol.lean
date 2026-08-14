@@ -779,10 +779,8 @@ instance : FromJson StreamMessage where
     | .response =>
         unless response?.isSome && fileProgress?.isNone && diagnostic?.isNone do
           throw "Beam response stream message requires only a 'response' payload"
-        let some response := response?
-          | throw "Beam response stream message requires a 'response' payload"
-        unless clientRequestId? == response.clientRequestId? do
-          throw "Beam response stream message clientRequestId must match its response payload"
+        unless clientRequestId?.isNone do
+          throw "Beam response stream message carries clientRequestId only in its response payload"
     | .fileProgress =>
         unless response?.isNone && fileProgress?.isSome && diagnostic?.isNone do
           throw "Beam fileProgress stream message requires only a 'fileProgress' payload"
@@ -792,7 +790,7 @@ instance : FromJson StreamMessage where
     pure { kind, response?, fileProgress?, diagnostic?, clientRequestId? }
 
 def StreamMessage.mkResponse (resp : Response) : StreamMessage :=
-  { kind := .response, response? := some resp, clientRequestId? := resp.clientRequestId? }
+  { kind := .response, response? := some resp }
 
 def StreamMessage.mkFileProgress
     (clientRequestId? : Option String)

@@ -691,6 +691,19 @@ def wait_for_status_log(client, request_id, timeout, label):
             client.state_changed.wait(timeout=min(remaining, 0.05))
 
 
+def wait_for_progress_notification(client, token, timeout, label):
+    deadline = time.monotonic() + timeout
+    with client.state_changed:
+        while True:
+            notifications = client.progress_notifications(token)
+            if notifications:
+                return notifications[0]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                fail(f"{label}: timed out waiting for progress token={token!r}")
+            client.state_changed.wait(timeout=min(remaining, 0.05))
+
+
 def expect_status_log(client, *, request_id, tool, state, timeout, label):
     notification = wait_for_status_log(client, request_id, timeout, label)
     params = notification_params(notification, "notifications/message", label)
@@ -1352,6 +1365,23 @@ def run_cycle(
             require(isinstance(version.get("server_binary"), str) and version["server_binary"], f"beam_version missing server_binary: {version}")
             require(version.get("runtime_active") is False, f"beam_version should not start runtime: {version}")
 
+            stats_progress_token = "beam-stats-quiet-progress"
+            stats_result = expect_result(
+                client.request(
+                    "tools/call",
+                    {
+                        "name": "beam_stats",
+                        "arguments": {},
+                        "_meta": {"progressToken": stats_progress_token},
+                    },
+                )
+            )
+            require(stats_result.get("isError") is not True, f"beam_stats failed: {stats_result}")
+            require(
+                not client.progress_notifications(stats_progress_token),
+                "beam_stats emitted progress that added no liveness information",
+            )
+
             for iteration in range(iterations):
                 run_iteration(client, f"Cycle{cycle}Iter{iteration}")
         finally:
@@ -1911,6 +1941,16 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 },
                 request_id="drop-fence-control",
             )
+            queued_drop_token = "drop-fence-tokened-progress"
+            queued_drop_id = client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_drop_workspace",
+                    "arguments": {"workspace": workspace_descriptor(project_root)},
+                    "_meta": {"progressToken": queued_drop_token},
+                },
+                request_id="drop-fence-tokened-control",
+            )
             post_drop_id = client.send_request(
                 "tools/call",
                 {
@@ -1925,6 +1965,10 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 "workspace drop completed before previously admitted work drained",
             )
             require(
+                not client.response_ready(queued_drop_id),
+                "second workspace drop completed before the preceding control fence",
+            )
+            require(
                 not client.response_ready(post_drop_id),
                 "work admitted after workspace drop bypassed the global control fence",
             )
@@ -1935,6 +1979,17 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 state="running",
                 timeout=min(timeout, 5.0),
                 label="delayed workspace drop status",
+            )
+            queued_progress = wait_for_progress_notification(
+                client,
+                queued_drop_token,
+                min(timeout, 5.0),
+                "queued workspace drop progress",
+            )
+            require_progress_message_contains(
+                [queued_progress],
+                "queued workspace drop progress",
+                "lean_drop_workspace: preparing workspace eviction",
             )
             release_path.write_text("release\n", encoding="utf-8")
             slow_response = client.read_response(drop_fence_id)
@@ -1949,6 +2004,21 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             require(
                 isinstance(dropped, dict) and dropped.get("dropped") is True,
                 f"workspace drop fence did not evict the runtime: {drop_response}",
+            )
+            queued_drop_response = expect_result(client.read_response(queued_drop_id))
+            require(
+                queued_drop_response.get("isError") is not True,
+                f"second workspace drop fence failed: {queued_drop_response}",
+            )
+            queued_notifications = client.progress_notifications(queued_drop_token)
+            require_progress_sequence(
+                queued_notifications,
+                queued_drop_token,
+                "queued workspace drop progress",
+            )
+            require(
+                len(queued_notifications) == 1,
+                f"workspace drop emitted redundant terminal progress: {queued_notifications}",
             )
             post_drop_result = expect_result(client.read_response(post_drop_id))
             require(
@@ -2571,18 +2641,49 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
                 f"cross-workspace handle failure should explain the mismatch: {crossed_error}",
             )
 
-            feedback = client.call_tool(
-                "beam_feedback_report",
-                {
-                    "workspace": workspace_descriptor(root_b),
-                    "title": "workspace isolation regression",
-                    "summary": "collect one explicit workspace only",
-                    "reproduction": "call feedback with a workspace descriptor",
-                    "expected": "only that workspace is collected",
-                    "actual": "regression check",
-                    "include_collected": True,
-                    "redact": False,
-                },
+            feedback_progress_token = "beam-feedback-collection-progress"
+            feedback_result = expect_result(
+                client.request(
+                    "tools/call",
+                    {
+                        "name": "beam_feedback_report",
+                        "arguments": {
+                            "workspace": workspace_descriptor(root_b),
+                            "title": "workspace isolation regression",
+                            "summary": "collect one explicit workspace only",
+                            "reproduction": "call feedback with a workspace descriptor",
+                            "expected": "only that workspace is collected",
+                            "actual": "regression check",
+                            "include_collected": True,
+                            "redact": False,
+                        },
+                        "_meta": {"progressToken": feedback_progress_token},
+                    },
+                )
+            )
+            require(
+                feedback_result.get("isError") is not True,
+                f"workspace feedback failed: {feedback_result}",
+            )
+            feedback = feedback_result.get("structuredContent")
+            require(
+                isinstance(feedback, dict),
+                f"workspace feedback omitted structured content: {feedback_result}",
+            )
+            feedback_notifications = client.progress_notifications(feedback_progress_token)
+            require_progress_sequence(
+                feedback_notifications,
+                feedback_progress_token,
+                "workspace feedback progress",
+            )
+            require_progress_message_contains(
+                feedback_notifications,
+                "workspace feedback progress",
+                "collecting beam_feedback_report context",
+            )
+            require(
+                len(feedback_notifications) == 1,
+                f"beam_feedback_report emitted redundant phase or terminal progress: {feedback_notifications}",
             )
             collected = feedback.get("collected")
             require(isinstance(collected, dict), f"workspace feedback omitted context: {feedback}")

@@ -136,7 +136,9 @@ def beamFeedbackReportDescription : String :=
     "Non-confidential output may contain project context and caller payloads, so review it before posting.",
     "Set confidential for non-public workspaces; confidential results retain caller-authored narrative",
     "except for HOME-path redaction and do not scan it for other secrets; never post them publicly.",
-    "A local evidence bundle is optional."
+    "A local evidence bundle is optional.",
+    "For detailed live updates, clients can pass `tools/call` `_meta.progressToken`; without one,",
+    "Beam emits one status log when collection is delayed and the request's logging policy admits notice-level events."
   ]
 
 open Beam.JsonSchema in

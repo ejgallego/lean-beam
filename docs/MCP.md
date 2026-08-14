@@ -288,13 +288,15 @@ operation directly to a Beam broker daemon.
 
 For `tools/call`, clients may pass `params._meta.progressToken` as a string or integer. Progress
 updates for one request are monotonic and precede that request's final response. Every Lean
-operation tool description, plus `lean_drop_workspace`, advertises this metadata so progress tuning
-is visible in `tools/list` even though MCP places it outside the tool's `arguments` object.
+operation tool description, plus `beam_feedback_report` and `lean_drop_workspace`, advertises this
+metadata so progress tuning is visible in `tools/list` even though MCP places it outside the tool's
+`arguments` object.
 
-When a broker-backed Lean operation or `lean_drop_workspace` has no progress token, fast calls
-remain quiet. If Lake setup is observed or the call is still pending after two seconds, Beam emits
-at most one `notifications/message` event at level `notice` with logger `beam.status`. Its data
-contains the exact JSON-RPC `requestId`, tool, state, optional path, human message, and a
+When a broker-backed Lean operation, `beam_feedback_report`, or `lean_drop_workspace` has no
+progress token, fast calls remain quiet. If Lake setup is observed or the call is still pending
+after two seconds, Beam emits at most one `notifications/message` event at level `notice` with
+logger `beam.status`. Its data contains the exact JSON-RPC `requestId`, tool, state, optional path,
+human message, and a
 `progressHint` naming `_meta.progressToken`. This is a best-effort liveness notice, not percentage
 progress or a readiness result. Legacy clients receive it under the default log level and can
 suppress it by raising `logging/setLevel` above `notice`. Modern clients receive it only when that
@@ -336,9 +338,9 @@ tool arguments, but only on the tools listed below. Log delivery is session-wide
 | `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`, `lean_document_symbols`, `lean_goals`, `lean_todo`, `lean_code_action_resolve` | Preparation and file progress when Lean publishes it. | One `beam.status` after two seconds. | None | Operation-specific structured result. |
 | `lean_workspace_symbols` | Preparation phase only. | One pathless `beam.status` after two seconds. | None | Workspace-symbol result. |
 | `lean_release`, `lean_close` | Preparation, plus file progress for release when Lean publishes it. | One `beam.status` after two seconds if the normally short call is delayed. | None | Release/close result. |
-| `lean_drop_workspace` | Start and terminal phase. | One pathless `beam.status` after two seconds while the drop waits for earlier requests or eviction. | None | Drop and handle-invalidation result. |
-| `beam_feedback` | Start, collection, and terminal phases. | No automatic status currently. | None | Rendered report and optional collected evidence. |
-| `beam_stats` | Terminal phase only. | Quiet. | None | Process statistics. |
+| `lean_drop_workspace` | Preparation phase, emitted before waiting behind earlier requests. | One pathless `beam.status` after two seconds while the drop waits for earlier requests or eviction. | None | Drop and handle-invalidation result. |
+| `beam_feedback_report` | Collection phase only. | One `beam.status` after two seconds while collection remains pending. | None | Rendered report and optional collected evidence. |
+| `beam_stats` | Quiet; a supplied token is not used. | Quiet. | None | Process statistics. |
 | `beam_version` | Quiet; a supplied token is not used. | Quiet. | None | Server identity. |
 
 The no-token `beam.status` cells assume that the active log policy admits `notice`; otherwise those
