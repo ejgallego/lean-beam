@@ -82,7 +82,7 @@ Supported command families:
 - inspect actionable Lean items in a range: `lean-beam todo`
 - inspect file or daemon state: `lean-beam open-files`, `lean-beam doctor`, `lean-beam stats`,
   `lean-beam reset-stats`
-- produce a pasteable bug report card from JSON input: `lean-beam feedback`
+- produce a local, pasteable bug report card from JSON input: `lean-beam feedback-report`
 - try one isolated speculative Lean snippet: `lean-beam run-at`
 - continue from one exact speculative state: `lean-beam run-at-handle`, `lean-beam run-with`,
   `lean-beam run-with-linear`, `lean-beam release`
@@ -98,7 +98,7 @@ What to treat as the normal agent workflow surface:
   `lean-beam sync`,
   `lean-beam refresh`
 - operational commands: `lean-beam open-files`, `lean-beam doctor`,
-  `lean-beam stats`, `lean-beam reset-stats`, `lean-beam feedback`, `lean-beam save`,
+  `lean-beam stats`, `lean-beam reset-stats`, `lean-beam feedback-report`, `lean-beam save`,
   `lean-beam close-save`
 - pre-stable support APIs: `lean-beam run-at-handle`, `lean-beam run-with`, `lean-beam run-with-linear`,
   `lean-beam release`, `lean-beam-search`
@@ -126,13 +126,14 @@ Core workflow contract:
   before the next command that uses the Lean server; `lean-beam refresh` does not restart it
 - treat wrapper `stderr` as human-facing only; use stdout JSON or `beam-client request-stream`
   for machine-readable automation
-- `lean-beam feedback` does not accept free-form notes; pass a JSON object with required string
+- `lean-beam feedback-report` and `beam_feedback_report` return a report to the caller; Beam does not
+  upload or submit it; before posting non-confidential output, review caller-authored narrative,
+  request/response payloads, local paths, Beam stats, open-file data, daemon logs/incidents, and
+  bundle evidence
+- `lean-beam feedback-report` does not accept free-form notes; pass a JSON object with required string
   fields `title`, `summary`, `reproduction`, `expected`, and `actual`
 - use optional feedback triage fields `kind` (`bug`, `ux`, `perf`, `docs`, `question`) and
   `severity` (`low`, `medium`, `high`, `critical`) when they help route the report
-- `lean-beam feedback` and `beam_feedback` return a local report and do not submit it; before posting
-  non-confidential output, review caller-authored narrative, request/response payloads, local paths,
-  Beam stats, open-file data, daemon logs/incidents, and bundle evidence
 - set feedback `confidential` to `true` for a non-public workspace; this forces HOME-path redaction
   and omits automatically collected project debug context, request/response payloads, evidence, and
   the echoed MCP workspace descriptor; requested bundles still return operational paths locally

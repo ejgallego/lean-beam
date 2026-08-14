@@ -505,7 +505,7 @@ class McpClient:
     def send_request(self, method, params=None, *, request_id=None, inject_workspace=True):
         if inject_workspace and method == "tools/call" and isinstance(params, dict):
             tool_name = params.get("name")
-            if tool_name == "beam_feedback" or (
+            if tool_name == "beam_feedback_report" or (
                 isinstance(tool_name, str)
                 and tool_name.startswith("lean_")
             ):
@@ -1076,6 +1076,15 @@ def run_modern_protocol_smoke(repo_root, fixture_root, timeout):
             )
             require(listed.get("cacheScope") == "public", f"modern tools/list missing cacheScope: {listed}")
             require(isinstance(listed.get("tools"), list), f"modern tools/list missing tools: {listed}")
+            modern_names = {tool.get("name") for tool in listed["tools"]}
+            require(
+                "beam_feedback_report" in modern_names,
+                f"modern tools/list missing beam_feedback_report: {listed}",
+            )
+            require(
+                "beam_feedback" not in modern_names,
+                f"modern tools/list exposed obsolete beam_feedback: {listed}",
+            )
             reuse_id = "modern-request-id-reuse"
             expect_result(client.modern_request("tools/list", request_id=reuse_id))
             expect_result(client.modern_request("tools/list", request_id=reuse_id))
@@ -1276,7 +1285,8 @@ def run_cycle(
             names = {tool.get("name") for tool in tools}
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("beam_stats" in names, f"tools/list missing beam_stats: {tools}")
-            require("beam_feedback" in names, f"tools/list missing beam_feedback: {tools}")
+            require("beam_feedback_report" in names, f"tools/list missing beam_feedback_report: {tools}")
+            require("beam_feedback" not in names, f"tools/list exposed obsolete beam_feedback: {tools}")
             require("lean_drop_workspace" in names, f"tools/list missing lean_drop_workspace: {tools}")
             require("lean_update" in names, f"tools/list missing lean_update: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
@@ -2333,7 +2343,7 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
             )
 
             feedback = client.call_tool(
-                "beam_feedback",
+                "beam_feedback_report",
                 {
                     "workspace": workspace_descriptor(root_b),
                     "title": "workspace isolation regression",

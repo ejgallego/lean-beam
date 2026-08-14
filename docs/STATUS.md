@@ -61,12 +61,13 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   `beam_version` for the running server process, including manifest commit or source checkout
   commit/branch/dirty data, installed `runtime_current` status, and structural `runtime_error`
   reporting for invalid owned markers or manifests
-- feedback report-card surfaces: `lean-beam feedback` and MCP `beam_feedback` return structured
-  JSON containing pasteable Markdown, metadata, collection warnings, and optional evidence bundle
-  paths; CLI output and MCP `include_collected: true` include collected version/stats/open-file
-  context, daemon registry context, and recent daemon incident paths; `confidential: true` instead
-  omits automatically collected project debug context, request/response payloads, and evidence,
-  forces HOME-path redaction, and marks the report as unsuitable for public posting
+- feedback report-card surfaces: `lean-beam feedback-report` and MCP `beam_feedback_report` return
+  structured JSON containing pasteable Markdown, metadata, collection warnings, and optional
+  evidence bundle paths without uploading or submitting feedback; CLI output and MCP
+  `include_collected: true` include collected version/stats/open-file context, daemon registry
+  context, and recent daemon incident paths; `confidential: true` instead omits automatically
+  collected project debug context, request/response payloads, and evidence, forces HOME-path
+  redaction, and marks the report as unsuitable for public posting
 - `lean-beam-mcp --self-check <lean-file>` verification from a Lean project through a real
   descriptor-bound `lean_sync` call
 - request-stateless local MCP workspaces: every workspace-bound call carries
@@ -190,9 +191,9 @@ discriminator.
   protocol metadata, modern result envelopes, cache hints, and request-scoped diagnostic logging.
   It also supports the initialization-based `2025-11-25` lifecycle as an explicit transition
   target; older revisions are not advertised or tested.
-- `beam_feedback`, `lean_drop_workspace`, and all Lean operation tools require an explicit local
-  workspace descriptor. Dropping a workspace invalidates its proof handles; a later request with
-  the same descriptor recreates its runtime lazily.
+- `beam_feedback_report`, `lean_drop_workspace`, and all Lean operation tools require an explicit
+  local workspace descriptor. Dropping a workspace invalidates its proof handles; a later request
+  with the same descriptor recreates its runtime lazily.
 - `lean-beam-mcp` can execute ordinary tool calls concurrently in one process. Responses may arrive
   out of request order and are routed by exact JSON-RPC ID, with string and numeric IDs kept distinct.
 - Tool calls that include `_meta.progressToken` receive live MCP progress notifications. Updates for

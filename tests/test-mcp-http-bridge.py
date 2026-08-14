@@ -339,6 +339,8 @@ def main():
             names = {tool.get("name") for tool in tools}
             require("beam_version" in names, f"tools/list missing beam_version: {tools}")
             require("lean_sync" in names, f"tools/list missing lean_sync: {tools}")
+            require("beam_feedback_report" in names, f"tools/list missing beam_feedback_report: {tools}")
+            require("beam_feedback" not in names, f"tools/list exposed obsolete beam_feedback: {tools}")
             require("lean_run_at" in names, f"tools/list missing lean_run_at: {tools}")
             require("$/lean/runAt" not in names, f"tools/list exposed raw LSP method: {tools}")
 

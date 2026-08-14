@@ -391,8 +391,8 @@ an installation-integrity failure. An owned runtime with an invalid marker or ma
 `runtime_error` instead of being presented as a source checkout. Follow the error-specific recovery
 guidance in [Prune Old Installed State](#prune-old-installed-state).
 
-Use `lean-beam feedback --stdin` when reporting setup or runtime issues; see
-[FEEDBACK.md](FEEDBACK.md).
+Use `lean-beam feedback-report --stdin` to create a local report when reporting setup or runtime
+issues; Beam does not upload or submit it. See [FEEDBACK.md](FEEDBACK.md).
 
 To verify the installed MCP path without writing JSON-RPC by hand, change to the Lean project and
 run:

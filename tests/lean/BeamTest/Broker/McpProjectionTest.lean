@@ -77,9 +77,10 @@ private def checkToolNames : IO Unit := do
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_stats")
   require "decode beam_stats: wrong tool" (decodedBeamStats == .beamStats)
 
-  let decodedBeamFeedback ← expectOk "decode beam_feedback" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_feedback")
-  require "decode beam_feedback: wrong tool" (decodedBeamFeedback == .beamFeedback)
+  let decodedBeamFeedbackReport ← expectOk "decode beam_feedback_report" <|
+    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_feedback_report")
+  require "decode beam_feedback_report: wrong tool"
+    (decodedBeamFeedbackReport == .beamFeedbackReport)
 
   let dropWorkspace ← expectOk "decode lean_drop_workspace" <|
     fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_drop_workspace")
@@ -178,9 +179,9 @@ private def checkToolDescriptors : IO Unit := do
   require "beam stats descriptor is exposed as server debug tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
       desc.name == .beamStats && desc.kind == .serverDebug))
-  require "beam feedback descriptor is exposed as feedback tool"
+  require "beam feedback report descriptor is exposed as feedback tool"
     (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .beamFeedback && desc.kind == .feedback))
+      desc.name == .beamFeedbackReport && desc.kind == .feedback))
   let some versionDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamVersion)
     | throw <| IO.userError "beam version descriptor is missing"
   let versionSchemaProperties ← requireObjVal "beam version schema" "properties" versionDesc.inputSchema
@@ -189,45 +190,47 @@ private def checkToolDescriptors : IO Unit := do
     | throw <| IO.userError "beam stats descriptor is missing"
   let statsSchemaProperties ← requireObjVal "beam stats schema" "properties" statsDesc.inputSchema
   require "beam stats schema should have no input properties" (statsSchemaProperties == Json.mkObj [])
-  let some feedbackDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamFeedback)
-    | throw <| IO.userError "beam feedback descriptor is missing"
-  require "beam feedback description states that the tool does not submit reports"
-    (feedbackDesc.description.contains "does not submit feedback")
-  require "beam feedback description warns before public posting"
+  let some feedbackDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamFeedbackReport)
+    | throw <| IO.userError "beam feedback report descriptor is missing"
+  require "beam feedback report description states the no-upload contract"
+    (feedbackDesc.description.startsWith "Beam does not upload or submit feedback.")
+  require "beam feedback report description warns before public posting"
     (feedbackDesc.description.contains "review it before posting")
-  require "beam feedback description explains retained confidential narrative"
+  require "beam feedback report description explains retained confidential narrative"
     (feedbackDesc.description.contains "retain caller-authored narrative")
-  let feedbackSchemaProperties ← requireObjVal "beam feedback schema" "properties" feedbackDesc.inputSchema
+  let feedbackSchemaProperties ←
+    requireObjVal "beam feedback report schema" "properties" feedbackDesc.inputSchema
   let expectedFeedbackProperties :=
     Beam.Feedback.inputFields ++ #["workspace", "include_collected"]
   let .obj feedbackFields := feedbackSchemaProperties
-    | throw <| IO.userError "beam feedback schema properties must be an object"
+    | throw <| IO.userError "beam feedback report schema properties must be an object"
   let actualFeedbackProperties :=
     (Std.TreeMap.Raw.toList feedbackFields).map (fun (field, _) => field) |>.toArray
-  require "beam feedback schema and runtime decoder should expose the same field count"
+  require "beam feedback report schema and runtime decoder should expose the same field count"
     (actualFeedbackProperties.size == expectedFeedbackProperties.size)
   for field in expectedFeedbackProperties do
-    require s!"beam feedback schema is missing runtime field {field}"
+    require s!"beam feedback report schema is missing runtime field {field}"
       (actualFeedbackProperties.contains field)
   for field in actualFeedbackProperties do
-    require s!"beam feedback schema exposes unsupported runtime field {field}"
+    require s!"beam feedback report schema exposes unsupported runtime field {field}"
       (expectedFeedbackProperties.contains field)
   let confidentialSchema ←
-    requireObjVal "beam feedback schema properties" "confidential" feedbackSchemaProperties
-  let confidentialDescription ← expectOk "beam feedback confidential schema description" <|
+    requireObjVal "beam feedback report schema properties" "confidential" feedbackSchemaProperties
+  let confidentialDescription ← expectOk "beam feedback report confidential schema description" <|
     confidentialSchema.getObjValAs? String "description"
-  require "beam feedback confidential schema explains retained caller narrative"
+  require "beam feedback report confidential schema explains retained caller narrative"
     (confidentialDescription.contains "retains other caller-authored narrative" &&
       confidentialDescription.contains "without scanning it for arbitrary secrets")
-  require "beam feedback confidential schema names every omitted caller payload"
+  require "beam feedback report confidential schema names every omitted caller payload"
     (confidentialDescription.contains "request" && confidentialDescription.contains "response" &&
       confidentialDescription.contains "evidence" &&
       confidentialDescription.contains "echoed workspace descriptor")
   let includeCollectedSchema ←
-    requireObjVal "beam feedback schema properties" "include_collected" feedbackSchemaProperties
-  let includeCollectedDescription ← expectOk "beam feedback include_collected schema description" <|
-    includeCollectedSchema.getObjValAs? String "description"
-  require "beam feedback include_collected schema explains confidential restriction"
+    requireObjVal "beam feedback report schema properties" "include_collected" feedbackSchemaProperties
+  let includeCollectedDescription ←
+    expectOk "beam feedback report include_collected schema description" <|
+      includeCollectedSchema.getObjValAs? String "description"
+  require "beam feedback report include_collected schema explains confidential restriction"
     (includeCollectedDescription.contains "only the restricted runtime identity")
   let some dropDesc := Beam.Mcp.toolDescriptors.find? (·.name == .leanDropWorkspace)
     | throw <| IO.userError "drop workspace descriptor is missing"

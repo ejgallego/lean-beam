@@ -63,10 +63,10 @@ We have found Beam useful for proof repair, proof search experiments, proof tran
 autoformalization experiments, and regular AI-assisted Lean editing.
 
 Feedback is welcome through GitHub issues or Lean Zulip. For structured bug reports from a local
-checkout, `lean-beam feedback --stdin` can produce a pasteable report card; see
+checkout, `lean-beam feedback-report --stdin` can produce a pasteable report card; see
 [docs/FEEDBACK.md](docs/FEEDBACK.md). Review non-confidential cards before posting them publicly;
 set `"confidential": true` in the feedback input JSON for a non-public workspace and never post that
-report publicly.
+report publicly. Beam does not upload or submit the report.
 
 Lean Beam is experimental beta software. It is not an official Lean FRO product. Current
 scope, limitations, and release direction are tracked in [docs/STATUS.md](docs/STATUS.md).
@@ -91,7 +91,8 @@ The current development line includes support for:
   [MCP](docs/MCP.md#public-tools) interfaces, including hover, signature help,
   definitions, references, document/workspace symbols, and proof-state inspection
 - feedback report cards for bug reports and project feedback through
-  [`lean-beam feedback`](docs/FEEDBACK.md) and MCP [`beam_feedback`](docs/FEEDBACK.md#mcp)
+  [`lean-beam feedback-report`](docs/FEEDBACK.md) and MCP
+  [`beam_feedback_report`](docs/FEEDBACK.md#mcp)
 
 See [docs/STATUS.md](docs/STATUS.md) for the current supported surface, known limitations, and
 release direction.

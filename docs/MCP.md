@@ -69,12 +69,12 @@ The current local descriptor is:
 }
 ```
 
-`workspace` is required on `beam_feedback`, `lean_drop_workspace`, and every Lean operation. The
-root must be an absolute path to an existing Lean/Lake project. Beam resolves it to a canonical path
-and derives a private, deterministic broker cache key from that path. Canonical aliases therefore
-share one runtime; clients do not choose process-local workspace ids. For this local transport, any
-Lean/Lake project accessible to the MCP server process may be selected; the root is not restricted
-to the directory from which the server was started.
+`workspace` is required on `beam_feedback_report`, `lean_drop_workspace`, and every Lean operation.
+The root must be an absolute path to an existing Lean/Lake project. Beam resolves it to a canonical
+path and derives a private, deterministic broker cache key from that path. Canonical aliases
+therefore share one runtime; clients do not choose process-local workspace ids. For this local
+transport, any Lean/Lake project accessible to the MCP server process may be selected; the root is
+not restricted to the directory from which the server was started.
 
 There is no distinguished default workspace, `lean-beam-mcp --root`, `lean_init_workspace`,
 `lean_list_workspaces`, or MCP `roots/list` fallback. A first ordinary request is sufficient:
@@ -157,7 +157,7 @@ inside the old Lean process is not sufficient to reload workspace configuration.
 `tools/list` contains:
 
 - process utilities: `beam_version`, `beam_stats`
-- workspace-bound feedback: `beam_feedback`
+- workspace-bound feedback report: `beam_feedback_report`
 - cache eviction: `lean_drop_workspace`
 - curated Lean operations projected from `Beam.Lean.Operation`
 
@@ -217,11 +217,12 @@ one-time clean local check outside MCP. See the
 reports all currently cached broker workspaces for debugging; callers must not use it to establish
 context for a later operation.
 
-`beam_feedback` requires a descriptor to validate its local workspace target. Non-confidential mode
-collects project context for that workspace without starting a Lean runtime solely for feedback; if
-the descriptor is already cached, its in-process stats and open files are included. Another
-workspace's state is not included. Confidential mode does not collect that project-derived context
-and does not echo the workspace descriptor in its result.
+`beam_feedback_report` requires a descriptor to validate its local workspace target. Beam does not
+upload or submit the report; the tool returns it to the MCP caller and can optionally write a local
+evidence bundle. Non-confidential mode collects project context for that workspace without starting
+a Lean runtime solely for feedback; if the descriptor is already cached, its in-process stats and
+open files are included. Another workspace's state is not included. Confidential mode does not
+collect that project-derived context and does not echo the workspace descriptor in its result.
 
 ## Protocol Errors
 

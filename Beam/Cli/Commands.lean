@@ -192,7 +192,7 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
       validateInstalledRuntimeForReuse (System.FilePath.mk path)
   | "mcp-config" :: [] =>
       printMcpConfig home opts
-  | "feedback" :: args =>
+  | "feedback-report" :: args =>
       Beam.Cli.Feedback.run home opts args
   | "ensure" :: [] =>
       ensureBackend home opts .lean

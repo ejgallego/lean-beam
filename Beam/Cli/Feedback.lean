@@ -29,7 +29,7 @@ private structure Options where
   redact? : Option Bool := none
 
 private def usage : String :=
-  "usage: beam [--root PATH] feedback --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]"
+  "usage: beam [--root PATH] feedback-report --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]"
 
 private def inputShapeHelp : String :=
   s!"input must be a JSON object with required string fields: {Beam.Feedback.requiredInputFieldsText}"
@@ -38,12 +38,14 @@ private def help : String :=
   String.intercalate "\n" [
     usage,
     "",
+    "Beam does not upload or submit feedback. This command prints report JSON to stdout and, if requested, writes a local evidence bundle.",
+    "",
     inputShapeHelp,
     s!"optional fields: {String.intercalate ", " Beam.Feedback.optionalInputFields.toList}",
     "request and response must be JSON objects when supplied",
     "kind values: bug, ux, perf, docs, question",
     "severity values: low, medium, high, critical",
-    "privacy: Beam returns the report locally and does not submit it; non-confidential output may contain project context and caller payloads, so review it before posting",
+    "privacy: non-confidential output may contain project context and caller payloads, so review it before posting",
     "confidential: set true for non-public workspaces; forces HOME-path redaction and omits automatically collected project debug context, request/response payloads, and evidence",
     "confidential reports retain narrative except for HOME-path redaction; review it for secrets; requested bundle paths remain in the local result; never post a confidential report publicly",
     "example:",
