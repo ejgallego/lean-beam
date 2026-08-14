@@ -754,7 +754,7 @@ if [ -n "$expected_source_commit" ]; then
 fi
 installed_mcp_version="$("$installed_mcp" --version)"
 assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "lean-beam-mcp 0.2.0-beta"
-assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "mcp protocol: 2025-11-25"
+assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "mcp protocol: 2026-07-28"
 assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "wrapper: $installed_version_root/bin/lean-beam-mcp"
 assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "server binary: $installed_version_root/libexec/lean-beam-mcp"
 assert_output_contains "installed lean-beam-mcp --version" "$installed_mcp_version" "beam cli: $installed_version_root/libexec/beam-cli"
@@ -1465,10 +1465,6 @@ if range_start is not None and (
 ):
     raise RuntimeError(f"lean_sync result has invalid file_progress rangeStartLine: {progress}")
 
-send({"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
-shutdown = recv(3)
-if shutdown.get("result") != {}:
-    raise RuntimeError(f"unexpected shutdown response: {shutdown}")
 proc.stdin.close()
 proc.wait(timeout=5)
 stderr = proc.stderr.read()

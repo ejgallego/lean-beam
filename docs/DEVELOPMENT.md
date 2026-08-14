@@ -184,7 +184,7 @@ Keep these stdio invariants explicit:
 - only `runStdio` reads stdin
 - every stdout message passes through `OutputSink`
 - the server emits no JSON-RPC requests to clients
-- request IDs preserve their exact string-or-number type
+- request IDs preserve their string-versus-integer type and their original JSON spelling
 - ordinary calls may overlap; cache eviction is a full stream-order fence and shutdown drains work
 - routing/output locks do not acquire setup, progress, or per-request locks
 - JSON-RPC envelopes and current-method parameter objects reject undeclared fields; protocol
@@ -222,23 +222,28 @@ Lean/Lake root validation remains shared with the CLI. MCP descriptors use
 `Beam.Lean.Workspace.resolveRoot`, which requires absolute paths; ordinary `lean-beam` CLI paths use
 `resolveCliRoot`. The MCP executable itself has no startup-root option.
 
-`Beam.Mcp.protocolVersion` is the only MCP revision advertised during initialization. Bump it, or
-add support for another revision, only with a protocol audit: check the upstream MCP
-schema/changelog, update local protocol tests, run the Lean-backed stdio harness, update
+`Beam.Mcp.protocolVersion` is the preferred modern MCP revision;
+`Beam.Mcp.perRequestProtocolVersions` is the list returned by discovery and unsupported-version
+errors; and `Beam.Mcp.legacyProtocolVersion` is the initialization-based compatibility revision.
+Do not add an initialization-only revision to the per-request list. Change any of these only with a
+protocol audit: check the upstream MCP schema/changelog, update local protocol tests, run the
+Lean-backed stdio harness, update
 [docs/MCP.md](MCP.md) and any affected status notes, and run
-[tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) against the revised conformance
-baseline.
+[tests/test-mcp-modern-sdk.sh](../tests/test-mcp-modern-sdk.sh),
+[tests/test-mcp-modern-conformance.sh](../tests/test-mcp-modern-conformance.sh), and the legacy
+[tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) against their revised baselines.
 
 The local Streamable HTTP bridge under [tests/mcp_http_bridge.py](../tests/mcp_http_bridge.py) is a
 test/conformance adapter over the stdio executable, not a separate product transport. Keep it thin:
 it should translate HTTP status/header rules to the stdio server without adding a second MCP tool
 implementation.
 
-The default conformance gate uses the pinned `@modelcontextprotocol/conformance@0.1.16` package and
-the explicit scenario set in [tests/test-mcp-conformance.sh](../tests/test-mcp-conformance.sh).
-Changing the package version or scenario baseline is a protocol change: update
-[docs/TESTING.md](TESTING.md), run the local conformance script, and check the workflow with
-`actionlint`.
+The legacy and modern conformance scripts own their package and scenario pins. The modern alpha gate
+only runs scenarios that do not require an upstream synthetic tool surface or unadvertised
+prompt/resource methods. The real stdio interoperability script separately owns its released
+`@modelcontextprotocol/client` pin. Changing a package version or scenario baseline is a protocol
+change: update [docs/TESTING.md](TESTING.md), run all affected local scripts, and check the workflow
+with `actionlint`.
 
 ## Broker Server Boundaries
 
@@ -421,7 +426,7 @@ Keep the focused scripts as the normal local development loop; the aggregate and
 broader CI or pre-release signals, not prerequisites for every targeted change.
 
 CI uses Node 24-compatible first-party GitHub Actions majors for checkout, setup-node, and cache.
-The MCP conformance job's `node-version` is the JavaScript test runtime and may stay pinned
+The MCP SDK and conformance jobs' `node-version` is the JavaScript test runtime and may stay pinned
 separately from the action runtime.
 
 ## Upstream Lean API Backlog

@@ -52,8 +52,9 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
 
 ### MCP And Agent Integration
 
-- installed experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set through
-  MCP `initialize`, `tools/list`, and `tools/call`
+- installed experimental `lean-beam-mcp` stdio server exposing the curated Lean Beam tool set
+  through stateless MCP `2026-07-28`; initialization-based MCP `2025-11-25` remains available during
+  the transition
 - MCP implementation backed directly by the broker runtime rather than by a second daemon/client
   connection
 - bug-report identity surfaces: `lean-beam --version`, `lean-beam-mcp --version`, and MCP
@@ -74,7 +75,8 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   workflows, follow-up handles, save/sync operations, version/stats, and feedback report cards; the
   generated tool list and client semantics are documented in [MCP.md](MCP.md)
 - MCP progress notifications for requests that pass `_meta.progressToken`
-- MCP diagnostic log notifications for incremental Lean diagnostics during sync/save-style tools
+- MCP diagnostic log notifications for incremental Lean diagnostics during sync/save-style tools,
+  with protocol-era opt-in documented in [MCP.md](MCP.md#progress-and-diagnostic-logs)
 - MCP `lean_sync` `include_diagnostics` option for clients that need the current request diagnostics
   replayed in the final structured result instead of collecting only interleaved log notifications
 - bundled Lean skills for supported agent clients, plus optional Rocq skills when installed with
@@ -182,10 +184,10 @@ discriminator.
 
 ### MCP
 
-- `lean-beam-mcp` currently advertises MCP protocol revision `2025-11-25` only. Older revisions are
-  not advertised or tested. Its application-state model is request-stateless in preparation for
-  MCP `2026-07-28`, but discovery, per-request metadata, and modern result envelopes are not yet
-  implemented.
+- `lean-beam-mcp` prefers MCP `2026-07-28` and implements `server/discover`, required per-request
+  protocol metadata, modern result envelopes, cache hints, and request-scoped diagnostic logging.
+  It also supports the initialization-based `2025-11-25` lifecycle as an explicit transition
+  target; older revisions are not advertised or tested.
 - `beam_feedback`, `lean_drop_workspace`, and all Lean operation tools require an explicit local
   workspace descriptor. Dropping a workspace invalidates its proof handles; a later request with
   the same descriptor recreates its runtime lazily.
@@ -194,15 +196,14 @@ discriminator.
 - Tool calls that include `_meta.progressToken` receive live MCP progress notifications. Updates for
   one request remain strictly ordered before its final response, while different requests may
   interleave; clients should use distinct tokens for concurrently active requests.
-- MCP `notifications/cancelled` cooperatively cancels active broker work. Lazy runtime setup and
-  shutdown remain serialized. Once admitted, `lean_drop_workspace` ignores client cancellation and
-  returns its terminal result because partial eviction cannot be rolled back safely. Previously
-  admitted calls drain first; later calls wait for eviction to finish and may recreate the same
-  descriptor.
+- MCP `notifications/cancelled` cooperatively cancels active broker work. Lazy runtime creation and
+  workspace eviction remain serialized. Once admitted, `lean_drop_workspace` ignores client
+  cancellation and returns its terminal result because partial eviction cannot be rolled back
+  safely. Previously admitted calls drain first; later calls wait for eviction to finish and may
+  recreate the same descriptor.
 - MCP JSON-RPC envelopes, `tools/call` parameters, and broker operation fields are closed at their
   current protocol boundaries; undeclared or operation-irrelevant fields are rejected rather than
   ignored. MCP `_meta` remains open for protocol-defined metadata.
-- Incremental Lean diagnostics are forwarded as MCP log notifications.
 - The Streamable HTTP bridge is test-only; the product entry point remains stdio.
 - Exact protocol behavior and conformance notes live in [MCP.md](MCP.md).
 

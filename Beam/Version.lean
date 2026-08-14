@@ -23,6 +23,9 @@ def mcpServerName : String :=
   "lean-beam-mcp"
 
 def mcpProtocolVersion : String :=
+  "2026-07-28"
+
+def legacyMcpProtocolVersion : String :=
   "2025-11-25"
 
 private def optionalField (key : String) (value? : Option String) : List (String × Json) :=

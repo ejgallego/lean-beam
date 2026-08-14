@@ -103,6 +103,34 @@ jobs:
           MCP_CONFORMANCE_NPM_CACHE: ${{ runner.temp }}/npm-cache
         run: bash tests/test-mcp-conformance.sh
 
+  mcp-modern:
+    name: mcp-modern (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/lean-ci-setup
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Modern MCP Official SDK Test
+        env:
+          MCP_SDK_NPM_CACHE: ${{ runner.temp }}/npm-cache
+        run: bash tests/test-mcp-modern-sdk.sh
+
+      - name: Modern MCP Conformance Alpha Test
+        env:
+          MCP_CONFORMANCE_NPM_CACHE: ${{ runner.temp }}/npm-cache
+        run: bash tests/test-mcp-modern-conformance.sh
+
   beam-slow:
     name: beam-slow (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

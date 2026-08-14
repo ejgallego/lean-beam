@@ -141,7 +141,7 @@ assert_version_output_contains "lean-beam feedback" "$feedback_smoke_output" '"d
 
 mcp_bin_version="$(.lake/build/bin/lean-beam-mcp --version)"
 assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "lean-beam-mcp 0.2.0-beta"
-assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "mcp protocol: 2025-11-25"
+assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "mcp protocol: 2026-07-28"
 assert_version_output_contains "lean-beam-mcp binary --version" "$mcp_bin_version" "server binary: "
 
 mcp_wrapper_version="$(scripts/lean-beam-mcp --version)"
@@ -406,7 +406,16 @@ def request(payload):
         if message.get("id") == expected_id:
             return message
 
-init = request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}}})
+init = request({
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "clientInfo": {"name": "lean-beam-fast-test", "version": "0"},
+    },
+})
 proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
 proc.stdin.flush()
 tools = request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
@@ -475,7 +484,6 @@ feedback_full = request({
         },
     },
 })
-shutdown = request({"jsonrpc": "2.0", "id": 6, "method": "shutdown"})
 if init.get("result", {}).get("protocolVersion") != "2025-11-25":
     print("MCP initialize did not negotiate the expected protocol version", file=sys.stderr)
     proc.kill()
@@ -586,18 +594,13 @@ if raw_tool.get("error", {}).get("code") != -32602:
     proc.kill()
     sys.exit(1)
 
-if shutdown.get("result") != {}:
-    print(f"expected clean MCP shutdown response: {shutdown}", file=sys.stderr)
-    proc.kill()
-    sys.exit(1)
-
 proc.stdin.close()
 try:
     code = proc.wait(timeout=5)
 except subprocess.TimeoutExpired:
     proc.kill()
     stderr = proc.stderr.read()
-    print(f"expected MCP smoke server to exit after shutdown; stderr:\n{stderr}", file=sys.stderr)
+    print(f"expected MCP smoke server to exit after EOF; stderr:\n{stderr}", file=sys.stderr)
     sys.exit(1)
 stderr = proc.stderr.read()
 if code != 0:

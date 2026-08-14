@@ -312,6 +312,11 @@ entries to `[[mcp_servers]]` tables first. For OpenCode, the installer prints th
 `opencode mcp add` values to use manually. Pi Agent does not support MCP; install its skill with
 `--pi`.
 
+The server prefers stateless MCP `2026-07-28` and also accepts the initialization-based
+`2025-11-25` lifecycle while clients migrate. This is automatic: modern clients can discover the
+server and attach protocol metadata to each call, while older supported clients initialize
+normally. The workspace descriptor shown below is explicit in both cases.
+
 ```bash
 ./scripts/install-beam.sh --codex-mcp
 ./scripts/install-beam.sh --claude-mcp

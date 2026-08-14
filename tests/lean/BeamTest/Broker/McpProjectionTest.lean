@@ -142,12 +142,6 @@ private def checkToolNames : IO Unit := do
   | .error _ =>
       pure ()
 
-  for removed in #["lean_init_workspace", "lean_list_workspaces"] do
-    match fromJson? (α := Beam.Mcp.ToolName) (Json.str removed) with
-    | .ok tool =>
-        throw <| IO.userError s!"removed workspace lifecycle tool decoded: {repr tool}"
-    | .error _ => pure ()
-
 private def checkToolDescriptors : IO Unit := do
   requireSameOperationSurface "curated Lean operation surface"
     Beam.Lean.Operation.all

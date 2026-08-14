@@ -146,25 +146,24 @@ private partial def readResponse
       else
         throw <| IO.userError s!"expected self-check {phase} id {expectedId.compress}, got {json.compress}"
 
-private def sendInitialize (stdin : IO.FS.Handle) : IO Unit := do
-  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson (1 : Nat)),
-    ("method", toJson "initialize"),
-    ("params", Json.mkObj [
-      ("protocolVersion", toJson protocolVersion),
-      ("capabilities", Json.mkObj []),
-      ("clientInfo", Json.mkObj [
-        ("name", toJson "lean-beam-mcp-self-check"),
-        ("version", toJson serverVersion)
-      ])
+private def modernMeta : Json :=
+  Json.mkObj [
+    ("io.modelcontextprotocol/protocolVersion", toJson protocolVersion),
+    ("io.modelcontextprotocol/clientCapabilities", Json.mkObj []),
+    ("io.modelcontextprotocol/clientInfo", Json.mkObj [
+      ("name", toJson "lean-beam-mcp-self-check"),
+      ("version", toJson serverVersion)
     ])
   ]
 
-private def sendInitialized (stdin : IO.FS.Handle) : IO Unit := do
+private def sendDiscover (stdin : IO.FS.Handle) : IO Unit := do
   Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
     ("jsonrpc", toJson "2.0"),
-    ("method", toJson "notifications/initialized")
+    ("id", toJson (1 : Nat)),
+    ("method", toJson "server/discover"),
+    ("params", Json.mkObj [
+      ("_meta", modernMeta)
+    ])
   ]
 
 private def sendSync
@@ -180,18 +179,12 @@ private def sendSync
       ("arguments", Json.mkObj [
         ("path", toJson pathText),
         ("workspace", toJson <| Beam.Workspace.Descriptor.ofRoot root)
-      ])
+      ]),
+      ("_meta", modernMeta)
     ])
   ]
 
-private def sendShutdown (stdin : IO.FS.Handle) : IO Unit := do
-  Beam.Mcp.Stdio.writeJsonLineToHandle stdin <| Json.mkObj [
-    ("jsonrpc", toJson "2.0"),
-    ("id", toJson (3 : Nat)),
-    ("method", toJson "shutdown")
-  ]
-
-private def terminateChild (child : IO.Process.Child stdio) : IO Unit := do
+private def terminateChild {cfg : IO.Process.StdioConfig} (child : IO.Process.Child cfg) : IO Unit := do
   if (← child.tryWait).isNone then
     try
       child.kill
@@ -214,28 +207,38 @@ def run (opts : Options) (pathText : String) : IO Unit := do
     cwd := root.toString
   }
   try
-    sendInitialize child.stdin
-    let init ← expectResult "initialize" =<<
-      readResponse child child.stdout (toJson (1 : Nat)) "initialize response" timeout
-    let negotiated ← requireObjValAs (α := String) "initialize result" "protocolVersion" init
-    if negotiated != protocolVersion then
-      throw <| IO.userError s!"server negotiated MCP protocol {negotiated}, expected {protocolVersion}"
-    sendInitialized child.stdin
+    sendDiscover child.stdin
+    let discovery ← expectResult "server/discover" =<<
+      readResponse child child.stdout (toJson (1 : Nat)) "server/discover response" timeout
+    let resultType ← requireObjValAs (α := String) "server/discover result" "resultType" discovery
+    if resultType != "complete" then
+      throw <| IO.userError s!"server/discover returned resultType {resultType}, expected complete"
+    let supported ← requireObjValAs (α := Array String)
+      "server/discover result" "supportedVersions" discovery
+    unless supported.contains protocolVersion do
+      throw <| IO.userError
+        s!"server/discover did not advertise MCP protocol {protocolVersion}: {discovery.compress}"
     sendSync child.stdin root pathText
     let sync ← expectResult "lean_sync" =<<
       readResponse child child.stdout (toJson (2 : Nat)) "lean_sync response" timeout
+    let syncResultType ← requireObjValAs (α := String) "lean_sync result" "resultType" sync
+    if syncResultType != "complete" then
+      throw <| IO.userError s!"lean_sync returned resultType {syncResultType}, expected complete"
     match sync.getObjVal? "isError" with
     | .ok (.bool true) =>
         throw <| IO.userError s!"lean_sync returned an MCP tool error: {sync.compress}"
     | _ => pure ()
     let structured ← requireObjVal "lean_sync result" "structuredContent" sync
     discard <| requireObjVal "lean_sync structuredContent" "file_progress" structured
-    sendShutdown child.stdin
-    let shutdown ← expectResult "shutdown" =<<
-      readResponse child child.stdout (toJson (3 : Nat)) "shutdown response" timeout
-    unless shutdown == Json.mkObj [] do
-      throw <| IO.userError s!"unexpected shutdown result: {shutdown.compress}"
-    let exitCode ← child.wait
+  catch e =>
+    terminateChild child
+    throw e
+  let (_, child) ← child.takeStdin
+  try
+    let waitTask ← IO.asTask child.wait Task.Priority.dedicated
+    let some exitResult ← waitForTaskWithTimeout waitTask timeout
+      | throw <| IO.userError (timeoutMessage "EOF teardown" timeout)
+    let exitCode ← IO.ofExcept exitResult
     if exitCode != 0 then
       let stderr ← child.stderr.readToEnd
       throw <| IO.userError s!"lean-beam-mcp self-check child exited with code {exitCode}\n{stderr}"
