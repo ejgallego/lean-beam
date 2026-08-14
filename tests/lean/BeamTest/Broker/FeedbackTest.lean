@@ -17,6 +17,12 @@ private def homeFixture : IO String := do
   let home? ← IO.getEnv "HOME"
   pure <| home?.getD "/tmp/beam-feedback-home"
 
+private def localPathFromResult (home path : String) : System.FilePath :=
+  if path.startsWith "~/" then
+    System.FilePath.mk <| home ++ (path.drop 1).toString
+  else
+    System.FilePath.mk path
+
 private def removeTempDir (path : System.FilePath) : IO Unit := do
   if ← path.pathExists then
     IO.FS.removeDirAll path
@@ -24,7 +30,9 @@ private def removeTempDir (path : System.FilePath) : IO Unit := do
 private def withTempPath
     (stem : String)
     (action : System.FilePath → IO α) : IO α := do
-  let path := System.FilePath.mk s!"/tmp/{stem}-{← IO.monoNanosNow}"
+  let scratchRoot := (← IO.currentDir) / ".lake" / "build" / "beam-feedback-test-scratch"
+  IO.FS.createDirAll scratchRoot
+  let path := scratchRoot / s!"{stem}-{← IO.monoNanosNow}"
   try
     action path
   finally
@@ -36,6 +44,25 @@ private def withTempDir
   withTempPath stem fun path => do
     IO.FS.createDirAll path
     action path
+
+private def inspectZipArchive (path : System.FilePath) : IO Json := do
+  let script := String.intercalate "\n" [
+    "import json, sys, zipfile",
+    "with zipfile.ZipFile(sys.argv[1]) as archive:",
+    "    names = archive.namelist()",
+    "    reports = [name for name in names if name.endswith('/report.json')]",
+    "    if len(reports) != 1:",
+    "        raise RuntimeError(f'expected one report.json, got {reports}')",
+    "    report = json.loads(archive.read(reports[0]).decode('utf-8'))",
+    "    print(json.dumps({'names': names, 'report': report}))"
+  ]
+  let out ← IO.Process.output {
+    cmd := "python3"
+    args := #["-c", script, path.toString]
+  }
+  if out.exitCode != 0 then
+    throw <| IO.userError s!"failed to inspect confidential feedback ZIP\n{out.stderr}"
+  expectOk "parse confidential feedback ZIP inspection" <| Json.parse out.stdout
 
 private def expectFailureContaining
     (label expected : String)
@@ -347,7 +374,7 @@ private def checkBundleWrite : IO Unit := do
     }
     let some bundleDirText := result.bundleDir?
       | throw <| IO.userError "feedback bundle did not report bundle_dir"
-    let bundleDir := System.FilePath.mk bundleDirText
+    let bundleDir := localPathFromResult home bundleDirText
     require "feedback bundle directory exists" (← bundleDir.pathExists)
     let card ← IO.FS.readFile (bundleDir / "card.md")
     require "bundle card contains report title" (card.contains "# Daemon startup failure")
@@ -397,15 +424,15 @@ private def checkEvidencePathBoundary : IO Unit := do
             allowedRoots := #[root]
           }
 
-private def checkConfidentialBundleWrite : IO Unit := do
+private def checkConfidentialBundleWrite (mode : Beam.Feedback.BundleMode) : IO Unit := do
   let home ← homeFixture
   let privatePath := "private-customer-project-4a2c"
-  withTempDir s!"beam-feedback-confidential-test-{privatePath}" fun root => do
+  withTempDir s!"beam-feedback-confidential-{mode.key}-test-{privatePath}" fun root => do
     let secretCode := "PRIVATE_BUNDLE_CODE_4a2c"
     let input : Beam.Feedback.Input := {
       sampleInput home with
         confidential := true
-        bundle := .dir
+        bundle := mode
         request? := some <| Json.mkObj [("source", toJson secretCode)]
         evidence := #[
           { name := "private.lean", content? := some <| toJson secretCode },
@@ -420,7 +447,7 @@ private def checkConfidentialBundleWrite : IO Unit := do
       | throw <| IO.userError "confidential feedback bundle did not report bundle_dir"
     require "confidential local result retains its operational bundle path"
       (bundleDirText.contains privatePath)
-    let bundleDir := System.FilePath.mk bundleDirText
+    let bundleDir := localPathFromResult home bundleDirText
     require "confidential bundle does not write caller-supplied evidence"
       (!(← (bundleDir / "evidence").pathExists))
     for name in #["card.md", "metadata.json", "collected.json", "report.json"] do
@@ -434,6 +461,27 @@ private def checkConfidentialBundleWrite : IO Unit := do
     let report ← expectOk "parse confidential feedback bundle report" <| Json.parse reportText
     requireFieldAbsent "confidential feedback bundle report" "bundle_dir" report
     requireFieldAbsent "confidential feedback bundle report" "zip_path" report
+    match mode, result.zipPath? with
+    | .zip, some zipPathText =>
+        let archive ← inspectZipArchive (localPathFromResult home zipPathText)
+        let names ← expectOk "decode confidential feedback ZIP members" <|
+          archive.getObjValAs? (Array String) "names"
+        require "confidential feedback ZIP should omit caller-supplied evidence"
+          (!names.any (·.contains "/evidence/"))
+        let archivedReport ← requireObjVal "confidential feedback ZIP inspection" "report" archive
+        let archivedOutput := archivedReport.compress
+        require "confidential feedback ZIP report should omit private source"
+          (!archivedOutput.contains secretCode)
+        require "confidential feedback ZIP report should omit project debug context"
+          (!archivedOutput.contains "openFiles")
+        require "confidential feedback ZIP report should omit its private project path"
+          (!archivedOutput.contains privatePath)
+        requireFieldAbsent "confidential feedback ZIP report" "bundle_dir" archivedReport
+        requireFieldAbsent "confidential feedback ZIP report" "zip_path" archivedReport
+    | .zip, none =>
+        require "confidential feedback ZIP failure should be reported as a warning"
+          (result.collectionWarnings.any (·.contains "zip"))
+    | _, _ => pure ()
 
 private def checkZipBundleReportRoundTrip : IO Unit := do
   let home ← homeFixture
@@ -448,13 +496,13 @@ private def checkZipBundleReportRoundTrip : IO Unit := do
     }
     let some bundleDirText := result.bundleDir?
       | throw <| IO.userError "feedback zip bundle did not report bundle_dir"
-    let bundleDir := System.FilePath.mk bundleDirText
+    let bundleDir := localPathFromResult home bundleDirText
     let reportText ← IO.FS.readFile (bundleDir / "report.json")
     let report ← expectOk "parse feedback zip report bundle json" <| Json.parse reportText
     match result.zipPath? with
     | some zipPath =>
         requireJsonString "feedback zip bundle report" "zip_path" zipPath report
-        require "feedback zip archive exists" (← (System.FilePath.mk zipPath).pathExists)
+        require "feedback zip archive exists" (← (localPathFromResult home zipPath).pathExists)
     | none =>
         requireFieldAbsent "feedback zip bundle report" "zip_path" report
         let warnings ← requireObjVal "feedback zip bundle report" "collection_warnings" report
@@ -491,7 +539,8 @@ def main : IO Unit := do
   checkInputErrorMessages
   checkBundleWrite
   checkEvidencePathBoundary
-  checkConfidentialBundleWrite
+  checkConfidentialBundleWrite .dir
+  checkConfidentialBundleWrite .zip
   checkZipBundleReportRoundTrip
   checkUnredactedBundlePaths
 

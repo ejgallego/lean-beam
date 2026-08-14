@@ -643,7 +643,34 @@ private def requireModernResultEnvelope (label : String) (result : Json) : IO Un
   let serverInfo ← requireObjVal label "io.modelcontextprotocol/serverInfo" resultMeta
   requireJsonString label "name" Beam.Mcp.serverName serverInfo
 
+private def requireConfidentialFeedbackResult
+    (label secret : String)
+    (result : Json) : IO Unit := do
+  requireJsonBool s!"{label} result" "isError" false result
+  let structured ← requireObjVal s!"{label} result" "structuredContent" result
+  require s!"{label} omits caller payloads" (!structured.compress.contains secret)
+  requireFieldAbsent s!"{label} structured" "workspace" structured
+  let markdown ← IO.ofExcept <| structured.getObjValAs? String "markdown"
+  require s!"{label} carries a visible warning"
+    (markdown.contains "do not post this report publicly")
+  let metadata ← requireObjVal s!"{label} structured" "metadata" structured
+  requireJsonBool s!"{label} metadata" "confidential" true metadata
+  requireJsonNull s!"{label} metadata" "active_root" metadata
+  let collected ← requireObjVal s!"{label} structured" "collected" structured
+  let identity ← requireObjVal s!"{label} collected" "identity" collected
+  requireJsonString s!"{label} identity" "name" Beam.Version.mcpServerName identity
+  requireJsonString s!"{label} identity" "version" Beam.Version.projectVersion identity
+  requireJsonString s!"{label} identity" "mcp_protocol"
+    Beam.Version.mcpProtocolVersion identity
+  requireJsonBool s!"{label} identity" "runtime_active" false identity
+  requireFieldAbsent s!"{label} identity" "beam_home" identity
+  requireFieldAbsent s!"{label} identity" "source_commit" identity
+  requireFieldAbsent s!"{label} identity" "active_root" identity
+  requireFieldAbsent s!"{label} collected" "daemon" collected
+  requireFieldAbsent s!"{label} collected" "openFiles" collected
+
 private def checkModernProtocol : IO Unit := do
+  let root ← IO.currentDir
   let state ← Beam.Mcp.Server.ServerState.create
   let opts : Beam.Mcp.Server.Options := {}
 
@@ -683,6 +710,33 @@ private def checkModernProtocol : IO Unit := do
   let callResult ← requireObjVal "modern beam_version response" "result" callResp
   requireModernResultEnvelope "modern beam_version result" callResult
   requireJsonBool "modern beam_version result" "isError" false callResult
+
+  let confidentialSecret := "PRIVATE_MODERN_MCP_CODE_b136"
+  let feedbackResp ← handleRpcRequest state opts "modern confidential beam_feedback" 1021
+    "tools/call" <| some <| modernParams [
+      ("name", toJson "beam_feedback"),
+      ("arguments", withWorkspace root <| Json.mkObj [
+        ("title", toJson "Modern MCP confidential feedback fixture"),
+        ("summary", toJson "Feedback report from a private workspace."),
+        ("reproduction", toJson "Call beam_feedback through stateless MCP."),
+        ("expected", toJson "A confidential report card is returned."),
+        ("actual", toJson "A confidential report card is returned."),
+        ("request", Json.mkObj [("source", toJson confidentialSecret)]),
+        ("confidential", toJson true),
+        ("include_collected", toJson true)
+      ])
+    ]
+  let feedbackResult ← requireObjVal "modern confidential beam_feedback response" "result"
+    feedbackResp
+  requireModernResultEnvelope "modern confidential beam_feedback result" feedbackResult
+  requireConfidentialFeedbackResult "modern confidential beam_feedback" confidentialSecret
+    feedbackResult
+  let stateAfterFeedback ← state.applicationState
+  require "modern beam_feedback should not create a broker runtime"
+    stateAfterFeedback.runtime?.isNone
+  require "modern beam_feedback should not create a workspace cache"
+    stateAfterFeedback.workspaces.toList.isEmpty
+
   let preservedMetaResult := Beam.Mcp.modernResult <| Json.mkObj [
     ("_meta", Json.mkObj [("example.test/value", toJson "preserved")])
   ]
@@ -984,38 +1038,8 @@ private def checkServerBasics : IO Unit := do
         ]
   let feedbackConfidentialResult ←
     requireObjVal "beam feedback confidential response" "result" feedbackConfidentialResp
-  requireJsonBool "beam feedback confidential result" "isError" false feedbackConfidentialResult
-  let feedbackConfidentialStructured ←
-    requireObjVal "beam feedback confidential result" "structuredContent" feedbackConfidentialResult
-  require "beam feedback confidential response omits caller payloads"
-    (!feedbackConfidentialStructured.compress.contains confidentialSecret)
-  requireFieldAbsent "beam feedback confidential structured" "workspace"
-    feedbackConfidentialStructured
-  let feedbackConfidentialMarkdown ←
-    IO.ofExcept <| feedbackConfidentialStructured.getObjValAs? String "markdown"
-  require "beam feedback confidential response carries a visible warning"
-    (feedbackConfidentialMarkdown.contains "do not post this report publicly")
-  let feedbackConfidentialMetadata ←
-    requireObjVal "beam feedback confidential structured" "metadata" feedbackConfidentialStructured
-  requireJsonBool "beam feedback confidential metadata" "confidential" true feedbackConfidentialMetadata
-  requireJsonNull "beam feedback confidential metadata" "active_root" feedbackConfidentialMetadata
-  let feedbackConfidentialCollected ←
-    requireObjVal "beam feedback confidential structured" "collected" feedbackConfidentialStructured
-  let feedbackConfidentialIdentity ←
-    requireObjVal "beam feedback confidential collected" "identity" feedbackConfidentialCollected
-  requireJsonString "beam feedback confidential identity" "name" Beam.Version.mcpServerName
-    feedbackConfidentialIdentity
-  requireJsonString "beam feedback confidential identity" "version" Beam.Version.projectVersion
-    feedbackConfidentialIdentity
-  requireJsonString "beam feedback confidential identity" "mcp_protocol"
-    Beam.Version.mcpProtocolVersion feedbackConfidentialIdentity
-  requireJsonBool "beam feedback confidential identity" "runtime_active" false
-    feedbackConfidentialIdentity
-  requireFieldAbsent "beam feedback confidential identity" "beam_home" feedbackConfidentialIdentity
-  requireFieldAbsent "beam feedback confidential identity" "source_commit" feedbackConfidentialIdentity
-  requireFieldAbsent "beam feedback confidential identity" "active_root" feedbackConfidentialIdentity
-  requireFieldAbsent "beam feedback confidential collected" "daemon" feedbackConfidentialCollected
-  requireFieldAbsent "beam feedback confidential collected" "openFiles" feedbackConfidentialCollected
+  requireConfidentialFeedbackResult "beam feedback confidential" confidentialSecret
+    feedbackConfidentialResult
 
   let stateAfterFeedback ← state.applicationState
   require "beam_feedback should not create a broker runtime"

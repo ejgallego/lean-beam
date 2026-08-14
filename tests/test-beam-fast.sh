@@ -84,6 +84,23 @@ assert_output_omits() {
   fi
 }
 
+feedback_failure_output() {
+  local label="$1"
+  local input="$2"
+  shift 2
+  local output
+  # Capture stderr in memory while discarding any unexpected stdout.
+  if output="$(
+    printf '%s\n' "$input" \
+      | scripts/lean-beam --root tests/save_olean_project feedback --stdin "$@" \
+          2>&1 > /dev/null
+  )"; then
+    echo "expected $label" >&2
+    return 1
+  fi
+  printf '%s\n' "$output"
+}
+
 source_tree_commit="$(git rev-parse HEAD 2>/dev/null || true)"
 source_tree_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 source_tree_dirty=""
@@ -137,25 +154,16 @@ assert_output_contains "lean-beam feedback --help" "$feedback_help" "request and
 assert_output_contains "lean-beam feedback --help" "$feedback_help" "retain narrative except for HOME-path redaction"
 assert_output_contains "lean-beam feedback --help" "$feedback_help" "requested bundle paths remain in the local result"
 
-feedback_invalid_err="$(mktemp /tmp/beam-feedback-invalid-XXXXXX)"
-if printf '%s\n' '{}' | scripts/lean-beam --root tests/save_olean_project feedback --stdin > /dev/null 2>"$feedback_invalid_err"; then
-  echo "expected lean-beam feedback to reject empty JSON object" >&2
-  rm -f "$feedback_invalid_err"
-  exit 1
-fi
-feedback_invalid_output="$(cat "$feedback_invalid_err")"
-rm -f "$feedback_invalid_err"
+feedback_invalid_output="$(
+  feedback_failure_output "lean-beam feedback to reject an empty JSON object" '{}'
+)"
 assert_output_contains "lean-beam feedback invalid input" "$feedback_invalid_output" "missing required string field 'title'"
 
 feedback_unknown_input='{"title":"Misspelled privacy field","summary":"Private report.","reproduction":"Call feedback.","expected":"A report.","actual":"An error.","confidental":true}'
-feedback_unknown_err="$(mktemp /tmp/beam-feedback-unknown-XXXXXX)"
-if printf '%s\n' "$feedback_unknown_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin > /dev/null 2>"$feedback_unknown_err"; then
-  echo "expected lean-beam feedback to reject unknown JSON fields" >&2
-  rm -f "$feedback_unknown_err"
-  exit 1
-fi
-feedback_unknown_output="$(cat "$feedback_unknown_err")"
-rm -f "$feedback_unknown_err"
+feedback_unknown_output="$(
+  feedback_failure_output "lean-beam feedback to reject unknown JSON fields" \
+    "$feedback_unknown_input"
+)"
 assert_output_contains "lean-beam feedback unknown input" "$feedback_unknown_output" "feedback input accepts no undeclared fields: confidental"
 
 feedback_smoke_input='{"title":"CLI feedback fixture","kind":"bug","severity":"medium","summary":"Smoke report.","reproduction":"scripts/lean-beam feedback --stdin","expected":"A report card is returned.","actual":"A report card is returned."}'
@@ -194,14 +202,10 @@ assert_output_contains "lean-beam confidential feedback without project root" \
 assert_output_omits "lean-beam confidential feedback without project root" \
   "$feedback_confidential_non_project_root_output" "$feedback_confidential_non_project_root"
 
-feedback_confidential_err="$(mktemp /tmp/beam-feedback-confidential-XXXXXX)"
-if printf '%s\n' "$feedback_confidential_input" | scripts/lean-beam --root tests/save_olean_project feedback --stdin --no-redact > /dev/null 2>"$feedback_confidential_err"; then
-  echo "expected lean-beam confidential feedback to reject --no-redact" >&2
-  rm -f "$feedback_confidential_err"
-  exit 1
-fi
-feedback_confidential_error_output="$(cat "$feedback_confidential_err")"
-rm -f "$feedback_confidential_err"
+feedback_confidential_error_output="$(
+  feedback_failure_output "lean-beam confidential feedback to reject --no-redact" \
+    "$feedback_confidential_input" --no-redact
+)"
 assert_output_contains "lean-beam confidential feedback --no-redact" "$feedback_confidential_error_output" "'confidential' cannot be combined with --no-redact"
 
 mcp_bin_version="$(.lake/build/bin/lean-beam-mcp --version)"
