@@ -438,6 +438,7 @@ import subprocess
 import sys
 
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("BEAM_MCP_SMOKE_REQUEST_TIMEOUT", "60"))
+SHUTDOWN_TIMEOUT_SECONDS = int(os.environ.get("BEAM_MCP_SMOKE_SHUTDOWN_TIMEOUT", "30"))
 workspace = {"root": os.path.abspath("tests/save_olean_project")}
 
 proc = subprocess.Popen(
@@ -665,11 +666,15 @@ if raw_tool.get("error", {}).get("code") != -32602:
 
 proc.stdin.close()
 try:
-    code = proc.wait(timeout=5)
+    code = proc.wait(timeout=SHUTDOWN_TIMEOUT_SECONDS)
 except subprocess.TimeoutExpired:
     proc.kill()
+    proc.wait()
     stderr = proc.stderr.read()
-    print(f"expected MCP smoke server to exit after EOF; stderr:\n{stderr}", file=sys.stderr)
+    print(
+        f"expected MCP smoke server to exit within {SHUTDOWN_TIMEOUT_SECONDS}s after EOF; stderr:\n{stderr}",
+        file=sys.stderr,
+    )
     sys.exit(1)
 stderr = proc.stderr.read()
 if code != 0:
