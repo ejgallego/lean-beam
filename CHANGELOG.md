@@ -33,9 +33,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
   and does not upload or submit them
   ([#233](https://github.com/ejgallego/lean-beam/pull/233)).
 - Lean MCP calls without `_meta.progressToken` now emit one structured `beam.status` notice when
-  Lake setup is observed or the call remains pending for two seconds. Tokened calls use concise,
-  throttled phase/file updates instead of generic start/prepare/run chatter and duplicate terminal
-  progress.
+  Lake setup is observed or the call remains pending for two seconds and the active logging policy
+  admits notice-level events. Tokened calls use concise, throttled phase/file updates instead of
+  generic start/prepare/run chatter and duplicate terminal progress.
 - Broker stream-message decoding now requires the payload selected by its `kind` and rejects
   missing, conflicting, or undeclared payload fields.
 - The exact-validation registry and CLI command are now named `validated-lean-toolchains` and

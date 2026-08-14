@@ -682,15 +682,27 @@ def wait_for_status_log(client, request_id, timeout, label):
     deadline = time.monotonic() + timeout
     with client.state_changed:
         while True:
-            for notification in status_log_notifications(client):
-                params = notification_params(notification, "notifications/message", label)
-                data = params.get("data")
-                if isinstance(data, dict) and data.get("requestId") == request_id:
-                    return notification
+            notifications = status_log_notifications(client, request_id)
+            if notifications:
+                return notifications[0]
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 fail(f"{label}: timed out waiting for beam.status requestId={request_id!r}")
             client.state_changed.wait(timeout=min(remaining, 0.05))
+
+
+def expect_status_log(client, *, request_id, tool, state, timeout, label):
+    notification = wait_for_status_log(client, request_id, timeout, label)
+    params = notification_params(notification, "notifications/message", label)
+    data = params.get("data", {})
+    require(params.get("level") == "notice", f"{label} level: {notification}")
+    require(data.get("tool") == tool, f"{label} tool: {notification}")
+    require(data.get("state") == state, f"{label} state: {notification}")
+    require(
+        "progressToken" in data.get("progressHint", ""),
+        f"{label} should make detailed progress discoverable: {notification}",
+    )
+    return notification
 
 
 def expect_diagnostic_log(client, *, level, severity, path):
@@ -1739,24 +1751,13 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             }
             client.send_request("tools/call", slow_params, request_id=slow_id)
             wait_for_file(started_path, timeout, "slow runAt gate sentinel")
-            status = wait_for_status_log(
+            expect_status_log(
                 client,
-                slow_id,
-                min(timeout, 5.0),
-                "slow no-token runAt status",
-            )
-            status_params = notification_params(
-                status,
-                "notifications/message",
-                "slow no-token runAt status",
-            )
-            status_data = status_params.get("data", {})
-            require(status_params.get("level") == "notice", f"slow status level: {status}")
-            require(status_data.get("tool") == "lean_run_at", f"slow status tool: {status}")
-            require(status_data.get("state") == "running", f"slow status state: {status}")
-            require(
-                "progressToken" in status_data.get("progressHint", ""),
-                f"slow status should make detailed progress discoverable: {status}",
+                request_id=slow_id,
+                tool="lean_run_at",
+                state="running",
+                timeout=min(timeout, 5.0),
+                label="slow no-token runAt status",
             )
             status_count = len(status_log_notifications(client, slow_id))
             cross_workspace_fast_id = client.send_request(
@@ -1982,6 +1983,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             extra_env={
                 "BEAM_MCP_GATE_STARTED": started_path,
                 "BEAM_MCP_GATE_RELEASE": release_path,
+                "LEAN_BEAM_MCP_TEST_STATUS_DELAY_MS": "100",
             },
         )
         modern_cancel_id = "modern-cancelled-run-at"
@@ -2012,12 +2014,56 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                     },
                 }
             )
+
+            def run_modern_status_case(request_id, log_level, expect_notice):
+                label = f"modern {log_level} runAt"
+                started_path.unlink(missing_ok=True)
+                release_path.unlink(missing_ok=True)
+                params = with_modern_metadata(
+                    {
+                        "name": "lean_run_at",
+                        "arguments": dict(modern_slow_params["arguments"]),
+                    },
+                    log_level=log_level,
+                )
+                modern_client.send_request("tools/call", params, request_id=request_id)
+                wait_for_file(started_path, timeout, f"{label} gate sentinel")
+                if expect_notice:
+                    expect_status_log(
+                        modern_client,
+                        request_id=request_id,
+                        tool="lean_run_at",
+                        state="running",
+                        timeout=min(timeout, 5.0),
+                        label=f"{label} status",
+                    )
+                else:
+                    time.sleep(0.2)
+                    require(
+                        status_log_notifications(modern_client, request_id) == [],
+                        f"{label} should suppress notice status: {modern_client.notifications}",
+                    )
+                status_count = len(status_log_notifications(modern_client, request_id))
+                release_path.write_text("release\n", encoding="utf-8")
+                result = expect_result(modern_client.read_response(request_id))
+                require_modern_result_envelope(result, label)
+                require(result.get("isError") is not True, f"{label} returned a tool error: {result}")
+                require(
+                    len(status_log_notifications(modern_client, request_id)) == status_count,
+                    f"{label} emitted duplicate or post-response statuses: {modern_client.notifications}",
+                )
+
             modern_client.send_request(
                 "tools/call",
                 modern_slow_params,
                 request_id=modern_cancel_id,
             )
             wait_for_file(started_path, timeout, "modern cancelled runAt gate sentinel")
+            time.sleep(0.2)
+            require(
+                status_log_notifications(modern_client, modern_cancel_id) == [],
+                f"modern request without logLevel emitted status: {modern_client.notifications}",
+            )
             modern_client.notify(
                 "notifications/cancelled",
                 {
@@ -2058,6 +2104,14 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             modern_client.forget_request(modern_cancel_id)
             listed = expect_result(modern_client.modern_request("tools/list"))
             require_modern_result_envelope(listed, "modern tools/list after cancellation")
+
+            run_modern_status_case("modern-notice-run-at", "notice", expect_notice=True)
+            run_modern_status_case("modern-warning-run-at", "warning", expect_notice=False)
+
+            modern_client.close_input()
+            shutdown_timeout = min(timeout, 5.0)
+            returncode = modern_client.proc.wait(timeout=shutdown_timeout)
+            require(returncode == 0, f"modern status server exited with code {returncode} after EOF")
         finally:
             if not release_path.exists():
                 release_path.write_text("release\n", encoding="utf-8")

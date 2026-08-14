@@ -51,21 +51,22 @@ Lean currently exposes this as ordinary information diagnostics, so Beam has to 
 temporary diagnostic envelope and Lake build-monitor line shape. Keep this narrow until Lean
 exposes typed setup/build progress.
 -/
-def isLakeSetupFileProgressDiagnostic (diagnostic : Diagnostic) : Bool :=
-  match diagnostic.severity? with
+private def isLakeSetupFileProgress
+    (severity? : Option DiagnosticSeverity)
+    (range : Range)
+    (message : String) : Bool :=
+  match severity? with
   | some .information =>
-      isFileWorkerSetupProgressRange diagnostic.range &&
-        isLakeBuildMonitorLine diagnostic.message
+      isFileWorkerSetupProgressRange range &&
+        isLakeBuildMonitorLine message
   | _ =>
       false
 
+def isLakeSetupFileProgressDiagnostic (diagnostic : Diagnostic) : Bool :=
+  isLakeSetupFileProgress diagnostic.severity? diagnostic.range diagnostic.message
+
 def isLakeSetupFileProgressStreamDiagnostic (diagnostic : StreamDiagnostic) : Bool :=
-  match diagnostic.severity? with
-  | some .information =>
-      isFileWorkerSetupProgressRange diagnostic.range &&
-        isLakeBuildMonitorLine diagnostic.message
-  | _ =>
-      false
+  isLakeSetupFileProgress diagnostic.severity? diagnostic.range diagnostic.message
 
 def effectiveSyncDiagnosticSeverity (diagnostic : Diagnostic) :
     Option DiagnosticSeverity :=

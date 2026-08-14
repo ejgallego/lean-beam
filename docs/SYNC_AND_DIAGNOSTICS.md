@@ -134,27 +134,31 @@ and streaming use an error-only diagnostic filter. Final replay intentionally du
 matching diagnostics already consumed live. For synced-file requests, `full_diagnostics: true`
 widens streamed and replayed diagnostic output to warnings, information, and hints.
 
-Beam recognizes best-effort Lake `setup-file` build lines separately from ordinary diagnostics. A
-no-token call receives the first such observation as its single `beam.status` liveness notice. A
-call with `_meta.progressToken` receives throttled setup observations as
-`notifications/progress`. `runAt` does not stream ordinary file diagnostics by default.
+Lean currently publishes Lake `setup-file` build lines as information diagnostics. Beam recognizes
+these observations best-effort and, at the MCP boundary, projects them separately from ordinary
+diagnostics. A no-token call whose active logging policy admits `notice` receives the first such
+observation as its single `beam.status` liveness notice. A call with `_meta.progressToken` receives
+throttled setup observations as `notifications/progress`. `runAt` does not stream ordinary file
+diagnostics by default.
 
 `full_diagnostics` is an output severity/detail filter, not a request for a partial diagnostic
 state. `syncSummary.diagnostics.current` still summarizes the complete current diagnostic state.
 When a first sync on a fresh or dependency-heavy Lake workspace is slow, clients should keep a
 progress token attached and retry or continue with `full_diagnostics: true` plus
 `include_diagnostics: true` if they need the current warning/info detail in the final result.
-Successful `lake setup-file` status diagnostics are transient Lean observations. They may appear
-only through live `beam.status` or tokened progress and usually do not appear in final
-`include_diagnostics` replay after Lean clears setup progress.
+Successful `lake setup-file` status diagnostics are transient Lean observations. MCP projects them
+through live `beam.status` or tokened progress, and they usually do not appear in final
+`include_diagnostics` replay after Lean clears setup progress. Broker and CLI streams still carry
+Lean's temporary information-diagnostic envelope. Until Lean exposes a first-class setup/build
+status signal, the separation is an MCP projection rather than an end-to-end typed distinction.
 
 ## Progress
 
 MCP clients can pass `_meta.progressToken` on `tools/call` requests to receive
 `notifications/progress` for setup and execution phases. Beam also reports throttled Lean
 file-progress observations when Lean publishes them. Without a token, Beam keeps fast requests
-quiet and emits one `beam.status` notice when setup is detected or a request stays pending for two
-seconds.
+quiet and emits at most one `beam.status` notice when setup is detected or a request stays pending
+for two seconds, provided that the active logging policy admits `notice`.
 
 `fileProgress` and MCP `file_progress` fields contain compact Lean processing-range observations.
 They always report `updates` and `done`; when Lean publishes range-bearing progress, they may also

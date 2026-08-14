@@ -177,11 +177,11 @@ private def goalsModeField : String × Json :=
 
 private def syncFullDiagnosticsField : String × Json :=
   ("full_diagnostics", Beam.JsonSchema.bool
-    "When true, include warnings, information, and hints in streamed or replayed diagnostics; false keeps diagnostic output error-only except for cold Lake setup status while summaries remain complete.")
+    "When true, include warnings, information, and hints in streamed or replayed diagnostics; false keeps ordinary diagnostic output error-only while summaries remain complete. This setting does not control Lake setup status.")
 
 private def saveFullDiagnosticsField : String × Json :=
   ("full_diagnostics", Beam.JsonSchema.bool
-    "When true, include warnings, information, and hints in streamed diagnostics; false keeps diagnostic output error-only except for cold Lake setup status while summaries remain complete.")
+    "When true, include warnings, information, and hints in streamed diagnostics; false keeps ordinary diagnostic output error-only while summaries remain complete. This setting does not control Lake setup status.")
 
 private def includeDiagnosticsField : String × Json :=
   ("include_diagnostics", Beam.JsonSchema.bool

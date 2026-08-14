@@ -15,6 +15,7 @@ import Beam.Mcp.Runtime
 import Beam.System
 import Beam.Workspace
 import Beam.Version
+import Std.Internal.UV.Timer
 
 open Lean
 
@@ -74,12 +75,12 @@ private def ApplicationState.trackWorkspace
 structure NotificationSink where
   send : Json → IO Unit := fun _ => pure ()
 
-private inductive DiagnosticLogPolicy where
+private inductive LogPolicy where
   | legacy (state : ServerState)
   | request (minimum? : Option LogLevel)
 
 private structure Notifier where
-  logPolicy : DiagnosticLogPolicy
+  logPolicy : LogPolicy
   sink : NotificationSink
 
 private def Notifier.send (notifier : Notifier) (json : Json) : IO Unit :=
@@ -183,15 +184,15 @@ private def ProgressEmitter.emitSetupProgress
     let current ← get
     let setupUpdates := current.setupUpdates + 1
     let shouldEmit := setupUpdates == 1 || setupUpdates % setupProgressUpdateStride == 0
-    set { current with setupUpdates }
     if shouldEmit then
-      let current ← get
       let next := current.nextProgress + 1
-      set { current with nextProgress := next }
+      set { current with setupUpdates, nextProgress := next }
       let detail := message.trimAscii.toString
       emitter.emitNotification <|
         progressNotification emitter.progressToken next <|
           some s!"{toolTarget tool path?}: preparing Lean dependencies — {detail}"
+    else
+      set { current with setupUpdates }
 
 private def emitProgress?
     (progress? : Option ProgressEmitter)
@@ -240,26 +241,33 @@ private def Notifier.minimumLogLevel? (notifier : Notifier) : IO (Option LogLeve
       | .undecided | .modern => pure none
   | .request minimum? => pure minimum?
 
+private def Notifier.mayEmitNotice (notifier : Notifier) : Bool :=
+  match notifier.logPolicy with
+  | .legacy _ => true
+  | .request (some minimum) => minimum.allows .notice
+  | .request none => false
+
+private def Notifier.emitLog
+    (notifier : Notifier)
+    (level : LogLevel)
+    (logger : String)
+    (data : Json) : IO Unit := do
+  match ← notifier.minimumLogLevel? with
+  | some minimum =>
+      if minimum.allows level then
+        notifier.send <| logMessageNotification level logger data
+  | none => pure ()
+
 private def emitDiagnosticLog
     (notifier : Notifier)
     (diagnostic : Beam.Broker.StreamDiagnostic) : IO Unit := do
   let level := diagnosticLogLevel diagnostic.severity?
-  let minimum? ← notifier.minimumLogLevel?
-  match minimum? with
-  | some minimum =>
-      if minimum.allows level then
-        notifier.send <|
-          logMessageNotification level "lean.diagnostic" (streamDiagnosticLogData diagnostic)
-  | none => pure ()
+  notifier.emitLog level "lean.diagnostic" (streamDiagnosticLogData diagnostic)
 
 private def emitToolStatusLog
     (notifier : Notifier)
-    (status : ToolStatus) : IO Unit := do
-  match ← notifier.minimumLogLevel? with
-  | some minimum =>
-      if minimum.allows .notice then
-        notifier.send <| toolStatusNotification status
-  | none => pure ()
+    (status : ToolStatus) : IO Unit :=
+  notifier.emitLog .notice "beam.status" (toJson status)
 
 private structure RequestStatusState where
   finished : Bool := false
@@ -270,6 +278,7 @@ private structure RequestStatusEmitter where
   tool : ToolName
   path? : Option String
   state : Std.Mutex RequestStatusState
+  timer : Std.Internal.UV.Timer
   emitStatus : ToolStatus → IO Unit
 
 private def requestStatusProgressHint : String :=
@@ -284,7 +293,7 @@ private def RequestStatusEmitter.emitOnce
     (emitter : RequestStatusEmitter)
     (statusState : ToolStatusState)
     (message : String) : IO Unit := do
-  emitter.state.atomically do
+  let emitted ← emitter.state.atomically do
     let current ← get
     if !current.finished && !current.emitted then
       set { current with emitted := true }
@@ -296,27 +305,36 @@ private def RequestStatusEmitter.emitOnce
         path? := emitter.path?
         progressHint? := some requestStatusProgressHint
       }
+      pure true
+    else
+      pure false
+  if emitted then
+    Std.Internal.UV.Timer.stop emitter.timer
 
 private def RequestStatusEmitter.finish (emitter : RequestStatusEmitter) : IO Unit := do
   emitter.state.atomically do
     modify fun current => { current with finished := true }
+  Std.Internal.UV.Timer.stop emitter.timer
 
 private def RequestStatusEmitter.create
     (notifier : Notifier)
     (requestId : RequestId)
     (tool : ToolName)
     (path? : Option String) : IO RequestStatusEmitter := do
+  let delayMs ← requestStatusDelayMs
+  let timer ← Std.Internal.UV.Timer.mk delayMs.toUInt64 false
   let emitter : RequestStatusEmitter := {
     requestId := requestId.json
     tool
     path?
     state := ← Std.Mutex.new {}
+    timer
     emitStatus := emitToolStatusLog notifier
   }
-  let delayMs ← requestStatusDelayMs
-  let _ ← IO.asTask (prio := Task.Priority.dedicated) do
-    IO.sleep delayMs.toUInt32
-    emitter.emitOnce .running s!"{toolTarget tool path?} is still working."
+  let timerResult ← timer.next
+  IO.chainTask timerResult.result? fun
+    | some () => emitter.emitOnce .running s!"{toolTarget tool path?} is still working."
+    | none => pure ()
   pure emitter
 
 private def toolPath? (arguments : Json) : Option String :=
@@ -337,7 +355,11 @@ private def CallReporter.create
   let status? ←
     match progress? with
     | some _ => pure none
-    | none => some <$> RequestStatusEmitter.create notifier requestId params.name path?
+    | none =>
+        if notifier.mayEmitNotice then
+          some <$> RequestStatusEmitter.create notifier requestId params.name path?
+        else
+          pure none
   pure { tool := params.name, path?, progress?, status? }
 
 private def CallReporter.emitPreparing (reporter : CallReporter) : IO Unit := do
@@ -777,8 +799,8 @@ def Internal.handleToolCall
     (notifications : NotificationSink) : IO (Except RpcError Json) := do
   let logPolicy :=
     match admitted with
-    | .legacy => DiagnosticLogPolicy.legacy state
-    | .modern context => DiagnosticLogPolicy.request context.logLevel?
+    | .legacy => LogPolicy.legacy state
+    | .modern context => LogPolicy.request context.logLevel?
   let notifier : Notifier := { logPolicy, sink := notifications }
   let params ←
     match parsedParams with
