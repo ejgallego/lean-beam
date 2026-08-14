@@ -273,6 +273,12 @@ non-cancellable once admitted because partial cache eviction cannot be rolled ba
 eviction is a full stream-order fence: previously admitted calls drain before the drop runs, while
 later calls wait for its terminal result and may then recreate the same descriptor.
 
+For both protocol families, the MCP coordinator binds each ordinary tool call to the exact request
+handle produced by broker admission. Cancellation before that binding prevents dispatch;
+cancellation afterward targets that handle directly. The handle becomes inert when its dispatch
+scope ends, so a late cancellation cannot affect a later request even if a broker client request ID
+is reused.
+
 EOF is the transport shutdown in both supported revisions. `lean-beam-mcp` defines no private
 shutdown request. This is separate from `lean-beam shutdown`, which sends the typed shutdown
 operation directly to a Beam broker daemon.
@@ -301,8 +307,8 @@ than only errors.
   malformed modern metadata, modern progress and tool-error envelopes, per-request logging, EOF
   teardown, legacy lifecycle compatibility, lazy first use, canonical aliases, simultaneous cold
   first use of distinct roots, different toolchains in one process, cross-workspace and
-  cross-process handle rejection, scoped feedback, eviction/recreation, cancellation, response
-  routing, and progress.
+  cross-process handle rejection, scoped feedback, eviction/recreation, modern and legacy
+  cancellation, response routing, and progress.
 - [test-mcp-http-bridge.py](../tests/test-mcp-http-bridge.py) checks the local test-only HTTP adapter.
 - [test-mcp-conformance.sh](../tests/test-mcp-conformance.sh) runs the pinned external
   `2025-11-25` conformance scenarios.

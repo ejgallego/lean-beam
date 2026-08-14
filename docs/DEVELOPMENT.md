@@ -186,6 +186,8 @@ Keep these stdio invariants explicit:
 - the server emits no JSON-RPC requests to clients
 - request IDs preserve their string-versus-integer type and their original JSON spelling
 - ordinary calls may overlap; cache eviction is a full stream-order fence and shutdown drains work
+- ordinary tool calls bind cancellation to the exact broker admission handle; do not reintroduce
+  request-ID polling between MCP and the broker
 - routing/output locks do not acquire setup, progress, or per-request locks
 - JSON-RPC envelopes and current-method parameter objects reject undeclared fields; protocol
   extensions belong in `_meta` or in a deliberately versioned schema change
@@ -215,8 +217,9 @@ When adding an MCP-facing operation:
 Broker requests remain a shared record for the CLI, MCP projection, and daemon transport, but field
 ownership is operation-specific. Update `Op.optionalRequestFields` with every new broker field and
 keep `Request.validateFields` at both the JSON decoder and direct dispatch boundary. Do not let an
-operation silently ignore a field owned by another operation. Cancellation is process-wide and is
-identified only by `cancelRequestId`; it does not carry a workspace or root selector.
+operation silently ignore a field owned by another operation. The broker protocol's `.cancel`
+operation is process-wide and is identified only by `cancelRequestId`; it does not carry a workspace
+or root selector.
 
 Lean/Lake root validation remains shared with the CLI. MCP descriptors use
 `Beam.Lean.Workspace.resolveRoot`, which requires absolute paths; ordinary `lean-beam` CLI paths use
@@ -263,6 +266,16 @@ internally it coordinates several responsibilities around the LSP process:
   goals, runAt execution, direct imports, save readiness, and save artifact generation
 - Lake owns build graph and trace semantics; broker code may preflight and translate Lake outcomes,
   but daemon paths must not enter Lake APIs that can terminate the process
+
+`ServerRuntime.dispatchRequestWithHandle` is the asynchronous admission boundary for in-process
+consumers such as MCP. It validates operation field ownership, registers the request's active
+identity, exposes one opaque `RequestHandle`, and owns unregistering that handle on success,
+rejection, or exception. A handle uses a per-admission token and must become inert after that
+lexical scope, including when a later request reuses the same client request ID. Keep ordinary
+daemon and CLI dispatch on
+`ServerRuntime.dispatchRequest`; transport layers must not mutate the active-request registry
+directly. Pending LSP requests must retain the same per-admission cancellation identity; after a
+handle has been validated, never fall back to matching a reusable client request ID.
 
 The thick part of the broker is request orchestration. For `sync`, `runAt`, `goals`, `runWith`,
 `release`, and `save`, the broker reads the source file, updates the LSP document mirror, waits for

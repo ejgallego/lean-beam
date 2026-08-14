@@ -32,6 +32,7 @@ run_quiet_lake_build \
   beam-client \
   lean-beam-mcp \
   BeamTest.Broker.StreamDedupTest \
+  BeamTest.Broker.RequestHandleTest \
   beam-broker-protocol-test \
   beam-broker-pending-test \
   beam-broker-document-state-test \

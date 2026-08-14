@@ -25,7 +25,7 @@ private def requireErrorCode (label expectedCode : String) (resp : Response) : I
       throw <| IO.userError s!"{label}: expected error response, got {(toJson resp).compress}"
 
 private def mkPending
-    (clientRequestId? : Option String := none)
+    (cancelRef? : Option (IO.Ref Bool) := none)
     (progress? : Option SyncFileProgress := none)
     (tracked? : Option (DocumentUri × Nat) := none)
     (fullDiagnostics : Bool := false)
@@ -37,7 +37,7 @@ private def mkPending
   let diagnosticsSeenRef ← IO.mkRef false
   let seenDiagnosticKeysRef ← IO.mkRef ({} : Std.TreeSet String compare)
   pure ({
-    clientRequestId?
+    cancelRef?
     promise
     tracked?
     progressRef
@@ -48,26 +48,35 @@ private def mkPending
     emitDiagnostic?
   }, promise)
 
+private def expectRegistered
+    (label : String)
+    (result : Except BrokerFailure (Option ActiveRequest)) : IO (Option ActiveRequest) := do
+  match result with
+  | .ok active? => pure active?
+  | .error failure =>
+      throw <| IO.userError s!"{label}: {failure.message}"
+
 private def checkActiveRegistry : IO Unit := do
   let registry ← ActiveRequestRegistry.create
   let noneResult ← ActiveRequestRegistry.register registry none
   let noneActive : Option ActiveRequest ←
-    expectOk "register without clientRequestId" noneResult
+    expectRegistered "register without clientRequestId" noneResult
   require "register without clientRequestId returns none" (Option.isNone noneActive)
 
   let firstResult ← ActiveRequestRegistry.register registry (some "req-1")
   let first? : Option ActiveRequest ←
-    expectOk "register active request" firstResult
+    expectRegistered "register active request" firstResult
   let some first := first?
     | throw <| IO.userError "register active request returned none"
   match ← ActiveRequestRegistry.register registry (some "req-1") with
   | .ok _ =>
       throw <| IO.userError "duplicate clientRequestId registered successfully"
-  | .error err =>
-      require "duplicate active request error names id" (err.contains "req-1")
+  | .error failure =>
+      require "duplicate active request error is typed" (failure.code == .invalidParams)
+      require "duplicate active request error names id" (failure.message.contains "req-1")
 
   require "mark active request cancelled"
-    (← ActiveRequestRegistry.markCancelled registry "req-1")
+    (Option.isSome (← ActiveRequestRegistry.markCancelled registry "req-1"))
   match ← ensureRequestNotCancelled (some (ActiveRequest.cancelRef first)) with
   | .ok _ =>
       throw <| IO.userError "ensureRequestNotCancelled reports broker cancellation: expected error"
@@ -79,12 +88,56 @@ private def checkActiveRegistry : IO Unit := do
 
   ActiveRequestRegistry.unregister registry first?
   require "unregistered active request is no longer cancellable"
-    (!(← ActiveRequestRegistry.markCancelled registry "req-1"))
+    (Option.isNone (← ActiveRequestRegistry.markCancelled registry "req-1"))
+
+  let replacementResult ← ActiveRequestRegistry.register registry (some "req-1")
+  let replacement? : Option ActiveRequest ←
+    expectRegistered "register replacement active request" replacementResult
+  let some replacement := replacement?
+    | throw <| IO.userError "register replacement active request returned none"
+  ActiveRequestRegistry.unregister registry first?
+  require "stale active handle cannot cancel replacement"
+    (Option.isNone (← ActiveRequestRegistry.markCancelledActive registry first))
+  match ← ensureRequestNotCancelled (some replacement.cancelRef) with
+  | .ok _ => pure ()
+  | .error resp =>
+      throw <| IO.userError s!"stale active handle cancelled replacement: {(toJson resp).compress}"
+  require "stale unregister preserves replacement active request"
+    (Option.isSome (← ActiveRequestRegistry.markCancelled registry "req-1"))
+  match ← ensureRequestNotCancelled (some replacement.cancelRef) with
+  | .ok _ =>
+      throw <| IO.userError "replacement active request did not observe cancellation"
+  | .error resp =>
+      discard <| requireErrorCode
+        "replacement active request reports broker cancellation"
+        "requestCancelled"
+        resp
+  ActiveRequestRegistry.unregister registry replacement?
+
+private def checkPendingCancellationIdentity : IO Unit := do
+  let registry ← ActiveRequestRegistry.create
+  let firstResult ← ActiveRequestRegistry.register registry (some "reused-id")
+  let some first ← expectRegistered "register first cancellation identity" firstResult
+    | throw <| IO.userError "register first cancellation identity returned none"
+  ActiveRequestRegistry.unregister registry (some first)
+  let replacementResult ← ActiveRequestRegistry.register registry (some "reused-id")
+  let some replacement ← expectRegistered "register replacement cancellation identity" replacementResult
+    | throw <| IO.userError "register replacement cancellation identity returned none"
+  let (firstPending, _) ← mkPending (cancelRef? := some first.cancelRef)
+  let (replacementPending, _) ← mkPending (cancelRef? := some replacement.cancelRef)
+  require "first admission matches its pending request"
+    (← PendingRequestStore.matchesCancellation firstPending first.cancelRef)
+  require "first admission does not match replacement pending request"
+    (!(← PendingRequestStore.matchesCancellation replacementPending first.cancelRef))
+  require "replacement admission does not match first pending request"
+    (!(← PendingRequestStore.matchesCancellation firstPending replacement.cancelRef))
+  require "replacement admission matches its pending request"
+    (← PendingRequestStore.matchesCancellation replacementPending replacement.cancelRef)
+  ActiveRequestRegistry.unregister registry (some replacement)
 
 private def checkPendingStoreResolve : IO Unit := do
   let store ← PendingRequestStore.create
   let (pending, promise) ← mkPending
-    (clientRequestId? := some "req-2")
     (progress? := some { updates := 3, done := false })
   let id : RequestID := 7
   PendingRequestStore.insert store id pending
@@ -276,6 +329,7 @@ private def checkSetupFileProgressStreamsWithoutFullDiagnostics : IO Unit := do
 
 def main : IO Unit := do
   checkActiveRegistry
+  checkPendingCancellationIdentity
   checkPendingStoreResolve
   checkPendingStoreFailAll
   checkSyncFileProgressDisplay
