@@ -41,6 +41,16 @@ expect_json_field_absent() {
   fi
 }
 
+expect_json_field_present() {
+  local json_payload="$1"
+  local field="$2"
+  local label="$3"
+  local err_file="${4:-}"
+  if ! BEAM_JSON_PAYLOAD="$json_payload" json_text_has_field "$field"; then
+    fail_json "expected $label to include $field" "$json_payload" "$err_file"
+  fi
+}
+
 expect_json_text_eq() {
   local json_payload="$1"
   local field="$2"
@@ -78,14 +88,14 @@ expect_no_top_level_readiness_fields() {
   expect_json_field_absent "$json_payload" "$prefix.saveReadyReason" "$label sync verdict" "$err_file"
 }
 
-expect_sync_summary_version_matches() {
+expect_sync_result_shape() {
   local json_payload="$1"
   local prefix="$2"
   local label="$3"
   local err_file="${4:-}"
-  local version
-  version="$(BEAM_JSON_PAYLOAD="$json_payload" read_json_text_field "$prefix.version")"
-  expect_json_text_eq "$json_payload" "$prefix.syncSummary.currentVersion" "$version" "$label sync summary" "$err_file"
+  expect_json_text_eq "$json_payload" "$prefix.path" "SaveSmoke/B.lean" "$label sync path" "$err_file"
+  expect_json_field_present "$json_payload" "$prefix.diagnostics.counts" "$label diagnostic counts" "$err_file"
+  expect_json_field_present "$json_payload" "$prefix.readiness" "$label readiness" "$err_file"
 }
 
 (
@@ -103,17 +113,17 @@ expect_sync_summary_version_matches() {
     exit 1
   fi
   assert_json_completed_file_progress "broken lean-sync" "$broken_sync" fileProgress "$broken_sync_err"
-  expect_sync_summary_version_matches "$broken_sync" result "broken lean-sync" "$broken_sync_err"
+  expect_sync_result_shape "$broken_sync" result "broken lean-sync" "$broken_sync_err"
   expect_no_top_level_readiness_fields "$broken_sync" result "broken lean-sync" "$broken_sync_err"
-  expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.warningCount 0 \
-    "broken lean-sync readiness summary" "$broken_sync_err"
-  expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.saveReady false \
-    "broken lean-sync readiness summary" "$broken_sync_err"
-  expect_json_int_at_least "$broken_sync" result.syncSummary.readiness.current.errorCount 1 \
-    "broken lean-sync readiness summary" "$broken_sync_err"
-  expect_json_text_eq "$broken_sync" result.syncSummary.readiness.current.saveReadyReason documentErrors \
-    "broken lean-sync readiness summary" "$broken_sync_err"
-  expect_json_field_absent "$broken_sync" result.diagnostics "broken lean-sync final json" "$broken_sync_err"
+  expect_json_text_eq "$broken_sync" result.diagnostics.counts.warning 0 \
+    "broken lean-sync diagnostic counts" "$broken_sync_err"
+  expect_json_text_eq "$broken_sync" result.readiness.saveReady false \
+    "broken lean-sync readiness" "$broken_sync_err"
+  expect_json_int_at_least "$broken_sync" result.readiness.blockingErrorCount 1 \
+    "broken lean-sync readiness" "$broken_sync_err"
+  expect_json_text_eq "$broken_sync" result.readiness.reason documentErrors \
+    "broken lean-sync readiness" "$broken_sync_err"
+  expect_json_field_absent "$broken_sync" result.diagnostics.items "broken lean-sync final json" "$broken_sync_err"
   if ! grep -Eq '^beam: diagnostic error SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$broken_sync_err"; then
     echo "expected broken lean-sync to stream an error diagnostic on stderr" >&2
     printf '%s\n' "$broken_sync" >&2
@@ -132,8 +142,8 @@ expect_sync_summary_version_matches() {
     exit 1
   fi
   expect_no_top_level_readiness_fields "$broken_resync" result "unchanged broken lean-sync" "$broken_resync_err"
-  expect_json_int_at_least "$broken_resync" result.syncSummary.readiness.current.errorCount 1 \
-    "unchanged broken lean-sync readiness summary" "$broken_resync_err"
+  expect_json_int_at_least "$broken_resync" result.readiness.blockingErrorCount 1 \
+    "unchanged broken lean-sync readiness" "$broken_resync_err"
 
   close_save_json="$(beam_wrapper_mktemp_file close-save-json)"
   close_save_err="$(beam_wrapper_mktemp_file close-save-err)"
@@ -144,25 +154,20 @@ expect_sync_summary_version_matches() {
     exit 1
   fi
   close_save_failed="$(cat "$close_save_json")"
-  if [ "$(BEAM_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.syncSummary.readiness.current.saveReady)" != "false" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.readiness.saveReady)" != "false" ]; then
     echo "expected failed lean-close-save to include blocking sync verdict" >&2
     cat "$close_save_json" >&2
     cat "$close_save_err" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.syncSummary.readiness.current.errorCount)" -lt 1 ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.readiness.blockingErrorCount)" -lt 1 ]; then
     echo "expected failed lean-close-save sync verdict to report save-blocking errors" >&2
     cat "$close_save_json" >&2
     cat "$close_save_err" >&2
     exit 1
   fi
-  close_save_failed_version="$(BEAM_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.version)"
-  if [ "$(BEAM_JSON_PAYLOAD="$close_save_failed" read_json_text_field error.data.sync.syncSummary.currentVersion)" != "$close_save_failed_version" ]; then
-    echo "expected failed lean-close-save sync summary currentVersion to match the sync verdict version" >&2
-    cat "$close_save_json" >&2
-    cat "$close_save_err" >&2
-    exit 1
-  fi
+  expect_json_text_eq "$close_save_failed" error.data.sync.path SaveSmoke/B.lean \
+    "failed lean-close-save sync path" "$close_save_err"
   close_out="$("$beam_script" lean-close SaveSmoke/B.lean)"
   if [ "$(BEAM_JSON_PAYLOAD="$close_out" read_json_text_field ok)" != "true" ]; then
     echo "expected plain lean-close to succeed after a broken speculative session" >&2
@@ -195,7 +200,7 @@ EOF
 
   guard_sync_json="$(beam_wrapper_mktemp_file guard-msgs-io-stderr-sync-json)"
   guard_sync_err="$(beam_wrapper_mktemp_file guard-msgs-io-stderr-sync-err)"
-  "$beam_script" lean-sync SaveSmoke/B.lean +full >"$guard_sync_json" 2>"$guard_sync_err"
+  "$beam_script" lean-sync SaveSmoke/B.lean +all-diagnostics >"$guard_sync_json" 2>"$guard_sync_err"
   guard_sync="$(cat "$guard_sync_json")"
   if [ "$(BEAM_JSON_PAYLOAD="$guard_sync" read_json_text_field ok)" != "true" ]; then
     echo "expected IO.eprintln guard_msgs lean-sync to succeed" >&2
@@ -205,14 +210,14 @@ EOF
   fi
   assert_json_completed_file_progress "IO.eprintln guard_msgs lean-sync" "$guard_sync" fileProgress \
     "$guard_sync_err"
-  expect_sync_summary_version_matches "$guard_sync" result "IO.eprintln guard_msgs lean-sync" \
+  expect_sync_result_shape "$guard_sync" result "IO.eprintln guard_msgs lean-sync" \
     "$guard_sync_err"
-  expect_json_text_eq "$guard_sync" result.syncSummary.readiness.current.saveReady true \
-    "IO.eprintln guard_msgs lean-sync readiness summary" "$guard_sync_err"
-  expect_json_text_eq "$guard_sync" result.syncSummary.readiness.current.errorCount 0 \
-    "IO.eprintln guard_msgs lean-sync readiness summary" "$guard_sync_err"
-  expect_json_text_eq "$guard_sync" result.syncSummary.diagnostics.current.total 0 \
-    "IO.eprintln guard_msgs lean-sync diagnostics summary" "$guard_sync_err"
+  expect_json_text_eq "$guard_sync" result.readiness.saveReady true \
+    "IO.eprintln guard_msgs lean-sync readiness" "$guard_sync_err"
+  expect_json_text_eq "$guard_sync" result.readiness.blockingErrorCount 0 \
+    "IO.eprintln guard_msgs lean-sync readiness" "$guard_sync_err"
+  expect_json_text_eq "$guard_sync" result.diagnostics.counts.total 0 \
+    "IO.eprintln guard_msgs lean-sync diagnostic counts" "$guard_sync_err"
   if grep -Fq "Docstring on \`#guard_msgs\` does not match generated message" "$guard_sync_err"; then
     echo "expected IO.eprintln guard_msgs sync to accept stderr output as a generated message" >&2
     printf '%s\n' "$guard_sync" >&2
@@ -246,11 +251,11 @@ EOF
   assert_json_completed_file_progress "warning-only lean-sync" "$warn_sync" fileProgress \
     "$warn_sync_err"
   expect_no_top_level_readiness_fields "$warn_sync" result "warning-only lean-sync" "$warn_sync_err"
-  expect_json_int_at_least "$warn_sync" result.syncSummary.readiness.current.warningCount 1 \
-    "warning-only lean-sync readiness summary" "$warn_sync_err"
-  expect_json_field_absent "$warn_sync" result.diagnostics "warning-only lean-sync final json" "$warn_sync_err"
+  expect_json_int_at_least "$warn_sync" result.diagnostics.counts.warning 1 \
+    "warning-only lean-sync diagnostic counts" "$warn_sync_err"
+  expect_json_field_absent "$warn_sync" result.diagnostics.items "warning-only lean-sync final json" "$warn_sync_err"
   if grep -Eq '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_err"; then
-    echo "expected warning-only lean-sync without +full to suppress warning diagnostics" >&2
+    echo "expected warning-only lean-sync without +all-diagnostics to suppress warning diagnostics" >&2
     printf '%s\n' "$warn_sync" >&2
     cat "$warn_sync_err" >&2
     exit 1
@@ -269,13 +274,13 @@ EOF
   assert_json_completed_file_progress "warning-only lean-save" "$warn_save" fileProgress \
     "$warn_save_err"
   expect_no_top_level_readiness_fields "$warn_save" result.sync "warning-only lean-save" "$warn_save_err"
-  expect_json_int_at_least "$warn_save" result.sync.syncSummary.readiness.current.warningCount 1 \
-    "warning-only lean-save sync summary" "$warn_save_err"
-  expect_sync_summary_version_matches "$warn_save" result.sync "warning-only lean-save" "$warn_save_err"
-  expect_json_text_eq "$warn_save" result.sync.syncSummary.readiness.current.saveReady true \
-    "warning-only lean-save sync summary" "$warn_save_err"
+  expect_json_int_at_least "$warn_save" result.sync.diagnostics.counts.warning 1 \
+    "warning-only lean-save diagnostic counts" "$warn_save_err"
+  expect_sync_result_shape "$warn_save" result.sync "warning-only lean-save" "$warn_save_err"
+  expect_json_text_eq "$warn_save" result.sync.readiness.saveReady true \
+    "warning-only lean-save readiness" "$warn_save_err"
   if grep -Eq '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_save_err"; then
-    echo "expected warning-only lean-save without +full to suppress warning diagnostics" >&2
+    echo "expected warning-only lean-save without +all-diagnostics to suppress warning diagnostics" >&2
     printf '%s\n' "$warn_save" >&2
     cat "$warn_save_err" >&2
     exit 1
@@ -296,24 +301,24 @@ EOF
 
   warn_sync_full_json="$(beam_wrapper_mktemp_file warn-sync-full-json)"
   warn_sync_full_err="$(beam_wrapper_mktemp_file warn-sync-full-err)"
-  "$beam_script" lean-sync SaveSmoke/B.lean +full >"$warn_sync_full_json" 2>"$warn_sync_full_err"
+  "$beam_script" lean-sync SaveSmoke/B.lean +all-diagnostics >"$warn_sync_full_json" 2>"$warn_sync_full_err"
   warn_sync_full="$(cat "$warn_sync_full_json")"
   if [ "$(BEAM_JSON_PAYLOAD="$warn_sync_full" read_json_text_field ok)" != "true" ]; then
-    echo "expected warning-only lean-sync +full to succeed" >&2
+    echo "expected warning-only lean-sync +all-diagnostics to succeed" >&2
     printf '%s\n' "$warn_sync_full" >&2
     cat "$warn_sync_full_err" >&2
     exit 1
   fi
-  assert_json_completed_file_progress "warning-only lean-sync +full" "$warn_sync_full" \
+  assert_json_completed_file_progress "warning-only lean-sync +all-diagnostics" "$warn_sync_full" \
     fileProgress "$warn_sync_full_err"
-  expect_no_top_level_readiness_fields "$warn_sync_full" result "warning-only lean-sync +full" "$warn_sync_full_err"
-  expect_json_int_at_least "$warn_sync_full" result.syncSummary.readiness.current.warningCount 1 \
-    "warning-only lean-sync +full readiness summary" "$warn_sync_full_err"
-  expect_json_field_absent "$warn_sync_full" result.diagnostics \
-    "warning-only lean-sync +full final json" "$warn_sync_full_err"
+  expect_no_top_level_readiness_fields "$warn_sync_full" result "warning-only lean-sync +all-diagnostics" "$warn_sync_full_err"
+  expect_json_int_at_least "$warn_sync_full" result.diagnostics.counts.warning 1 \
+    "warning-only lean-sync +all-diagnostics diagnostic counts" "$warn_sync_full_err"
+  expect_json_field_absent "$warn_sync_full" result.diagnostics.items \
+    "warning-only lean-sync +all-diagnostics final json" "$warn_sync_full_err"
   warn_count="$(grep -Ec '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_sync_full_err" || true)"
   if [ "$warn_count" -eq 0 ]; then
-    echo "expected warning-only lean-sync +full to stream warning diagnostics" >&2
+    echo "expected warning-only lean-sync +all-diagnostics to stream warning diagnostics" >&2
     printf '%s\n' "$warn_sync_full" >&2
     cat "$warn_sync_full_err" >&2
     exit 1
@@ -337,7 +342,7 @@ EOF
     client9="$client"
   fi
 
-  stream_req="$(printf '{"op":"sync_file","workspaceId":"beam-cli-project","root":"%s","path":"SaveSmoke/B.lean","fullDiagnostics":true}' "$warn_full_root")"
+  stream_req="$(printf '{"op":"sync_file","workspaceId":"beam-cli-project","root":"%s","path":"SaveSmoke/B.lean","diagnosticScope":"all"}' "$warn_full_root")"
   stream_out="$(beam_wrapper_mktemp_file stream-out)"
   stream_err="$(beam_wrapper_mktemp_file stream-err)"
   "$client9" --port "$port9" request-stream "$stream_req" >"$stream_out" 2>"$stream_err"
@@ -369,21 +374,23 @@ if "warningCount" in result:
     raise SystemExit(f"expected streamed sync response to omit top-level warningCount, got {result.get('warningCount')!r}")
 if "saveReady" in result:
     raise SystemExit(f"expected streamed sync response to omit top-level saveReady, got {result.get('saveReady')!r}")
-readiness = result.get("syncSummary", {}).get("readiness", {}).get("current", {})
+readiness = result.get("readiness", {})
 if readiness.get("saveReady") is not True:
     raise SystemExit(
         f"expected streamed sync response readiness saveReady true, got {readiness.get('saveReady')!r}"
     )
-if readiness.get("errorCount") != 0:
+if readiness.get("blockingErrorCount") != 0:
     raise SystemExit(
-        f"expected streamed sync response readiness errorCount 0, got {readiness.get('errorCount')!r}"
+        "expected streamed sync response readiness blockingErrorCount 0, "
+        f"got {readiness.get('blockingErrorCount')!r}"
     )
-if not isinstance(readiness.get("warningCount"), int) or readiness["warningCount"] < 1:
+counts = result.get("diagnostics", {}).get("counts", {})
+if not isinstance(counts.get("warning"), int) or counts["warning"] < 1:
     raise SystemExit(
-        f"expected streamed sync response readiness warningCount >= 1, got {readiness.get('warningCount')!r}"
+        f"expected streamed sync diagnostic warning count >= 1, got {counts.get('warning')!r}"
     )
-if "diagnostics" in result:
-    raise SystemExit("expected streamed sync final response to omit replayed diagnostics")
+if "items" in result.get("diagnostics", {}):
+    raise SystemExit("expected streamed sync final response to omit replayed diagnostic items")
 PY
 
   cat > SaveSmoke/B.lean <<'EOF'
@@ -397,28 +404,28 @@ EOF
 
   warn_close_save_json="$(beam_wrapper_mktemp_file warn-close-save-json)"
   warn_close_save_err="$(beam_wrapper_mktemp_file warn-close-save-err)"
-  "$beam_script" lean-close-save SaveSmoke/B.lean +full >"$warn_close_save_json" 2>"$warn_close_save_err"
+  "$beam_script" lean-close-save SaveSmoke/B.lean +all-diagnostics >"$warn_close_save_json" 2>"$warn_close_save_err"
   warn_close_save="$(cat "$warn_close_save_json")"
   if [ "$(BEAM_JSON_PAYLOAD="$warn_close_save" read_json_text_field ok)" != "true" ]; then
-    echo "expected warning-only lean-close-save +full to succeed" >&2
+    echo "expected warning-only lean-close-save +all-diagnostics to succeed" >&2
     printf '%s\n' "$warn_close_save" >&2
     cat "$warn_close_save_err" >&2
     exit 1
   fi
-  assert_json_completed_file_progress "warning-only lean-close-save +full" "$warn_close_save" \
+  assert_json_completed_file_progress "warning-only lean-close-save +all-diagnostics" "$warn_close_save" \
     fileProgress "$warn_close_save_err"
   expect_no_top_level_readiness_fields "$warn_close_save" result.saved.sync \
     "warning-only lean-close-save" "$warn_close_save_err"
   expect_json_int_at_least "$warn_close_save" \
-    result.saved.sync.syncSummary.readiness.current.warningCount 1 \
-    "warning-only lean-close-save sync summary" "$warn_close_save_err"
-  expect_sync_summary_version_matches "$warn_close_save" result.saved.sync \
+    result.saved.sync.diagnostics.counts.warning 1 \
+    "warning-only lean-close-save diagnostic counts" "$warn_close_save_err"
+  expect_sync_result_shape "$warn_close_save" result.saved.sync \
     "warning-only lean-close-save" "$warn_close_save_err"
-  expect_json_text_eq "$warn_close_save" result.saved.sync.syncSummary.readiness.current.saveReady true \
-    "warning-only lean-close-save sync summary" "$warn_close_save_err"
+  expect_json_text_eq "$warn_close_save" result.saved.sync.readiness.saveReady true \
+    "warning-only lean-close-save readiness" "$warn_close_save_err"
   warn_close_count="$(grep -Ec '^beam: diagnostic warning SaveSmoke/B\.lean:[0-9]+:[0-9]+: ' "$warn_close_save_err" || true)"
   if [ "$warn_close_count" -eq 0 ]; then
-    echo "expected warning-only lean-close-save +full to stream warning diagnostics" >&2
+    echo "expected warning-only lean-close-save +all-diagnostics to stream warning diagnostics" >&2
     printf '%s\n' "$warn_close_save" >&2
     cat "$warn_close_save_err" >&2
     exit 1
@@ -617,7 +624,7 @@ EOF
     printf '%s\n' "$renamed_refreshed_a" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$renamed_refreshed_a" read_json_text_field result.syncSummary.readiness.current.saveReady)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$renamed_refreshed_a" read_json_text_field result.readiness.saveReady)" != "true" ]; then
     echo "expected recovered renamed lean-refresh to report saveReady = true" >&2
     printf '%s\n' "$renamed_refreshed_a" >&2
     exit 1
@@ -744,7 +751,7 @@ EOF
     printf '%s\n' "$refreshed_a" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$refreshed_a" read_json_text_field result.syncSummary.readiness.current.saveReady)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$refreshed_a" read_json_text_field result.readiness.saveReady)" != "true" ]; then
     echo "expected recovered lean-refresh to report saveReady = true" >&2
     printf '%s\n' "$refreshed_a" >&2
     exit 1

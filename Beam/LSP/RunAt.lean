@@ -146,7 +146,7 @@ def errorResult (message : String) (proofState? : Option ProofState := none) : R
   }
 
 def messagesToProtocol (messages : List Lean.Message) : IO (Array Message) := do
-  messages.toArray.mapM fun message => do
+  messages.toArray.filter (! ·.isSilent) |>.mapM fun message => do
     return mkMessage message.severity (← message.data.toString)
 
 def tracesToStrings (traces : List TraceElem) : IO (Array String) := do

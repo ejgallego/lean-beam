@@ -73,8 +73,8 @@ Preferred maintainer entrypoints:
   use, MCP setup, installer locations, and offline notes
 - [docs/STATUS.md](STATUS.md) is the public beta scope, limitation, and direction summary
 - [docs/MCP.md](MCP.md) owns MCP implementation, protocol, tool-list, and conformance notes
-- [docs/SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md) owns the exact sync, save, progress,
-  diagnostics, readiness, and stale-version contract
+- [docs/SYNC_AND_DIAGNOSTICS.md](SYNC_AND_DIAGNOSTICS.md) owns the exact sync, refresh, save,
+  progress, diagnostics, readiness, and stale-version contract
 - [docs/COMPATIBILITY.md](COMPATIBILITY.md),
   [validated-lean-toolchains](../validated-lean-toolchains), and
   [compatible-lean-release-lines](../compatible-lean-release-lines) own compatibility targets
@@ -313,11 +313,11 @@ mutex, then ignore a completed snapshot if a newer read has already been applied
 In-session syncs use sequence zero because they run inside the already-ordered session flow.
 
 Keep readiness claims deliberately narrow: `fileProgress` is an observable LSP progress signal, and
-it is a barrier input only for the operations that define a diagnostics/save barrier (`sync`, `save`,
-and `close-save`). It is not a general semantic-ready signal, and it is not the save-readiness
-authority. Tests that need to prove request overlap, cancellation, startup, or stale-state
-transitions should wait on explicit state such as request IDs, response files, registry files, or
-fixture sentinels instead of treating progress as a proxy for readiness.
+it is a barrier input only for the operations that define a diagnostics/save barrier (`sync`,
+`refresh`, `save`, and `close-save`). It is not a general semantic-ready signal, and it is not the
+save-readiness authority. Tests that need to prove request overlap, cancellation, startup, or
+stale-state transitions should wait on explicit state such as request IDs, response files, registry
+files, or fixture sentinels instead of treating progress as a proxy for readiness.
 
 Readiness response helpers and sync/save response shaping live in
 [Beam/Broker/Readiness.lean](../Beam/Broker/Readiness.lean). Keep LSP/session IO in

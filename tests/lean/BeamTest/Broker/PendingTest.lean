@@ -28,7 +28,7 @@ private def mkPending
     (cancelRef? : Option (IO.Ref Bool) := none)
     (progress? : Option SyncFileProgress := none)
     (tracked? : Option (DocumentUri × Nat) := none)
-    (fullDiagnostics : Bool := false)
+    (diagnosticScope : DiagnosticScope := .errors)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO (PendingRequest × IO.Promise (Except Response PendingResult)) := do
   let promise ← IO.Promise.new
@@ -44,7 +44,7 @@ private def mkPending
     diagnosticsRef
     diagnosticsSeenRef
     seenDiagnosticKeysRef
-    fullDiagnostics
+    diagnosticScope
     emitDiagnostic?
   }, promise)
 
@@ -292,12 +292,12 @@ private def checkDiagnosticLineCanExceedProgressRange : IO Unit := do
     (diagnostic.range.start.line + 1 > finished.rangeEndLine?.getD 0)
 
 private def observeStreamedDiagnostics
-    (fullDiagnostics : Bool)
+    (diagnosticScope : DiagnosticScope)
     (diagnostics : Array Diagnostic) : IO (Array StreamDiagnostic) := do
   let streamedRef ← IO.mkRef #[]
   let (pending, _) ← mkPending
     (tracked? := some ("file:///workspace/Foo.lean", 1))
-    (fullDiagnostics := fullDiagnostics)
+    (diagnosticScope := diagnosticScope)
     (emitDiagnostic? := some fun diagnostic =>
       streamedRef.modify (·.push diagnostic))
   PendingRequest.observeDiagnostics
@@ -306,7 +306,7 @@ private def observeStreamedDiagnostics
     (mkPublishDiagnostics diagnostics)
   streamedRef.get
 
-private def checkSetupFileProgressStreamsWithoutFullDiagnostics : IO Unit := do
+private def checkSetupFileProgressStreamsByScope : IO Unit := do
   let setupProgress :=
     mkDiagnosticWithSeverity
       (mkRange 0 0 1 0)
@@ -317,15 +317,23 @@ private def checkSetupFileProgressStreamsWithoutFullDiagnostics : IO Unit := do
       (mkRange 3 0 3 6)
       .warning
       "unused variable"
-  let defaultStreamed ← observeStreamedDiagnostics false #[setupProgress, warning]
+  let goalsAccomplished := {
+    mkDiagnosticWithSeverity
+      (mkRange 5 0 5 8)
+      .information
+      "Goals accomplished!" with
+    isSilent? := some true
+    leanTags? := some #[.goalsAccomplished]
+  }
+  let defaultStreamed ← observeStreamedDiagnostics .errors #[setupProgress, warning, goalsAccomplished]
   require "default sync streams setup-file status"
     (defaultStreamed.map (·.message) == #[setupProgress.message])
   require "default setup-file status stays informational"
     (defaultStreamed.all (fun diagnostic => diagnostic.severity? == some .information))
 
-  let fullStreamed ← observeStreamedDiagnostics true #[setupProgress, warning]
-  require "full sync streams setup-file status and warning"
-    (fullStreamed.map (·.message) == #[setupProgress.message, warning.message])
+  let allStreamed ← observeStreamedDiagnostics .all #[setupProgress, warning, goalsAccomplished]
+  require "all diagnostic scope streams user-facing setup-file status and warning"
+    (allStreamed.map (·.message) == #[setupProgress.message, warning.message])
 
 def main : IO Unit := do
   checkActiveRegistry
@@ -335,7 +343,7 @@ def main : IO Unit := do
   checkSyncFileProgressDisplay
   checkSyncFileProgressLines
   checkDiagnosticLineCanExceedProgressRange
-  checkSetupFileProgressStreamsWithoutFullDiagnostics
+  checkSetupFileProgressStreamsByScope
 
 end BeamTest.Broker.PendingTest
 

@@ -155,7 +155,7 @@ For contributors and maintainers:
 - [CONTRIBUTING.md](CONTRIBUTING.md): commit, PR, and contributor workflow guidance.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): maintainer workflow and implementation notes.
 - [docs/TESTING.md](docs/TESTING.md): developer test-suite guidance and coverage map.
-- [docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md): sync, save, progress,
+- [docs/SYNC_AND_DIAGNOSTICS.md](docs/SYNC_AND_DIAGNOSTICS.md): sync, refresh, save, progress,
   diagnostics, and readiness contract.
 - [docs/MCP.md](docs/MCP.md): current MCP maintainer architecture and conformance notes.
 - [AGENTS.md](AGENTS.md): repo-specific agent instructions.

@@ -114,8 +114,11 @@ private def operationDescription : Operation → String
 private def sourceFileInvariant : String :=
   "Beam never applies source edits to `.lean` files on disk; the client applies source edits."
 
+private def progressDiscovery : String :=
+  "For detailed live updates, clients can pass `tools/call` `_meta.progressToken`; without one, Beam emits one status log when setup or a long-running request is detected and the request's logging policy admits notice-level events."
+
 def Operation.description (operation : Operation) : String :=
-  s!"{operationDescription operation} {sourceFileInvariant}"
+  s!"{operationDescription operation} {progressDiscovery} {sourceFileInvariant}"
 
 private def pathField : String × Json :=
   ("path", Beam.JsonSchema.string "Lean file path, relative to the server root unless absolute.")
@@ -172,17 +175,19 @@ private def goalsModeField : String × Json :=
   ("mode", Beam.JsonSchema.enumString "Whether to inspect goals before or after the file position."
     #["before", "after"])
 
-private def syncFullDiagnosticsField : String × Json :=
-  ("full_diagnostics", Beam.JsonSchema.bool
-    "When true, include warnings, information, and hints in streamed or replayed diagnostics; false keeps diagnostic output error-only except for cold Lake setup status while summaries remain complete.")
+private def syncDiagnosticScopeField : String × Json :=
+  ("diagnostic_scope", Beam.JsonSchema.enumString
+    "Select user-facing diagnostic severities for live logging or final replay. Defaults to errors. MCP log metadata independently controls live delivery. This setting does not control Lake setup status or silent editor-only messages."
+    #["errors", "all"])
 
-private def saveFullDiagnosticsField : String × Json :=
-  ("full_diagnostics", Beam.JsonSchema.bool
-    "When true, include warnings, information, and hints in streamed diagnostics; false keeps diagnostic output error-only except for cold Lake setup status while summaries remain complete.")
+private def saveDiagnosticScopeField : String × Json :=
+  ("diagnostic_scope", Beam.JsonSchema.enumString
+    "Select user-facing diagnostic severities for live logging. Defaults to errors. MCP log metadata independently controls live delivery. This setting does not control Lake setup status or silent editor-only messages."
+    #["errors", "all"])
 
-private def includeDiagnosticsField : String × Json :=
-  ("include_diagnostics", Beam.JsonSchema.bool
-    "When true, include the current request diagnostics in the final sync result; the full_diagnostics setting controls the severity filter.")
+private def diagnosticsInResultField : String × Json :=
+  ("diagnostics_in_result", Beam.JsonSchema.bool
+    "When true, include selected current diagnostics in the final sync result; diagnostic_scope controls the severity filter.")
 
 private def codeActionField : String × Json :=
   ("code_action", Beam.JsonSchema.object
@@ -230,17 +235,13 @@ def Operation.inputSchema : Operation → Json
   | .update =>
       inputObject [pathField] #["path"]
   | .sync | .refresh =>
-      inputObject [pathField, syncFullDiagnosticsField, includeDiagnosticsField] #["path"]
+      inputObject [pathField, syncDiagnosticScopeField, diagnosticsInResultField] #["path"]
   | .save =>
-      inputObject [pathField, saveFullDiagnosticsField] #["path"]
+      inputObject [pathField, saveDiagnosticScopeField] #["path"]
   | .closeSave =>
-      inputObject [pathField, saveFullDiagnosticsField] #["path"]
+      inputObject [pathField, saveDiagnosticScopeField] #["path"]
   | .close =>
       inputObject [pathField] #["path"]
-
-def Operation.expectsRunAtResult : Operation → Bool
-  | .runAt | .runAtHandle | .runWith | .runWithLinear => true
-  | _ => false
 
 /-- Input for position-based Lean execution. Coordinates use LSP zero-based line/character units. -/
 structure RunAtInput where
@@ -418,29 +419,32 @@ structure PathInput where
   path : String
   deriving FromJson, ToJson
 
-/-- Input for sync/save operations that may request full diagnostics. -/
+/--
+Input for sync/refresh operations with optional diagnostic scope and final replay control.
+Save adapters reuse only the path and diagnostic scope.
+-/
 structure SyncInput where
   path : String
-  fullDiagnostics? : Option Bool := none
-  includeDiagnostics? : Option Bool := none
+  diagnosticScope? : Option Beam.Broker.DiagnosticScope := none
+  diagnosticsInResult? : Option Bool := none
 
 instance : ToJson SyncInput where
   toJson input :=
     Json.mkObj <|
       [("path", toJson input.path)] ++
-      (match input.fullDiagnostics? with
-      | some fullDiagnostics => [("full_diagnostics", toJson fullDiagnostics)]
+      (match input.diagnosticScope? with
+      | some diagnosticScope => [("diagnostic_scope", toJson diagnosticScope)]
       | none => []) ++
-      (match input.includeDiagnostics? with
-      | some includeDiagnostics => [("include_diagnostics", toJson includeDiagnostics)]
+      (match input.diagnosticsInResult? with
+      | some diagnosticsInResult => [("diagnostics_in_result", toJson diagnosticsInResult)]
       | none => [])
 
 instance : FromJson SyncInput where
   fromJson? j := do
     let path ← j.getObjValAs? String "path"
-    let fullDiagnostics? ← optionalField? (α := Bool) j "full_diagnostics"
-    let includeDiagnostics? ← optionalField? (α := Bool) j "include_diagnostics"
-    pure { path, fullDiagnostics?, includeDiagnostics? }
+    let diagnosticScope? ← optionalField? (α := Beam.Broker.DiagnosticScope) j "diagnostic_scope"
+    let diagnosticsInResult? ← optionalField? (α := Bool) j "diagnostics_in_result"
+    pure { path, diagnosticScope?, diagnosticsInResult? }
 
 def RunAtInput.toBrokerRequest
     (input : RunAtInput)
@@ -607,8 +611,8 @@ def SyncInput.toSyncBrokerRequest (input : SyncInput) (root : String) : Beam.Bro
   backend := .lean
   root? := some root
   path? := some input.path
-  fullDiagnostics? := input.fullDiagnostics?
-  includeDiagnostics? := input.includeDiagnostics?
+  diagnosticScope? := input.diagnosticScope?
+  diagnosticsInResult? := input.diagnosticsInResult?
 }
 
 def SyncInput.toRefreshBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
@@ -616,8 +620,8 @@ def SyncInput.toRefreshBrokerRequest (input : SyncInput) (root : String) : Beam.
   backend := .lean
   root? := some root
   path? := some input.path
-  fullDiagnostics? := input.fullDiagnostics?
-  includeDiagnostics? := input.includeDiagnostics?
+  diagnosticScope? := input.diagnosticScope?
+  diagnosticsInResult? := input.diagnosticsInResult?
 }
 
 def SyncInput.toSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
@@ -625,7 +629,7 @@ def SyncInput.toSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Bro
   backend := .lean
   root? := some root
   path? := some input.path
-  fullDiagnostics? := input.fullDiagnostics?
+  diagnosticScope? := input.diagnosticScope?
 }
 
 def SyncInput.toCloseSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
@@ -634,7 +638,7 @@ def SyncInput.toCloseSaveBrokerRequest (input : SyncInput) (root : String) : Bea
   root? := some root
   path? := some input.path
   saveArtifacts? := some true
-  fullDiagnostics? := input.fullDiagnostics?
+  diagnosticScope? := input.diagnosticScope?
 }
 
 def Operation.toBrokerRequest

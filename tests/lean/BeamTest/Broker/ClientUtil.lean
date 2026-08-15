@@ -83,9 +83,12 @@ def requireUpdateFileResult
 def expectNoReplayDiagnosticsField (label : String) (payload : Json) : IO Unit := do
   match payload.getObjVal? "diagnostics" with
   | .ok diagnostics =>
-      throw <| IO.userError s!"expected {label} payload to omit replayed diagnostics, got {diagnostics.compress}"
-  | .error _ =>
-      pure ()
+      match diagnostics.getObjVal? "items" with
+      | .ok items =>
+          throw <| IO.userError
+            s!"expected {label} payload to omit replayed diagnostics, got {items.compress}"
+      | .error _ => pure ()
+  | .error _ => pure ()
 
 def requireFinalStreamResponse
     (label : String)

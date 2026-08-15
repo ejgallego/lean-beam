@@ -200,10 +200,8 @@ private def checkSyncWaitSpecs : IO Unit := do
   let okResp : Beam.Broker.Response := {
     ok := true
     result? := some <| toJson ({
+      path := "Demo.lean"
       version := 5
-      syncSummary := {
-        currentVersion := 5
-      }
       : Beam.Broker.SyncFileResult
     })
     fileProgress? := some { updates := 2, done := true }
@@ -251,22 +249,18 @@ private def checkSyncWaitSpecs : IO Unit := do
   let notReadyResp : Beam.Broker.Response := {
     ok := true
     result? := some <| toJson ({
+      path := "Demo.lean"
       version := 6
-      syncSummary := {
-        currentVersion := 6
-        readiness := {
-          current := {
-            errorCount := 1
-            saveReady := false
-            saveReadyReason := "documentErrors"
-          }
-        }
+      readiness := {
+        blockingErrorCount := 1
+        saveReady := false
+        reason := "documentErrors"
       }
       : Beam.Broker.SyncFileResult
     })
   }
   requireSubstring "sync not-ready message"
-    "saveReady=false (documentErrors, errorCount=1)"
+    "saveReady=false (documentErrors, blockingErrorCount=1)"
     ((Beam.Cli.syncWaitSpec "Demo.lean").completeMsg notReadyResp)
 
 private def checkCancelAcknowledgementDecoding : IO Unit := do
@@ -402,24 +396,44 @@ private def checkLeanOperationRequests : IO Unit := do
     (Beam.Cli.leanCloseRequest root path)
     (pathInput.toCloseBrokerRequest rootText)
 
-  let syncInput : Beam.Lean.SyncInput := { path, fullDiagnostics? := some true }
+  let syncInput : Beam.Lean.SyncInput := { path, diagnosticScope? := some .all }
   requireRequestJson "sync request should share the Lean operation adapter"
-    (Beam.Cli.leanSyncRequest root path true)
+    (Beam.Cli.leanSyncRequest root path .all)
     (syncInput.toSyncBrokerRequest rootText)
   requireRequestJson "refresh request should share the Lean operation adapter"
-    (Beam.Cli.leanRefreshRequest root path true)
+    (Beam.Cli.leanRefreshRequest root path .all)
     (syncInput.toRefreshBrokerRequest rootText)
   requireRequestJson "save request should share the Lean operation adapter"
-    (Beam.Cli.leanSaveRequest root path true)
+    (Beam.Cli.leanSaveRequest root path .all)
     (syncInput.toSaveBrokerRequest rootText)
   requireRequestJson "close-save request should share the Lean operation adapter"
-    (Beam.Cli.leanCloseSaveRequest root path true)
+    (Beam.Cli.leanCloseSaveRequest root path .all)
     (syncInput.toCloseSaveBrokerRequest rootText)
 
-  let closeSave := Beam.Cli.leanCloseSaveRequest root path true
+  let closeSave := Beam.Cli.leanCloseSaveRequest root path .all
   require "close-save should use close broker op" (closeSave.op == .close)
   require "close-save should request artifact save" (closeSave.saveArtifacts? == some true)
-  require "close-save should preserve full diagnostic flag" (closeSave.fullDiagnostics? == some true)
+  require "close-save should preserve diagnostic scope" (closeSave.diagnosticScope? == some .all)
+
+private def checkDiagnosticScopeArgs : IO Unit := do
+  let parsers : Array (String × (List String → IO Beam.Broker.DiagnosticScope)) := #[
+    ("sync", Beam.Cli.parseLeanSyncArgs),
+    ("refresh", Beam.Cli.parseLeanRefreshArgs),
+    ("save", Beam.Cli.parseLeanSaveArgs),
+    ("close-save", Beam.Cli.parseLeanCloseSaveArgs)
+  ]
+  for (label, parse) in parsers do
+    require s!"{label} diagnostic scope should default to errors"
+      ((← parse []) == .errors)
+    require s!"{label} diagnostic scope should accept +all-diagnostics"
+      ((← parse ["+all-diagnostics"]) == .all)
+    let obsoleteRejected ←
+      try
+        discard <| parse ["+full"]
+        pure false
+      catch err =>
+        pure <| err.toString.contains "+all-diagnostics"
+    require s!"{label} diagnostic scope should reject obsolete +full" obsoleteRejected
 
 private def checkStartupRetryPolicy : IO Unit := do
   require "automatic occupied endpoint should retry"
@@ -1097,6 +1111,7 @@ def main : IO Unit := do
   checkCancelAcknowledgementDecoding
   checkCliRootParsing
   checkLeanOperationRequests
+  checkDiagnosticScopeArgs
   checkStartupRetryPolicy
   checkDaemonDebugWarnings
   checkDaemonFailureContext

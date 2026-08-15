@@ -25,10 +25,10 @@ private def diagnosticCounts (diagnostics : Array Diagnostic) : SyncDiagnosticCo
     | none => { counts with unknown := counts.unknown + 1 }
 
 /--
-Compute readiness `errorCount` from save-blocking evidence, falling back to diagnostic errors only
+Compute `blockingErrorCount` from save-blocking evidence, falling back to diagnostic errors only
 when a non-ready verdict did not provide evidence.
 -/
-private def evidenceErrorCount
+private def blockingErrorCount
     (diagnostics : Array Diagnostic)
     (readiness : SyncSaveReadiness) : Nat :=
   if readiness.saveReady then
@@ -47,32 +47,33 @@ private def evidenceErrorCount
     else
       syncErrorCount diagnostics
 
-def syncReadinessCurrent
+def syncResultReadiness
     (diagnostics : Array Diagnostic)
-    (readiness : SyncSaveReadiness) : SyncReadinessCurrent :=
+    (readiness : SyncSaveReadiness) : SyncResultReadiness :=
   {
-    errorCount := evidenceErrorCount diagnostics readiness
-    warningCount := readiness.currentWarningCount?.getD (syncWarningCount diagnostics)
     saveReady := readiness.saveReady
-    saveReadyReason := readiness.saveReadyReason
+    reason := readiness.saveReadyReason
+    blockingErrorCount := blockingErrorCount diagnostics readiness
     blockingDiagnostics := readiness.blockingDiagnostics
-    blockingCommandMessages := readiness.blockingCommandMessages
+    blockingMessages := readiness.blockingCommandMessages
   }
 
-def mkSyncSummary
+def mkSyncFileResult
+    (path : String)
     (version : Nat)
     (diagnostics : Array Diagnostic)
-    (readiness : SyncSaveReadiness) : SyncSummary :=
+    (readiness : SyncSaveReadiness)
+    (items? : Option (Array StreamDiagnostic) := none) : SyncFileResult :=
+  let diagnostics := Beam.LSP.Lib.userVisibleDiagnostics diagnostics
   let readiness := normalizeSyncSaveReadiness diagnostics readiness
-  let currentReadiness := syncReadinessCurrent diagnostics readiness
   {
-    currentVersion := version
+    path
+    version
     diagnostics := {
-      current := diagnosticCounts diagnostics
+      counts := diagnosticCounts diagnostics
+      items?
     }
-    readiness := {
-      current := currentReadiness
-    }
+    readiness := syncResultReadiness diagnostics readiness
   }
 
 end Beam.Broker

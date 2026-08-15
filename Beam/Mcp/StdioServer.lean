@@ -331,7 +331,8 @@ private def Coordinator.executeToolRequest
     (req : Request)
     (admitted : AdmittedRequestContext)
     (parsedParams : Except String CallToolParams)
-    (request : InFlightRequest) : IO Json := do
+    (request : InFlightRequest)
+    (initialProgress : Nat := 0) : IO Json := do
   let notifications : NotificationSink := {
     send := fun json => request.sendIfActive coordinator.output json
   }
@@ -345,7 +346,8 @@ private def Coordinator.executeToolRequest
         req
         admitted
         parsedParams
-        notifications with
+        notifications
+        initialProgress with
     | .ok result => pure <| successResponseForEra admitted.era req.id result
     | .error err => pure <| errorResponse req.id err
   catch e =>
@@ -358,17 +360,23 @@ private def Coordinator.runToolRequest
     (admitted : AdmittedRequestContext)
     (parsedParams : Except String CallToolParams)
     (request : InFlightRequest)
-    (barrier? : Option (IO.Promise Unit)) : IO Unit := do
+    (barrier? : Option (IO.Promise Unit))
+    (initialProgress : Nat := 0)
+    (beforeFinish : IO Unit := pure ()) : IO Unit := do
   let response ←
     try
       awaitControlBarrier barrier?
       if ← request.isActive then
-        coordinator.executeToolRequest opts req admitted parsedParams request
+        coordinator.executeToolRequest opts req admitted parsedParams request initialProgress
       else
         pure <| errorResponse req.id <|
           RpcError.invalidRequest "request was cancelled before execution"
     catch e =>
       pure <| errorResponse req.id (RpcError.internalError e.toString)
+  try
+    beforeFinish
+  catch e =>
+    Internal.traceMcp s!"request reporter finish failed id={req.id.label}: {e.toString}"
   coordinator.finishRequest request response
 
 private def Coordinator.spawnToolRequest
@@ -403,6 +411,20 @@ private def Coordinator.handleControlToolRequest
   match ← coordinator.admitToolRequest req evidence with
   | .error response => coordinator.finishRequest request response
   | .ok admitted =>
+      let notifications : NotificationSink := {
+        send := fun json => request.sendIfActive coordinator.output json
+      }
+      let reporter? ←
+        match parsedParams with
+        | .ok params =>
+            Internal.createPreDispatchReporter?
+              coordinator.state req.id admitted params notifications
+        | .error _ => pure none
+      let initialProgress := reporter?.map (·.initialProgress) |>.getD 0
+      let finishReporter : IO Unit :=
+        match reporter? with
+        | some reporter => reporter.finish
+        | none => pure ()
       let (previous?, done) ← coordinator.pushControlBarrier
       let priorRequests ← coordinator.otherInFlightRequests request
       let _ ← IO.asTask (prio := Task.Priority.dedicated) do
@@ -411,12 +433,15 @@ private def Coordinator.handleControlToolRequest
           -- while work admitted afterward waits on `done`.
           coordinator.awaitRequests priorRequests
           coordinator.runToolRequest opts req admitted parsedParams request previous?
+            initialProgress finishReporter
         catch e =>
           if !Beam.Mcp.Stdio.isBrokenPipeError e then
             Internal.traceMcp s!"workspace control completion failed id={req.id.label}: {e.toString}"
+          finishReporter
           coordinator.finishRequest request <|
             errorResponse req.id (RpcError.internalError e.toString)
         finally
+          finishReporter
           resolvePromise done
       pure ()
 

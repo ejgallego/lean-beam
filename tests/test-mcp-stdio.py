@@ -24,7 +24,7 @@ from mcp_test_util import (
     notifications_by_method,
     progress_messages,
     require,
-    require_file_progress_range,
+    require_document_progress_range,
     save_warning_text,
     shared_lib_name,
 )
@@ -102,6 +102,7 @@ def runtime_context_lines():
         "BEAM_MCP_STDIO_TIMEOUT",
         "BEAM_MCP_SERVER_TRACE",
         "LEAN_BEAM_BROKER_WAIT_DIAGNOSTICS_WATCHDOG_MS",
+        "LEAN_BEAM_MCP_TEST_STATUS_DELAY_MS",
     ):
         lines.append(f"{name}: {os.environ.get(name, '<unset>')}")
     return lines
@@ -448,25 +449,30 @@ class McpClient:
         ]
         return "\n".join(lines[-40:]) if lines else "<no Beam/Lean processes found>"
 
-    def _timeout_message(self, expected_id):
-        label = self._request_label(expected_id)
-        pending = self.pending_requests.get(request_id_key(expected_id))
-        elapsed = time.monotonic() - pending["started"] if pending is not None else 0.0
+    def _diagnostic_context(self):
         stderr_tail = "\n".join(self.stderr_lines)
-        process_snapshot = self._process_snapshot()
         return (
-            f"timed out waiting for MCP response id {expected_id} ({label}) "
-            f"for client {self.label!r} after {elapsed:.3f}s\n"
             f"MCP client context:\n{self._client_context()}\n"
             f"pending MCP requests:\n{self._pending_requests_summary()}\n"
             f"recent completed MCP requests:\n{self._completed_requests_summary()}\n"
-            f"recent server requests received from lean-beam-mcp:\n{self._server_requests_summary()}\n"
+            f"recent server requests received from lean-beam-mcp:\n"
+            f"{self._server_requests_summary()}\n"
             f"recent notifications:\n{self._notifications_summary()}\n"
             f"MCP event timeline ({self._last_notification_summary()}):\n"
             f"{self._event_timeline_summary()}\n"
             f"CI timeout tracker:\n{CI_TIMEOUT_TRACKER_NOTE}\n"
             f"lean-beam-mcp stderr tail:\n{stderr_tail or '  <empty>'}\n"
-            f"process snapshot:\n{process_snapshot}"
+            f"process snapshot:\n{self._process_snapshot()}"
+        )
+
+    def _timeout_message(self, expected_id):
+        label = self._request_label(expected_id)
+        pending = self.pending_requests.get(request_id_key(expected_id))
+        elapsed = time.monotonic() - pending["started"] if pending is not None else 0.0
+        return (
+            f"timed out waiting for MCP response id {expected_id} ({label}) "
+            f"for client {self.label!r} after {elapsed:.3f}s\n"
+            f"{self._diagnostic_context()}"
         )
 
     def read_response(self, expected_id, timeout=None):
@@ -559,6 +565,15 @@ class McpClient:
     def close_input(self):
         if self.proc.stdin and not self.proc.stdin.closed:
             self.proc.stdin.close()
+
+    def wait_for_exit_after_eof(self, timeout):
+        try:
+            return self.proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            fail(
+                f"timed out waiting {timeout:.1f}s for lean-beam-mcp to exit after EOF\n"
+                f"{self._diagnostic_context()}"
+            )
 
     def response_ready(self, request_id):
         with self.state_changed:
@@ -662,6 +677,61 @@ def diagnostic_log_notifications(client):
     return rows
 
 
+def status_log_notifications(client, request_id=None):
+    rows = []
+    for notification in notifications_by_method(client.notifications, "notifications/message"):
+        params = notification_params(notification, "notifications/message", "status log notification")
+        if params.get("logger") != "beam.status":
+            continue
+        data = params.get("data")
+        if request_id is not None and (
+            not isinstance(data, dict) or data.get("requestId") != request_id
+        ):
+            continue
+        rows.append(notification)
+    return rows
+
+
+def wait_for_status_log(client, request_id, timeout, label):
+    deadline = time.monotonic() + timeout
+    with client.state_changed:
+        while True:
+            notifications = status_log_notifications(client, request_id)
+            if notifications:
+                return notifications[0]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                fail(f"{label}: timed out waiting for beam.status requestId={request_id!r}")
+            client.state_changed.wait(timeout=min(remaining, 0.05))
+
+
+def wait_for_progress_notification(client, token, timeout, label):
+    deadline = time.monotonic() + timeout
+    with client.state_changed:
+        while True:
+            notifications = client.progress_notifications(token)
+            if notifications:
+                return notifications[0]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                fail(f"{label}: timed out waiting for progress token={token!r}")
+            client.state_changed.wait(timeout=min(remaining, 0.05))
+
+
+def expect_status_log(client, *, request_id, tool, state, timeout, label):
+    notification = wait_for_status_log(client, request_id, timeout, label)
+    params = notification_params(notification, "notifications/message", label)
+    data = params.get("data", {})
+    require(params.get("level") == "notice", f"{label} level: {notification}")
+    require(data.get("tool") == tool, f"{label} tool: {notification}")
+    require(data.get("state") == state, f"{label} state: {notification}")
+    require(
+        "progressToken" in data.get("progressHint", ""),
+        f"{label} should make detailed progress discoverable: {notification}",
+    )
+    return notification
+
+
 def expect_diagnostic_log(client, *, level, severity, path):
     for notification in diagnostic_log_notifications(client):
         params = notification_params(notification, "notifications/message", "diagnostic log notification")
@@ -681,7 +751,7 @@ def expect_diagnostic_log(client, *, level, severity, path):
 
 
 def expect_reply_diagnostic(sync, *, severity, path):
-    diagnostics = sync.get("diagnostics")
+    diagnostics = sync.get("diagnostics", {}).get("items")
     require(isinstance(diagnostics, list) and diagnostics, f"sync reply missing diagnostics: {sync}")
     for diagnostic in diagnostics:
         if (
@@ -859,12 +929,12 @@ def require_progress_message_contains(notifications, label, *needles):
         )
 
 
-def require_file_progress_range_end(structured, label, range_end):
-    require_file_progress_range(structured, label)
-    progress = structured["file_progress"]
+def require_document_progress_range_end(structured, label, range_end):
+    require_document_progress_range(structured, label)
+    progress = structured["document_progress"]
     require(
-        progress.get("rangeEndLine") == range_end,
-        f"{label}: expected file_progress rangeEndLine={range_end}, got {progress}",
+        progress.get("range_end_line") == range_end,
+        f"{label}: expected document_progress range_end_line={range_end}, got {progress}",
     )
 
 
@@ -1037,7 +1107,8 @@ def run_iteration(client, suffix):
     client.call_tool("lean_close", {"path": "PositionEmptyLine.lean"})
     refreshed = client.call_tool("lean_refresh", {"path": "PositionEmptyLine.lean"})
     require(isinstance(refreshed.get("version"), int), f"lean_refresh did not return a version: {refreshed}")
-    require("syncSummary" in refreshed, f"lean_refresh did not return syncSummary: {refreshed}")
+    require("diagnostics" in refreshed, f"lean_refresh did not return diagnostic counts: {refreshed}")
+    require("readiness" in refreshed, f"lean_refresh did not return readiness: {refreshed}")
     client.call_tool("lean_close", {"path": "PositionEmptyLine.lean"})
     client.call_tool("lean_close", {"path": "GoalSmoke.lean"})
 
@@ -1219,9 +1290,9 @@ def run_modern_protocol_smoke(repo_root, fixture_root, timeout):
             require_progress_message_contains(
                 progress_notifications,
                 "modern lean_sync progress",
-                "preparing lean_sync",
-                "running lean_sync",
-                "lean_sync fileProgress",
+                "lean_sync on PositionEmptyLine.lean: preparing the Lean workspace",
+                "lean_sync: processing",
+                "done=true",
             )
             expect_error_code(
                 client.modern_request("logging/setLevel", {"level": "error"}),
@@ -1230,7 +1301,7 @@ def run_modern_protocol_smoke(repo_root, fixture_root, timeout):
             expect_error_code(client.modern_request("ping"), -32601)
             require(not client.server_requests, f"modern server emitted JSON-RPC requests: {client.server_requests}")
             client.close_input()
-            returncode = client.proc.wait(timeout=timeout)
+            returncode = client.wait_for_exit_after_eof(timeout)
             require(returncode == 0, f"modern server exited with code {returncode} after EOF")
         finally:
             client.close()
@@ -1309,6 +1380,23 @@ def run_cycle(
             require(isinstance(version.get("server_binary"), str) and version["server_binary"], f"beam_version missing server_binary: {version}")
             require(version.get("runtime_active") is False, f"beam_version should not start runtime: {version}")
 
+            stats_progress_token = "beam-stats-quiet-progress"
+            stats_result = expect_result(
+                client.request(
+                    "tools/call",
+                    {
+                        "name": "beam_stats",
+                        "arguments": {},
+                        "_meta": {"progressToken": stats_progress_token},
+                    },
+                )
+            )
+            require(stats_result.get("isError") is not True, f"beam_stats failed: {stats_result}")
+            require(
+                not client.progress_notifications(stats_progress_token),
+                "beam_stats emitted progress that added no liveness information",
+            )
+
             for iteration in range(iterations):
                 run_iteration(client, f"Cycle{cycle}Iter{iteration}")
         finally:
@@ -1325,15 +1413,20 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             write_save_warning_file(project_root, "-- mcp stdio diagnostic log")
             sync = client.call_tool(
                 "lean_sync",
-                {"path": "SaveSmoke/B.lean", "full_diagnostics": True, "include_diagnostics": True},
+                {
+                    "path": "SaveSmoke/B.lean",
+                    "diagnostic_scope": "all",
+                    "diagnostics_in_result": True,
+                },
             )
             require("saveReady" not in sync, f"warning-only sync should omit top-level saveReady: {sync}")
             require("warningCount" not in sync, f"warning-only sync should omit top-level warningCount: {sync}")
-            readiness = sync.get("syncSummary", {}).get("readiness", {}).get("current", {})
-            require(readiness.get("saveReady") is True, f"warning-only sync should be save-ready: {sync}")
+            readiness = sync.get("readiness", {})
+            counts = sync.get("diagnostics", {}).get("counts", {})
+            require(readiness.get("save_ready") is True, f"warning-only sync should be save-ready: {sync}")
             require(
-                readiness.get("warningCount", 0) >= 1,
-                f"warning-only sync summary should report readiness warnings: {sync}",
+                counts.get("warning", 0) >= 1,
+                f"warning-only sync should report diagnostic warning counts: {sync}",
             )
             expect_reply_diagnostic(sync, severity="warning", path="SaveSmoke/B.lean")
             expect_diagnostic_log(client, level="warning", severity="warning", path="SaveSmoke/B.lean")
@@ -1341,12 +1434,17 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             expect_result(client.request("logging/setLevel", {"level": "error"}))
             client.notifications.clear()
             write_save_warning_file(project_root, "-- mcp stdio warning suppressed")
-            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
+            sync = client.call_tool(
+                "lean_sync", {"path": "SaveSmoke/B.lean", "diagnostic_scope": "all"}
+            )
             require("saveReady" not in sync, f"suppressed warning sync should omit top-level saveReady: {sync}")
-            readiness = sync.get("syncSummary", {}).get("readiness", {}).get("current", {})
-            require(readiness.get("saveReady") is True, f"suppressed warning sync should be save-ready: {sync}")
+            readiness = sync.get("readiness", {})
+            require(readiness.get("save_ready") is True, f"suppressed warning sync should be save-ready: {sync}")
             require("warningCount" not in sync, f"suppressed warning sync should omit top-level warningCount: {sync}")
-            require("diagnostics" not in sync, f"sync reply should omit diagnostics without include_diagnostics: {sync}")
+            require(
+                "items" not in sync.get("diagnostics", {}),
+                f"sync reply should omit diagnostic items without diagnostics_in_result: {sync}",
+            )
             require(
                 diagnostic_log_notifications(client) == [],
                 f"warning-only sync should not log diagnostics at error level: {client.notifications}",
@@ -1354,22 +1452,26 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
 
             client.notifications.clear()
             (project_root / "SaveSmoke" / "B.lean").write_text('def bVal : Nat := "broken"\n', encoding="utf-8")
-            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "include_diagnostics": True})
+            sync = client.call_tool(
+                "lean_sync", {"path": "SaveSmoke/B.lean", "diagnostics_in_result": True}
+            )
             require("saveReady" not in sync, f"broken sync should omit top-level saveReady: {sync}")
             require("errorCount" not in sync, f"broken sync should omit top-level errorCount: {sync}")
             require("warningCount" not in sync, f"broken sync should omit top-level warningCount: {sync}")
-            summary = sync.get("syncSummary", {})
-            current = summary.get("diagnostics", {}).get("current", {})
-            readiness = summary.get("readiness", {}).get("current", {})
-            require(current.get("error", 0) >= 1, f"broken sync summary should count errors: {sync}")
-            require(readiness.get("saveReady") is False, f"broken sync summary should not be save-ready: {sync}")
+            current = sync.get("diagnostics", {}).get("counts", {})
+            readiness = sync.get("readiness", {})
+            require(current.get("error", 0) >= 1, f"broken sync should count errors: {sync}")
+            require(readiness.get("save_ready") is False, f"broken sync should not be save-ready: {sync}")
             require(
-                readiness.get("errorCount", 0) >= 1,
-                f"broken sync summary should report readiness errors: {sync}",
+                readiness.get("blocking_error_count", 0) >= 1,
+                f"broken sync should report save-blocking errors: {sync}",
             )
             expect_reply_diagnostic(sync, severity="error", path="SaveSmoke/B.lean")
             require(
-                all(diagnostic.get("severity") == "error" for diagnostic in sync.get("diagnostics", [])),
+                all(
+                    diagnostic.get("severity") == "error"
+                    for diagnostic in sync.get("diagnostics", {}).get("items", [])
+                ),
                 f"default replayed diagnostics should be error-only: {sync}",
             )
             expect_diagnostic_log(client, level="error", severity="error", path="SaveSmoke/B.lean")
@@ -1384,7 +1486,7 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
                     "tools/call",
                     {
                         "name": "lean_sync",
-                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                        "arguments": {"path": "SaveSmoke/B.lean", "diagnostic_scope": "all"},
                     },
                 )
             )
@@ -1404,7 +1506,7 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
                     "tools/call",
                     {
                         "name": "lean_sync",
-                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                        "arguments": {"path": "SaveSmoke/B.lean", "diagnostic_scope": "all"},
                     },
                     log_level="warning",
                 )
@@ -1465,9 +1567,8 @@ def run_focused_sync_once(repo_root, fixture_root, timeout, label, scenario, ser
                 require_progress_message_contains(
                     notifications,
                     f"{label} progress",
-                    "preparing lean_sync",
-                    "running lean_sync",
-                    "lean_sync fileProgress",
+                    "lean_sync on PositionEmptyLine.lean: preparing the Lean workspace",
+                    "lean_sync: processing",
                     "range",
                     "done=true",
                 )
@@ -1559,7 +1660,11 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
             require(result.get("isError") is not True, f"lean_sync with progress token failed: {result}")
             structured = result.get("structuredContent")
             require(isinstance(structured, dict), f"lean_sync with progress token missing structuredContent: {result}")
-            require_file_progress_range_end(structured, "lean_sync progress", 1)
+            require(
+                "client_request_id" not in structured,
+                f"lean_sync leaked its internal broker request id: {structured}",
+            )
+            require_document_progress_range_end(structured, "lean_sync progress", 1)
             token_notifications = [
                 notification
                 for notification in notifications_by_method(
@@ -1571,10 +1676,14 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
             require_progress_message_contains(
                 token_notifications,
                 "lean_sync progress",
-                "running lean_sync",
-                "lean_sync fileProgress",
+                "lean_sync on CommandA.lean: preparing the Lean workspace",
+                "lean_sync: processing",
                 "rangeEndLine=1",
                 "done=true",
+            )
+            require(
+                sum("done=true" in (message or "") for message in progress_messages(token_notifications)) == 1,
+                f"lean_sync progress should emit one terminal file-progress update: {token_notifications}",
             )
 
             progress_count_after_response = len(client.progress_notifications(token))
@@ -1648,6 +1757,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             extra_env={
                 "BEAM_MCP_GATE_STARTED": started_path,
                 "BEAM_MCP_GATE_RELEASE": release_path,
+                "LEAN_BEAM_MCP_TEST_STATUS_DELAY_MS": "100",
             },
         )
         slow_id = "77"
@@ -1704,6 +1814,15 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             }
             client.send_request("tools/call", slow_params, request_id=slow_id)
             wait_for_file(started_path, timeout, "slow runAt gate sentinel")
+            expect_status_log(
+                client,
+                request_id=slow_id,
+                tool="lean_run_at",
+                state="running",
+                timeout=min(timeout, 5.0),
+                label="slow no-token runAt status",
+            )
+            status_count = len(status_log_notifications(client, slow_id))
             cross_workspace_fast_id = client.send_request(
                 "tools/call",
                 cross_workspace_fast_params,
@@ -1746,11 +1865,24 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             slow_structured = slow_result.get("structuredContent")
             require(isinstance(slow_structured, dict), f"slow runAt missing structured content: {slow_result}")
             require_success("slow concurrent runAt", slow_structured)
+            expect_result(client.request("ping", request_id=slow_id))
+            require(
+                len(status_log_notifications(client, slow_id)) == status_count,
+                f"slow no-token runAt emitted duplicate or post-response statuses: {client.notifications}",
+            )
+
             started_path.unlink()
             release_path.unlink()
+            expect_result(client.request("logging/setLevel", {"level": "warning"}))
+            suppressed_status_count = len(status_log_notifications(client))
             cancel_id = "cancelled-run-at"
             client.send_request("tools/call", slow_params, request_id=cancel_id)
             wait_for_file(started_path, timeout, "cancelled runAt gate sentinel")
+            time.sleep(0.5)
+            require(
+                len(status_log_notifications(client)) == suppressed_status_count,
+                f"warning log level should suppress notice status: {client.notifications}",
+            )
             client.send_message(
                 {
                     "jsonrpc": "2.0",
@@ -1828,6 +1960,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 )
             expect_result(client.request("ping", request_id="after-burst"))
 
+            expect_result(client.request("logging/setLevel", {"level": "notice"}))
             started_path.unlink()
             release_path.unlink(missing_ok=True)
             drop_fence_id = "drop-fence-run-at"
@@ -1840,6 +1973,16 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                     "arguments": {"workspace": workspace_descriptor(project_root)},
                 },
                 request_id="drop-fence-control",
+            )
+            queued_drop_token = "drop-fence-tokened-progress"
+            queued_drop_id = client.send_request(
+                "tools/call",
+                {
+                    "name": "lean_drop_workspace",
+                    "arguments": {"workspace": workspace_descriptor(project_root)},
+                    "_meta": {"progressToken": queued_drop_token},
+                },
+                request_id="drop-fence-tokened-control",
             )
             post_drop_id = client.send_request(
                 "tools/call",
@@ -1855,8 +1998,31 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                 "workspace drop completed before previously admitted work drained",
             )
             require(
+                not client.response_ready(queued_drop_id),
+                "second workspace drop completed before the preceding control fence",
+            )
+            require(
                 not client.response_ready(post_drop_id),
                 "work admitted after workspace drop bypassed the global control fence",
+            )
+            expect_status_log(
+                client,
+                request_id=drop_id,
+                tool="lean_drop_workspace",
+                state="running",
+                timeout=min(timeout, 5.0),
+                label="delayed workspace drop status",
+            )
+            queued_progress = wait_for_progress_notification(
+                client,
+                queued_drop_token,
+                min(timeout, 5.0),
+                "queued workspace drop progress",
+            )
+            require_progress_message_contains(
+                [queued_progress],
+                "queued workspace drop progress",
+                "lean_drop_workspace: preparing workspace eviction",
             )
             release_path.write_text("release\n", encoding="utf-8")
             slow_response = client.read_response(drop_fence_id)
@@ -1871,6 +2037,21 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             require(
                 isinstance(dropped, dict) and dropped.get("dropped") is True,
                 f"workspace drop fence did not evict the runtime: {drop_response}",
+            )
+            queued_drop_response = expect_result(client.read_response(queued_drop_id))
+            require(
+                queued_drop_response.get("isError") is not True,
+                f"second workspace drop fence failed: {queued_drop_response}",
+            )
+            queued_notifications = client.progress_notifications(queued_drop_token)
+            require_progress_sequence(
+                queued_notifications,
+                queued_drop_token,
+                "queued workspace drop progress",
+            )
+            require(
+                len(queued_notifications) == 1,
+                f"workspace drop emitted redundant terminal progress: {queued_notifications}",
             )
             post_drop_result = expect_result(client.read_response(post_drop_id))
             require(
@@ -1914,6 +2095,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             extra_env={
                 "BEAM_MCP_GATE_STARTED": started_path,
                 "BEAM_MCP_GATE_RELEASE": release_path,
+                "LEAN_BEAM_MCP_TEST_STATUS_DELAY_MS": "100",
             },
         )
         modern_cancel_id = "modern-cancelled-run-at"
@@ -1944,12 +2126,56 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
                     },
                 }
             )
+
+            def run_modern_status_case(request_id, log_level, expect_notice):
+                label = f"modern {log_level} runAt"
+                started_path.unlink(missing_ok=True)
+                release_path.unlink(missing_ok=True)
+                params = with_modern_metadata(
+                    {
+                        "name": "lean_run_at",
+                        "arguments": dict(modern_slow_params["arguments"]),
+                    },
+                    log_level=log_level,
+                )
+                modern_client.send_request("tools/call", params, request_id=request_id)
+                wait_for_file(started_path, timeout, f"{label} gate sentinel")
+                if expect_notice:
+                    expect_status_log(
+                        modern_client,
+                        request_id=request_id,
+                        tool="lean_run_at",
+                        state="running",
+                        timeout=min(timeout, 5.0),
+                        label=f"{label} status",
+                    )
+                else:
+                    time.sleep(0.5)
+                    require(
+                        status_log_notifications(modern_client, request_id) == [],
+                        f"{label} should suppress notice status: {modern_client.notifications}",
+                    )
+                status_count = len(status_log_notifications(modern_client, request_id))
+                release_path.write_text("release\n", encoding="utf-8")
+                result = expect_result(modern_client.read_response(request_id))
+                require_modern_result_envelope(result, label)
+                require(result.get("isError") is not True, f"{label} returned a tool error: {result}")
+                require(
+                    len(status_log_notifications(modern_client, request_id)) == status_count,
+                    f"{label} emitted duplicate or post-response statuses: {modern_client.notifications}",
+                )
+
             modern_client.send_request(
                 "tools/call",
                 modern_slow_params,
                 request_id=modern_cancel_id,
             )
             wait_for_file(started_path, timeout, "modern cancelled runAt gate sentinel")
+            time.sleep(0.5)
+            require(
+                status_log_notifications(modern_client, modern_cancel_id) == [],
+                f"modern request without logLevel emitted status: {modern_client.notifications}",
+            )
             modern_client.notify(
                 "notifications/cancelled",
                 {
@@ -1990,6 +2216,13 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             modern_client.forget_request(modern_cancel_id)
             listed = expect_result(modern_client.modern_request("tools/list"))
             require_modern_result_envelope(listed, "modern tools/list after cancellation")
+
+            run_modern_status_case("modern-notice-run-at", "notice", expect_notice=True)
+            run_modern_status_case("modern-warning-run-at", "warning", expect_notice=False)
+
+            modern_client.close_input()
+            returncode = modern_client.wait_for_exit_after_eof(timeout)
+            require(returncode == 0, f"modern status server exited with code {returncode} after EOF")
         finally:
             if not release_path.exists():
                 release_path.write_text("release\n", encoding="utf-8")
@@ -2440,18 +2673,49 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
                 f"cross-workspace handle failure should explain the mismatch: {crossed_error}",
             )
 
-            feedback = client.call_tool(
-                "beam_feedback_report",
-                {
-                    "workspace": workspace_descriptor(root_b),
-                    "title": "workspace isolation regression",
-                    "summary": "collect one explicit workspace only",
-                    "reproduction": "call feedback with a workspace descriptor",
-                    "expected": "only that workspace is collected",
-                    "actual": "regression check",
-                    "include_collected": True,
-                    "redact": False,
-                },
+            feedback_progress_token = "beam-feedback-collection-progress"
+            feedback_result = expect_result(
+                client.request(
+                    "tools/call",
+                    {
+                        "name": "beam_feedback_report",
+                        "arguments": {
+                            "workspace": workspace_descriptor(root_b),
+                            "title": "workspace isolation regression",
+                            "summary": "collect one explicit workspace only",
+                            "reproduction": "call feedback with a workspace descriptor",
+                            "expected": "only that workspace is collected",
+                            "actual": "regression check",
+                            "include_collected": True,
+                            "redact": False,
+                        },
+                        "_meta": {"progressToken": feedback_progress_token},
+                    },
+                )
+            )
+            require(
+                feedback_result.get("isError") is not True,
+                f"workspace feedback failed: {feedback_result}",
+            )
+            feedback = feedback_result.get("structuredContent")
+            require(
+                isinstance(feedback, dict),
+                f"workspace feedback omitted structured content: {feedback_result}",
+            )
+            feedback_notifications = client.progress_notifications(feedback_progress_token)
+            require_progress_sequence(
+                feedback_notifications,
+                feedback_progress_token,
+                "workspace feedback progress",
+            )
+            require_progress_message_contains(
+                feedback_notifications,
+                "workspace feedback progress",
+                "collecting beam_feedback_report context",
+            )
+            require(
+                len(feedback_notifications) == 1,
+                f"beam_feedback_report emitted redundant phase or terminal progress: {feedback_notifications}",
             )
             collected = feedback.get("collected")
             require(isinstance(collected, dict), f"workspace feedback omitted context: {feedback}")
@@ -2465,6 +2729,25 @@ def run_stateless_workspace_matrix(repo_root, fixture_root, timeout):
             require(
                 str(root_a.resolve()) not in json.dumps(collected, sort_keys=True),
                 f"workspace feedback leaked workspace A: {collected}",
+            )
+
+            invalid_drop_token = "invalid-workspace-drop-progress"
+            invalid_drop = client.request(
+                "tools/call",
+                {
+                    "name": "lean_drop_workspace",
+                    "arguments": {"workspace": {"root": "relative-workspace"}},
+                    "_meta": {"progressToken": invalid_drop_token},
+                },
+            )
+            invalid_drop_error = expect_tool_error_code(invalid_drop, "invalidInput")
+            require(
+                "absolute path" in invalid_drop_error.get("message", ""),
+                f"relative workspace drop should explain its invalid root: {invalid_drop_error}",
+            )
+            require(
+                client.progress_notifications(invalid_drop_token) == [],
+                "invalid workspace drop emitted progress before semantic input validation",
             )
 
             missing_drop = client.request(
@@ -2837,7 +3120,7 @@ def run_legacy_eof_teardown(repo_root, fixture_root, timeout):
         try:
             client.initialize()
             client.close_input()
-            returncode = client.proc.wait(timeout=timeout)
+            returncode = client.wait_for_exit_after_eof(timeout)
             require(returncode == 0, f"legacy server exited with code {returncode} after EOF")
         finally:
             client.close()

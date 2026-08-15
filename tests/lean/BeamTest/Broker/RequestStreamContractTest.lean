@@ -93,7 +93,7 @@ def main : IO Unit := do
       op := .syncFile
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
-      fullDiagnostics? := some true
+      diagnosticScope? := some .all
     }
     expectStreamKindsOnly "sync_file" syncMessages
     let syncResp ← requireFinalStreamResponse "sync_file" syncMessages
@@ -102,12 +102,11 @@ def main : IO Unit := do
     let syncResult ← requireSyncFileResult "sync_file" syncPayload
     if syncResult.version != 1 then
       throw <| IO.userError s!"expected sync_file version 1, got {syncResult.version}"
-    let syncSummary := syncResult.syncSummary
-    if !syncSummary.readiness.current.saveReady then
-      throw <| IO.userError s!"expected sync_file saveReady = true, got {(toJson syncSummary).compress}"
-    if syncSummary.readiness.current.errorCount != 0 then
+    if !syncResult.readiness.saveReady then
+      throw <| IO.userError s!"expected sync_file saveReady = true, got {(toJson syncResult).compress}"
+    if syncResult.readiness.blockingErrorCount != 0 then
       throw <| IO.userError
-        s!"expected sync_file readiness counts = 0, got {(toJson syncSummary).compress}"
+        s!"expected sync_file blocking error count = 0, got {(toJson syncResult).compress}"
     let syncProgress := ← requireAnyStreamFileProgress "sync_file" syncMessages
     let some syncLast := syncProgress.back?
       | throw <| IO.userError "expected sync_file fileProgress tail"
@@ -120,14 +119,15 @@ def main : IO Unit := do
       op := .syncFile
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
-      fullDiagnostics? := some true
-      includeDiagnostics? := some true
+      diagnosticScope? := some .all
+      diagnosticsInResult? := some true
     }
     expectStreamKindsOnly "sync_file include diagnostics" syncReplyMessages
     let syncReplyResp ← requireFinalStreamResponse "sync_file include diagnostics" syncReplyMessages
     let syncReplyPayload ← expectOk syncReplyResp
-    let replyDiagnostics ← IO.ofExcept <|
-      syncReplyPayload.getObjValAs? (Array Beam.Broker.StreamDiagnostic) "diagnostics"
+    let syncReplyResult ← requireSyncFileResult "sync_file include diagnostics" syncReplyPayload
+    let some replyDiagnostics := syncReplyResult.diagnostics.items?
+      | throw <| IO.userError "expected sync_file final diagnostic items"
     if replyDiagnostics.isEmpty then
       throw <| IO.userError
         s!"expected sync_file include diagnostics to replay diagnostics, got {syncReplyPayload.compress}"
@@ -139,7 +139,7 @@ def main : IO Unit := do
       op := .saveOlean
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
-      fullDiagnostics? := some true
+      diagnosticScope? := some .all
     }
     expectStreamKindsOnly "save_olean" saveMessages
     let saveResp ← requireFinalStreamResponse "save_olean" saveMessages
@@ -157,7 +157,7 @@ def main : IO Unit := do
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
       saveArtifacts? := some true
-      fullDiagnostics? := some true
+      diagnosticScope? := some .all
     }
     expectStreamKindsOnly "close-save" closeMessages
     let closeResp ← requireFinalStreamResponse "close-save" closeMessages

@@ -28,10 +28,32 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Changed
 
+- Long-running Lean operations now separate liveness status, request progress, and diagnostics.
+  Sync and refresh use the discoverable `diagnostic_scope: "errors" | "all"` and
+  `diagnostics_in_result` controls, while save and close-save use `diagnostic_scope`; the obsolete
+  boolean diagnostic arguments and CLI `+full` flag have been removed, with `+all-diagnostics` as
+  the explicit wrapper spelling.
+- Sync results now report one canonical path/version with `diagnostics.counts`, optional
+  `diagnostics.items`, and readiness whose `blockingErrorCount` is explicitly distinct from raw
+  diagnostic counts. Save and close-save embed that same result. MCP exposes snake_case equivalents
+  and reserves final `document_progress` for sync/refresh/save/close-save rather than attaching file
+  progress to unrelated results such as `lean_run_at`.
+- Silent Lean editor messages, including decorative `Goals accomplished!` output, are filtered at
+  reception and no longer enter Beam diagnostic streams, result counts/items, todo output, or
+  speculative execution messages.
 - Feedback report-card entry points are now named `lean-beam feedback-report` and MCP
   `beam_feedback_report`; their help and tool descriptions state that Beam returns reports to callers
   and does not upload or submit them
   ([#233](https://github.com/ejgallego/lean-beam/pull/233)).
+- Broker-backed Lean MCP operations, feedback collection, and delayed `lean_drop_workspace` calls
+  without `_meta.progressToken` now emit at most one structured `beam.status` notice when Lake setup
+  is observed or the call remains pending for two seconds and the active logging policy admits
+  notice-level events. Tokened calls use concise, throttled phase/file updates instead of generic
+  start/prepare/run chatter and duplicate terminal progress; queued workspace eviction reports
+  before it waits behind earlier requests.
+- Broker stream-message decoding now requires the payload selected by its `kind` and rejects
+  missing, conflicting, undeclared, or redundant response-correlation fields. The client no longer
+  accepts obsolete bare response objects on the streamed endpoint.
 - The exact-validation registry and CLI command are now named `validated-lean-toolchains` and
   `validated-toolchains`; `--all-validated` prebuilds that finite exact matrix.
 - `lean-beam open-files` now reports tracked-document state through `diskStatus`, `checkpointed`, and

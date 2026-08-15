@@ -505,40 +505,40 @@ private def checkBrokerRequestAdapters : IO Unit := do
 
   let syncInput : Beam.Mcp.SyncInput := {
     path := "Demo.lean",
-    fullDiagnostics? := some true,
-    includeDiagnostics? := some true
+    diagnosticScope? := some .all,
+    diagnosticsInResult? := some true
   }
   let syncReq ← expectOk "sync tool request" <|
     Beam.Mcp.leanOperationToBrokerRequest .sync root workspaceId (inWorkspace <| toJson syncInput)
   require "sync op" (syncReq.op == .syncFile)
-  require "sync full diagnostics" (syncReq.fullDiagnostics? == some true)
-  require "sync include diagnostics" (syncReq.includeDiagnostics? == some true)
+  require "sync diagnostic scope" (syncReq.diagnosticScope? == some .all)
+  require "sync diagnostics in result" (syncReq.diagnosticsInResult? == some true)
   let refreshReq ← expectOk "refresh tool request" <|
     Beam.Mcp.leanOperationToBrokerRequest .refresh root workspaceId (inWorkspace <| toJson syncInput)
   require "refresh op" (refreshReq.op == .refreshFile)
-  require "refresh full diagnostics" (refreshReq.fullDiagnostics? == some true)
-  require "refresh include diagnostics" (refreshReq.includeDiagnostics? == some true)
+  require "refresh diagnostic scope" (refreshReq.diagnosticScope? == some .all)
+  require "refresh diagnostics in result" (refreshReq.diagnosticsInResult? == some true)
   let saveReq ← expectOk "save tool request" <|
     Beam.Mcp.leanOperationToBrokerRequest .save root workspaceId (inWorkspace <| toJson syncInput)
   require "save op" (saveReq.op == .saveOlean)
-  require "save full diagnostics" (saveReq.fullDiagnostics? == some true)
-  require "save should not request reply diagnostics" saveReq.includeDiagnostics?.isNone
+  require "save diagnostic scope" (saveReq.diagnosticScope? == some .all)
+  require "save should not request reply diagnostics" saveReq.diagnosticsInResult?.isNone
   let closeSaveReq ← expectOk "close-save tool request" <|
     Beam.Mcp.leanOperationToBrokerRequest .closeSave root workspaceId
       (inWorkspace <| toJson syncInput)
   require "close-save op" (closeSaveReq.op == .close)
   require "close-save requests artifact save" (closeSaveReq.saveArtifacts? == some true)
-  require "close-save full diagnostics" (closeSaveReq.fullDiagnostics? == some true)
-  require "close-save should not request reply diagnostics" closeSaveReq.includeDiagnostics?.isNone
+  require "close-save diagnostic scope" (closeSaveReq.diagnosticScope? == some .all)
+  require "close-save should not request reply diagnostics" closeSaveReq.diagnosticsInResult?.isNone
   let syncJson := toJson syncInput
-  requireJsonBool "sync input json" "full_diagnostics" true syncJson
-  requireJsonBool "sync input json" "include_diagnostics" true syncJson
-  requireFieldAbsent "sync input json" "fullDiagnostics" syncJson
-  requireFieldAbsent "sync input json" "includeDiagnostics" syncJson
+  requireJsonString "sync input json" "diagnostic_scope" "all" syncJson
+  requireJsonBool "sync input json" "diagnostics_in_result" true syncJson
+  requireFieldAbsent "sync input json" "diagnosticScope" syncJson
+  requireFieldAbsent "sync input json" "diagnosticsInResult" syncJson
   requireFieldAbsent "sync input json" "root" syncJson
   let decodedSync ← expectOk "decode sync input" <| fromJson? (α := Beam.Mcp.SyncInput) syncJson
-  require "decoded sync full diagnostics" (decodedSync.fullDiagnostics? == some true)
-  require "decoded sync include diagnostics" (decodedSync.includeDiagnostics? == some true)
+  require "decoded sync diagnostic scope" (decodedSync.diagnosticScope? == some .all)
+  require "decoded sync diagnostics in result" (decodedSync.diagnosticsInResult? == some true)
 
 private def checkRunAtNormalization : IO Unit := do
   let semanticFailure := Json.mkObj [("success", toJson false)]
@@ -571,10 +571,122 @@ private def checkRunAtNormalization : IO Unit := do
   requireJsonString "next handle" "session" "session" nextHandle
   let rawHandle ← requireObjVal "next handle" "raw" nextHandle
   requireJsonString "next handle raw" "value" "raw-handle" rawHandle
-  let progress ← requireObjVal "handle result" "file_progress" normalizedHandle
-  requireJsonBool "handle result progress" "done" true progress
-  requireJsonString "handle result request id" "client_request_id" "req-1" normalizedHandle
+  requireFieldAbsent "handle result" "file_progress" normalizedHandle
+  requireFieldAbsent "handle result" "document_progress" normalizedHandle
+  requireFieldAbsent "handle result" "client_request_id" normalizedHandle
   requireFieldAbsent "handle result" "handle" normalizedHandle
+
+private def sampleSyncResult : Beam.Broker.SyncFileResult := {
+  path := "Demo.lean"
+  version := 7
+  diagnostics := {
+    counts := { error := 1, warning := 1, total := 2 }
+    items? := some #[{
+      path := "Demo.lean"
+      uri := "file:///repo/Demo.lean"
+      version? := some 7
+      severity? := some .warning
+      range := { start := { line := 1, character := 2 }, «end» := { line := 1, character := 5 } }
+      message := "unused variable"
+    }]
+  }
+  readiness := {
+    saveReady := false
+    reason := "documentErrors"
+    blockingErrorCount := 1
+    blockingMessages := #[{
+      message := "declaration has errors"
+      saveBlocking := true
+    }]
+  }
+}
+
+private def checkSyncAndSaveNormalization : IO Unit := do
+  let normalizedSync ← expectToolOk "normalize sync result" <|
+    Beam.Mcp.normalizeBrokerResponse .leanSync {
+      ok := true
+      result? := some <| toJson sampleSyncResult
+      fileProgress? := some {
+        updates := 4
+        done := true
+        rangeStartLine? := some 1
+        rangeEndLine? := some 20
+      }
+    }
+  requireJsonString "sync result" "path" "Demo.lean" normalizedSync
+  requireJsonInt "sync result" "version" 7 normalizedSync
+  let diagnostics ← requireObjVal "sync result" "diagnostics" normalizedSync
+  let counts ← requireObjVal "sync diagnostics" "counts" diagnostics
+  requireJsonInt "sync diagnostic counts" "error" 1 counts
+  let items ← IO.ofExcept <| diagnostics.getObjValAs? (Array Json) "items"
+  let some item := items[0]?
+    | throw <| IO.userError "sync diagnostic items should contain the warning"
+  requireJsonString "sync diagnostic item" "severity" "warning" item
+  requireJsonBool "sync diagnostic item" "completion_blocking" false item
+  requireFieldAbsent "sync diagnostic item" "completionBlocking" item
+  let readiness ← requireObjVal "sync result" "readiness" normalizedSync
+  requireJsonBool "sync readiness" "save_ready" false readiness
+  requireJsonString "sync readiness" "reason" "documentErrors" readiness
+  requireJsonInt "sync readiness" "blocking_error_count" 1 readiness
+  discard <| requireObjVal "sync readiness" "blocking_messages" readiness
+  let progress ← requireObjVal "sync result" "document_progress" normalizedSync
+  requireJsonBool "sync document progress" "done" true progress
+  requireJsonInt "sync document progress" "range_start_line" 1 progress
+  requireJsonInt "sync document progress" "range_end_line" 20 progress
+  requireFieldAbsent "sync result" "file_progress" normalizedSync
+  requireFieldAbsent "sync result" "syncSummary" normalizedSync
+
+  let rawSave := Json.mkObj [
+    ("path", toJson "Demo.lean"),
+    ("module", toJson "Demo"),
+    ("version", toJson (7 : Nat)),
+    ("sourceHash", toJson "abc"),
+    ("olean", toJson "/tmp/Demo.olean"),
+    ("ilean", toJson "/tmp/Demo.ilean"),
+    ("c", toJson "/tmp/Demo.c"),
+    ("trace", toJson "/tmp/Demo.olean.trace"),
+    ("oleanServer", toJson "/tmp/Demo.olean.server"),
+    ("sync", toJson sampleSyncResult)
+  ]
+  let normalizedSave ← expectToolOk "normalize save result" <|
+    Beam.Mcp.normalizeBrokerResponse .leanSave {
+      ok := true
+      result? := some rawSave
+      fileProgress? := some { updates := 4, done := true }
+    }
+  requireJsonString "save result" "source_hash" "abc" normalizedSave
+  requireJsonString "save result" "olean_server" "/tmp/Demo.olean.server" normalizedSave
+  requireFieldAbsent "save result" "sourceHash" normalizedSave
+  let saveSync ← requireObjVal "save result" "sync" normalizedSave
+  discard <| requireObjVal "save sync result" "readiness" saveSync
+  discard <| requireObjVal "save result" "document_progress" normalizedSave
+
+  let normalizedCloseSave ← expectToolOk "normalize close-save result" <|
+    Beam.Mcp.normalizeBrokerResponse .leanCloseSave {
+      ok := true
+      result? := some <| Json.mkObj [
+        ("closed", toJson true),
+        ("saved", rawSave)
+      ]
+    }
+  requireJsonBool "close-save result" "closed" true normalizedCloseSave
+  let saved ← requireObjVal "close-save result" "saved" normalizedCloseSave
+  discard <| requireObjVal "close-save saved result" "sync" saved
+
+  discard <| expectToolError "save result with undeclared field" "invalidResult" <|
+    Beam.Mcp.normalizeBrokerResponse .leanSave {
+      ok := true
+      result? := some <| rawSave.setObjVal! "extra" (toJson true)
+    }
+  discard <| expectToolError "close-save result with undeclared field" "invalidResult" <|
+    Beam.Mcp.normalizeBrokerResponse .leanCloseSave {
+      ok := true
+      result? := some <| Json.mkObj [
+        ("closed", toJson true),
+        ("saved", rawSave),
+        ("extra", toJson true)
+      ]
+    }
 
 private def checkTransportErrorNormalization : IO Unit := do
   let err ← expectToolError "normalize transport error" "invalidParams" <|
@@ -653,6 +765,9 @@ private def checkCodeActionResolveNormalization : IO Unit := do
   requireFieldAbsent "code_action_resolve result" "codeAction" normalized
 
 private def checkInvalidEnvelopeRejection : IO Unit := do
+  discard <| expectToolError "missing success result" "invalidEnvelope" <|
+    Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := true }
+
   discard <| expectToolError "missing error envelope" "invalidEnvelope" <|
     Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := false }
 
@@ -667,6 +782,7 @@ def main : IO Unit := do
   checkToolDescriptors
   checkBrokerRequestAdapters
   checkRunAtNormalization
+  checkSyncAndSaveNormalization
   checkTransportErrorNormalization
   checkTodoNormalization
   checkCodeActionResolveNormalization

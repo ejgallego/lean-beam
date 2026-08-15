@@ -41,7 +41,7 @@ run_quiet_lake_build \
   beam-sync-concurrency-test \
   beam-daemon-save-stream-test \
   beam-daemon-request-stream-test \
-  beam-sync-summary-test \
+  beam-sync-result-test \
   beam-daemon-startup-handshake-test \
   beam-cli-daemon-test \
   beam-feedback-test \
@@ -60,7 +60,7 @@ run_quiet_lake_build \
 .lake/build/bin/beam-sync-concurrency-test > /dev/null
 .lake/build/bin/beam-daemon-save-stream-test > /dev/null
 .lake/build/bin/beam-daemon-request-stream-test > /dev/null
-.lake/build/bin/beam-sync-summary-test > /dev/null
+.lake/build/bin/beam-sync-result-test > /dev/null
 .lake/build/bin/beam-daemon-startup-handshake-test > /dev/null
 
 assert_output_contains() {

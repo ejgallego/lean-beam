@@ -36,6 +36,20 @@ def checkRunAtTheoremProofFailure : ScenarioM Unit := do
     "False"
   closeDoc doc
 
+def checkRunAtTheoremSuccessOmitsSilentMessages : ScenarioM Unit := do
+  let doc ← openDoc "tests/lean/BeamTest/Fixtures/Deps/DepA.lean"
+  syncDoc doc
+  let req ← sendRunAt doc {
+    line := 8
+    character := 0
+    text := "theorem runAtCompletedProbe : True := by\n  trivial"
+  }
+  let result ← requireRunAtResponseSuccess "runAt completed theorem" req
+  if result.messages.any (fun message => message.text.contains "Goals accomplished") then
+    throw <| IO.userError
+      s!"runAt completed theorem leaked a silent lifecycle message: {(toJson result).compress}"
+  closeDoc doc
+
 def checkRunAtTheoremTacticFailure : ScenarioM Unit := do
   let doc ← openDoc "tests/scenario/docs/TopLevelTheoremRunAtFailure.lean"
   syncDoc doc
@@ -135,6 +149,7 @@ def checkRunAtWithStandardLspInterference : ScenarioM Unit := do
 
 def run : ScenarioM Unit := do
   checkRunAtOneCommandOnly
+  checkRunAtTheoremSuccessOmitsSilentMessages
   checkRunAtTheoremProofFailure
   checkRunAtTheoremTacticFailure
   checkRunAtInvalidPositionLine

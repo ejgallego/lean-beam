@@ -237,8 +237,8 @@ private def requireUniqueStrings (label : String) (values : Array String) : IO U
 private def checkToolInputParameterUniqueness (tools : Array Json) : IO Unit := do
   let forbiddenAliases := #[
     "root", "workspace_id", "workspaceId", "includeDeclaration", "startLine",
-    "startCharacter", "endLine", "endCharacter", "codeAction", "fullDiagnostics",
-    "includeDiagnostics"
+    "startCharacter", "endLine", "endCharacter", "codeAction", "diagnosticScope",
+    "diagnosticsInResult", "full_diagnostics", "include_diagnostics"
   ]
   for tool in tools do
     let name ← IO.ofExcept <| tool.getObjValAs? String "name"
@@ -304,6 +304,9 @@ private def checkToolDescriptionContracts (tools : Array Json) : IO Unit := do
   let feedbackReportDescription ← requireToolDescription tools "beam_feedback_report"
   require "beam_feedback_report description should state the no-upload contract"
     (feedbackReportDescription.startsWith "Beam does not upload or submit feedback.")
+  require "beam_feedback_report description should advertise live-status tuning"
+    (feedbackReportDescription.contains "_meta.progressToken" &&
+      feedbackReportDescription.contains "one status log")
 
 private def checkToolsListShape : IO Unit := do
   let result := Beam.Mcp.toolsListResult
@@ -354,7 +357,13 @@ private def checkToolsListShape : IO Unit := do
   let workspaceSchema ← requireObjVal "lean_sync input schema" "workspace" syncProperties
   let workspaceProperties ← requireObjVal "workspace descriptor schema" "properties" workspaceSchema
   requireFieldPresent "workspace descriptor schema" "root" workspaceProperties
-  requireFieldPresent "lean_sync input schema" "include_diagnostics" syncProperties
+  requireFieldPresent "lean_sync input schema" "diagnostic_scope" syncProperties
+  requireFieldPresent "lean_sync input schema" "diagnostics_in_result" syncProperties
+  let diagnosticScopeSchema ← requireObjVal "lean_sync input schema" "diagnostic_scope" syncProperties
+  let diagnosticScopeEnum ← requireObjVal "lean_sync diagnostic_scope schema" "enum"
+    diagnosticScopeSchema
+  require "lean_sync diagnostic_scope enum should expose errors/all"
+    (diagnosticScopeEnum == toJson (#[("errors" : String), "all"] : Array String))
   let referencesTool ← requireTool tools "lean_references"
   let referencesSchema ← requireClosedInputSchema "lean_references input schema" referencesTool
   let referencesProperties ← requireObjVal "lean_references input schema" "properties" referencesSchema
@@ -362,15 +371,18 @@ private def checkToolsListShape : IO Unit := do
   let refreshTool ← requireTool tools "lean_refresh"
   let refreshSchema ← requireClosedInputSchema "lean_refresh input schema" refreshTool
   let refreshProperties ← requireObjVal "lean_refresh input schema" "properties" refreshSchema
-  requireFieldPresent "lean_refresh input schema" "include_diagnostics" refreshProperties
+  requireFieldPresent "lean_refresh input schema" "diagnostic_scope" refreshProperties
+  requireFieldPresent "lean_refresh input schema" "diagnostics_in_result" refreshProperties
   let saveTool ← requireTool tools "lean_save"
   let saveSchema ← requireClosedInputSchema "lean_save input schema" saveTool
   let saveProperties ← requireObjVal "lean_save input schema" "properties" saveSchema
-  requireFieldAbsent "lean_save input schema" "include_diagnostics" saveProperties
+  requireFieldPresent "lean_save input schema" "diagnostic_scope" saveProperties
+  requireFieldAbsent "lean_save input schema" "diagnostics_in_result" saveProperties
   let closeSaveTool ← requireTool tools "lean_close_save"
   let closeSaveSchema ← requireClosedInputSchema "lean_close_save input schema" closeSaveTool
   let closeSaveProperties ← requireObjVal "lean_close_save input schema" "properties" closeSaveSchema
-  requireFieldAbsent "lean_close_save input schema" "include_diagnostics" closeSaveProperties
+  requireFieldPresent "lean_close_save input schema" "diagnostic_scope" closeSaveProperties
+  requireFieldAbsent "lean_close_save input schema" "diagnostics_in_result" closeSaveProperties
   let feedbackTool ← requireTool tools "beam_feedback_report"
   let feedbackSchema ← requireClosedInputSchema "beam_feedback_report input schema" feedbackTool
   let feedbackProperties ← requireObjVal "beam_feedback_report input schema" "properties" feedbackSchema
@@ -579,6 +591,52 @@ private def checkProgressProtocol : IO Unit := do
   requireJsonInt "progress notification params" "progress" 3 params
   requireJsonInt "progress notification params" "total" 8 params
   requireJsonString "progress notification params" "message" "syncing" params
+
+  let setupDiagnostic : Beam.Broker.StreamDiagnostic := {
+    path := "Demo.lean"
+    uri := "file:///workspace/Demo.lean"
+    severity? := some .information
+    range := {
+      start := { line := 0, character := 0 }
+      «end» := { line := 1, character := 0 }
+    }
+    message := "✔ [1/2] Building Demo.Dependency (12s)\n"
+  }
+  let setupMessage ←
+    match Beam.Mcp.Server.Internal.projectStreamDiagnostic
+        .leanSync (some "Demo.lean") setupDiagnostic with
+    | .setupStatus message => pure message
+    | .diagnostic =>
+        throw <| IO.userError "Lake setup diagnostic projected as an ordinary MCP diagnostic"
+  require "setup status message is normalized and contextual"
+    (setupMessage ==
+      "lean_sync on Demo.lean: preparing Lean dependencies — ✔ [1/2] Building Demo.Dependency (12s)")
+  require "ordinary information diagnostic stays diagnostic" <|
+    Beam.Mcp.Server.Internal.projectStreamDiagnostic
+      .leanSync (some "Demo.lean") { setupDiagnostic with message := "ordinary Lean information" } ==
+        .diagnostic
+
+  let statusNotification := Beam.Mcp.toolStatusNotification {
+    requestId := toJson (42 : Nat)
+    tool := "lean_sync"
+    state := .preparingDependencies
+    message := setupMessage
+    path? := some "Demo.lean"
+    progressHint? := some "Pass tools/call params._meta.progressToken."
+  }
+  requireJsonString "status notification" "method" "notifications/message" statusNotification
+  let statusParams ← requireObjVal "status notification" "params" statusNotification
+  requireJsonString "status notification params" "level" "notice" statusParams
+  requireJsonString "status notification params" "logger" "beam.status" statusParams
+  let statusData ← requireObjVal "status notification params" "data" statusParams
+  requireJsonInt "status notification data" "requestId" 42 statusData
+  requireJsonString "status notification data" "tool" "lean_sync" statusData
+  requireJsonString "status notification data" "state" "preparing_dependencies" statusData
+  requireJsonString "status notification data" "message"
+    setupMessage statusData
+  requireJsonString "status notification data" "path" "Demo.lean" statusData
+  requireJsonString "status notification data" "progressHint"
+    "Pass tools/call params._meta.progressToken." statusData
 
 private def handleRpcRequest
     (state : Beam.Mcp.Server.ServerState)
@@ -1106,6 +1164,29 @@ private def checkServerBasics : IO Unit := do
     (obsoleteSelectorMessage.contains "workspace_id" &&
       obsoleteSelectorMessage.contains "undeclared input fields")
 
+  for obsoleteField in #["full_diagnostics", "include_diagnostics"] do
+    let response ← handleRpcRequest state opts s!"obsolete {obsoleteField} rejection" 35
+      "tools/call" <| some <| toolCallParams "lean_sync" <|
+        withWorkspace root <| Json.mkObj [
+          ("path", toJson "Demo.lean"),
+          (obsoleteField, toJson true)
+        ]
+    let err ← expectToolErrorCode s!"obsolete {obsoleteField}" "invalidInput" response
+    let message ← IO.ofExcept <| err.getObjValAs? String "message"
+    require s!"obsolete MCP field error should identify {obsoleteField}"
+      (message.contains obsoleteField && message.contains "undeclared input fields")
+
+  let booleanScopeResp ← handleRpcRequest state opts "boolean diagnostic_scope rejection" 36
+    "tools/call" <| some <| toolCallParams "lean_sync" <|
+      withWorkspace root <| Json.mkObj [
+        ("path", toJson "Demo.lean"),
+        ("diagnostic_scope", toJson true)
+      ]
+  let booleanScope ← expectToolErrorCode "boolean diagnostic_scope" "invalidInput" booleanScopeResp
+  let booleanScopeMessage ← IO.ofExcept <| booleanScope.getObjValAs? String "message"
+  require "boolean diagnostic_scope error should name accepted values"
+    (booleanScopeMessage.contains "errors" && booleanScopeMessage.contains "all")
+
   let misspelledConfidentialResp ←
     handleRpcRequest state opts "misspelled confidential feedback field rejection" 34
       "tools/call" <| some <| toolCallParams "beam_feedback_report" <|
@@ -1208,10 +1289,11 @@ private def expectNoDiagnosticLog
 
 private def requireDiagnosticsArray (label : String) (structured : Json) : IO (Array Json) := do
   let diagnosticsJson ← requireObjVal label "diagnostics" structured
-  match diagnosticsJson with
+  let itemsJson ← requireObjVal label "items" diagnosticsJson
+  match itemsJson with
   | Json.arr diagnostics => pure diagnostics
   | other =>
-      throw <| IO.userError s!"expected {label} diagnostics array, got {other.compress}"
+      throw <| IO.userError s!"expected {label} diagnostics.items array, got {other.compress}"
 
 private def requireNoDiagnosticSeverity
     (label : String)
@@ -1255,15 +1337,15 @@ private def callLeanSync
     (root : System.FilePath)
     (id : Nat)
     (path : String)
-    (fullDiagnostics : Bool := true)
-    (includeDiagnostics : Bool := false) : IO Json := do
+    (diagnosticScope : Beam.Broker.DiagnosticScope := .all)
+    (diagnosticsInResult : Bool := false) : IO Json := do
   let arguments := withWorkspace root <| Json.mkObj <|
     [
       ("path", toJson path),
-      ("full_diagnostics", toJson fullDiagnostics)
+      ("diagnostic_scope", toJson diagnosticScope)
     ] ++
-    if includeDiagnostics then
-      [("include_diagnostics", toJson true)]
+    if diagnosticsInResult then
+      [("diagnostics_in_result", toJson true)]
     else
       []
   handleRpcRequestWithNotifications state opts notifications s!"lean_sync {path}" id "tools/call" <|
@@ -1291,17 +1373,17 @@ private def checkDiagnosticLogForwarding : IO Unit := do
 
     writeSaveWarningFile root "-- mcp diagnostic log default"
     let defaultSyncResp ← callLeanSync state opts notifications root 2 "SaveSmoke/B.lean"
-      (fullDiagnostics := false)
-      (includeDiagnostics := true)
+      (diagnosticScope := .errors)
+      (diagnosticsInResult := true)
     let defaultSyncResult ← requireObjVal "default lean_sync response" "result" defaultSyncResp
     requireJsonBool "default lean_sync result" "isError" false defaultSyncResult
     let defaultStructured ←
       requireObjVal "default lean_sync result" "structuredContent" defaultSyncResult
     let defaultDiagnostics ←
       requireDiagnosticsArray "default lean_sync structured result" defaultStructured
-    requireNoDiagnosticSeverity "default lean_sync include_diagnostics" defaultDiagnostics "warning"
+    requireNoDiagnosticSeverity "default lean_sync diagnostics_in_result" defaultDiagnostics "warning"
     expectNoDiagnosticLog
-      "default lean_sync with full_diagnostics=false"
+      "default lean_sync with diagnostic_scope=errors"
       (← notificationsRef.get)
       "warning"
       "SaveSmoke/B.lean"
@@ -1309,17 +1391,17 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     notificationsRef.set #[]
     writeSaveWarningFile root "-- mcp diagnostic log full"
     let syncResp ← callLeanSync state opts notifications root 3 "SaveSmoke/B.lean"
-      (fullDiagnostics := true)
-      (includeDiagnostics := true)
+      (diagnosticScope := .all)
+      (diagnosticsInResult := true)
     let syncResult ← requireObjVal "lean_sync response" "result" syncResp
     requireJsonBool "lean_sync result" "isError" false syncResult
     let syncStructured ← requireObjVal "lean_sync result" "structuredContent" syncResult
     let replyDiagnostics ← requireDiagnosticsArray "lean_sync structured result" syncStructured
     if replyDiagnostics.isEmpty then
       throw <| IO.userError
-        s!"expected lean_sync include_diagnostics to replay diagnostics, got {syncStructured.compress}"
+        s!"expected lean_sync diagnostics_in_result to replay diagnostics, got {syncStructured.compress}"
     requireDiagnosticSeverityForPath
-      "lean_sync include_diagnostics"
+      "lean_sync diagnostics_in_result"
       replyDiagnostics
       "warning"
       "SaveSmoke/B.lean"
@@ -1329,8 +1411,8 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     discard <| requireObjVal "warning log data" "range" data
     discard <| requireObjVal "warning log data" "uri" data
     discard <| requireObjVal "warning log data" "version" data
-    requireJsonBool "warning log data" "completionBlocking" false data
-    requireFieldAbsent "warning log data" "saveBlocking" data
+    requireJsonBool "warning log data" "completion_blocking" false data
+    requireFieldAbsent "warning log data" "save_blocking" data
     let message ← IO.ofExcept <| data.getObjValAs? String "message"
     require "warning log should preserve diagnostic message" (!message.isEmpty)
 
@@ -1344,7 +1426,9 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let suppressedResult ← requireObjVal "suppressed lean_sync response" "result" suppressedResp
     requireJsonBool "suppressed lean_sync result" "isError" false suppressedResult
     let suppressedStructured ← requireObjVal "suppressed lean_sync result" "structuredContent" suppressedResult
-    requireFieldAbsent "suppressed lean_sync result" "diagnostics" suppressedStructured
+    let suppressedDiagnostics ←
+      requireObjVal "suppressed lean_sync result" "diagnostics" suppressedStructured
+    requireFieldAbsent "suppressed lean_sync diagnostics" "items" suppressedDiagnostics
     expectNoDiagnosticLogs "warning-only after error log level" (← notificationsRef.get)
 
     let statsResp ← handleRpcRequestWithNotifications state opts notifications "beam stats" 40
@@ -1368,14 +1452,15 @@ private def checkDiagnosticLogForwarding : IO Unit := do
       "tools/call" <| some <| toolCallParams "lean_refresh" <|
         withWorkspace root <| Json.mkObj [
           ("path", toJson "SaveSmoke/B.lean"),
-          ("include_diagnostics", toJson true)
+          ("diagnostics_in_result", toJson true)
         ]
     let refreshResult ← requireObjVal "lean_refresh response" "result" refreshResp
     requireJsonBool "lean_refresh result" "isError" false refreshResult
     let refreshStructured ← requireObjVal "lean_refresh result" "structuredContent" refreshResult
     discard <| IO.ofExcept <| refreshStructured.getObjValAs? Nat "version"
-    discard <| requireObjVal "lean_refresh structured result" "syncSummary" refreshStructured
-    discard <| requireObjVal "lean_refresh structured result" "diagnostics" refreshStructured
+    discard <| requireObjVal "lean_refresh structured result" "readiness" refreshStructured
+    let refreshDiagnostics ← requireObjVal "lean_refresh structured result" "diagnostics" refreshStructured
+    discard <| requireObjVal "lean_refresh diagnostics" "counts" refreshDiagnostics
     let refreshWorkspace ← requireObjVal "lean_refresh structured result" "workspace" refreshStructured
     requireJsonString "lean_refresh workspace" "root" expectedRoot.toString refreshWorkspace
 
@@ -1403,8 +1488,8 @@ private def checkDiagnosticLogForwarding : IO Unit := do
     let errorLog ← requireDiagnosticLog (← notificationsRef.get) "error" "error" "SaveSmoke/B.lean"
     let errorParams ← requireObjVal "error log notification" "params" errorLog
     let errorData ← requireObjVal "error log params" "data" errorParams
-    requireJsonBool "error log data" "completionBlocking" false errorData
-    requireFieldAbsent "error log data" "saveBlocking" errorData
+    requireJsonBool "error log data" "completion_blocking" false errorData
+    requireFieldAbsent "error log data" "save_blocking" errorData
   finally
     shutdownMcpRuntime state
     try

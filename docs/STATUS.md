@@ -78,10 +78,12 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   workflows, follow-up handles, save/sync operations, version/stats, and feedback report cards; the
   generated tool list and client semantics are documented in [MCP.md](MCP.md)
 - MCP progress notifications for requests that pass `_meta.progressToken`
-- MCP diagnostic log notifications for incremental Lean diagnostics during sync/save-style tools,
-  with protocol-era opt-in documented in [MCP.md](MCP.md#progress-and-diagnostic-logs)
-- MCP `lean_sync` `include_diagnostics` option for clients that need the current request diagnostics
-  replayed in the final structured result instead of collecting only interleaved log notifications
+- MCP diagnostic log notifications for incremental Lean diagnostics during `lean_sync`,
+  `lean_refresh`, `lean_save`, and `lean_close_save`, with protocol-era opt-in documented in
+  [MCP.md](MCP.md#progress-and-diagnostic-logs)
+- MCP `lean_sync` and `lean_refresh` `diagnostics_in_result` option for clients that need selected
+  current diagnostics replayed in the final structured result instead of collecting only
+  interleaved log notifications
 - bundled Lean skills for supported agent clients, plus optional Rocq skills when installed with
   `--rocq-skill`
 
@@ -132,7 +134,8 @@ apply the source edit.
 For programmatic local consumers, the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; wrapper stderr should be treated as human-facing. Broker responses
 require an explicit top-level `ok` boolean, giving projection layers an unambiguous success/error
-discriminator.
+discriminator. A successful response always includes `result`; response and stream envelopes reject
+undeclared fields, and typed save/close-save results reject incomplete or extended artifact shapes.
 
 `lean-beam-mcp` is the experimental stdio MCP entry point. User setup lives in
 [SETUP.md](SETUP.md#mcp-setup); implementation, protocol, tool-list, and conformance notes live in
@@ -196,9 +199,13 @@ discriminator.
   with the same descriptor recreates its runtime lazily.
 - `lean-beam-mcp` can execute ordinary tool calls concurrently in one process. Responses may arrive
   out of request order and are routed by exact JSON-RPC ID, with string and numeric IDs kept distinct.
-- Tool calls that include `_meta.progressToken` receive live MCP progress notifications. Updates for
-  one request remain strictly ordered before its final response, while different requests may
-  interleave; clients should use distinct tokens for concurrently active requests.
+- Tool calls that include `_meta.progressToken` receive concise live MCP progress notifications.
+  Updates for one request remain strictly ordered before its final response, while different
+  requests may interleave; clients should use distinct tokens for concurrently active requests.
+  Without a token, fast broker-backed Lean operations, feedback collection, and workspace drops stay
+  quiet; if one enters Lake setup or remains pending for two seconds, it emits at most one structured
+  `beam.status` log with the request id and a progress-token discovery hint when the active legacy or
+  per-request modern log policy admits `notice`. Other local MCP tools do not receive this watchdog.
 - MCP `notifications/cancelled` cooperatively cancels active broker work. Lazy runtime creation and
   workspace eviction remain serialized. Once admitted, `lean_drop_workspace` ignores client
   cancellation and returns its terminal result because partial eviction cannot be rolled back
@@ -207,6 +214,8 @@ discriminator.
 - MCP JSON-RPC envelopes, `tools/call` parameters, and broker operation fields are closed at their
   current protocol boundaries; undeclared or operation-irrelevant fields are rejected rather than
   ignored. MCP `_meta` remains open for protocol-defined metadata.
+- Incremental Lean diagnostics are forwarded as `lean.diagnostic` MCP log notifications. Recognized
+  Lake setup/build observations use `beam.status` or tokened progress instead.
 - The Streamable HTTP bridge is test-only; the product entry point remains stdio.
 - Exact protocol behavior and conformance notes live in [MCP.md](MCP.md).
 
@@ -268,8 +277,10 @@ Near-term work is mostly about hardening and simplifying:
 - add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
   structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result
-- keep the `sync`, `save`, and `close-save` summary projections aligned as the sync-summary schema
-  evolves
+- replace broker response and stream optional-payload products with tagged unions, and split
+  sync/refresh inputs from save inputs, so invalid protocol states cannot be constructed internally
+- keep the `sync`, `refresh`, `save`, and `close-save` projections aligned as the canonical
+  sync-result schema evolves
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in

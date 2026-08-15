@@ -148,9 +148,9 @@ private def runSyncOutcome
               pure {
                 label := clientRequestId
                 ok := true
-                saveReady? := some result.currentReadiness.saveReady
-                errorCount? := some result.currentReadiness.errorCount
-                detail := s!"ok version={result.version} saveReady={result.currentReadiness.saveReady} elapsedMs={elapsedMs}"
+                saveReady? := some result.readiness.saveReady
+                errorCount? := some result.readiness.blockingErrorCount
+                detail := s!"ok version={result.version} saveReady={result.readiness.saveReady} elapsedMs={elapsedMs}"
               }
           | .error err =>
               pure {

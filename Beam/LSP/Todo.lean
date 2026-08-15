@@ -503,6 +503,8 @@ private def collectDiagnosticItems
     (requestedRange : Lsp.Range)
     (diagnostics : Array Widget.InteractiveDiagnostic) : Array TodoItem :=
   diagnostics.foldl (init := #[]) fun items diagnostic => Id.run do
+    unless Beam.LSP.Lib.isUserVisibleDiagnostic diagnostic do
+      return items
     let plain := Widget.InteractiveDiagnostic.toDiagnostic diagnostic
     unless rangeMatchesQuery diagnostic.fullRange requestedRange do
       return items

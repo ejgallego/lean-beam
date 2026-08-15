@@ -51,21 +51,22 @@ Lean currently exposes this as ordinary information diagnostics, so Beam has to 
 temporary diagnostic envelope and Lake build-monitor line shape. Keep this narrow until Lean
 exposes typed setup/build progress.
 -/
-def isLakeSetupFileProgressDiagnostic (diagnostic : Diagnostic) : Bool :=
-  match diagnostic.severity? with
+private def isLakeSetupFileProgress
+    (severity? : Option DiagnosticSeverity)
+    (range : Range)
+    (message : String) : Bool :=
+  match severity? with
   | some .information =>
-      isFileWorkerSetupProgressRange diagnostic.range &&
-        isLakeBuildMonitorLine diagnostic.message
+      isFileWorkerSetupProgressRange range &&
+        isLakeBuildMonitorLine message
   | _ =>
       false
 
+def isLakeSetupFileProgressDiagnostic (diagnostic : Diagnostic) : Bool :=
+  isLakeSetupFileProgress diagnostic.severity? diagnostic.range diagnostic.message
+
 def isLakeSetupFileProgressStreamDiagnostic (diagnostic : StreamDiagnostic) : Bool :=
-  match diagnostic.severity? with
-  | some .information =>
-      isFileWorkerSetupProgressRange diagnostic.range &&
-        isLakeBuildMonitorLine diagnostic.message
-  | _ =>
-      false
+  isLakeSetupFileProgress diagnostic.severity? diagnostic.range diagnostic.message
 
 def effectiveSyncDiagnosticSeverity (diagnostic : Diagnostic) :
     Option DiagnosticSeverity :=
@@ -79,14 +80,10 @@ def isSyncErrorDiagnostic (diagnostic : Diagnostic) : Bool :=
   | some .error => true
   | _ => false
 
-def isSyncWarningDiagnostic (diagnostic : Diagnostic) : Bool :=
-  match effectiveSyncDiagnosticSeverity diagnostic with
-  | some .warning => true
-  | _ => false
-
-def filterSyncDiagnostics (fullDiagnostics : Bool) (diagnostics : Array Diagnostic) :
+def filterSyncDiagnostics (diagnosticScope : DiagnosticScope) (diagnostics : Array Diagnostic) :
     Array Diagnostic :=
-  if fullDiagnostics then
+  let diagnostics := Beam.LSP.Lib.userVisibleDiagnostics diagnostics
+  if diagnosticScope == .all then
     diagnostics
   else
     let completionBlocking := diagnostics.filter isIncompleteBarrierDiagnostic
@@ -121,9 +118,9 @@ def streamDiagnosticsForReply
     (root : System.FilePath)
     (uri : DocumentUri)
     (version : Nat)
-    (fullDiagnostics : Bool)
+    (diagnosticScope : DiagnosticScope)
     (diagnostics : Array Diagnostic) : Array StreamDiagnostic :=
-  (filterSyncDiagnostics fullDiagnostics diagnostics).map fun diagnostic =>
+  (filterSyncDiagnostics diagnosticScope diagnostics).map fun diagnostic =>
     streamDiagnosticOfDiagnostic root uri (some (Int.ofNat version)) diagnostic
 
 def syncErrorCount (diagnostics : Array Diagnostic) : Nat :=
@@ -133,17 +130,9 @@ def syncErrorCount (diagnostics : Array Diagnostic) : Nat :=
     else
       count
 
-def syncWarningCount (diagnostics : Array Diagnostic) : Nat :=
-  diagnostics.foldl (init := 0) fun count diagnostic =>
-    if isSyncWarningDiagnostic diagnostic then
-      count + 1
-    else
-      count
-
 structure SyncSaveReadiness where
   /-- Current backend diagnostics for reporting; `saveReady` remains the readiness authority. -/
   currentDiagnostics : Array Diagnostic := #[]
-  currentWarningCount? : Option Nat := none
   saveReady : Bool := true
   saveReadyReason : String := "ok"
   saveReadyMessage? : Option String := none
@@ -171,7 +160,6 @@ def syncSaveReadinessOfResult
     (result : Beam.LSP.Save.SaveReadinessResult) : SyncSaveReadiness :=
   {
     currentDiagnostics := result.currentDiagnostics
-    currentWarningCount? := some result.currentWarningCount
     saveReady := result.saveReady
     saveReadyReason := result.saveReadyReason
     saveReadyMessage? := result.saveReadyMessage?
@@ -253,29 +241,24 @@ def effectiveSyncBarrierProgress
     | none =>
         some <| priorProgress?.getD {}
 
-def leanSavePayload (spec : LeanSaveSpec) (version : Nat) (sourceHash : Lake.Hash) : Json :=
-  Json.mkObj <|
-    [
-      ("path", toJson spec.relPath),
-      ("module", toJson spec.moduleName.toString),
-      ("version", toJson version),
-      ("sourceHash", toJson sourceHash),
-      ("olean", toJson spec.oleanPath.toString),
-      ("ilean", toJson spec.ileanPath.toString),
-      ("c", toJson spec.cPath.toString),
-      ("trace", toJson spec.tracePath.toString)
-    ] ++
-    (match spec.oleanServerPath? with
-    | some path => [("oleanServer", toJson path.toString)]
-    | none => []) ++
-    (match spec.oleanPrivatePath? with
-    | some path => [("oleanPrivate", toJson path.toString)]
-    | none => []) ++
-    (match spec.irPath? with
-    | some path => [("ir", toJson path.toString)]
-    | none => []) ++
-    (match spec.bcPath? with
-    | some path => [("bc", toJson path.toString)]
-    | none => [])
+def leanSaveResult
+    (spec : LeanSaveSpec)
+    (version : Nat)
+    (sourceHash : Lake.Hash)
+    (sync : SyncFileResult) : SaveOleanResult := {
+  path := spec.relPath
+  module := spec.moduleName.toString
+  version
+  sourceHash := sourceHash.toString
+  olean := spec.oleanPath.toString
+  ilean := spec.ileanPath.toString
+  c := spec.cPath.toString
+  trace := spec.tracePath.toString
+  oleanServer? := spec.oleanServerPath?.map (·.toString)
+  oleanPrivate? := spec.oleanPrivatePath?.map (·.toString)
+  ir? := spec.irPath?.map (·.toString)
+  bc? := spec.bcPath?.map (·.toString)
+  sync
+}
 
 end Beam.Broker

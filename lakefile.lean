@@ -100,9 +100,9 @@ lean_exe "beam-daemon-request-stream-test" where
   srcDir := "tests/lean"
   root := `BeamTest.Broker.RequestStreamContractTestMain
 
-lean_exe "beam-sync-summary-test" where
+lean_exe "beam-sync-result-test" where
   srcDir := "tests/lean"
-  root := `BeamTest.Broker.SyncSummaryTest
+  root := `BeamTest.Broker.SyncResultTest
 
 lean_exe "beam-daemon-startup-handshake-test" where
   srcDir := "tests/lean"

@@ -182,6 +182,25 @@ structure Handle where
   raw : Json
   deriving Inhabited, FromJson, ToJson
 
+/-- Select which user-facing Lean diagnostic severities a request may display. -/
+inductive DiagnosticScope where
+  | errors
+  | all
+  deriving Inhabited, BEq, Repr
+
+def DiagnosticScope.key : DiagnosticScope → String
+  | .errors => "errors"
+  | .all => "all"
+
+instance : ToJson DiagnosticScope where
+  toJson scope := toJson scope.key
+
+instance : FromJson DiagnosticScope where
+  fromJson?
+    | .str "errors" => .ok .errors
+    | .str "all" => .ok .all
+    | json => .error s!"expected diagnostic scope 'errors' or 'all', got {json.compress}"
+
 structure Request where
   op : Op
   backend : Backend := .lean
@@ -206,8 +225,8 @@ structure Request where
   mode? : Option GoalMode := none
   compact? : Option Bool := none
   ppFormat? : Option GoalPpFormat := none
-  fullDiagnostics? : Option Bool := none
-  includeDiagnostics? : Option Bool := none
+  diagnosticScope? : Option DiagnosticScope := none
+  diagnosticsInResult? : Option Bool := none
   saveArtifacts? : Option Bool := none
   leanCmd? : Option String := none
   leanPlugin? : Option String := none
@@ -242,8 +261,8 @@ private def Op.optionalRequestFields (op : Op) : Array String :=
   | .cancel => #["cancelRequestId"]
   | .updateFile => #["root", "path"]
   | .syncFile | .refreshFile =>
-      #["root", "path", "fullDiagnostics", "includeDiagnostics"]
-  | .close => #["root", "path", "fullDiagnostics", "saveArtifacts"]
+      #["root", "path", "diagnosticScope", "diagnosticsInResult"]
+  | .close => #["root", "path", "diagnosticScope", "saveArtifacts"]
   | .runAt =>
       #["root", "path", "version", "line", "character", "text", "storeHandle"]
   | .hover | .signatureHelp | .definition =>
@@ -253,7 +272,7 @@ private def Op.optionalRequestFields (op : Op) : Array String :=
   | .documentSymbols => #["root", "path", "version"]
   | .workspaceSymbols => #["root", "query"]
   | .codeActionResolve => #["root", "path", "version", "codeAction"]
-  | .saveOlean => #["root", "path", "fullDiagnostics"]
+  | .saveOlean => #["root", "path", "diagnosticScope"]
   | .goals =>
       #[
         "root", "path", "version", "line", "character", "text", "mode", "compact",
@@ -305,8 +324,8 @@ private def Request.optionalJsonFields (req : Request) : List (String × Json) :
   optionalJsonField "mode" req.mode? ++
   optionalJsonField "compact" req.compact? ++
   optionalJsonField "ppFormat" req.ppFormat? ++
-  optionalJsonField "fullDiagnostics" req.fullDiagnostics? ++
-  optionalJsonField "includeDiagnostics" req.includeDiagnostics? ++
+  optionalJsonField "diagnosticScope" req.diagnosticScope? ++
+  optionalJsonField "diagnosticsInResult" req.diagnosticsInResult? ++
   optionalJsonField "saveArtifacts" req.saveArtifacts? ++
   optionalJsonField "leanCmd" req.leanCmd? ++
   optionalJsonField "leanPlugin" req.leanPlugin? ++
@@ -382,8 +401,8 @@ instance : FromJson Request where
     let mode? ← optionalField? (α := GoalMode) j "mode"
     let compact? ← optionalField? (α := Bool) j "compact"
     let ppFormat? ← optionalField? (α := GoalPpFormat) j "ppFormat"
-    let fullDiagnostics? ← optionalField? (α := Bool) j "fullDiagnostics"
-    let includeDiagnostics? ← optionalField? (α := Bool) j "includeDiagnostics"
+    let diagnosticScope? ← optionalField? (α := DiagnosticScope) j "diagnosticScope"
+    let diagnosticsInResult? ← optionalField? (α := Bool) j "diagnosticsInResult"
     let saveArtifacts? ← optionalField? (α := Bool) j "saveArtifacts"
     let leanCmd? ← optionalField? (α := String) j "leanCmd"
     let leanPlugin? ← optionalField? (α := String) j "leanPlugin"
@@ -394,7 +413,7 @@ instance : FromJson Request where
       op, backend, workspaceId?, workspaceMode?, clientRequestId?, cancelRequestId?,
       root?, path?, version?, line?, character?, endLine?, endCharacter?,
       text?, query?, includeDeclaration?, kinds?, suggest?, storeHandle?,
-      linear?, mode?, compact?, ppFormat?, fullDiagnostics?, includeDiagnostics?,
+      linear?, mode?, compact?, ppFormat?, diagnosticScope?, diagnosticsInResult?,
       saveArtifacts?, leanCmd?, leanPlugin?, rocqCmd?, handle?, codeAction?
     }
     request.validateFields
@@ -441,6 +460,16 @@ def displayDetails (progress : SyncFileProgress) (includeDoneTrue : Bool := true
 
 end SyncFileProgress
 
+private def requireOnlyJsonFields
+    (label : String)
+    (allowed : Array String) : Json → Except String Unit
+  | .obj fields =>
+      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
+        if allowed.contains field then unexpected else unexpected.push field
+      unless unexpected.isEmpty do
+        throw s!"{label} accepts no undeclared fields: {String.intercalate ", " unexpected.toList}"
+  | other => throw s!"{label} must be an object, got {other.compress}"
+
 structure SyncDiagnosticCounts where
   error : Nat := 0
   warning : Nat := 0
@@ -452,12 +481,17 @@ structure SyncDiagnosticCounts where
 
 instance : FromJson SyncDiagnosticCounts where
   fromJson? json := do
+    requireOnlyJsonFields "sync diagnostic counts"
+      #["error", "warning", "information", "hint", "unknown", "total"] json
     let errorCount ← json.getObjValAs? Nat "error"
     let warning ← json.getObjValAs? Nat "warning"
     let information ← json.getObjValAs? Nat "information"
     let hint ← json.getObjValAs? Nat "hint"
     let unknown ← json.getObjValAs? Nat "unknown"
     let total ← json.getObjValAs? Nat "total"
+    let severityTotal := errorCount + warning + information + hint + unknown
+    unless total == severityTotal do
+      throw s!"sync diagnostic count total {total} does not match severity sum {severityTotal}"
     pure {
       error := errorCount
       warning
@@ -477,6 +511,8 @@ structure SyncBlockingDiagnostic where
 
 instance : FromJson SyncBlockingDiagnostic where
   fromJson? json := do
+    requireOnlyJsonFields "sync blocking diagnostic"
+      #["range", "severity", "message", "saveBlocking", "completionBlocking"] json
     let range ← json.getObjValAs? Lsp.Range "range"
     let severity? ← optionalField? (α := Lsp.DiagnosticSeverity) json "severity"
     let message ← json.getObjValAs? String "message"
@@ -498,6 +534,8 @@ structure SyncBlockingCommandMessage where
 
 instance : FromJson SyncBlockingCommandMessage where
   fromJson? json := do
+    requireOnlyJsonFields "sync blocking message"
+      #["message", "saveBlocking", "completionBlocking"] json
     let message ← json.getObjValAs? String "message"
     let saveBlocking? ← optionalField? (α := Bool) json "saveBlocking"
     let completionBlocking? ← optionalField? (α := Bool) json "completionBlocking"
@@ -507,71 +545,33 @@ instance : FromJson SyncBlockingCommandMessage where
       completionBlocking := completionBlocking?.getD false
     }
 
-structure SyncDiagnosticsSummary where
-  current : SyncDiagnosticCounts := {}
-  deriving Inhabited, ToJson, BEq, Repr
-
-instance : FromJson SyncDiagnosticsSummary where
-  fromJson? json := do
-    let current ← json.getObjValAs? SyncDiagnosticCounts "current"
-    pure {
-      current
-    }
-
-structure SyncReadinessCurrent where
-  errorCount : Nat := 0
-  warningCount : Nat := 0
+structure SyncResultReadiness where
   saveReady : Bool := true
-  saveReadyReason : String := "ok"
+  reason : String := "ok"
+  /-- Number of save-blocking errors, including command messages that have no diagnostic. -/
+  blockingErrorCount : Nat := 0
   blockingDiagnostics : Array SyncBlockingDiagnostic := #[]
-  blockingCommandMessages : Array SyncBlockingCommandMessage := #[]
+  blockingMessages : Array SyncBlockingCommandMessage := #[]
   deriving Inhabited, ToJson, BEq, Repr
 
-instance : FromJson SyncReadinessCurrent where
+instance : FromJson SyncResultReadiness where
   fromJson? json := do
-    let errorCount ← json.getObjValAs? Nat "errorCount"
-    let warningCount ← json.getObjValAs? Nat "warningCount"
+    requireOnlyJsonFields "sync readiness"
+      #["saveReady", "reason", "blockingErrorCount", "blockingDiagnostics", "blockingMessages"]
+      json
     let saveReady ← json.getObjValAs? Bool "saveReady"
-    let saveReadyReason ← json.getObjValAs? String "saveReadyReason"
+    let reason ← json.getObjValAs? String "reason"
+    let blockingErrorCount ← json.getObjValAs? Nat "blockingErrorCount"
     let blockingDiagnostics ←
       json.getObjValAs? (Array SyncBlockingDiagnostic) "blockingDiagnostics"
-    let blockingCommandMessages ←
-      json.getObjValAs? (Array SyncBlockingCommandMessage) "blockingCommandMessages"
+    let blockingMessages ←
+      json.getObjValAs? (Array SyncBlockingCommandMessage) "blockingMessages"
     pure {
-      errorCount
-      warningCount
       saveReady
-      saveReadyReason
+      reason
+      blockingErrorCount
       blockingDiagnostics
-      blockingCommandMessages
-    }
-
-structure SyncReadinessSummary where
-  current : SyncReadinessCurrent := {}
-  deriving Inhabited, ToJson, BEq, Repr
-
-instance : FromJson SyncReadinessSummary where
-  fromJson? json := do
-    let current ← json.getObjValAs? SyncReadinessCurrent "current"
-    pure {
-      current
-    }
-
-structure SyncSummary where
-  currentVersion : Nat
-  diagnostics : SyncDiagnosticsSummary := {}
-  readiness : SyncReadinessSummary := {}
-  deriving Inhabited, ToJson, BEq, Repr
-
-instance : FromJson SyncSummary where
-  fromJson? json := do
-    let currentVersion ← json.getObjValAs? Nat "currentVersion"
-    let diagnostics ← json.getObjValAs? SyncDiagnosticsSummary "diagnostics"
-    let readiness ← json.getObjValAs? SyncReadinessSummary "readiness"
-    pure {
-      currentVersion
-      diagnostics
-      readiness
+      blockingMessages
     }
 
 structure StreamDiagnostic where
@@ -587,6 +587,11 @@ structure StreamDiagnostic where
 
 instance : FromJson StreamDiagnostic where
   fromJson? json := do
+    requireOnlyJsonFields "stream diagnostic"
+      #[
+        "path", "uri", "version", "severity", "range", "message", "saveBlocking",
+        "completionBlocking"
+      ] json
     let path ← json.getObjValAs? String "path"
     let uri ← json.getObjValAs? String "uri"
     let version? ← optionalField? (α := Int) json "version"
@@ -606,10 +611,31 @@ instance : FromJson StreamDiagnostic where
       completionBlocking := completionBlocking?.getD false
     }
 
+structure SyncResultDiagnostics where
+  counts : SyncDiagnosticCounts := {}
+  items? : Option (Array StreamDiagnostic) := none
+  deriving Inhabited
+
+instance : ToJson SyncResultDiagnostics where
+  toJson diagnostics :=
+    Json.mkObj <|
+      [("counts", toJson diagnostics.counts)] ++
+      match diagnostics.items? with
+      | some items => [("items", toJson items)]
+      | none => []
+
+instance : FromJson SyncResultDiagnostics where
+  fromJson? json := do
+    requireOnlyJsonFields "sync diagnostics" #["counts", "items"] json
+    let counts ← json.getObjValAs? SyncDiagnosticCounts "counts"
+    let items? ← optionalField? (α := Array StreamDiagnostic) json "items"
+    pure { counts, items? }
+
 structure SyncFileResult where
+  path : String
   version : Nat
-  syncSummary : SyncSummary
-  diagnostics? : Option (Array StreamDiagnostic) := none
+  diagnostics : SyncResultDiagnostics := {}
+  readiness : SyncResultReadiness := {}
   deriving Inhabited
 
 structure UpdateFileResult where
@@ -622,60 +648,133 @@ structure CodeActionResolveResult where
   codeAction : Lsp.CodeAction
   deriving FromJson, ToJson
 
-namespace SyncFileResult
-
-def currentReadiness (result : SyncFileResult) : SyncReadinessCurrent :=
-  result.syncSummary.readiness.current
-
-def ofSummary
-    (syncSummary : SyncSummary)
-    (diagnostics? : Option (Array StreamDiagnostic) := none) : SyncFileResult := {
-  version := syncSummary.currentVersion
-  syncSummary
-  diagnostics?
-}
-
-end SyncFileResult
-
 instance : ToJson SyncFileResult where
   toJson result :=
     Json.mkObj <|
       [
+        ("path", toJson result.path),
         ("version", toJson result.version),
-        ("syncSummary", toJson result.syncSummary)
-      ] ++
-        (match result.diagnostics? with
-        | some diagnostics => [("diagnostics", toJson diagnostics)]
-        | none => [])
-
-private def rejectedSyncFileResultFields : Array String := #[
-  "saveReady",
-  "errorCount",
-  "warningCount",
-  "saveReadyReason",
-  "blockingDiagnostics",
-  "blockingCommandMessages",
-  "stateErrorCount",
-  "stateCommandErrorCount"
-]
+        ("diagnostics", toJson result.diagnostics),
+        ("readiness", toJson result.readiness)
+      ]
 
 instance : FromJson SyncFileResult where
   fromJson? json := do
-    for field in rejectedSyncFileResultFields do
-      match json.getObjVal? field with
-      | .ok _ =>
-          throw s!"unexpected sync result field '{field}'; use syncSummary.readiness.current"
-      | .error _ => pure ()
+    requireOnlyJsonFields "sync result" #["path", "version", "diagnostics", "readiness"] json
+    let path ← json.getObjValAs? String "path"
     let version ← json.getObjValAs? Nat "version"
-    let syncSummary ← json.getObjValAs? SyncSummary "syncSummary"
-    let diagnostics? ← optionalField? (α := Array StreamDiagnostic) json "diagnostics"
-    if version != syncSummary.currentVersion then
-      throw s!"version {version} does not match syncSummary.currentVersion {syncSummary.currentVersion}"
+    let diagnostics ← json.getObjValAs? SyncResultDiagnostics "diagnostics"
+    let readiness ← json.getObjValAs? SyncResultReadiness "readiness"
     pure {
+      path
       version
-      syncSummary
-      diagnostics?
+      diagnostics
+      readiness
     }
+
+/-- Stable broker result for a successfully published Lean checkpoint. -/
+structure SaveOleanResult where
+  path : String
+  module : String
+  version : Nat
+  sourceHash : String
+  olean : String
+  ilean : String
+  c : String
+  trace : String
+  oleanServer? : Option String := none
+  oleanPrivate? : Option String := none
+  ir? : Option String := none
+  bc? : Option String := none
+  sync : SyncFileResult
+  deriving Inhabited
+
+instance : ToJson SaveOleanResult where
+  toJson result :=
+    Json.mkObj <|
+      [
+        ("path", toJson result.path),
+        ("module", toJson result.module),
+        ("version", toJson result.version),
+        ("sourceHash", toJson result.sourceHash),
+        ("olean", toJson result.olean),
+        ("ilean", toJson result.ilean),
+        ("c", toJson result.c),
+        ("trace", toJson result.trace)
+      ] ++
+      (match result.oleanServer? with
+      | some path => [("oleanServer", toJson path)]
+      | none => []) ++
+      (match result.oleanPrivate? with
+      | some path => [("oleanPrivate", toJson path)]
+      | none => []) ++
+      (match result.ir? with
+      | some path => [("ir", toJson path)]
+      | none => []) ++
+      (match result.bc? with
+      | some path => [("bc", toJson path)]
+      | none => []) ++
+      [("sync", toJson result.sync)]
+
+instance : FromJson SaveOleanResult where
+  fromJson? json := do
+    requireOnlyJsonFields "save result" #[
+      "path", "module", "version", "sourceHash", "olean", "ilean", "c", "trace",
+      "oleanServer", "oleanPrivate", "ir", "bc", "sync"
+    ] json
+    let path ← json.getObjValAs? String "path"
+    let module ← json.getObjValAs? String "module"
+    let version ← json.getObjValAs? Nat "version"
+    let sourceHash ← json.getObjValAs? String "sourceHash"
+    let olean ← json.getObjValAs? String "olean"
+    let ilean ← json.getObjValAs? String "ilean"
+    let c ← json.getObjValAs? String "c"
+    let trace ← json.getObjValAs? String "trace"
+    let oleanServer? ← optionalField? (α := String) json "oleanServer"
+    let oleanPrivate? ← optionalField? (α := String) json "oleanPrivate"
+    let ir? ← optionalField? (α := String) json "ir"
+    let bc? ← optionalField? (α := String) json "bc"
+    let sync ← json.getObjValAs? SyncFileResult "sync"
+    unless path == sync.path do
+      throw s!"save result path '{path}' does not match sync path '{sync.path}'"
+    unless version == sync.version do
+      throw s!"save result version {version} does not match sync version {sync.version}"
+    pure {
+      path
+      module
+      version
+      sourceHash
+      olean
+      ilean
+      c
+      trace
+      oleanServer?
+      oleanPrivate?
+      ir?
+      bc?
+      sync
+    }
+
+/-- Stable broker result for an artifact save followed by closing the mirrored document. -/
+structure CloseSaveResult where
+  closed : Bool
+  saved : SaveOleanResult
+  deriving Inhabited
+
+instance : ToJson CloseSaveResult where
+  toJson result := Json.mkObj [
+    ("closed", toJson result.closed),
+    ("saved", toJson result.saved)
+  ]
+
+instance : FromJson CloseSaveResult where
+  fromJson? json := do
+    requireOnlyJsonFields "close-save result" #["closed", "saved"] json
+    let closed ← json.getObjValAs? Bool "closed"
+    let saved ← json.getObjValAs? SaveOleanResult "saved"
+    unless closed do
+      throw "close-save result requires 'closed' to be true"
+    pure { closed, saved }
 
 structure Response where
   ok : Bool := true
@@ -704,6 +803,8 @@ instance : ToJson Response where
 
 instance : FromJson Response where
   fromJson? j := do
+    requireOnlyJsonFields "Beam daemon response"
+      #["ok", "result", "error", "fileProgress", "clientRequestId"] j
     let result? ← optionalField? (α := Json) j "result"
     let error? ← optionalField? (α := Error) j "error"
     let fileProgress? ← optionalField? (α := SyncFileProgress) j "fileProgress"
@@ -711,6 +812,8 @@ instance : FromJson Response where
     let ok ← j.getObjValAs? Bool "ok"
     if ok && error?.isSome then
       throw "invalid Beam daemon response: ok=true must not include 'error'"
+    if ok && result?.isNone then
+      throw "invalid Beam daemon response: ok=true must include 'result'"
     if !ok && error?.isNone then
       throw "invalid Beam daemon response: ok=false must include 'error'"
     if !ok && result?.isSome then
@@ -756,10 +859,33 @@ structure StreamMessage where
   fileProgress? : Option SyncFileProgress := none
   diagnostic? : Option StreamDiagnostic := none
   clientRequestId? : Option String := none
-  deriving Inhabited, FromJson, ToJson
+  deriving Inhabited, ToJson
+
+instance : FromJson StreamMessage where
+  fromJson? json := do
+    requireOnlyJsonFields "Beam stream message"
+      #["kind", "response", "fileProgress", "diagnostic", "clientRequestId"] json
+    let kind ← json.getObjValAs? StreamKind "kind"
+    let response? ← optionalField? (α := Response) json "response"
+    let fileProgress? ← optionalField? (α := SyncFileProgress) json "fileProgress"
+    let diagnostic? ← optionalField? (α := StreamDiagnostic) json "diagnostic"
+    let clientRequestId? ← optionalField? (α := String) json "clientRequestId"
+    match kind with
+    | .response =>
+        unless response?.isSome && fileProgress?.isNone && diagnostic?.isNone do
+          throw "Beam response stream message requires only a 'response' payload"
+        unless clientRequestId?.isNone do
+          throw "Beam response stream message carries clientRequestId only in its response payload"
+    | .fileProgress =>
+        unless response?.isNone && fileProgress?.isSome && diagnostic?.isNone do
+          throw "Beam fileProgress stream message requires only a 'fileProgress' payload"
+    | .diagnostic =>
+        unless response?.isNone && fileProgress?.isNone && diagnostic?.isSome do
+          throw "Beam diagnostic stream message requires only a 'diagnostic' payload"
+    pure { kind, response?, fileProgress?, diagnostic?, clientRequestId? }
 
 def StreamMessage.mkResponse (resp : Response) : StreamMessage :=
-  { kind := .response, response? := some resp, clientRequestId? := resp.clientRequestId? }
+  { kind := .response, response? := some resp }
 
 def StreamMessage.mkFileProgress
     (clientRequestId? : Option String)

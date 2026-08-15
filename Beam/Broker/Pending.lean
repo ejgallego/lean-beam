@@ -35,7 +35,7 @@ structure PendingRequest where
   diagnosticsRef : IO.Ref (Array Diagnostic)
   diagnosticsSeenRef : IO.Ref Bool
   emitProgress? : Option (SyncFileProgress → IO Unit) := none
-  fullDiagnostics : Bool := false
+  diagnosticScope : DiagnosticScope := .errors
   seenDiagnosticKeysRef : IO.Ref (Std.TreeSet String compare)
   emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none
 
@@ -114,7 +114,8 @@ private def normalizePublishDiagnostics (params : PublishDiagnosticsParams) :
     PublishDiagnosticsParams := {
   params with
   diagnostics :=
-    let sorted := params.diagnostics.toList.mergeSort fun d1 d2 =>
+    let diagnostics := Beam.LSP.Lib.userVisibleDiagnostics params.diagnostics
+    let sorted := diagnostics.toList.mergeSort fun d1 d2 =>
       compare d1.fullRange d2.fullRange |>.then (compare d1.message d2.message) |>.isLE
     sorted.toArray
 }
@@ -209,11 +210,11 @@ private def emitNewTrackedDiagnostics
     (root : System.FilePath)
     (seen : Std.TreeSet String compare)
     (diagnosticParam : PublishDiagnosticsParams)
-    (fullDiagnostics : Bool)
+    (diagnosticScope : DiagnosticScope)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO (Std.TreeSet String compare) := do
   let mut seen := seen
-  let diagnostics := filterSyncDiagnostics fullDiagnostics diagnosticParam.diagnostics
+  let diagnostics := filterSyncDiagnostics diagnosticScope diagnosticParam.diagnostics
   for diagnostic in diagnostics do
     let key := diagnosticStreamKey diagnostic
     if !seen.contains key then
@@ -255,7 +256,7 @@ def observePublishDiagnostics
       pending.diagnosticsRef.set diagnosticParam.diagnostics
       let seen ← pending.seenDiagnosticKeysRef.get
       let seen ←
-        emitNewTrackedDiagnostics root seen diagnosticParam pending.fullDiagnostics pending.emitDiagnostic?
+        emitNewTrackedDiagnostics root seen diagnosticParam pending.diagnosticScope pending.emitDiagnostic?
       pending.seenDiagnosticKeysRef.set seen
 
 def observeDiagnostics

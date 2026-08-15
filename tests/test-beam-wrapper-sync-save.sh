@@ -75,13 +75,13 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     exit 1
   fi
   assert_json_completed_file_progress "lean-sync after first edit" "$sync_out" fileProgress
-  if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field result.syncSummary.readiness.current.saveReady)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field result.readiness.saveReady)" != "true" ]; then
     echo "expected lean-sync after first edit to report saveReady = true" >&2
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field result.syncSummary.readiness.current.errorCount)" != "0" ]; then
-    echo "expected lean-sync after first edit to report readiness errorCount = 0" >&2
+  if [ "$(BEAM_JSON_PAYLOAD="$sync_out" read_json_text_field result.readiness.blockingErrorCount)" != "0" ]; then
+    echo "expected lean-sync after first edit to report readiness blockingErrorCount = 0" >&2
     printf '%s\n' "$sync_out" >&2
     exit 1
   fi
@@ -124,7 +124,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$save_out" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$save_out" read_json_text_field result.sync.syncSummary.readiness.current.saveReady)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$save_out" read_json_text_field result.sync.readiness.saveReady)" != "true" ]; then
     echo "expected lean-save sync verdict to report saveReady = true" >&2
     printf '%s\n' "$save_out" >&2
     exit 1
@@ -196,7 +196,7 @@ standalone_root="$(beam_wrapper_prepare_project_root standalone-save)"
     printf '%s\n' "$refresh_out" >&2
     exit 1
   fi
-  if [ "$(BEAM_JSON_PAYLOAD="$refresh_out" read_json_text_field result.syncSummary.readiness.current.saveReady)" != "true" ]; then
+  if [ "$(BEAM_JSON_PAYLOAD="$refresh_out" read_json_text_field result.readiness.saveReady)" != "true" ]; then
     echo "expected lean-refresh to report saveReady = true for an unchanged file" >&2
     printf '%s\n' "$refresh_out" >&2
     exit 1

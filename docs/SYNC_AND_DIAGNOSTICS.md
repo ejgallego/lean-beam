@@ -1,7 +1,7 @@
 # Sync And Diagnostics Contract
 
-This is the canonical contract for Beam sync, save, progress, diagnostics, and readiness reporting
-across the wrapper, broker stream, and MCP server.
+This is the canonical contract for Beam sync, refresh, save, progress, diagnostics, and readiness
+reporting across the wrapper, broker stream, and MCP server.
 
 Beam never applies source edits to `.lean` files on disk; the client applies source edits. The
 commands below read saved source into Beam's LSP mirror or write Lean/Lake build artifacts; none is
@@ -106,13 +106,15 @@ acceptance of the current server snapshot.
 
 ## Reporting Surfaces
 
-Progress, streamed diagnostics, and current summaries are separate typed concepts.
+Progress, status, streamed diagnostics, and current results are separate reporting concepts.
+Their transport types differ by surface.
 
 | Concept | Scope | Current surface |
 | --- | --- | --- |
-| Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `progress` events; CLI progress text. |
+| Progress | Request-scoped operation movement, not diagnostics and not final readiness. | MCP `notifications/progress`; Beam stream `fileProgress` events; CLI progress text. |
+| Status | Best-effort notice that a no-token MCP request is doing setup or remains pending. | MCP `notifications/message` with logger `beam.status`. |
 | Streamed diagnostics | Lean-published events observed while a request is pending. | MCP `notifications/message` with logger `lean.diagnostic`; Beam stream `diagnostic` events; CLI stderr diagnostics. |
-| Current summary | Stable synced-state verdict for one document version. | Final structured tool result and broker response fields such as `syncSummary` and `file_progress`. |
+| Current result | Stable synced-state verdict for one document version. | Final `diagnostics`, `readiness`, and `document_progress` fields. |
 
 Wrapper stderr is the human-facing surface. Machine consumers should use final stdout JSON or the
 broker JSON stream exposed by `beam-client request-stream`.
@@ -124,74 +126,108 @@ The MCP server advertises logging and forwards incremental Lean diagnostics as s
 `_meta["io.modelcontextprotocol/logLevel"]`; legacy callers set the connection-wide level with
 `logging/setLevel`. [MCP.md](MCP.md#progress-and-diagnostic-logs) defines the exact behavior for
 both protocol eras. Events include path, URI, version, range, severity, message data, and
-`completionBlocking=true` when a diagnostic is known to block file completion. They are
+`completion_blocking=true` when a diagnostic is known to block file completion. They are
 request-scoped observations; save-blocking evidence is attached to the final sync/save verdict.
 
-MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
-`include_diagnostics: true` to replay diagnostics in the final structured result. By default replay
-and streaming use an error-only diagnostic filter. Beam also forwards best-effort Lake
-`setup-file` build status lines during a pending sync or `runAt` probe, because cold Lean/Lake setup
-can otherwise look like a silent hang. `runAt` does not stream ordinary file diagnostics by default;
-from this diagnostic side channel it forwards only those setup-file status lines. For synced-file
-requests, `full_diagnostics: true` widens streamed and replayed diagnostic output to warnings,
-information, and hints.
+MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` or
+`lean_refresh` with `diagnostics_in_result: true` to replay diagnostics in the final structured
+result. By default replay and streaming use an error-only diagnostic filter. Final replay
+intentionally duplicates any matching diagnostics already consumed live. For synced-file requests,
+`diagnostic_scope: "all"` widens streamed and replayed diagnostic output to warnings, information,
+and hints.
 
-`full_diagnostics` is an output severity/detail filter, not a request for a partial diagnostic
-state. `syncSummary.diagnostics.current` still summarizes the complete current diagnostic state.
+Lean marks some editor-only messages as silent, including its decorative `Goals accomplished!`
+message. Beam removes silent diagnostics and speculative-execution messages at reception time. They
+do not appear in diagnostic streams, final diagnostic items or counts, `lean_todo`, or `runAt`
+messages. This rule is independent of `diagnostic_scope`: `"all"` means all user-facing severities,
+not Lean's private editor chatter.
+
+Lean currently publishes Lake `setup-file` build lines as information diagnostics. Beam recognizes
+these observations best-effort and, at the MCP boundary, projects them separately from ordinary
+diagnostics. Depending on the call's progress and logging metadata, MCP projects setup observations
+as `beam.status` or throttled `notifications/progress`; [MCP.md](MCP.md#display-control-matrix)
+defines the exact combinations. `runAt` does not stream ordinary file diagnostics by default.
+
+`diagnostic_scope` is an output severity filter, not a request for a partial diagnostic state.
+`diagnostics.counts` still summarizes the complete user-facing current diagnostic state.
 When a first sync on a fresh or dependency-heavy Lake workspace is slow, clients should keep a
-progress token attached and retry or continue with `full_diagnostics: true` plus
-`include_diagnostics: true` if they need the current warning/info detail in the final result.
-Successful `lake setup-file` status diagnostics are transient Lean progress diagnostics; they may
-appear only as live `notifications/message` events and usually do not appear in the final
-`include_diagnostics` replay after Lean clears setup progress.
+progress token attached. Clients that also need warning and information detail should independently
+enable diagnostic logging and/or request `diagnostic_scope: "all"` plus
+`diagnostics_in_result: true`.
+Successful `lake setup-file` status diagnostics are transient Lean observations. MCP projects them
+through live `beam.status` or tokened progress, and they usually do not appear in final
+`diagnostics_in_result` replay after Lean clears setup progress. Broker and CLI streams still carry
+Lean's temporary information-diagnostic envelope. Until Lean exposes a first-class setup/build
+status signal, the separation is an MCP projection rather than an end-to-end typed distinction.
 
 ## Progress
 
 MCP clients can pass `_meta.progressToken` on `tools/call` requests to receive
 `notifications/progress` for setup and execution phases. Beam also reports throttled Lean
-file-progress observations when Lean publishes them.
+file-progress observations when Lean publishes them. Without a token, eligible calls use a
+best-effort delayed `beam.status` notice. The operation matrix, delay, and logging-policy rules are
+defined in [MCP.md](MCP.md#display-control-matrix).
 
-`fileProgress` and MCP `file_progress` fields contain compact Lean processing-range observations.
+Broker `fileProgress` and MCP `document_progress` fields contain compact Lean processing-range observations.
 They always report `updates` and `done`; when Lean publishes range-bearing progress, they may also
-report `rangeStartLine` and/or `rangeEndLine`. `rangeEndLine` is the upper line bound reported by
+report `rangeStartLine` and/or `rangeEndLine`; MCP spells these `range_start_line` and
+`range_end_line`. The range end is the upper line bound reported by
 Lean's progress ranges, not the source file's line count; diagnostics may legitimately refer to
-lines beyond it. Use these fields for coarse UI progress only. Final machine decisions should use
-the readiness and diagnostic summary fields.
+lines beyond it. The final response contains the latest observation available when that response is
+constructed, so it may be newer than the last throttled live notification. An operation can also
+reuse a previously observed value without emitting live file progress; `updates` is not a count of
+work performed by the current request. Use these fields for coarse UI progress only. Final machine
+decisions should use the readiness and diagnostic result fields. MCP includes final
+`document_progress` only for `lean_sync`, `lean_refresh`, `lean_save`, and `lean_close_save`; it is
+not inherited by `runAt` or unrelated tools.
 
-For `sync`, `save`, and `close-save`, completed Lean file progress is one input to the
+For `sync`, `refresh`, `save`, and `close-save`, completed Lean file progress is one input to the
 diagnostics-complete barrier. For non-barrier calls, file progress may be partial because the
 request can return before the whole file reaches `done = true`.
 
 ## Readiness
 
-Successful sync responses expose the current verdict under `syncSummary`. The machine-facing
-readiness fields are:
+Successful sync responses expose one flat result for the current document version. MCP uses
+snake_case field names; broker and CLI JSON use the corresponding camelCase names. The
+machine-facing MCP readiness fields are:
 
-- `syncSummary.readiness.current.saveReady`
-- `syncSummary.readiness.current.errorCount`
-- `syncSummary.readiness.current.warningCount`
-- `syncSummary.readiness.current.blockingDiagnostics`
-- `syncSummary.readiness.current.blockingCommandMessages`
+- `readiness.save_ready`
+- `readiness.reason`
+- `readiness.blocking_error_count`
+- `readiness.blocking_diagnostics`
+- `readiness.blocking_messages`
 
-`syncSummary.diagnostics.current.*` reports Lean-published diagnostic severities. It answers "what
+`diagnostics.counts.*` reports user-facing Lean-published diagnostic severities. It answers "what
 did Lean report?", while readiness answers "can this synced version be checkpointed?". The backend
 readiness API is authoritative for `saveReady`; diagnostic severity summaries are evidence and
 counts, not a separate broker-side veto.
+
+`blocking_error_count` is intentionally not named `error_count`: it counts save-blocking evidence,
+including a blocking command message when Lean did not attach a diagnostic. It can therefore differ
+from `diagnostics.counts.error`. Warning counts are reported once, under `diagnostics.counts.warning`.
 
 Lean-side readiness applies the frontend artifact gate to the current synced snapshot: current
 save-blocking frontend errors block save. This verdict answers whether Beam may checkpoint that
 server snapshot; it is not a batch-equivalence verdict. Diagnostic streams, diagnostic summaries,
 and message history are observations; clients should not reconstruct save readiness from them.
 
-## Current Summary
+## Current Result
 
-Each `syncSummary` describes only the current synced document version. It does not carry deltas
+Each sync result describes only the current synced document version. It does not carry deltas
 against previous responses. Clients that need comparisons should retain the previous response they
 care about and compare it explicitly.
 
-- `currentVersion`: the synced document version described by the current result
-- `diagnostics.current`: current Lean-published diagnostic counts by severity and total
-- `readiness.current`: the current save-readiness verdict and blocking evidence
+- `path` and `version`: the synced document described by the result
+- `diagnostics.counts`: current user-facing diagnostic counts by severity and total
+- `diagnostics.items`, when requested: diagnostics selected by `diagnostic_scope`
+- `readiness`: the current save-readiness verdict and blocking evidence
+
+Successful broker and wrapper saves repeat the synced document's top-level `path` and `version`, add
+the checkpoint fields `module`, `sourceHash`, `olean`, `ilean`, `c`, and `trace`, and nest the
+canonical sync result under `sync`. Optional backend artifacts use `oleanServer`, `oleanPrivate`,
+`ir`, and `bc`. Close-save wraps the same save result as
+`{ "closed": true, "saved": <save-result> }`. MCP uses snake_case for the multiword artifact fields;
+see the complete [`lean_save` result example](MCP.md#stable-result-shapes).
 
 ## Failures And Recovery
 

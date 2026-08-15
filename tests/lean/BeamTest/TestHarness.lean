@@ -56,9 +56,6 @@ def initializeServer : Ipc.IpcM Unit := do
         }
       }
     }
-    lean? := some {
-      silentDiagnosticSupport? := some true
-    }
   }
   Ipc.writeRequest ⟨0, "initialize", { initializationOptions?, capabilities : InitializeParams }⟩
   let _ ← Ipc.readResponseAs 0 InitializeResult

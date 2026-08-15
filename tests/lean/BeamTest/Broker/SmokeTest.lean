@@ -149,13 +149,12 @@ private def runSyncSmoke
   let syncRes ← requireSyncFileResult "sync_file" (← expectOk syncResp)
   if syncRes.version != 1 then
     throw <| IO.userError s!"expected sync_file version 1, got {syncRes.version}"
-  let syncSummary := syncRes.syncSummary
-  if !syncSummary.readiness.current.saveReady then
+  if !syncRes.readiness.saveReady then
     throw <| IO.userError
-      s!"expected sync_file saveReady = true for clean module, got {(toJson syncSummary).compress}"
-  if syncSummary.readiness.current.errorCount != 0 then
+      s!"expected sync_file saveReady = true for clean module, got {(toJson syncRes).compress}"
+  if syncRes.readiness.blockingErrorCount != 0 then
     throw <| IO.userError
-      s!"expected sync_file readiness counts to be zero for clean module, got {(toJson syncSummary).compress}"
+      s!"expected sync_file blocking error count to be zero for clean module, got {(toJson syncRes).compress}"
   let syncTop := ← requireFileProgress "sync_file" syncResp
   expectClientRequestId "sync_file response" syncResp.clientRequestId? syncRequestId
   if !syncTop.done then
@@ -209,24 +208,23 @@ private def runErrorOnlySyncSmoke
   let errorRes ← requireSyncFileResult "error-only sync_file" (← expectOk errorResp)
   if errorRes.version != 1 then
     throw <| IO.userError s!"expected error-only sync_file version 1, got {errorRes.version}"
-  let errorSummary := errorRes.syncSummary
-  if errorSummary.readiness.current.saveReady then
+  if errorRes.readiness.saveReady then
     throw <| IO.userError
-      s!"expected error-only sync_file saveReady = false, got {(toJson errorSummary).compress}"
-  if errorSummary.readiness.current.errorCount == 0 then
+      s!"expected error-only sync_file saveReady = false, got {(toJson errorRes).compress}"
+  if errorRes.readiness.blockingErrorCount == 0 then
     throw <| IO.userError
-      s!"expected error-only sync_file readiness errorCount > 0, got {(toJson errorSummary).compress}"
-  if errorSummary.readiness.current.blockingDiagnostics.isEmpty &&
-      errorSummary.readiness.current.blockingCommandMessages.isEmpty then
+      s!"expected error-only sync_file blockingErrorCount > 0, got {(toJson errorRes).compress}"
+  if errorRes.readiness.blockingDiagnostics.isEmpty &&
+      errorRes.readiness.blockingMessages.isEmpty then
     throw <| IO.userError
-      s!"expected error-only sync_file to include save-blocking evidence, got {(toJson errorSummary).compress}"
-  unless errorSummary.readiness.current.blockingDiagnostics.all (·.saveBlocking) &&
-      errorSummary.readiness.current.blockingCommandMessages.all (·.saveBlocking) do
+      s!"expected error-only sync_file to include save-blocking evidence, got {(toJson errorRes).compress}"
+  unless errorRes.readiness.blockingDiagnostics.all (·.saveBlocking) &&
+      errorRes.readiness.blockingMessages.all (·.saveBlocking) do
     throw <| IO.userError
-      s!"expected error-only sync_file blocking evidence to be flagged saveBlocking, got {(toJson errorSummary).compress}"
-  if errorSummary.readiness.current.saveReadyReason != "documentErrors" then
+      s!"expected error-only sync_file blocking evidence to be flagged saveBlocking, got {(toJson errorRes).compress}"
+  if errorRes.readiness.reason != "documentErrors" then
     throw <| IO.userError
-      s!"expected error-only sync_file saveReadyReason = documentErrors, got {(toJson errorSummary).compress}"
+      s!"expected error-only sync_file readiness reason = documentErrors, got {(toJson errorRes).compress}"
   let some errorLast := errorProgress.back?
     | throw <| IO.userError "expected error-only sync_file to stream fileProgress events"
   if !errorLast.done then
@@ -248,33 +246,29 @@ private def runInteractiveOnlyDiagnosticSmoke
     path? := some path
   }
   let res ← requireSyncFileResult "interactive-only diagnostic sync_file" (← expectOk resp)
-  let summary := res.syncSummary
-  if summary.readiness.current.saveReady then
+  if res.readiness.saveReady then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic sync_file saveReady = false, got {(toJson summary).compress}"
-  if summary.readiness.current.errorCount == 0 then
+      s!"expected interactive-only diagnostic sync_file saveReady = false, got {(toJson res).compress}"
+  if res.readiness.blockingErrorCount == 0 then
     throw <| IO.userError
       s!"expected interactive-only diagnostic counts to report Lean errors only, got {(toJson res).compress}"
-  if summary.readiness.current.saveReadyReason != "documentErrors" then
+  if res.readiness.reason != "documentErrors" then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic saveReadyReason = documentErrors, got {(toJson summary).compress}"
-  if summary.currentVersion != res.version then
+      s!"expected interactive-only diagnostic readiness reason = documentErrors, got {(toJson res).compress}"
+  if res.diagnostics.counts.error == 0 || res.diagnostics.counts.total == 0 then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic syncSummary version to match result version, got {(toJson summary).compress}"
-  if summary.diagnostics.current.error == 0 || summary.diagnostics.current.total == 0 then
-    throw <| IO.userError
-      s!"expected interactive-only diagnostic syncSummary to count the error-severity diagnostic, got {(toJson summary).compress}"
+      s!"expected interactive-only diagnostic result to count the error-severity diagnostic, got {(toJson res).compress}"
   -- Regression for #99: current diagnostic errors must not coexist with saveReady=true.
-  if summary.diagnostics.current.error > 0 && summary.readiness.current.saveReady then
+  if res.diagnostics.counts.error > 0 && res.readiness.saveReady then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic errors to make syncSummary saveReady=false, got {(toJson summary).compress}"
-  if summary.readiness.current.errorCount == 0 then
+      s!"expected interactive-only diagnostic errors to make saveReady=false, got {(toJson res).compress}"
+  if res.readiness.blockingErrorCount == 0 then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic syncSummary readiness to be blocked, got {(toJson summary).compress}"
-  if summary.readiness.current.blockingDiagnostics.isEmpty ||
-      summary.readiness.current.blockingCommandMessages.isEmpty then
+      s!"expected interactive-only diagnostic readiness to be blocked, got {(toJson res).compress}"
+  if res.readiness.blockingDiagnostics.isEmpty ||
+      res.readiness.blockingMessages.isEmpty then
     throw <| IO.userError
-      s!"expected interactive-only diagnostic syncSummary to include Lean-side blocking evidence, got {(toJson summary).compress}"
+      s!"expected interactive-only diagnostic result to include Lean-side blocking evidence, got {(toJson res).compress}"
   let some lastProgress := progress.back?
     | throw <| IO.userError "expected interactive-only diagnostic sync_file to stream fileProgress"
   if !lastProgress.done then
@@ -317,16 +311,15 @@ private def runTodoThenSyncDiagnosticSummarySmoke
     path? := some path
   }
   let syncRes ← requireSyncFileResult "todo-warmed diagnostic sync_file" (← expectOk syncResp)
-  let summary := syncRes.syncSummary
-  if summary.readiness.current.saveReady then
+  if syncRes.readiness.saveReady then
     throw <| IO.userError
-      s!"expected todo-warmed diagnostic sync_file saveReady = false, got {(toJson summary).compress}"
-  if summary.diagnostics.current.error == 0 || summary.diagnostics.current.total == 0 then
+      s!"expected todo-warmed diagnostic sync_file saveReady = false, got {(toJson syncRes).compress}"
+  if syncRes.diagnostics.counts.error == 0 || syncRes.diagnostics.counts.total == 0 then
     throw <| IO.userError
-      s!"expected todo-warmed diagnostic syncSummary to retain current error counts, got {(toJson summary).compress}"
-  if summary.readiness.current.errorCount == 0 then
+      s!"expected todo-warmed diagnostic result to retain current error counts, got {(toJson syncRes).compress}"
+  if syncRes.readiness.blockingErrorCount == 0 then
     throw <| IO.userError
-      s!"expected todo-warmed diagnostic syncSummary readiness to stay blocked, got {(toJson summary).compress}"
+      s!"expected todo-warmed diagnostic readiness to stay blocked, got {(toJson syncRes).compress}"
   discard <| expectOk <| ← runClient endpoint {
     op := .close
     root? := some root.toString
@@ -398,23 +391,22 @@ private def runReportedOnlyDiagnosticSmoke
     path? := some path
   }
   let res ← requireSyncFileResult "reported-only diagnostic sync_file" (← expectOk resp)
-  let summary := res.syncSummary
-  if !summary.readiness.current.saveReady then
+  if !res.readiness.saveReady then
     throw <| IO.userError
-      s!"expected reported-only diagnostic sync_file saveReady = true, got {(toJson summary).compress}"
-  if summary.readiness.current.errorCount != 0 then
+      s!"expected reported-only diagnostic sync_file saveReady = true, got {(toJson res).compress}"
+  if res.readiness.blockingErrorCount != 0 then
     throw <| IO.userError
-      s!"expected reported-only diagnostic counts to be zero, got {(toJson summary).compress}"
-  if summary.readiness.current.saveReadyReason != "ok" then
+      s!"expected reported-only diagnostic blocking count to be zero, got {(toJson res).compress}"
+  if res.readiness.reason != "ok" then
     throw <| IO.userError
-      s!"expected reported-only diagnostic saveReadyReason = ok, got {(toJson summary).compress}"
-  if summary.readiness.current.errorCount != 0 || !summary.readiness.current.saveReady then
+      s!"expected reported-only diagnostic readiness reason = ok, got {(toJson res).compress}"
+  if res.readiness.blockingErrorCount != 0 || !res.readiness.saveReady then
     throw <| IO.userError
-      s!"expected reported-only diagnostic syncSummary readiness to stay clean, got {(toJson summary).compress}"
-  unless summary.readiness.current.blockingDiagnostics.isEmpty &&
-      summary.readiness.current.blockingCommandMessages.isEmpty do
+      s!"expected reported-only diagnostic readiness to stay clean, got {(toJson res).compress}"
+  unless res.readiness.blockingDiagnostics.isEmpty &&
+      res.readiness.blockingMessages.isEmpty do
     throw <| IO.userError
-      s!"expected reported-only diagnostic syncSummary to omit blocking evidence, got {(toJson summary).compress}"
+      s!"expected reported-only diagnostic result to omit blocking evidence, got {(toJson res).compress}"
   let some lastProgress := progress.back?
     | throw <| IO.userError "expected reported-only diagnostic sync_file to stream fileProgress"
   if !lastProgress.done then

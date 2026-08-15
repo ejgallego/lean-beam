@@ -23,7 +23,7 @@ import Beam.Broker.Transport
 import Beam.Broker.Lean
 import Beam.Broker.LakeSave
 import Beam.Broker.Readiness
-import Beam.Broker.SyncSummary
+import Beam.Broker.SyncResult
 import Beam.LSP.Save
 import Beam.Path
 import Std.Sync.Mutex
@@ -472,7 +472,7 @@ private def startRequestJsonTrackedDetailed
     (tracked : Option (DocumentUri × Nat) := none)
     (initialProgress? : Option SyncFileProgress := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
-    (fullDiagnostics : Bool := false)
+    (diagnosticScope : DiagnosticScope := .errors)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none)
     (cancelRef? : Option (IO.Ref Bool) := none) :
     IO (Session × IO.Promise (Except Response PendingResult)) := do
@@ -490,7 +490,7 @@ private def startRequestJsonTrackedDetailed
       diagnosticsRef := diagnosticsRef
       diagnosticsSeenRef := diagnosticsSeenRef
       emitProgress? := emitProgress?
-      fullDiagnostics := fullDiagnostics
+      diagnosticScope := diagnosticScope
       seenDiagnosticKeysRef := seenDiagnosticKeysRef
       emitDiagnostic? := emitDiagnostic?
       : PendingRequest
@@ -518,12 +518,12 @@ def sendRequestJsonTrackedDetailed
     (tracked : Option (DocumentUri × Nat) := none)
     (initialProgress? : Option SyncFileProgress := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
-    (fullDiagnostics : Bool := false)
+    (diagnosticScope : DiagnosticScope := .errors)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none) :
     IO (Except Response (Session × Json × Option SyncFileProgress × Array Diagnostic)) := do
   let (session, promise) ←
     startRequestJsonTrackedDetailed session method param clientRequestId? tracked initialProgress?
-      emitProgress? fullDiagnostics emitDiagnostic?
+      emitProgress? diagnosticScope emitDiagnostic?
   match ← PendingRequest.awaitOutcome promise with
   | .ok pending => pure <| .ok (session, pending.result, pending.progress?, pending.diagnostics)
   | .error resp => pure <| .error resp
@@ -1148,7 +1148,7 @@ private def withCurrentMatchingSession
           message := "broker backend session exited while request was in flight"
         }
 
-private def recordCompletedSyncSummary
+private def recordCompletedSync
     (server : ServerRuntime)
     (session : Session)
     (uri : DocumentUri)
@@ -1197,7 +1197,7 @@ private def startSyncedDocumentRequest
     (expectedVersion? : Option Nat := none)
     (clientRequestId? : Option String := none)
     (emitProgress? : Option (SyncFileProgress → IO Unit) := none)
-    (fullDiagnostics : Bool := false)
+    (diagnosticScope : DiagnosticScope := .errors)
     (emitDiagnostic? : Option (StreamDiagnostic → IO Unit) := none)
     (cancelRef? : Option (IO.Ref Bool) := none) :
     M (Except Response StartedSyncedRequest) := do
@@ -1219,7 +1219,7 @@ private def startSyncedDocumentRequest
       (tracked := tracked)
       (initialProgress? := docState.fileProgress?)
       (emitProgress? := emitProgress?)
-      (fullDiagnostics := fullDiagnostics)
+      (diagnosticScope := diagnosticScope)
       (emitDiagnostic? := emitDiagnostic?)
       (cancelRef? := cancelRef?)
   updateSession session
@@ -1291,7 +1291,7 @@ private def startTrackedDiagnosticsBarrierIO
         (tracked := tracked)
         (initialProgress? := docState.fileProgress?)
         (emitProgress? := emitProgress?)
-        (fullDiagnostics := req.fullDiagnostics?.getD false)
+        (diagnosticScope := req.diagnosticScope?.getD .errors)
         (emitDiagnostic? := emitDiagnostic?)
         (cancelRef? := cancelRef?)
     updateSession session
@@ -1335,18 +1335,18 @@ private structure SaveOleanCompleted where
   uri : DocumentUri
   version : Nat
   spec : LeanSaveSpec
-  payload : Json
+  result : SaveOleanResult
   fileProgress? : Option SyncFileProgress := none
 
 private def saveCompletedResponse
     (saved : SaveOleanCompleted)
     (closeAfter : Bool) : Response :=
-  let payload :=
+  let result :=
     if closeAfter then
-      Json.mkObj [("closed", toJson true), ("saved", saved.payload)]
+      toJson ({ closed := true, saved := saved.result } : CloseSaveResult)
     else
-      saved.payload
-  responseWithFileProgress (Response.success payload) saved.fileProgress?
+      toJson saved.result
+  responseWithFileProgress (Response.success result) saved.fileProgress?
 
 private def syncSaveReadinessOfBarrierResult
     (uri : DocumentUri)
@@ -1493,14 +1493,12 @@ private def saveOleanCore
     throw <| syncBarrierIncompleteResponse
       started.uri started.version targetPath barrierOutcome.hints
       barrierOutcome.completionDiagnostics barrierProgress?
-  let syncSummary :=
-    mkSyncSummary started.version currentDiagnostics saveReadiness
-  let syncVerdict :=
-    syncFileSuccessPayload syncSummary
-  recordCompletedSyncSummary server started.session started.uri started.version
   let spec ← liftBrokerFailureIO <|
     mkLeanSaveSpec started.session.root path
       { hash := started.textTraceHash, mtime := started.textMTime } leanCmd?
+  let syncResult :=
+    mkSyncFileResult spec.relPath started.version currentDiagnostics saveReadiness
+  recordCompletedSync server started.session started.uri started.version
   if let some reason := spec.unsupportedSetupReason? then
     throwBrokerFailure {
       code := .saveUnsupportedSetup
@@ -1510,7 +1508,7 @@ private def saveOleanCore
         "the language server and batch compilation. If the arguments are intentionally batch-only, " ++
         "run lake build for this module instead."
       data? :=
-        some <| (syncVerdictErrorData syncVerdict)
+        some <| (syncResultErrorData syncResult)
           |>.setObjVal! "reason" (toJson reason)
           |>.setObjVal! "path" (toJson spec.relPath)
     }
@@ -1552,7 +1550,7 @@ private def saveOleanCore
     | .error resp =>
         throw <| responseAsBrokerFailure resp fun err =>
           if err.code == "invalidParams" then
-            some (syncVerdictErrorData syncVerdict)
+            some (syncResultErrorData syncResult)
           else
             err.data?
   let saveResult : Beam.LSP.Save.SaveArtifactsResult ←
@@ -1569,8 +1567,7 @@ private def saveOleanCore
     uri := started.uri
     version := started.version
     spec
-    payload := savePayloadWithSyncVerdict
-      (leanSavePayload spec started.version started.textTraceHash) syncVerdict
+    result := leanSaveResult spec started.version started.textTraceHash syncResult
     fileProgress? := barrierProgress?
   }
 
@@ -1625,19 +1622,20 @@ private def handleSyncFileOp
     return (syncBarrierIncompleteResponse
       started.uri started.version targetPath barrierOutcome.hints
       barrierOutcome.completionDiagnostics fileProgress?, false)
-  let syncSummary :=
-    mkSyncSummary started.version currentDiagnostics saveReadiness
-  recordCompletedSyncSummary server started.session started.uri started.version
   let replyDiagnostics? :=
-    if req.includeDiagnostics?.getD false then
+    if req.diagnosticsInResult?.getD false then
       some <| streamDiagnosticsForReply started.session.root started.uri started.version
-        (req.fullDiagnostics?.getD false) currentDiagnostics
+        (req.diagnosticScope?.getD .errors) currentDiagnostics
     else
       none
+  let resultPath := trackedPathLabel started.session.root started.uri
+  let syncResult :=
+    mkSyncFileResult resultPath started.version currentDiagnostics saveReadiness replyDiagnostics?
+  recordCompletedSync server started.session started.uri started.version
   liftHandlerIO <| traceBroker
     s!"sync_file response ready clientRequestId={optionLabel req.clientRequestId?} version={started.version} saveReady={saveReadiness.saveReady}"
   pure (syncFileSuccessResponse
-    syncSummary fileProgress? replyDiagnostics?,
+    syncResult fileProgress?,
     false)
 
 private def closeTrackedFileIfOpen
