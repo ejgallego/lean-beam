@@ -158,7 +158,7 @@ try {
         arguments: {
           workspace: { root },
           path: "SdkSilentWarning.lean",
-          full_diagnostics: true,
+          diagnostic_scope: "all",
         },
       }),
       "silent warning lean_sync",
@@ -174,7 +174,7 @@ try {
         arguments: {
           workspace: { root },
           path: "SdkLoggedWarning.lean",
-          full_diagnostics: true,
+          diagnostic_scope: "all",
         },
         _meta: {
           "io.modelcontextprotocol/logLevel": "warning",

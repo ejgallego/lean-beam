@@ -80,7 +80,7 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
 - MCP progress notifications for requests that pass `_meta.progressToken`
 - MCP diagnostic log notifications for incremental Lean diagnostics during sync/save-style tools,
   with protocol-era opt-in documented in [MCP.md](MCP.md#progress-and-diagnostic-logs)
-- MCP `lean_sync` `include_diagnostics` option for clients that need the current request diagnostics
+- MCP `lean_sync` `diagnostics_in_result` option for clients that need selected current diagnostics
   replayed in the final structured result instead of collecting only interleaved log notifications
 - bundled Lean skills for supported agent clients, plus optional Rocq skills when installed with
   `--rocq-skill`
@@ -274,7 +274,7 @@ Near-term work is mostly about hardening and simplifying:
 - add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
   structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result
-- keep the `sync`, `save`, and `close-save` summary projections aligned as the sync-summary schema
+- keep the `sync`, `save`, and `close-save` projections aligned around the canonical sync-result schema
   evolves
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling

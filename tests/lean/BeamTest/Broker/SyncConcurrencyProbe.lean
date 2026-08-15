@@ -149,7 +149,7 @@ private def runSyncOutcome
                 label := clientRequestId
                 ok := true
                 saveReady? := some result.currentReadiness.saveReady
-                errorCount? := some result.currentReadiness.errorCount
+                errorCount? := some result.currentReadiness.blockingErrorCount
                 detail := s!"ok version={result.version} saveReady={result.currentReadiness.saveReady} elapsedMs={elapsedMs}"
               }
           | .error err =>

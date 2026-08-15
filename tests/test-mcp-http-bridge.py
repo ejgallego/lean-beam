@@ -19,7 +19,7 @@ from mcp_test_util import (
     MCP_MODERN_PROTOCOL_VERSION,
     fail,
     require,
-    require_file_progress_range,
+    require_document_progress_range,
     save_warning_text,
     shared_lib_name,
 )
@@ -393,7 +393,7 @@ def main():
             require(isinstance(structured, dict), f"sync missing structuredContent: {sync}")
             version = structured.get("version")
             require(isinstance(version, int), f"sync missing version: {sync}")
-            require_file_progress_range(structured, "lean_sync")
+            require_document_progress_range(structured, "lean_sync")
 
             probe = expect_result(http_json(
                 url,
@@ -431,7 +431,7 @@ def main():
                         "name": "lean_sync",
                         "arguments": {
                             "path": "SaveSmoke/B.lean",
-                            "full_diagnostics": True,
+                            "diagnostic_scope": "all",
                             "workspace": workspace,
                         },
                     },
@@ -439,15 +439,11 @@ def main():
                 timeout=args.timeout,
             ))
             warning_structured = warning_sync.get("structuredContent")
-            warning_readiness = (
-                warning_structured.get("syncSummary", {}).get("readiness", {}).get("current", {})
-                if isinstance(warning_structured, dict)
-                else {}
-            )
+            warning_readiness = warning_structured.get("readiness", {}) if isinstance(warning_structured, dict) else {}
             require(
                 isinstance(warning_structured, dict)
                 and "saveReady" not in warning_structured
-                and warning_readiness.get("saveReady") is True,
+                and warning_readiness.get("save_ready") is True,
                 f"warning-only sync should return the response after diagnostic notifications: {warning_sync}",
             )
 

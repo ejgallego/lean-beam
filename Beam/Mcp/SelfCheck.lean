@@ -229,7 +229,7 @@ def run (opts : Options) (pathText : String) : IO Unit := do
         throw <| IO.userError s!"lean_sync returned an MCP tool error: {sync.compress}"
     | _ => pure ()
     let structured ← requireObjVal "lean_sync result" "structuredContent" sync
-    discard <| requireObjVal "lean_sync structuredContent" "file_progress" structured
+    discard <| requireObjVal "lean_sync structuredContent" "document_progress" structured
   catch e =>
     terminateChild child
     throw e

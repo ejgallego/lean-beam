@@ -80,14 +80,10 @@ def isSyncErrorDiagnostic (diagnostic : Diagnostic) : Bool :=
   | some .error => true
   | _ => false
 
-def isSyncWarningDiagnostic (diagnostic : Diagnostic) : Bool :=
-  match effectiveSyncDiagnosticSeverity diagnostic with
-  | some .warning => true
-  | _ => false
-
-def filterSyncDiagnostics (fullDiagnostics : Bool) (diagnostics : Array Diagnostic) :
+def filterSyncDiagnostics (diagnosticScope : DiagnosticScope) (diagnostics : Array Diagnostic) :
     Array Diagnostic :=
-  if fullDiagnostics then
+  let diagnostics := Beam.LSP.Lib.userVisibleDiagnostics diagnostics
+  if diagnosticScope == .all then
     diagnostics
   else
     let completionBlocking := diagnostics.filter isIncompleteBarrierDiagnostic
@@ -122,9 +118,9 @@ def streamDiagnosticsForReply
     (root : System.FilePath)
     (uri : DocumentUri)
     (version : Nat)
-    (fullDiagnostics : Bool)
+    (diagnosticScope : DiagnosticScope)
     (diagnostics : Array Diagnostic) : Array StreamDiagnostic :=
-  (filterSyncDiagnostics fullDiagnostics diagnostics).map fun diagnostic =>
+  (filterSyncDiagnostics diagnosticScope diagnostics).map fun diagnostic =>
     streamDiagnosticOfDiagnostic root uri (some (Int.ofNat version)) diagnostic
 
 def syncErrorCount (diagnostics : Array Diagnostic) : Nat :=
@@ -134,17 +130,9 @@ def syncErrorCount (diagnostics : Array Diagnostic) : Nat :=
     else
       count
 
-def syncWarningCount (diagnostics : Array Diagnostic) : Nat :=
-  diagnostics.foldl (init := 0) fun count diagnostic =>
-    if isSyncWarningDiagnostic diagnostic then
-      count + 1
-    else
-      count
-
 structure SyncSaveReadiness where
   /-- Current backend diagnostics for reporting; `saveReady` remains the readiness authority. -/
   currentDiagnostics : Array Diagnostic := #[]
-  currentWarningCount? : Option Nat := none
   saveReady : Bool := true
   saveReadyReason : String := "ok"
   saveReadyMessage? : Option String := none
@@ -172,7 +160,6 @@ def syncSaveReadinessOfResult
     (result : Beam.LSP.Save.SaveReadinessResult) : SyncSaveReadiness :=
   {
     currentDiagnostics := result.currentDiagnostics
-    currentWarningCount? := some result.currentWarningCount
     saveReady := result.saveReady
     saveReadyReason := result.saveReadyReason
     saveReadyMessage? := result.saveReadyMessage?

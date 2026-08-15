@@ -488,7 +488,7 @@ def collectSaveReadiness
         Option Elab.Command.State ×
         Array Lean.Widget.InteractiveDiagnostic ×
         Array String) := do
-  let diagnostics ← collectCurrentDiagnosticsCompat(doc)
+  let diagnostics := Beam.LSP.Lib.userVisibleDiagnostics (← collectCurrentDiagnosticsCompat(doc))
   let diagnosticErrors := diagnostics.filter (fun diag => diag.severity? == some .error)
   let diagnosticWarnings := diagnostics.filter (fun diag => diag.severity? == some .warning)
   -- Mirror Lean batch/Lake's current save-blocking message gate for the snapshot tree.

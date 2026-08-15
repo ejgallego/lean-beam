@@ -18,6 +18,20 @@ diagnostics, and the compatibility split is independent of either feature.
 -/
 namespace Beam.LSP.Lib
 
+/--
+Whether a Lean diagnostic belongs on ordinary user-facing surfaces.
+
+Lean uses silent diagnostics for editor-only lifecycle and presentation data such as
+`goalsAccomplished`, internal Grind state, and documentation-example output. They are not regular
+diagnostics even when their severity is `information`.
+-/
+def isUserVisibleDiagnostic (diagnostic : Lean.Lsp.DiagnosticWith α) : Bool :=
+  diagnostic.isSilent? != some true
+
+def userVisibleDiagnostics (diagnostics : Array (Lean.Lsp.DiagnosticWith α)) :
+    Array (Lean.Lsp.DiagnosticWith α) :=
+  diagnostics.filter isUserVisibleDiagnostic
+
 private def collectCurrentDiagnosticsName : Name :=
   .str (.str (.str (.str (.str .anonymous "Lean") "Server") "FileWorker")
     "EditableDocumentCore") "collectCurrentDiagnostics"

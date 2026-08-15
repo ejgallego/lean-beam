@@ -63,23 +63,21 @@ def syncBarrierIncompleteResponse
     (syncBarrierIncompleteMessage uri version fileProgress?)
     (some <| staleSyncErrorData targetPath hints (completionBlockingDiagnostics diagnostics))
 
-def syncFileSuccessPayload
-    (syncSummary : SyncSummary)
-    (replyDiagnostics? : Option (Array StreamDiagnostic) := none) : Json :=
-  toJson <| SyncFileResult.ofSummary syncSummary replyDiagnostics?
+def syncFileSuccessPayload (result : SyncFileResult) : Json :=
+  toJson result
 
 def syncFileSuccessResponse
-    (syncSummary : SyncSummary)
+    (result : SyncFileResult)
     (fileProgress? : Option SyncFileProgress)
-    (replyDiagnostics? : Option (Array StreamDiagnostic) := none) : Response :=
+    : Response :=
   responseWithFileProgress
-    (Response.success <| syncFileSuccessPayload syncSummary replyDiagnostics?)
+    (Response.success <| syncFileSuccessPayload result)
     fileProgress?
 
-def savePayloadWithSyncVerdict (payload syncVerdict : Json) : Json :=
-  payload.setObjVal! "sync" syncVerdict
+def savePayloadWithSyncResult (payload : Json) (syncResult : SyncFileResult) : Json :=
+  payload.setObjVal! "sync" (toJson syncResult)
 
-def syncVerdictErrorData (syncVerdict : Json) : Json :=
-  Json.mkObj [("sync", syncVerdict)]
+def syncResultErrorData (syncResult : SyncFileResult) : Json :=
+  Json.mkObj [("sync", toJson syncResult)]
 
 end Beam.Broker

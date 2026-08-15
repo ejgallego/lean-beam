@@ -309,11 +309,11 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   | "lean-save" :: path :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
-      let fullDiagnostics ← parseLeanSaveArgs extra
+      let diagnosticScope ← parseLeanSaveArgs extra
       let action ← wrapperDisplayAction "lean-save"
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          (leanSaveRequest root path fullDiagnostics)
+          (leanSaveRequest root path diagnosticScope)
           (leanSaveWaitSpec path (action? := some action))
   | "lean-update" :: path :: [] =>
       let root ← projectRoot opts .lean
@@ -323,20 +323,20 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   | "lean-sync" :: path :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
-      let fullDiagnostics ← parseLeanSyncArgs extra
+      let diagnosticScope ← parseLeanSyncArgs extra
       let action ← wrapperDisplayAction "lean-sync"
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          (leanSyncRequest root path fullDiagnostics)
+          (leanSyncRequest root path diagnosticScope)
           (syncWaitSpec path action)
   | "lean-refresh" :: path :: extra => do
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
-      let fullDiagnostics ← parseLeanRefreshArgs extra
+      let diagnosticScope ← parseLeanRefreshArgs extra
       let action ← wrapperDisplayAction "lean-refresh"
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          (leanRefreshRequest root path fullDiagnostics)
+          (leanRefreshRequest root path diagnosticScope)
           (refreshWaitSpec path action)
   | "lean-close" :: path :: [] =>
       let root ← projectRoot opts .lean
@@ -346,11 +346,11 @@ def runCommand (home : System.FilePath) (opts : CliOptions) : IO Unit := do
   | "lean-close-save" :: path :: extra =>
       let root ← projectRoot opts .lean
       let daemon ← ensureProjectDaemon home root .lean opts
-      let fullDiagnostics ← parseLeanCloseSaveArgs extra
+      let diagnosticScope ← parseLeanCloseSaveArgs extra
       let action ← wrapperDisplayAction "lean-close-save"
       withWrapperLease root daemon.startedNew do
         callBrokerWithProgress root daemon.endpoint
-          (leanCloseSaveRequest root path fullDiagnostics)
+          (leanCloseSaveRequest root path diagnosticScope)
           (leanSaveWaitSpec path (closeAfter := true) (action? := some action))
   | "rocq-goals-after" :: path :: line :: character :: text =>
       let root ← projectRoot opts .rocq

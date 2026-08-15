@@ -148,29 +148,29 @@ def leanUpdateRequest (root : System.FilePath) (path : String) : Request :=
 def leanSyncRequest
     (root : System.FilePath)
     (path : String)
-    (fullDiagnostics : Bool) : Request :=
-  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toSyncBrokerRequest
+    (diagnosticScope : DiagnosticScope) : Request :=
+  ({ path, diagnosticScope? := some diagnosticScope } : Beam.Lean.SyncInput).toSyncBrokerRequest
     (rootText root)
 
 def leanRefreshRequest
     (root : System.FilePath)
     (path : String)
-    (fullDiagnostics : Bool) : Request :=
-  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toRefreshBrokerRequest
+    (diagnosticScope : DiagnosticScope) : Request :=
+  ({ path, diagnosticScope? := some diagnosticScope } : Beam.Lean.SyncInput).toRefreshBrokerRequest
     (rootText root)
 
 def leanSaveRequest
     (root : System.FilePath)
     (path : String)
-    (fullDiagnostics : Bool) : Request :=
-  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toSaveBrokerRequest
+    (diagnosticScope : DiagnosticScope) : Request :=
+  ({ path, diagnosticScope? := some diagnosticScope } : Beam.Lean.SyncInput).toSaveBrokerRequest
     (rootText root)
 
 def leanCloseSaveRequest
     (root : System.FilePath)
     (path : String)
-    (fullDiagnostics : Bool) : Request :=
-  ({ path, fullDiagnostics? := some fullDiagnostics } : Beam.Lean.SyncInput).toCloseSaveBrokerRequest
+    (diagnosticScope : DiagnosticScope) : Request :=
+  ({ path, diagnosticScope? := some diagnosticScope } : Beam.Lean.SyncInput).toCloseSaveBrokerRequest
     (rootText root)
 
 end Beam.Cli

@@ -247,7 +247,7 @@ def check : IO Unit := do
       Beam.Broker.sendRequestJsonTrackedDetailed session "textDocument/waitForDiagnostics"
         (toJson <| Lean.Lsp.WaitForDiagnosticsParams.mk uri 1)
         (tracked := some (uri, 1))
-        (fullDiagnostics := true)
+        (diagnosticScope := .all)
         (emitDiagnostic? := some fun diagnostic =>
           streamedRef.modify fun seen => seen.push diagnostic)
     let (_session, _result, _progress?, diagnostics) ←

@@ -24,7 +24,7 @@ from mcp_test_util import (
     notifications_by_method,
     progress_messages,
     require,
-    require_file_progress_range,
+    require_document_progress_range,
     save_warning_text,
     shared_lib_name,
 )
@@ -737,7 +737,7 @@ def expect_diagnostic_log(client, *, level, severity, path):
 
 
 def expect_reply_diagnostic(sync, *, severity, path):
-    diagnostics = sync.get("diagnostics")
+    diagnostics = sync.get("diagnostics", {}).get("items")
     require(isinstance(diagnostics, list) and diagnostics, f"sync reply missing diagnostics: {sync}")
     for diagnostic in diagnostics:
         if (
@@ -915,12 +915,12 @@ def require_progress_message_contains(notifications, label, *needles):
         )
 
 
-def require_file_progress_range_end(structured, label, range_end):
-    require_file_progress_range(structured, label)
-    progress = structured["file_progress"]
+def require_document_progress_range_end(structured, label, range_end):
+    require_document_progress_range(structured, label)
+    progress = structured["document_progress"]
     require(
-        progress.get("rangeEndLine") == range_end,
-        f"{label}: expected file_progress rangeEndLine={range_end}, got {progress}",
+        progress.get("range_end_line") == range_end,
+        f"{label}: expected document_progress range_end_line={range_end}, got {progress}",
     )
 
 
@@ -1093,7 +1093,8 @@ def run_iteration(client, suffix):
     client.call_tool("lean_close", {"path": "PositionEmptyLine.lean"})
     refreshed = client.call_tool("lean_refresh", {"path": "PositionEmptyLine.lean"})
     require(isinstance(refreshed.get("version"), int), f"lean_refresh did not return a version: {refreshed}")
-    require("syncSummary" in refreshed, f"lean_refresh did not return syncSummary: {refreshed}")
+    require("diagnostics" in refreshed, f"lean_refresh did not return diagnostic counts: {refreshed}")
+    require("readiness" in refreshed, f"lean_refresh did not return readiness: {refreshed}")
     client.call_tool("lean_close", {"path": "PositionEmptyLine.lean"})
     client.call_tool("lean_close", {"path": "GoalSmoke.lean"})
 
@@ -1398,15 +1399,20 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             write_save_warning_file(project_root, "-- mcp stdio diagnostic log")
             sync = client.call_tool(
                 "lean_sync",
-                {"path": "SaveSmoke/B.lean", "full_diagnostics": True, "include_diagnostics": True},
+                {
+                    "path": "SaveSmoke/B.lean",
+                    "diagnostic_scope": "all",
+                    "diagnostics_in_result": True,
+                },
             )
             require("saveReady" not in sync, f"warning-only sync should omit top-level saveReady: {sync}")
             require("warningCount" not in sync, f"warning-only sync should omit top-level warningCount: {sync}")
-            readiness = sync.get("syncSummary", {}).get("readiness", {}).get("current", {})
-            require(readiness.get("saveReady") is True, f"warning-only sync should be save-ready: {sync}")
+            readiness = sync.get("readiness", {})
+            counts = sync.get("diagnostics", {}).get("counts", {})
+            require(readiness.get("save_ready") is True, f"warning-only sync should be save-ready: {sync}")
             require(
-                readiness.get("warningCount", 0) >= 1,
-                f"warning-only sync summary should report readiness warnings: {sync}",
+                counts.get("warning", 0) >= 1,
+                f"warning-only sync should report diagnostic warning counts: {sync}",
             )
             expect_reply_diagnostic(sync, severity="warning", path="SaveSmoke/B.lean")
             expect_diagnostic_log(client, level="warning", severity="warning", path="SaveSmoke/B.lean")
@@ -1414,12 +1420,17 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
             expect_result(client.request("logging/setLevel", {"level": "error"}))
             client.notifications.clear()
             write_save_warning_file(project_root, "-- mcp stdio warning suppressed")
-            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "full_diagnostics": True})
+            sync = client.call_tool(
+                "lean_sync", {"path": "SaveSmoke/B.lean", "diagnostic_scope": "all"}
+            )
             require("saveReady" not in sync, f"suppressed warning sync should omit top-level saveReady: {sync}")
-            readiness = sync.get("syncSummary", {}).get("readiness", {}).get("current", {})
-            require(readiness.get("saveReady") is True, f"suppressed warning sync should be save-ready: {sync}")
+            readiness = sync.get("readiness", {})
+            require(readiness.get("save_ready") is True, f"suppressed warning sync should be save-ready: {sync}")
             require("warningCount" not in sync, f"suppressed warning sync should omit top-level warningCount: {sync}")
-            require("diagnostics" not in sync, f"sync reply should omit diagnostics without include_diagnostics: {sync}")
+            require(
+                "items" not in sync.get("diagnostics", {}),
+                f"sync reply should omit diagnostic items without diagnostics_in_result: {sync}",
+            )
             require(
                 diagnostic_log_notifications(client) == [],
                 f"warning-only sync should not log diagnostics at error level: {client.notifications}",
@@ -1427,22 +1438,26 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
 
             client.notifications.clear()
             (project_root / "SaveSmoke" / "B.lean").write_text('def bVal : Nat := "broken"\n', encoding="utf-8")
-            sync = client.call_tool("lean_sync", {"path": "SaveSmoke/B.lean", "include_diagnostics": True})
+            sync = client.call_tool(
+                "lean_sync", {"path": "SaveSmoke/B.lean", "diagnostics_in_result": True}
+            )
             require("saveReady" not in sync, f"broken sync should omit top-level saveReady: {sync}")
             require("errorCount" not in sync, f"broken sync should omit top-level errorCount: {sync}")
             require("warningCount" not in sync, f"broken sync should omit top-level warningCount: {sync}")
-            summary = sync.get("syncSummary", {})
-            current = summary.get("diagnostics", {}).get("current", {})
-            readiness = summary.get("readiness", {}).get("current", {})
-            require(current.get("error", 0) >= 1, f"broken sync summary should count errors: {sync}")
-            require(readiness.get("saveReady") is False, f"broken sync summary should not be save-ready: {sync}")
+            current = sync.get("diagnostics", {}).get("counts", {})
+            readiness = sync.get("readiness", {})
+            require(current.get("error", 0) >= 1, f"broken sync should count errors: {sync}")
+            require(readiness.get("save_ready") is False, f"broken sync should not be save-ready: {sync}")
             require(
-                readiness.get("errorCount", 0) >= 1,
-                f"broken sync summary should report readiness errors: {sync}",
+                readiness.get("blocking_error_count", 0) >= 1,
+                f"broken sync should report save-blocking errors: {sync}",
             )
             expect_reply_diagnostic(sync, severity="error", path="SaveSmoke/B.lean")
             require(
-                all(diagnostic.get("severity") == "error" for diagnostic in sync.get("diagnostics", [])),
+                all(
+                    diagnostic.get("severity") == "error"
+                    for diagnostic in sync.get("diagnostics", {}).get("items", [])
+                ),
                 f"default replayed diagnostics should be error-only: {sync}",
             )
             expect_diagnostic_log(client, level="error", severity="error", path="SaveSmoke/B.lean")
@@ -1457,7 +1472,7 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
                     "tools/call",
                     {
                         "name": "lean_sync",
-                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                        "arguments": {"path": "SaveSmoke/B.lean", "diagnostic_scope": "all"},
                     },
                 )
             )
@@ -1477,7 +1492,7 @@ def run_diagnostic_logging(repo_root, fixture_root, timeout):
                     "tools/call",
                     {
                         "name": "lean_sync",
-                        "arguments": {"path": "SaveSmoke/B.lean", "full_diagnostics": True},
+                        "arguments": {"path": "SaveSmoke/B.lean", "diagnostic_scope": "all"},
                     },
                     log_level="warning",
                 )
@@ -1635,7 +1650,7 @@ def run_progress_notification_smoke(repo_root, fixture_root, timeout, server_tra
                 "client_request_id" not in structured,
                 f"lean_sync leaked its internal broker request id: {structured}",
             )
-            require_file_progress_range_end(structured, "lean_sync progress", 1)
+            require_document_progress_range_end(structured, "lean_sync progress", 1)
             token_notifications = [
                 notification
                 for notification in notifications_by_method(

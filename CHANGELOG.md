@@ -28,6 +28,18 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Changed
 
+- Long-running Lean operations now separate liveness status, request progress, and diagnostics.
+  Sync-style requests use the discoverable `diagnostic_scope: "errors" | "all"` and
+  `diagnostics_in_result` controls; the obsolete boolean diagnostic arguments and CLI `+full` flag
+  have been removed, with `+all-diagnostics` as the explicit wrapper spelling.
+- Sync results now report one canonical path/version with `diagnostics.counts`, optional
+  `diagnostics.items`, and readiness whose `blockingErrorCount` is explicitly distinct from raw
+  diagnostic counts. Save and close-save embed that same result. MCP exposes snake_case equivalents
+  and reserves final `document_progress` for sync/refresh/save/close-save rather than attaching file
+  progress to unrelated results such as `lean_run_at`.
+- Silent Lean editor messages, including decorative `Goals accomplished!` output, are filtered at
+  reception and no longer enter Beam diagnostic streams, result counts/items, todo output, or
+  speculative execution messages.
 - Feedback report-card entry points are now named `lean-beam feedback-report` and MCP
   `beam_feedback_report`; their help and tool descriptions state that Beam returns reports to callers
   and does not upload or submit them

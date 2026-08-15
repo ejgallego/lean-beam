@@ -38,31 +38,31 @@ def progress_messages(notifications):
     ]
 
 
-def require_file_progress_range(structured, label):
-    progress = structured.get("file_progress")
-    require(isinstance(progress, dict), f"{label}: missing file_progress metadata: {structured}")
+def require_document_progress_range(structured, label):
+    progress = structured.get("document_progress")
+    require(isinstance(progress, dict), f"{label}: missing document_progress metadata: {structured}")
     updates = progress.get("updates")
     require(
         type(updates) is int and updates >= 0,
-        f"{label}: invalid file_progress updates: {progress}",
+        f"{label}: invalid document_progress updates: {progress}",
     )
     done = progress.get("done")
-    require(type(done) is bool, f"{label}: invalid file_progress done: {progress}")
-    require("line" not in progress, f"{label}: file_progress should not expose line: {progress}")
-    require("totalLines" not in progress, f"{label}: file_progress should not expose totalLines: {progress}")
-    range_end = progress.get("rangeEndLine")
+    require(type(done) is bool, f"{label}: invalid document_progress done: {progress}")
+    require("line" not in progress, f"{label}: document_progress should not expose line: {progress}")
+    require("totalLines" not in progress, f"{label}: document_progress should not expose totalLines: {progress}")
+    range_end = progress.get("range_end_line")
     if range_end is not None:
         require(
             type(range_end) is int and range_end >= 1,
-            f"{label}: invalid file_progress rangeEndLine: {progress}",
+            f"{label}: invalid document_progress range_end_line: {progress}",
         )
-    range_start = progress.get("rangeStartLine")
+    range_start = progress.get("range_start_line")
     if range_start is not None:
         require(
             type(range_start) is int
             and range_start >= 1
             and (range_end is None or range_start <= range_end),
-            f"{label}: invalid file_progress rangeStartLine: {progress}",
+            f"{label}: invalid document_progress range_start_line: {progress}",
         )
 
 

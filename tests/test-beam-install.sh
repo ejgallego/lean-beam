@@ -1440,32 +1440,32 @@ result = sync.get("result")
 if not isinstance(result, dict) or result.get("isError") is True:
     raise RuntimeError(f"expected lean_sync to succeed through installed MCP wrapper: {sync}")
 structured = result.get("structuredContent")
-if not isinstance(structured, dict) or not isinstance(structured.get("file_progress"), dict):
-    raise RuntimeError(f"lean_sync result missing structured file_progress: {sync}")
-progress = structured["file_progress"]
+if not isinstance(structured, dict) or not isinstance(structured.get("document_progress"), dict):
+    raise RuntimeError(f"lean_sync result missing structured document_progress: {sync}")
+progress = structured["document_progress"]
 updates = progress.get("updates")
 if not isinstance(updates, int) or isinstance(updates, bool) or updates < 0:
-    raise RuntimeError(f"lean_sync result has invalid file_progress updates: {progress}")
+    raise RuntimeError(f"lean_sync result has invalid document_progress updates: {progress}")
 done = progress.get("done")
 if not isinstance(done, bool):
-    raise RuntimeError(f"lean_sync result has invalid file_progress done: {progress}")
+    raise RuntimeError(f"lean_sync result has invalid document_progress done: {progress}")
 if "line" in progress:
-    raise RuntimeError(f"lean_sync result should not expose file_progress line: {progress}")
+    raise RuntimeError(f"lean_sync result should not expose document_progress line: {progress}")
 if "totalLines" in progress:
-    raise RuntimeError(f"lean_sync result should not expose file_progress totalLines: {progress}")
-range_end = progress.get("rangeEndLine")
+    raise RuntimeError(f"lean_sync result should not expose document_progress totalLines: {progress}")
+range_end = progress.get("range_end_line")
 if range_end is not None and (
     not isinstance(range_end, int) or isinstance(range_end, bool) or range_end < 1
 ):
-    raise RuntimeError(f"lean_sync result has invalid file_progress rangeEndLine: {progress}")
-range_start = progress.get("rangeStartLine")
+    raise RuntimeError(f"lean_sync result has invalid document_progress range_end_line: {progress}")
+range_start = progress.get("range_start_line")
 if range_start is not None and (
     not isinstance(range_start, int)
     or isinstance(range_start, bool)
     or range_start < 1
     or (range_end is not None and range_start > range_end)
 ):
-    raise RuntimeError(f"lean_sync result has invalid file_progress rangeStartLine: {progress}")
+    raise RuntimeError(f"lean_sync result has invalid document_progress range_start_line: {progress}")
 
 proc.stdin.close()
 try:

@@ -408,11 +408,11 @@ Diagnostic defaults on that path:
 
 - `lean-beam sync`, `lean-beam refresh`, `lean-beam save`, and `lean-beam close-save` always stream fresh diagnostics for the current request
 - by default they stream only errors
-- add `+full` to widen the current request to warnings, info, and hints
+- add `+all-diagnostics` to widen the current request to warnings, info, and hints
 - the final JSON reports the current synced-state verdict rather than replaying streamed
   diagnostics
-- use `result.syncSummary.readiness.current.saveReady` for save/checkpoint decisions; use
-  `errorCount` and blocking evidence to explain blocked verdicts
+- use `result.readiness.saveReady` for save/checkpoint decisions; use `blockingErrorCount` and
+  blocking evidence to explain blocked verdicts
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
   `error.data.completionBlockingDiagnostics`
@@ -435,9 +435,9 @@ Surface rule:
   Beam keeps fast broker-backed Lean operations, feedback collection, and workspace drops quiet and
   emits at most one `beam.status` notice when Lake setup is detected or the call remains pending for
   two seconds, provided the request's logging policy admits notice-level events
-- MCP `full_diagnostics` widens diagnostic severity and `include_diagnostics` replays diagnostics in
-  the final sync result; neither setting controls progress, and requested replay may intentionally
-  duplicate matching diagnostics already consumed live
+- MCP `diagnostic_scope: "all"` widens diagnostic severity and `diagnostics_in_result: true` replays
+  selected diagnostics in the final sync result; neither setting controls progress, and requested
+  replay may intentionally duplicate matching diagnostics already consumed live
 - the operation-by-operation MCP display matrix, including log-level interactions and tools without
   an automatic no-token status, lives in [../../docs/MCP.md](../../docs/MCP.md#display-control-matrix)
 

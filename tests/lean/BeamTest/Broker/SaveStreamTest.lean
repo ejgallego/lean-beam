@@ -35,10 +35,9 @@ private def expectSyncVerdict
   if sync.version != expectedVersion then
     throw <| IO.userError
       s!"expected {label} sync.version = {expectedVersion}, got {(toJson sync).compress}"
-  let summary := sync.syncSummary
-  if summary.readiness.current.saveReady != expectedSaveReady then
+  if sync.readiness.saveReady != expectedSaveReady then
     throw <| IO.userError
-      s!"expected {label} sync.syncSummary readiness saveReady = {expectedSaveReady}, got {(toJson summary).compress}"
+      s!"expected {label} sync.readiness.saveReady = {expectedSaveReady}, got {(toJson sync).compress}"
   pure sync
 
 private def expectErrorSyncVerdict
@@ -49,10 +48,9 @@ private def expectErrorSyncVerdict
     | throw <| IO.userError s!"expected {label} error.data.sync"
   let syncJson ← IO.ofExcept <| data.getObjVal? "sync"
   let sync ← requireSyncFileResult label syncJson
-  let summary := sync.syncSummary
-  if summary.readiness.current.saveReady != expectedSaveReady then
+  if sync.readiness.saveReady != expectedSaveReady then
     throw <| IO.userError
-      s!"expected {label} syncSummary readiness saveReady = {expectedSaveReady}, got {(toJson summary).compress}"
+      s!"expected {label} sync.readiness.saveReady = {expectedSaveReady}, got {(toJson sync).compress}"
   pure sync
 
 def main : IO Unit := do
@@ -76,10 +74,9 @@ def main : IO Unit := do
     if defaultVersion != 1 then
       throw <| IO.userError s!"expected default save_olean version 1, got {defaultVersion}"
     let defaultSyncVerdict ← expectSyncVerdict "default save_olean" defaultPayload defaultVersion true
-    let defaultSummary := defaultSyncVerdict.syncSummary
-    if defaultSummary.readiness.current.errorCount != 0 then
+    if defaultSyncVerdict.readiness.blockingErrorCount != 0 then
       throw <| IO.userError
-        s!"expected default save_olean sync verdict to be clean, got {(toJson defaultSummary).compress}"
+        s!"expected default save_olean sync verdict to be clean, got {(toJson defaultSyncVerdict).compress}"
     let defaultTop := ← requireFileProgress "default save_olean" defaultResp
     if !defaultTop.done then
       throw <| IO.userError s!"expected default save_olean top-level fileProgress.done = true, got {(toJson defaultTop).compress}"
@@ -91,11 +88,11 @@ def main : IO Unit := do
       throw <| IO.userError s!"expected default save_olean to suppress warning diagnostics, got {(toJson defaultDiagnostics).compress}"
 
     writeSaveWarningFile root "-- full warning-only save"
-    let (fullResp, fullProgress, fullDiagnostics) ← runClientWithStream endpoint {
+    let (fullResp, fullProgress, streamedDiagnostics) ← runClientWithStream endpoint {
       op := .saveOlean
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
-      fullDiagnostics? := some true
+      diagnosticScope? := some .all
     }
     let fullPayload ← expectOk fullResp
     expectNoReplayDiagnosticsField "full save_olean" fullPayload
@@ -103,9 +100,8 @@ def main : IO Unit := do
     if fullVersion != 2 then
       throw <| IO.userError s!"expected full save_olean version 2 after a fresh edit, got {fullVersion}"
     let fullSyncVerdict ← expectSyncVerdict "full save_olean" fullPayload fullVersion true
-    let fullSummary := fullSyncVerdict.syncSummary
-    if fullSummary.readiness.current.errorCount != 0 ||
-        fullSummary.readiness.current.warningCount == 0 then
+    if fullSyncVerdict.readiness.blockingErrorCount != 0 ||
+        fullSyncVerdict.diagnostics.counts.warning == 0 then
       throw <| IO.userError
         s!"expected full save_olean sync verdict to preserve warning-only verdict, got {(toJson fullSyncVerdict).compress}"
     let fullTop := ← requireFileProgress "full save_olean" fullResp
@@ -115,16 +111,16 @@ def main : IO Unit := do
       | throw <| IO.userError "expected full save_olean to stream fileProgress events"
     if !fullLast.done then
       throw <| IO.userError s!"expected full save_olean streamed progress to finish, got {(toJson fullLast).compress}"
-    if fullDiagnostics.isEmpty then
+    if streamedDiagnostics.isEmpty then
       throw <| IO.userError "expected full save_olean to stream diagnostics"
-    expectNonErrorDiagnosticsForPath "full save_olean" "SaveSmoke/B.lean" fullDiagnostics
-    expectWarningDiagnosticPresent "full save_olean" fullDiagnostics
+    expectNonErrorDiagnosticsForPath "full save_olean" "SaveSmoke/B.lean" streamedDiagnostics
+    expectWarningDiagnosticPresent "full save_olean" streamedDiagnostics
 
     let (repeatResp, repeatProgress, repeatDiagnostics) ← runClientWithStream endpoint {
       op := .saveOlean
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
-      fullDiagnostics? := some true
+      diagnosticScope? := some .all
     }
     let repeatPayload ← expectOk repeatResp
     expectNoReplayDiagnosticsField "unchanged full save_olean" repeatPayload
@@ -153,7 +149,7 @@ def main : IO Unit := do
       op := .saveOlean
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
-      fullDiagnostics? := some true
+      diagnosticScope? := some .all
     }
     expectErrCode errorResp "invalidParams"
     let some error := errorResp.error?
@@ -165,18 +161,17 @@ def main : IO Unit := do
       throw <| IO.userError
         s!"expected save_olean error to include command-message details, got {error.message}"
     let errorSyncVerdict ← expectErrorSyncVerdict "save_olean document error" error false
-    let errorSummary := errorSyncVerdict.syncSummary
-    if errorSummary.readiness.current.errorCount == 0 then
+    if errorSyncVerdict.readiness.blockingErrorCount == 0 then
       throw <| IO.userError
-        s!"expected save_olean error sync verdict to describe document errors, got {(toJson errorSummary).compress}"
-    if errorSummary.readiness.current.blockingDiagnostics.isEmpty &&
-        errorSummary.readiness.current.blockingCommandMessages.isEmpty then
+        s!"expected save_olean error sync verdict to describe document errors, got {(toJson errorSyncVerdict).compress}"
+    if errorSyncVerdict.readiness.blockingDiagnostics.isEmpty &&
+        errorSyncVerdict.readiness.blockingMessages.isEmpty then
       throw <| IO.userError
-        s!"expected save_olean error sync verdict to include save-blocking evidence, got {(toJson errorSummary).compress}"
-    unless errorSummary.readiness.current.blockingDiagnostics.all (·.saveBlocking) &&
-        errorSummary.readiness.current.blockingCommandMessages.all (·.saveBlocking) do
+        s!"expected save_olean error sync verdict to include save-blocking evidence, got {(toJson errorSyncVerdict).compress}"
+    unless errorSyncVerdict.readiness.blockingDiagnostics.all (·.saveBlocking) &&
+        errorSyncVerdict.readiness.blockingMessages.all (·.saveBlocking) do
       throw <| IO.userError
-        s!"expected save_olean error sync verdict blocking evidence to be flagged saveBlocking, got {(toJson errorSummary).compress}"
+        s!"expected save_olean error sync verdict blocking evidence to be flagged saveBlocking, got {(toJson errorSyncVerdict).compress}"
     unless errorDiagnostics.any (fun diagnostic =>
       diagnostic.path == "SaveSmoke/B.lean" && diagnostic.severity? == some .error) do
       throw <| IO.userError
@@ -188,7 +183,7 @@ def main : IO Unit := do
       root? := some root.toString
       path? := some "SaveSmoke/B.lean"
       saveArtifacts? := some true
-      fullDiagnostics? := some true
+      diagnosticScope? := some .all
     }
     let closePayload ← expectOk closeResp
     expectNoReplayDiagnosticsField "full close-save" closePayload
@@ -200,9 +195,8 @@ def main : IO Unit := do
     if closeVersion != 4 then
       throw <| IO.userError s!"expected close-save saved version 4 after a fresh edit, got {closeVersion}"
     let closeSyncVerdict ← expectSyncVerdict "full close-save" savedPayload closeVersion true
-    let closeSummary := closeSyncVerdict.syncSummary
-    if closeSummary.readiness.current.errorCount != 0 ||
-        closeSummary.readiness.current.warningCount == 0 then
+    if closeSyncVerdict.readiness.blockingErrorCount != 0 ||
+        closeSyncVerdict.diagnostics.counts.warning == 0 then
       throw <| IO.userError
         s!"expected full close-save sync verdict to preserve warning-only verdict, got {(toJson closeSyncVerdict).compress}"
     let closeTop := ← requireFileProgress "full close-save" closeResp

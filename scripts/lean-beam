@@ -26,11 +26,11 @@ usage:
   lean-beam [--root PATH] [--port N] run-with-linear <path> <handle-json|-|--handle-file <path>> [--stdin | --text-file <path> | -- <text...> | <text...>]
   lean-beam [--root PATH] [--port N] release <path> <handle-json|-|--handle-file <path>>
   lean-beam [--root PATH] [--port N] update <path>
-  lean-beam [--root PATH] [--port N] sync <path> [+full]
-  lean-beam [--root PATH] [--port N] refresh <path> [+full]
-  lean-beam [--root PATH] [--port N] save <path> [+full]
+  lean-beam [--root PATH] [--port N] sync <path> [+all-diagnostics]
+  lean-beam [--root PATH] [--port N] refresh <path> [+all-diagnostics]
+  lean-beam [--root PATH] [--port N] save <path> [+all-diagnostics]
   lean-beam [--root PATH] [--port N] close <path>
-  lean-beam [--root PATH] [--port N] close-save <path> [+full]
+  lean-beam [--root PATH] [--port N] close-save <path> [+all-diagnostics]
   lean-beam [--root PATH] [--port N] rocq-goals-after <path> <line> <character> [text...]
   lean-beam [--root PATH] [--port N] rocq-goals-prev <path> <line> <character> [text...]
   lean-beam [--root PATH] feedback-report --stdin|--input <path> [--bundle none|dir|zip] [--output-dir <path>] [--no-redact]

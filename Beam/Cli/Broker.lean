@@ -205,10 +205,10 @@ private def syncReadinessSuffix (result : SyncFileResult) : String :=
   if readiness.saveReady then
     ""
   else
-    let errorCount := readiness.errorCount
-    let reason := readiness.saveReadyReason
+    let errorCount := readiness.blockingErrorCount
+    let reason := readiness.reason
     s!", saveReady=false ({reason}, " ++
-      s!"errorCount={errorCount})"
+      s!"blockingErrorCount={errorCount})"
 
 private def syncLikeCompleteMsg (completeLabel path : String) (resp : Response) : String :=
   match decodeSyncFileResult? resp with

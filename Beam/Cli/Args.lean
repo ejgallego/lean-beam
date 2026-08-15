@@ -111,29 +111,29 @@ def parseHandleInput (cmdHead : String) (args : List String) : IO (Handle × Lis
   | arg :: rest =>
       pure ((← parseHandleArg arg), rest)
 
-def parseLeanSyncArgs (args : List String) : IO Bool := do
+def parseLeanSyncArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
   match args with
-  | [] => pure false
-  | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-sync <path> [+full]"
+  | [] => pure .errors
+  | ["+all-diagnostics"] => pure .all
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-sync <path> [+all-diagnostics]"
 
-def parseLeanRefreshArgs (args : List String) : IO Bool := do
+def parseLeanRefreshArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
   match args with
-  | [] => pure false
-  | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-refresh <path> [+full]"
+  | [] => pure .errors
+  | ["+all-diagnostics"] => pure .all
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-refresh <path> [+all-diagnostics]"
 
-def parseLeanSaveArgs (args : List String) : IO Bool := do
+def parseLeanSaveArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
   match args with
-  | [] => pure false
-  | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-save <path> [+full]"
+  | [] => pure .errors
+  | ["+all-diagnostics"] => pure .all
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-save <path> [+all-diagnostics]"
 
-def parseLeanCloseSaveArgs (args : List String) : IO Bool := do
+def parseLeanCloseSaveArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
   match args with
-  | [] => pure false
-  | ["+full"] => pure true
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-close-save <path> [+full]"
+  | [] => pure .errors
+  | ["+all-diagnostics"] => pure .all
+  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-close-save <path> [+all-diagnostics]"
 
 def leanReferencesUsage : String :=
   "usage: beam [--root PATH] [--port N] lean-references <path> <version> <line> <character> [--include-declaration|--exclude-declaration]"

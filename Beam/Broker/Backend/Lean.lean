@@ -50,7 +50,6 @@ def initializeParams (root : System.FilePath) : Json :=
           completionItem? := some { insertReplaceSupport? := true }
         }
       }
-      lean? := some { silentDiagnosticSupport? := some true }
     }
     : InitializeParams
   })

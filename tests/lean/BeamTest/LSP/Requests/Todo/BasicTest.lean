@@ -30,6 +30,10 @@ def checkTodoRequest : ScenarioM Unit := do
     suggest? := some .basic
   }
   let allTodos : Beam.LSP.Todo.TodoResult ← awaitResponseAs allReq
+  if allTodos.items.any (fun item =>
+      item.message?.any (fun message => message.contains "Goals accomplished")) then
+    throw <| IO.userError
+      s!"todo all leaked a silent lifecycle diagnostic: {(toJson allTodos).compress}"
   let sorryItem ← requireTodoKind "todo all" .sorry allTodos
   if countTodoKind .sorry allTodos != 1 then
     throw <| IO.userError s!"todo all: expected one actionable sorry, got {(toJson allTodos).compress}"
