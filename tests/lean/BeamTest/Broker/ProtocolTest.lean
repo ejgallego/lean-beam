@@ -25,31 +25,11 @@ private def decodeResponse (label : String) (json : Json) : IO Response := do
   | .ok resp => pure resp
   | .error err => throw <| IO.userError s!"{label}: failed to decode response: {err}"
 
-private def expectDecodeFailure (label : String) (json : Json) : IO Unit := do
-  match fromJson? (α := Response) json with
-  | .ok resp =>
-      throw <| IO.userError s!"{label}: expected decode failure, got {(toJson resp).compress}"
-  | .error _ =>
-      pure ()
-
-private def expectStreamDecodeFailure (label : String) (json : Json) : IO Unit := do
-  match fromJson? (α := StreamMessage) json with
-  | .ok stream =>
-      throw <| IO.userError s!"{label}: expected stream decode failure, got {(toJson stream).compress}"
-  | .error _ => pure ()
-
-private def expectSyncFileResultDecodeFailure (label : String) (json : Json) : IO Unit := do
-  match fromJson? (α := SyncFileResult) json with
-  | .ok result =>
-      throw <| IO.userError s!"{label}: expected decode failure, got {(toJson result).compress}"
-  | .error _ =>
-      pure ()
-
-private def expectTypedDecodeFailure (α : Type) [FromJson α]
+private def expectDecodeFailure (α : Type) [FromJson α] [ToJson α]
     (label : String) (json : Json) : IO Unit := do
   match fromJson? (α := α) json with
-  | .ok _ =>
-      throw <| IO.userError s!"{label}: expected decode failure for {json.compress}"
+  | .ok value =>
+      throw <| IO.userError s!"{label}: expected decode failure, got {(toJson value).compress}"
   | .error _ =>
       pure ()
 
@@ -180,23 +160,23 @@ private def checkStreamMessageDecode : IO Unit := do
 
   let responseJson := toJson response
   let progressJson := toJson progress
-  expectStreamDecodeFailure "response stream missing payload" <|
+  expectDecodeFailure StreamMessage "response stream missing payload" <|
     Json.mkObj [("kind", toJson "response")]
-  expectStreamDecodeFailure "progress stream with response payload" <|
+  expectDecodeFailure StreamMessage "progress stream with response payload" <|
     Json.mkObj [("kind", toJson "fileProgress"), ("response", responseJson)]
-  expectStreamDecodeFailure "response stream with two payloads" <|
+  expectDecodeFailure StreamMessage "response stream with two payloads" <|
     Json.mkObj [
       ("kind", toJson "response"),
       ("response", responseJson),
       ("fileProgress", progressJson)
     ]
-  expectStreamDecodeFailure "response stream with redundant outer request id" <|
+  expectDecodeFailure StreamMessage "response stream with redundant outer request id" <|
     Json.mkObj [
       ("kind", toJson "response"),
       ("response", toJson correlatedResponse),
       ("clientRequestId", toJson "req-response")
     ]
-  expectStreamDecodeFailure "stream with undeclared field" <|
+  expectDecodeFailure StreamMessage "stream with undeclared field" <|
     Json.mkObj [
       ("kind", toJson "fileProgress"),
       ("fileProgress", progressJson),
@@ -218,28 +198,28 @@ private def checkResponseJsonDecode : IO Unit := do
   if error.ok then
     throw <| IO.userError s!"error: expected ok=false, got {(toJson error).compress}"
 
-  expectDecodeFailure "missing ok success" <| Json.mkObj [
+  expectDecodeFailure Response "missing ok success" <| Json.mkObj [
     ("result", Json.mkObj [("value", toJson (1 : Nat))])
   ]
-  expectDecodeFailure "missing ok error" <| Json.mkObj [
+  expectDecodeFailure Response "missing ok error" <| Json.mkObj [
     ("error", toJson ({ code := "invalidParams", message := "bad request" } : Error))
   ]
-  expectDecodeFailure "error with result" <| Json.mkObj [
+  expectDecodeFailure Response "error with result" <| Json.mkObj [
     ("ok", toJson false),
     ("result", Json.null),
     ("error", toJson ({ code := "invalidParams", message := "bad request" } : Error))
   ]
-  expectDecodeFailure "ok with error" <| Json.mkObj [
+  expectDecodeFailure Response "ok with error" <| Json.mkObj [
     ("ok", toJson true),
     ("error", toJson ({ code := "invalidParams", message := "bad request" } : Error))
   ]
-  expectDecodeFailure "ok=false without error" <| Json.mkObj [
+  expectDecodeFailure Response "ok=false without error" <| Json.mkObj [
     ("ok", toJson false)
   ]
-  expectDecodeFailure "ok=true without result" <| Json.mkObj [
+  expectDecodeFailure Response "ok=true without result" <| Json.mkObj [
     ("ok", toJson true)
   ]
-  expectDecodeFailure "response with undeclared field" <| Json.mkObj [
+  expectDecodeFailure Response "response with undeclared field" <| Json.mkObj [
     ("ok", toJson true),
     ("result", Json.mkObj []),
     ("extra", toJson true)
@@ -275,13 +255,13 @@ private def checkSaveResultJsonDecode : IO Unit := do
     match toJson saveResult with
     | .obj fields => Json.obj <| fields.erase "olean"
     | other => other
-  expectTypedDecodeFailure SaveOleanResult "save result missing required artifact" missingOlean
+  expectDecodeFailure SaveOleanResult "save result missing required artifact" missingOlean
 
   let malformedNestedSave := Json.mkObj [
     ("closed", toJson true),
     ("saved", (toJson saveResult).setObjVal! "extra" (toJson true))
   ]
-  expectTypedDecodeFailure CloseSaveResult
+  expectDecodeFailure CloseSaveResult
     "close-save result with malformed nested save" malformedNestedSave
 
 private def checkOrderedJsonPretty : IO Unit := do
@@ -349,7 +329,7 @@ private def checkSyncFileResultDecode : IO Unit := do
     "stateErrorCount",
     "stateCommandErrorCount"
   ] do
-    expectSyncFileResultDecodeFailure s!"sync result removed top-level field {field}" <|
+    expectDecodeFailure SyncFileResult s!"sync result removed top-level field {field}" <|
       valid.setObjVal! field Json.null
   let incompleteReadiness := Json.mkObj [
     ("reason", toJson "ok"),
@@ -357,7 +337,7 @@ private def checkSyncFileResultDecode : IO Unit := do
     ("blockingDiagnostics", toJson (#[] : Array SyncBlockingDiagnostic)),
     ("blockingMessages", toJson (#[] : Array SyncBlockingCommandMessage))
   ]
-  expectSyncFileResultDecodeFailure "sync result missing saveReady" <|
+  expectDecodeFailure SyncFileResult "sync result missing saveReady" <|
     syncFileResultJson 7 incompleteReadiness
 
 private def checkBrokerFailureResponse : IO Unit := do

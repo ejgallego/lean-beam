@@ -29,9 +29,10 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 ### Changed
 
 - Long-running Lean operations now separate liveness status, request progress, and diagnostics.
-  Sync-style requests use the discoverable `diagnostic_scope: "errors" | "all"` and
-  `diagnostics_in_result` controls; the obsolete boolean diagnostic arguments and CLI `+full` flag
-  have been removed, with `+all-diagnostics` as the explicit wrapper spelling.
+  Sync and refresh use the discoverable `diagnostic_scope: "errors" | "all"` and
+  `diagnostics_in_result` controls, while save and close-save use `diagnostic_scope`; the obsolete
+  boolean diagnostic arguments and CLI `+full` flag have been removed, with `+all-diagnostics` as
+  the explicit wrapper spelling.
 - Sync results now report one canonical path/version with `diagnostics.counts`, optional
   `diagnostics.items`, and readiness whose `blockingErrorCount` is explicitly distinct from raw
   diagnostic counts. Save and close-save embed that same result. MCP exposes snake_case equivalents

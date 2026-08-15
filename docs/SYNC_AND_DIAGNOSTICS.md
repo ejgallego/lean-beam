@@ -222,9 +222,10 @@ care about and compare it explicitly.
 - `diagnostics.items`, when requested: diagnostics selected by `diagnostic_scope`
 - `readiness`: the current save-readiness verdict and blocking evidence
 
-Successful broker and wrapper saves add the checkpoint fields `module`, `sourceHash`, `olean`,
-`ilean`, `c`, and `trace`; optional backend artifacts use `oleanServer`, `oleanPrivate`, `ir`, and
-`bc`. Their canonical sync result is nested under `sync`. Close-save wraps the same save result as
+Successful broker and wrapper saves repeat the synced document's top-level `path` and `version`, add
+the checkpoint fields `module`, `sourceHash`, `olean`, `ilean`, `c`, and `trace`, and nest the
+canonical sync result under `sync`. Optional backend artifacts use `oleanServer`, `oleanPrivate`,
+`ir`, and `bc`. Close-save wraps the same save result as
 `{ "closed": true, "saved": <save-result> }`. MCP uses snake_case for the multiword artifact fields;
 see the complete [`lean_save` result example](MCP.md#stable-result-shapes).
 
