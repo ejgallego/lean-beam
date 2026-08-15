@@ -641,6 +641,10 @@ private def checkSyncAndSaveNormalization : IO Unit := do
     ("module", toJson "Demo"),
     ("version", toJson (7 : Nat)),
     ("sourceHash", toJson "abc"),
+    ("olean", toJson "/tmp/Demo.olean"),
+    ("ilean", toJson "/tmp/Demo.ilean"),
+    ("c", toJson "/tmp/Demo.c"),
+    ("trace", toJson "/tmp/Demo.olean.trace"),
     ("oleanServer", toJson "/tmp/Demo.olean.server"),
     ("sync", toJson sampleSyncResult)
   ]
@@ -668,6 +672,21 @@ private def checkSyncAndSaveNormalization : IO Unit := do
   requireJsonBool "close-save result" "closed" true normalizedCloseSave
   let saved ← requireObjVal "close-save result" "saved" normalizedCloseSave
   discard <| requireObjVal "close-save saved result" "sync" saved
+
+  discard <| expectToolError "save result with undeclared field" "invalidResult" <|
+    Beam.Mcp.normalizeBrokerResponse .leanSave {
+      ok := true
+      result? := some <| rawSave.setObjVal! "extra" (toJson true)
+    }
+  discard <| expectToolError "close-save result with undeclared field" "invalidResult" <|
+    Beam.Mcp.normalizeBrokerResponse .leanCloseSave {
+      ok := true
+      result? := some <| Json.mkObj [
+        ("closed", toJson true),
+        ("saved", rawSave),
+        ("extra", toJson true)
+      ]
+    }
 
 private def checkTransportErrorNormalization : IO Unit := do
   let err ← expectToolError "normalize transport error" "invalidParams" <|
@@ -746,6 +765,9 @@ private def checkCodeActionResolveNormalization : IO Unit := do
   requireFieldAbsent "code_action_resolve result" "codeAction" normalized
 
 private def checkInvalidEnvelopeRejection : IO Unit := do
+  discard <| expectToolError "missing success result" "invalidEnvelope" <|
+    Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := true }
+
   discard <| expectToolError "missing error envelope" "invalidEnvelope" <|
     Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := false }
 

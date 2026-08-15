@@ -645,13 +645,6 @@ structure CodeActionResolveResult where
   codeAction : Lsp.CodeAction
   deriving FromJson, ToJson
 
-namespace SyncFileResult
-
-def currentReadiness (result : SyncFileResult) : SyncResultReadiness :=
-  result.readiness
-
-end SyncFileResult
-
 instance : ToJson SyncFileResult where
   toJson result :=
     Json.mkObj <|
@@ -675,6 +668,104 @@ instance : FromJson SyncFileResult where
       diagnostics
       readiness
     }
+
+/-- Stable broker result for a successfully published Lean checkpoint. -/
+structure SaveOleanResult where
+  path : String
+  module : String
+  version : Nat
+  sourceHash : String
+  olean : String
+  ilean : String
+  c : String
+  trace : String
+  oleanServer? : Option String := none
+  oleanPrivate? : Option String := none
+  ir? : Option String := none
+  bc? : Option String := none
+  sync : SyncFileResult
+  deriving Inhabited
+
+instance : ToJson SaveOleanResult where
+  toJson result :=
+    Json.mkObj <|
+      [
+        ("path", toJson result.path),
+        ("module", toJson result.module),
+        ("version", toJson result.version),
+        ("sourceHash", toJson result.sourceHash),
+        ("olean", toJson result.olean),
+        ("ilean", toJson result.ilean),
+        ("c", toJson result.c),
+        ("trace", toJson result.trace)
+      ] ++
+      (match result.oleanServer? with
+      | some path => [("oleanServer", toJson path)]
+      | none => []) ++
+      (match result.oleanPrivate? with
+      | some path => [("oleanPrivate", toJson path)]
+      | none => []) ++
+      (match result.ir? with
+      | some path => [("ir", toJson path)]
+      | none => []) ++
+      (match result.bc? with
+      | some path => [("bc", toJson path)]
+      | none => []) ++
+      [("sync", toJson result.sync)]
+
+instance : FromJson SaveOleanResult where
+  fromJson? json := do
+    requireOnlyJsonFields "save result" #[
+      "path", "module", "version", "sourceHash", "olean", "ilean", "c", "trace",
+      "oleanServer", "oleanPrivate", "ir", "bc", "sync"
+    ] json
+    let path ← json.getObjValAs? String "path"
+    let module ← json.getObjValAs? String "module"
+    let version ← json.getObjValAs? Nat "version"
+    let sourceHash ← json.getObjValAs? String "sourceHash"
+    let olean ← json.getObjValAs? String "olean"
+    let ilean ← json.getObjValAs? String "ilean"
+    let c ← json.getObjValAs? String "c"
+    let trace ← json.getObjValAs? String "trace"
+    let oleanServer? ← optionalField? (α := String) json "oleanServer"
+    let oleanPrivate? ← optionalField? (α := String) json "oleanPrivate"
+    let ir? ← optionalField? (α := String) json "ir"
+    let bc? ← optionalField? (α := String) json "bc"
+    let sync ← json.getObjValAs? SyncFileResult "sync"
+    pure {
+      path
+      module
+      version
+      sourceHash
+      olean
+      ilean
+      c
+      trace
+      oleanServer?
+      oleanPrivate?
+      ir?
+      bc?
+      sync
+    }
+
+/-- Stable broker result for an artifact save followed by closing the mirrored document. -/
+structure CloseSaveResult where
+  closed : Bool
+  saved : SaveOleanResult
+  deriving Inhabited
+
+instance : ToJson CloseSaveResult where
+  toJson result := Json.mkObj [
+    ("closed", toJson result.closed),
+    ("saved", toJson result.saved)
+  ]
+
+instance : FromJson CloseSaveResult where
+  fromJson? json := do
+    requireOnlyJsonFields "close-save result" #["closed", "saved"] json
+    let closed ← json.getObjValAs? Bool "closed"
+    let saved ← json.getObjValAs? SaveOleanResult "saved"
+    pure { closed, saved }
 
 structure Response where
   ok : Bool := true
@@ -703,6 +794,8 @@ instance : ToJson Response where
 
 instance : FromJson Response where
   fromJson? j := do
+    requireOnlyJsonFields "Beam daemon response"
+      #["ok", "result", "error", "fileProgress", "clientRequestId"] j
     let result? ← optionalField? (α := Json) j "result"
     let error? ← optionalField? (α := Error) j "error"
     let fileProgress? ← optionalField? (α := SyncFileProgress) j "fileProgress"
@@ -710,6 +803,8 @@ instance : FromJson Response where
     let ok ← j.getObjValAs? Bool "ok"
     if ok && error?.isSome then
       throw "invalid Beam daemon response: ok=true must not include 'error'"
+    if ok && result?.isNone then
+      throw "invalid Beam daemon response: ok=true must include 'result'"
     if !ok && error?.isNone then
       throw "invalid Beam daemon response: ok=false must include 'error'"
     if !ok && result?.isSome then
@@ -757,18 +852,10 @@ structure StreamMessage where
   clientRequestId? : Option String := none
   deriving Inhabited, ToJson
 
-private def requireStreamMessageJsonFields : Json → Except String Unit
-  | .obj fields =>
-      let allowed := #["kind", "response", "fileProgress", "diagnostic", "clientRequestId"]
-      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
-        if allowed.contains field then unexpected else unexpected.push field
-      unless unexpected.isEmpty do
-        throw s!"Beam stream message accepts no undeclared fields: {String.intercalate ", " unexpected.toList}"
-  | other => throw s!"Beam stream message must be an object, got {other.compress}"
-
 instance : FromJson StreamMessage where
   fromJson? json := do
-    requireStreamMessageJsonFields json
+    requireOnlyJsonFields "Beam stream message"
+      #["kind", "response", "fileProgress", "diagnostic", "clientRequestId"] json
     let kind ← json.getObjValAs? StreamKind "kind"
     let response? ← optionalField? (α := Response) json "response"
     let fileProgress? ← optionalField? (α := SyncFileProgress) json "fileProgress"

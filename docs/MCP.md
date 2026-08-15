@@ -349,9 +349,43 @@ The `structuredContent` for a clean `lean_sync` has this semantic shape (counts 
 }
 ```
 
-`lean_save` returns artifact paths plus `sync` containing that same path/version/diagnostics/readiness
-object. `lean_close_save` returns `{ "closed": true, "saved": <save-result> }`. A `lean_run_at`
-result is deliberately smaller and never gains final document progress:
+`lean_save` returns artifact paths plus `sync` containing that same
+path/version/diagnostics/readiness object. Optional backend artifacts (`olean_server`,
+`olean_private`, `ir`, and `bc`) appear only when Lean produced them:
+
+```json
+{
+  "workspace": {"root": "/work/demo"},
+  "path": "Main.lean",
+  "module": "Main",
+  "version": 3,
+  "source_hash": "9a9bdc9950870951",
+  "olean": "/work/demo/.lake/build/lib/lean/Main.olean",
+  "ilean": "/work/demo/.lake/build/lib/lean/Main.ilean",
+  "c": "/work/demo/.lake/build/ir/Main.c",
+  "trace": "/work/demo/.lake/build/lib/lean/Main.olean.trace",
+  "sync": {
+    "path": "Main.lean",
+    "version": 3,
+    "diagnostics": {
+      "counts": {"error": 0, "warning": 0, "information": 0, "hint": 0, "unknown": 0, "total": 0}
+    },
+    "readiness": {
+      "save_ready": true,
+      "reason": "ok",
+      "blocking_error_count": 0,
+      "blocking_diagnostics": [],
+      "blocking_messages": []
+    }
+  },
+  "document_progress": {"updates": 12, "done": true, "range_end_line": 80}
+}
+```
+
+`lean_close_save` returns `{ "closed": true, "saved": <save-result> }`. Save and close-save
+answers are closed typed shapes rather than passthrough broker JSON; unexpected artifact fields are
+rejected before an MCP reply is constructed. A `lean_run_at` result is deliberately smaller and
+never gains final document progress:
 
 ```json
 {

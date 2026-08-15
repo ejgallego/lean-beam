@@ -241,29 +241,24 @@ def effectiveSyncBarrierProgress
     | none =>
         some <| priorProgress?.getD {}
 
-def leanSavePayload (spec : LeanSaveSpec) (version : Nat) (sourceHash : Lake.Hash) : Json :=
-  Json.mkObj <|
-    [
-      ("path", toJson spec.relPath),
-      ("module", toJson spec.moduleName.toString),
-      ("version", toJson version),
-      ("sourceHash", toJson sourceHash),
-      ("olean", toJson spec.oleanPath.toString),
-      ("ilean", toJson spec.ileanPath.toString),
-      ("c", toJson spec.cPath.toString),
-      ("trace", toJson spec.tracePath.toString)
-    ] ++
-    (match spec.oleanServerPath? with
-    | some path => [("oleanServer", toJson path.toString)]
-    | none => []) ++
-    (match spec.oleanPrivatePath? with
-    | some path => [("oleanPrivate", toJson path.toString)]
-    | none => []) ++
-    (match spec.irPath? with
-    | some path => [("ir", toJson path.toString)]
-    | none => []) ++
-    (match spec.bcPath? with
-    | some path => [("bc", toJson path.toString)]
-    | none => [])
+def leanSaveResult
+    (spec : LeanSaveSpec)
+    (version : Nat)
+    (sourceHash : Lake.Hash)
+    (sync : SyncFileResult) : SaveOleanResult := {
+  path := spec.relPath
+  module := spec.moduleName.toString
+  version
+  sourceHash := sourceHash.toString
+  olean := spec.oleanPath.toString
+  ilean := spec.ileanPath.toString
+  c := spec.cPath.toString
+  trace := spec.tracePath.toString
+  oleanServer? := spec.oleanServerPath?.map (·.toString)
+  oleanPrivate? := spec.oleanPrivatePath?.map (·.toString)
+  ir? := spec.irPath?.map (·.toString)
+  bc? := spec.bcPath?.map (·.toString)
+  sync
+}
 
 end Beam.Broker

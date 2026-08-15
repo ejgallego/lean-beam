@@ -201,7 +201,7 @@ private def awaitBrokerResponseWithInterrupts
   awaitBrokerResponse task endpoint req visibleClientRequestId? spec interruptWatcher? showProgress
 
 private def syncReadinessSuffix (result : SyncFileResult) : String :=
-  let readiness := result.currentReadiness
+  let readiness := result.readiness
   if readiness.saveReady then
     ""
   else

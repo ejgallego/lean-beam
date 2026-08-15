@@ -74,9 +74,6 @@ def syncFileSuccessResponse
     (Response.success <| syncFileSuccessPayload result)
     fileProgress?
 
-def savePayloadWithSyncResult (payload : Json) (syncResult : SyncFileResult) : Json :=
-  payload.setObjVal! "sync" (toJson syncResult)
-
 def syncResultErrorData (syncResult : SyncFileResult) : Json :=
   Json.mkObj [("sync", toJson syncResult)]
 

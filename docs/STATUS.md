@@ -132,7 +132,8 @@ apply the source edit.
 For programmatic local consumers, the preferred machine-readable surface is the JSON stream exposed
 by `beam-client request-stream`; wrapper stderr should be treated as human-facing. Broker responses
 require an explicit top-level `ok` boolean, giving projection layers an unambiguous success/error
-discriminator.
+discriminator. A successful response always includes `result`; response and stream envelopes reject
+undeclared fields, and typed save/close-save results reject incomplete or extended artifact shapes.
 
 `lean-beam-mcp` is the experimental stdio MCP entry point. User setup lives in
 [SETUP.md](SETUP.md#mcp-setup); implementation, protocol, tool-list, and conformance notes live in

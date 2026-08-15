@@ -1335,18 +1335,18 @@ private structure SaveOleanCompleted where
   uri : DocumentUri
   version : Nat
   spec : LeanSaveSpec
-  payload : Json
+  result : SaveOleanResult
   fileProgress? : Option SyncFileProgress := none
 
 private def saveCompletedResponse
     (saved : SaveOleanCompleted)
     (closeAfter : Bool) : Response :=
-  let payload :=
+  let result :=
     if closeAfter then
-      Json.mkObj [("closed", toJson true), ("saved", saved.payload)]
+      toJson ({ closed := true, saved := saved.result } : CloseSaveResult)
     else
-      saved.payload
-  responseWithFileProgress (Response.success payload) saved.fileProgress?
+      toJson saved.result
+  responseWithFileProgress (Response.success result) saved.fileProgress?
 
 private def syncSaveReadinessOfBarrierResult
     (uri : DocumentUri)
@@ -1567,8 +1567,7 @@ private def saveOleanCore
     uri := started.uri
     version := started.version
     spec
-    payload := savePayloadWithSyncResult
-      (leanSavePayload spec started.version started.textTraceHash) syncResult
+    result := leanSaveResult spec started.version started.textTraceHash syncResult
     fileProgress? := barrierProgress?
   }
 

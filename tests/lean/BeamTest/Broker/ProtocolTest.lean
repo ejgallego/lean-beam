@@ -228,6 +228,14 @@ private def checkResponseJsonDecode : IO Unit := do
   expectDecodeFailure "ok=false without error" <| Json.mkObj [
     ("ok", toJson false)
   ]
+  expectDecodeFailure "ok=true without result" <| Json.mkObj [
+    ("ok", toJson true)
+  ]
+  expectDecodeFailure "response with undeclared field" <| Json.mkObj [
+    ("ok", toJson true),
+    ("result", Json.mkObj []),
+    ("extra", toJson true)
+  ]
 
 private def checkOrderedJsonPretty : IO Unit := do
   let resp : Response := {
@@ -426,7 +434,7 @@ private def checkReadinessBoundary : IO Unit := do
   let successSyncResult ← expectOk "readiness success payload decode" <|
     fromJson? (α := SyncFileResult) successResult
   require "readiness success payload nested saveReady"
-    (!successSyncResult.currentReadiness.saveReady)
+    (!successSyncResult.readiness.saveReady)
   require "readiness success payload distinguishes blocking evidence from diagnostic counts"
     (successSyncResult.readiness.blockingErrorCount == 1 &&
       successSyncResult.diagnostics.counts.error == 0)
@@ -465,7 +473,7 @@ private def checkReadinessBoundary : IO Unit := do
   let interactiveOnlySyncResult ← expectOk "readiness interactive-only payload decode" <|
     fromJson? (α := SyncFileResult) interactiveOnlyResult
   require "readiness interactive-only payload nested saveReady"
-    interactiveOnlySyncResult.currentReadiness.saveReady
+    interactiveOnlySyncResult.readiness.saveReady
 
 private def checkStaleDirectDepHints : IO Unit := do
   let directImports := #["SaveSmoke.B"]

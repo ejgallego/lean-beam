@@ -561,6 +561,24 @@ class McpClient:
         if self.proc.stdin and not self.proc.stdin.closed:
             self.proc.stdin.close()
 
+    def wait_for_exit_after_eof(self, timeout):
+        try:
+            return self.proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            stderr_tail = "\n".join(self.stderr_lines)
+            fail(
+                f"timed out waiting {timeout:.1f}s for lean-beam-mcp to exit after EOF\n"
+                f"MCP client context:\n{self._client_context()}\n"
+                f"pending MCP requests:\n{self._pending_requests_summary()}\n"
+                f"recent completed MCP requests:\n{self._completed_requests_summary()}\n"
+                f"recent notifications:\n{self._notifications_summary()}\n"
+                f"MCP event timeline ({self._last_notification_summary()}):\n"
+                f"{self._event_timeline_summary()}\n"
+                f"CI timeout tracker:\n{CI_TIMEOUT_TRACKER_NOTE}\n"
+                f"lean-beam-mcp stderr tail:\n{stderr_tail or '  <empty>'}\n"
+                f"process snapshot:\n{self._process_snapshot()}"
+            )
+
     def response_ready(self, request_id):
         with self.state_changed:
             return request_id_key(request_id) in self.responses
@@ -1287,7 +1305,7 @@ def run_modern_protocol_smoke(repo_root, fixture_root, timeout):
             expect_error_code(client.modern_request("ping"), -32601)
             require(not client.server_requests, f"modern server emitted JSON-RPC requests: {client.server_requests}")
             client.close_input()
-            returncode = client.proc.wait(timeout=timeout)
+            returncode = client.wait_for_exit_after_eof(timeout)
             require(returncode == 0, f"modern server exited with code {returncode} after EOF")
         finally:
             client.close()
@@ -2207,8 +2225,7 @@ def run_concurrent_dispatch(repo_root, fixture_root, timeout, server_trace=False
             run_modern_status_case("modern-warning-run-at", "warning", expect_notice=False)
 
             modern_client.close_input()
-            shutdown_timeout = min(timeout, 5.0)
-            returncode = modern_client.proc.wait(timeout=shutdown_timeout)
+            returncode = modern_client.wait_for_exit_after_eof(timeout)
             require(returncode == 0, f"modern status server exited with code {returncode} after EOF")
         finally:
             if not release_path.exists():
@@ -3107,7 +3124,7 @@ def run_legacy_eof_teardown(repo_root, fixture_root, timeout):
         try:
             client.initialize()
             client.close_input()
-            returncode = client.proc.wait(timeout=timeout)
+            returncode = client.wait_for_exit_after_eof(timeout)
             require(returncode == 0, f"legacy server exited with code {returncode} after EOF")
         finally:
             client.close()
