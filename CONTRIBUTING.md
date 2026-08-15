@@ -102,6 +102,11 @@ Before opening or editing a PR, run:
 scripts/pr-message.sh
 ```
 
+Run it after committing the branch so its default title comes from the proposed change. The script
+refuses to derive a title from a dirty checkout, a branch with no commits beyond the base, or a
+commit subject that already ends in a pull-request number. When intentionally preparing metadata
+before the commit exists, pass explicit `--title` and `--summary` values.
+
 Use the emitted title/body scaffold as the public PR metadata. Do not hand-roll the PR body from
 local status notes or validation transcripts.
 
