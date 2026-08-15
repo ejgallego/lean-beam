@@ -113,7 +113,11 @@ def leanOperationToBrokerRequest
     (root : String)
     (workspaceId : Beam.Workspace.WorkspaceId)
     (input : Json) : Except String Beam.Broker.Request := do
-  let req ← operation.toBrokerRequest root input
+  let operationInput ←
+    match input with
+    | .obj fields => pure <| Json.obj (fields.erase "workspace")
+    | other => throw s!"Lean operation input must be an object, got {other.compress}"
+  let req ← operation.toBrokerRequest root operationInput
   pure { req with workspaceId? := some workspaceId }
 
 def beamVersionDescription : String :=
@@ -266,22 +270,8 @@ def toolDescriptors : Array ToolDescriptor :=
   toolNames.map ToolName.descriptor
 
 /-- Reject fields outside the closed schema advertised for one MCP tool. -/
-def ToolName.validateInputFields (tool : ToolName) (input : Json) : Except String Unit := do
-  let properties ← tool.descriptor.inputSchema.getObjVal? "properties"
-  match properties with
-  | .obj _ => pure ()
-  | other => throw s!"{tool.key} input schema properties must be an object, got {other.compress}"
-  match input with
-  | .obj fields =>
-      let unexpected := fields.foldl (init := #[]) fun unexpected field _ =>
-        if (properties.getObjVal? field).isOk then
-          unexpected
-        else
-          unexpected.push field
-      unless unexpected.isEmpty do
-        throw s!"{tool.key} accepts no undeclared input fields: {String.intercalate ", " unexpected.toList}"
-  | other =>
-      throw s!"{tool.key} input must be an object, got {other.compress}"
+def ToolName.validateInputFields (tool : ToolName) (input : Json) : Except String Unit :=
+  Beam.JsonSchema.validateInputFields tool.key tool.descriptor.inputSchema input
 
 abbrev RunAtInput := Beam.Lean.RunAtInput
 abbrev PositionInput := Beam.Lean.PositionInput
@@ -295,6 +285,7 @@ abbrev RunWithInput := Beam.Lean.RunWithInput
 abbrev ReleaseInput := Beam.Lean.ReleaseInput
 abbrev PathInput := Beam.Lean.PathInput
 abbrev SyncInput := Beam.Lean.SyncInput
+abbrev SaveInput := Beam.Lean.SaveInput
 
 private def optionJson (value? : Option α) [ToJson α] : Json :=
   match value? with
@@ -590,19 +581,11 @@ Broker-level failures become `ToolError`s so an MCP server can map them to tool/
 Semantic Lean failures remain normal tool results with `success = false`.
 -/
 def normalizeBrokerResponse (tool : ToolName) (resp : Beam.Broker.Response) : Except ToolError Json := do
-  if resp.ok && resp.error?.isSome then
-    throw <| ToolError.invalidEnvelope "ok=true must not include an error"
-  if !resp.ok && resp.error?.isNone then
-    throw <| ToolError.invalidEnvelope "ok=false must include an error"
-  if !resp.ok && resp.result?.isSome then
-    throw <| ToolError.invalidEnvelope "ok=false must not include a result"
-  if !resp.ok then
-    let some err := resp.error?
-      | throw <| ToolError.invalidEnvelope "ok=false must include an error"
-    throw <| ToolError.fromBrokerError err
-  let some result := resp.result?
-    | throw <| ToolError.invalidEnvelope "ok=true must include a result"
-  let result ← normalizeResult tool result
-  pure <| withDocumentProgress tool result resp.fileProgress?
+  match resp with
+  | .errorResult error _ _ =>
+      throw <| ToolError.fromBrokerError error
+  | .successResult result fileProgress? _ =>
+      let result ← normalizeResult tool result
+      pure <| withDocumentProgress tool result fileProgress?
 
 end Beam.Mcp

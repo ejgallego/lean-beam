@@ -243,6 +243,10 @@ def Operation.inputSchema : Operation → Json
   | .close =>
       inputObject [pathField] #["path"]
 
+/-- Reject fields outside the closed schema owned by one Lean operation. -/
+def Operation.validateInputFields (operation : Operation) (input : Json) : Except String Unit :=
+  Beam.JsonSchema.validateInputFields operation.key operation.inputSchema input
+
 /-- Input for position-based Lean execution. Coordinates use LSP zero-based line/character units. -/
 structure RunAtInput where
   path : String
@@ -419,10 +423,7 @@ structure PathInput where
   path : String
   deriving FromJson, ToJson
 
-/--
-Input for sync/refresh operations with optional diagnostic scope and final replay control.
-Save adapters reuse only the path and diagnostic scope.
--/
+/-- Input for sync/refresh operations with optional diagnostic scope and final replay control. -/
 structure SyncInput where
   path : String
   diagnosticScope? : Option Beam.Broker.DiagnosticScope := none
@@ -445,6 +446,25 @@ instance : FromJson SyncInput where
     let diagnosticScope? ← optionalField? (α := Beam.Broker.DiagnosticScope) j "diagnostic_scope"
     let diagnosticsInResult? ← optionalField? (α := Bool) j "diagnostics_in_result"
     pure { path, diagnosticScope?, diagnosticsInResult? }
+
+/-- Input for save/close-save operations with optional live diagnostic scope. -/
+structure SaveInput where
+  path : String
+  diagnosticScope? : Option Beam.Broker.DiagnosticScope := none
+
+instance : ToJson SaveInput where
+  toJson input :=
+    Json.mkObj <|
+      [("path", toJson input.path)] ++
+      match input.diagnosticScope? with
+      | some diagnosticScope => [("diagnostic_scope", toJson diagnosticScope)]
+      | none => []
+
+instance : FromJson SaveInput where
+  fromJson? j := do
+    let path ← j.getObjValAs? String "path"
+    let diagnosticScope? ← optionalField? (α := Beam.Broker.DiagnosticScope) j "diagnostic_scope"
+    pure { path, diagnosticScope? }
 
 def RunAtInput.toBrokerRequest
     (input : RunAtInput)
@@ -624,7 +644,7 @@ def SyncInput.toRefreshBrokerRequest (input : SyncInput) (root : String) : Beam.
   diagnosticsInResult? := input.diagnosticsInResult?
 }
 
-def SyncInput.toSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
+def SaveInput.toSaveBrokerRequest (input : SaveInput) (root : String) : Beam.Broker.Request := {
   op := .saveOlean
   backend := .lean
   root? := some root
@@ -632,7 +652,7 @@ def SyncInput.toSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Bro
   diagnosticScope? := input.diagnosticScope?
 }
 
-def SyncInput.toCloseSaveBrokerRequest (input : SyncInput) (root : String) : Beam.Broker.Request := {
+def SaveInput.toCloseSaveBrokerRequest (input : SaveInput) (root : String) : Beam.Broker.Request := {
   op := .close
   backend := .lean
   root? := some root
@@ -645,6 +665,7 @@ def Operation.toBrokerRequest
     (op : Operation)
     (root : String)
     (input : Json) : Except String Beam.Broker.Request := do
+  op.validateInputFields input
   match op with
   | .runAt =>
       pure <| (← fromJson? (α := RunAtInput) input).toBrokerRequest root
@@ -681,9 +702,9 @@ def Operation.toBrokerRequest
   | .refresh =>
       pure <| (← fromJson? (α := SyncInput) input).toRefreshBrokerRequest root
   | .save =>
-      pure <| (← fromJson? (α := SyncInput) input).toSaveBrokerRequest root
+      pure <| (← fromJson? (α := SaveInput) input).toSaveBrokerRequest root
   | .closeSave =>
-      pure <| (← fromJson? (α := SyncInput) input).toCloseSaveBrokerRequest root
+      pure <| (← fromJson? (α := SaveInput) input).toCloseSaveBrokerRequest root
   | .close =>
       pure <| (← fromJson? (α := PathInput) input).toCloseBrokerRequest root
 
