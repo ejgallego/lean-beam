@@ -419,7 +419,10 @@ structure PathInput where
   path : String
   deriving FromJson, ToJson
 
-/-- Input for sync/save operations with an optional diagnostic scope and final replay control. -/
+/--
+Input for sync/refresh operations with optional diagnostic scope and final replay control.
+Save adapters reuse only the path and diagnostic scope.
+-/
 structure SyncInput where
   path : String
   diagnosticScope? : Option Beam.Broker.DiagnosticScope := none

@@ -78,8 +78,9 @@ Pre-stable compatibility policy lives in [Compatibility Policy](COMPATIBILITY.md
   workflows, follow-up handles, save/sync operations, version/stats, and feedback report cards; the
   generated tool list and client semantics are documented in [MCP.md](MCP.md)
 - MCP progress notifications for requests that pass `_meta.progressToken`
-- MCP diagnostic log notifications for incremental Lean diagnostics during sync/save-style tools,
-  with protocol-era opt-in documented in [MCP.md](MCP.md#progress-and-diagnostic-logs)
+- MCP diagnostic log notifications for incremental Lean diagnostics during `lean_sync`,
+  `lean_refresh`, `lean_save`, and `lean_close_save`, with protocol-era opt-in documented in
+  [MCP.md](MCP.md#progress-and-diagnostic-logs)
 - MCP `lean_sync` and `lean_refresh` `diagnostics_in_result` option for clients that need selected
   current diagnostics replayed in the final structured result instead of collecting only
   interleaved log notifications
