@@ -416,17 +416,24 @@ private def checkLeanOperationRequests : IO Unit := do
   require "close-save should preserve diagnostic scope" (closeSave.diagnosticScope? == some .all)
 
 private def checkDiagnosticScopeArgs : IO Unit := do
-  require "sync diagnostic scope should default to errors"
-    ((← Beam.Cli.parseLeanSyncArgs []) == .errors)
-  require "sync diagnostic scope should accept +all-diagnostics"
-    ((← Beam.Cli.parseLeanSyncArgs ["+all-diagnostics"]) == .all)
-  let obsoleteRejected ←
-    try
-      discard <| Beam.Cli.parseLeanSyncArgs ["+full"]
-      pure false
-    catch err =>
-      pure <| err.toString.contains "+all-diagnostics"
-  require "sync diagnostic scope should reject obsolete +full" obsoleteRejected
+  let parsers : Array (String × (List String → IO Beam.Broker.DiagnosticScope)) := #[
+    ("sync", Beam.Cli.parseLeanSyncArgs),
+    ("refresh", Beam.Cli.parseLeanRefreshArgs),
+    ("save", Beam.Cli.parseLeanSaveArgs),
+    ("close-save", Beam.Cli.parseLeanCloseSaveArgs)
+  ]
+  for (label, parse) in parsers do
+    require s!"{label} diagnostic scope should default to errors"
+      ((← parse []) == .errors)
+    require s!"{label} diagnostic scope should accept +all-diagnostics"
+      ((← parse ["+all-diagnostics"]) == .all)
+    let obsoleteRejected ←
+      try
+        discard <| parse ["+full"]
+        pure false
+      catch err =>
+        pure <| err.toString.contains "+all-diagnostics"
+    require s!"{label} diagnostic scope should reject obsolete +full" obsoleteRejected
 
 private def checkStartupRetryPolicy : IO Unit := do
   require "automatic occupied endpoint should retry"

@@ -313,9 +313,9 @@ mutex, then ignore a completed snapshot if a newer read has already been applied
 In-session syncs use sequence zero because they run inside the already-ordered session flow.
 
 Keep readiness claims deliberately narrow: `fileProgress` is an observable LSP progress signal, and
-it is a barrier input only for the operations that define a diagnostics/save barrier (`sync`, `save`,
-and `close-save`). It is not a general semantic-ready signal, and it is not the save-readiness
-authority. Tests that need to prove request overlap, cancellation, startup, or stale-state
+it is a barrier input only for the operations that define a diagnostics/save barrier (`sync`,
+`refresh`, `save`, and `close-save`). It is not a general semantic-ready signal, and it is not the
+save-readiness authority. Tests that need to prove request overlap, cancellation, startup, or stale-state
 transitions should wait on explicit state such as request IDs, response files, registry files, or
 fixture sentinels instead of treating progress as a proxy for readiness.
 

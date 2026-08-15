@@ -276,8 +276,10 @@ Near-term work is mostly about hardening and simplifying:
 - add richer MCP progress percentages or bounded work-unit totals if Lean exposes them; keep
   structured MCP log messages for incremental diagnostics rather than overloading progress
   notifications or the final tool result
-- keep the `sync`, `save`, and `close-save` projections aligned around the canonical sync-result schema
-  evolves
+- replace broker response and stream optional-payload products with tagged unions, and split
+  sync/refresh inputs from save inputs, so invalid protocol states cannot be constructed internally
+- keep the `sync`, `refresh`, `save`, and `close-save` projections aligned as the canonical
+  sync-result schema evolves
 - keep Beam-daemon-side conveniences useful without turning them into a large public surface too early
 - add a short comparison against Pantograph in the docs, to clarify where `runAt` fits among nearby Lean tooling
 - keep cross-surface utility code such as root resolution and workspace-relative path derivation in

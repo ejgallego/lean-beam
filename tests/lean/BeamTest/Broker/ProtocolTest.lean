@@ -257,12 +257,19 @@ private def checkSaveResultJsonDecode : IO Unit := do
     | other => other
   expectDecodeFailure SaveOleanResult "save result missing required artifact" missingOlean
 
+  expectDecodeFailure SaveOleanResult "save result path does not match nested sync" <|
+    (toJson saveResult).setObjVal! "path" (toJson "Other.lean")
+  expectDecodeFailure SaveOleanResult "save result version does not match nested sync" <|
+    (toJson saveResult).setObjVal! "version" (toJson (8 : Nat))
+
   let malformedNestedSave := Json.mkObj [
     ("closed", toJson true),
     ("saved", (toJson saveResult).setObjVal! "extra" (toJson true))
   ]
   expectDecodeFailure CloseSaveResult
     "close-save result with malformed nested save" malformedNestedSave
+  expectDecodeFailure CloseSaveResult "close-save result reports closed=false" <|
+    (toJson closeSaveResult).setObjVal! "closed" (toJson false)
 
 private def checkOrderedJsonPretty : IO Unit := do
   let resp : Response := {
@@ -319,6 +326,8 @@ private def checkOrderedJsonPretty : IO Unit := do
 private def checkSyncFileResultDecode : IO Unit := do
   let valid := syncFileResultJson 7 (syncReadinessJson true)
   discard <| IO.ofExcept <| fromJson? (α := SyncFileResult) valid
+  expectDecodeFailure SyncDiagnosticCounts "diagnostic total differs from severity sum" <|
+    syncDiagnosticCountsJson.setObjVal! "total" (toJson (1 : Nat))
   for field in #[
     "saveReady",
     "errorCount",

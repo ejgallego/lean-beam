@@ -489,6 +489,9 @@ instance : FromJson SyncDiagnosticCounts where
     let hint ← json.getObjValAs? Nat "hint"
     let unknown ← json.getObjValAs? Nat "unknown"
     let total ← json.getObjValAs? Nat "total"
+    let severityTotal := errorCount + warning + information + hint + unknown
+    unless total == severityTotal do
+      throw s!"sync diagnostic count total {total} does not match severity sum {severityTotal}"
     pure {
       error := errorCount
       warning
@@ -732,6 +735,10 @@ instance : FromJson SaveOleanResult where
     let ir? ← optionalField? (α := String) json "ir"
     let bc? ← optionalField? (α := String) json "bc"
     let sync ← json.getObjValAs? SyncFileResult "sync"
+    unless path == sync.path do
+      throw s!"save result path '{path}' does not match sync path '{sync.path}'"
+    unless version == sync.version do
+      throw s!"save result version {version} does not match sync version {sync.version}"
     pure {
       path
       module
@@ -765,6 +772,8 @@ instance : FromJson CloseSaveResult where
     requireOnlyJsonFields "close-save result" #["closed", "saved"] json
     let closed ← json.getObjValAs? Bool "closed"
     let saved ← json.getObjValAs? SaveOleanResult "saved"
+    unless closed do
+      throw "close-save result requires 'closed' to be true"
     pure { closed, saved }
 
 structure Response where

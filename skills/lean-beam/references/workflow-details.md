@@ -180,8 +180,10 @@ What is not a valid checkpoint target:
 - streamed diagnostics are request events, not a since-last-sync diff
 - successful `lean-beam save` includes the sync verdict it established in `result.sync`
 - successful `lean-beam close-save` includes the sync verdict in `result.saved.sync`
-- use `result.readiness.saveReady` for save/checkpoint decisions; use `blockingErrorCount` and
-  blocking evidence to explain blocked verdicts
+- use `result.readiness.saveReady` for sync/refresh decisions,
+  `result.sync.readiness.saveReady` for save, and `result.saved.sync.readiness.saveReady` for
+  close-save; use the corresponding `blockingErrorCount` and blocking evidence to explain blocked
+  verdicts
 - when `lean-beam save` or `lean-beam close-save` returns `invalidParams` for document errors, the transport
   `error.message` includes a compact preview of underlying diagnostics and/or command messages, and
   `error.data.sync` contains the blocking sync verdict

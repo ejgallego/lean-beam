@@ -411,8 +411,10 @@ Diagnostic defaults on that path:
 - add `+all-diagnostics` to widen the current request to warnings, info, and hints
 - the final JSON reports the current synced-state verdict rather than replaying streamed
   diagnostics
-- use `result.readiness.saveReady` for save/checkpoint decisions; use `blockingErrorCount` and
-  blocking evidence to explain blocked verdicts
+- use `result.readiness.saveReady` for sync/refresh decisions,
+  `result.sync.readiness.saveReady` for save, and `result.saved.sync.readiness.saveReady` for
+  close-save; use the corresponding `blockingErrorCount` and blocking evidence to explain blocked
+  verdicts
 - when `lean-beam sync` fails with `syncBarrierIncomplete`, the JSON error may include
   `error.data.staleDirectDeps`, `error.data.saveDeps`, `error.data.recoveryPlan`, and
   `error.data.completionBlockingDiagnostics`

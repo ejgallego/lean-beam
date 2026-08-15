@@ -111,29 +111,26 @@ def parseHandleInput (cmdHead : String) (args : List String) : IO (Handle × Lis
   | arg :: rest =>
       pure ((← parseHandleArg arg), rest)
 
-def parseLeanSyncArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
+private def parseLeanDiagnosticScopeArgs
+    (command : String)
+    (args : List String) : IO Beam.Broker.DiagnosticScope :=
+  let usage := s!"usage: beam [--root PATH] [--port N] {command} <path> [+all-diagnostics]"
   match args with
-  | [] => pure .errors
-  | ["+all-diagnostics"] => pure .all
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-sync <path> [+all-diagnostics]"
+  | [] => pure Beam.Broker.DiagnosticScope.errors
+  | ["+all-diagnostics"] => pure Beam.Broker.DiagnosticScope.all
+  | _ => throw <| IO.userError usage
 
-def parseLeanRefreshArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
-  match args with
-  | [] => pure .errors
-  | ["+all-diagnostics"] => pure .all
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-refresh <path> [+all-diagnostics]"
+def parseLeanSyncArgs (args : List String) : IO Beam.Broker.DiagnosticScope :=
+  parseLeanDiagnosticScopeArgs "lean-sync" args
 
-def parseLeanSaveArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
-  match args with
-  | [] => pure .errors
-  | ["+all-diagnostics"] => pure .all
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-save <path> [+all-diagnostics]"
+def parseLeanRefreshArgs (args : List String) : IO Beam.Broker.DiagnosticScope :=
+  parseLeanDiagnosticScopeArgs "lean-refresh" args
 
-def parseLeanCloseSaveArgs (args : List String) : IO Beam.Broker.DiagnosticScope := do
-  match args with
-  | [] => pure .errors
-  | ["+all-diagnostics"] => pure .all
-  | _ => throw <| IO.userError "usage: beam [--root PATH] [--port N] lean-close-save <path> [+all-diagnostics]"
+def parseLeanSaveArgs (args : List String) : IO Beam.Broker.DiagnosticScope :=
+  parseLeanDiagnosticScopeArgs "lean-save" args
+
+def parseLeanCloseSaveArgs (args : List String) : IO Beam.Broker.DiagnosticScope :=
+  parseLeanDiagnosticScopeArgs "lean-close-save" args
 
 def leanReferencesUsage : String :=
   "usage: beam [--root PATH] [--port N] lean-references <path> <version> <line> <character> [--include-declaration|--exclude-declaration]"

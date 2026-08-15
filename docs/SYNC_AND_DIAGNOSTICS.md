@@ -181,7 +181,7 @@ decisions should use the readiness and diagnostic result fields. MCP includes fi
 `document_progress` only for `lean_sync`, `lean_refresh`, `lean_save`, and `lean_close_save`; it is
 not inherited by `runAt` or unrelated tools.
 
-For `sync`, `save`, and `close-save`, completed Lean file progress is one input to the
+For `sync`, `refresh`, `save`, and `close-save`, completed Lean file progress is one input to the
 diagnostics-complete barrier. For non-barrier calls, file progress may be partial because the
 request can return before the whole file reaches `done = true`.
 
