@@ -108,14 +108,6 @@ instance : FromJson ToolName where
         | none => .error s!"expected Lean MCP tool name, got {toJson key |>.compress}"
     | j => .error s!"expected Lean MCP tool name, got {j.compress}"
 
-def ToolName.expectsRunAtResult (tool : ToolName) : Bool :=
-  match tool.kind with
-  | .leanOperation operation => operation.expectsRunAtResult
-  | .serverInfo => false
-  | .serverDebug => false
-  | .feedback => false
-  | .workspaceDrop => false
-
 def leanOperationToBrokerRequest
     (operation : Beam.Lean.Operation)
     (root : String)

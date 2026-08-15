@@ -318,12 +318,12 @@ presenting them as two messages.
 Incremental Lean diagnostics are separate `notifications/message` events with logger
 `lean.diagnostic`. Modern requests receive these logs only when that request includes
 `_meta["io.modelcontextprotocol/logLevel"]`; legacy clients use global `logging/setLevel`. Clients
-that cannot collect interleaved notifications can pass `diagnostics_in_result: true` to sync-style
-tools. Set `diagnostic_scope: "all"` when live logs or final items should include warnings,
-information, and hints rather than only errors. Asking for final replay can intentionally repeat
-diagnostics already seen live; it is an alternate delivery path for clients that cannot consume
-interleaved events. Silent editor-only Lean messages, such as `Goals accomplished!`, are removed at
-reception and are never made visible by `diagnostic_scope`.
+that cannot collect interleaved notifications can pass `diagnostics_in_result: true` to
+`lean_sync` or `lean_refresh`. Set `diagnostic_scope: "all"` when live logs or final items should
+include warnings, information, and hints rather than only errors. Asking for final replay can
+intentionally repeat diagnostics already seen live; it is an alternate delivery path for clients
+that cannot consume interleaved events. Silent editor-only Lean messages, such as
+`Goals accomplished!`, are removed at reception and are never made visible by `diagnostic_scope`.
 
 ### Stable Result Shapes
 

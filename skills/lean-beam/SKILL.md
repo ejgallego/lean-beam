@@ -436,8 +436,8 @@ Surface rule:
   emits at most one `beam.status` notice when Lake setup is detected or the call remains pending for
   two seconds, provided the request's logging policy admits notice-level events
 - MCP `diagnostic_scope: "all"` widens diagnostic severity and `diagnostics_in_result: true` replays
-  selected diagnostics in the final sync result; neither setting controls progress, and requested
-  replay may intentionally duplicate matching diagnostics already consumed live
+  selected diagnostics in the final sync or refresh result; neither setting controls progress, and
+  requested replay may intentionally duplicate matching diagnostics already consumed live
 - the operation-by-operation MCP display matrix, including log-level interactions and tools without
   an automatic no-token status, lives in [../../docs/MCP.md](../../docs/MCP.md#display-control-matrix)
 

@@ -63,15 +63,12 @@ def syncBarrierIncompleteResponse
     (syncBarrierIncompleteMessage uri version fileProgress?)
     (some <| staleSyncErrorData targetPath hints (completionBlockingDiagnostics diagnostics))
 
-def syncFileSuccessPayload (result : SyncFileResult) : Json :=
-  toJson result
-
 def syncFileSuccessResponse
     (result : SyncFileResult)
     (fileProgress? : Option SyncFileProgress)
     : Response :=
   responseWithFileProgress
-    (Response.success <| syncFileSuccessPayload result)
+    (Response.success <| toJson result)
     fileProgress?
 
 def syncResultErrorData (syncResult : SyncFileResult) : Json :=

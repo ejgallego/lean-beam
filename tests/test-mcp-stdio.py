@@ -449,25 +449,30 @@ class McpClient:
         ]
         return "\n".join(lines[-40:]) if lines else "<no Beam/Lean processes found>"
 
-    def _timeout_message(self, expected_id):
-        label = self._request_label(expected_id)
-        pending = self.pending_requests.get(request_id_key(expected_id))
-        elapsed = time.monotonic() - pending["started"] if pending is not None else 0.0
+    def _diagnostic_context(self):
         stderr_tail = "\n".join(self.stderr_lines)
-        process_snapshot = self._process_snapshot()
         return (
-            f"timed out waiting for MCP response id {expected_id} ({label}) "
-            f"for client {self.label!r} after {elapsed:.3f}s\n"
             f"MCP client context:\n{self._client_context()}\n"
             f"pending MCP requests:\n{self._pending_requests_summary()}\n"
             f"recent completed MCP requests:\n{self._completed_requests_summary()}\n"
-            f"recent server requests received from lean-beam-mcp:\n{self._server_requests_summary()}\n"
+            f"recent server requests received from lean-beam-mcp:\n"
+            f"{self._server_requests_summary()}\n"
             f"recent notifications:\n{self._notifications_summary()}\n"
             f"MCP event timeline ({self._last_notification_summary()}):\n"
             f"{self._event_timeline_summary()}\n"
             f"CI timeout tracker:\n{CI_TIMEOUT_TRACKER_NOTE}\n"
             f"lean-beam-mcp stderr tail:\n{stderr_tail or '  <empty>'}\n"
-            f"process snapshot:\n{process_snapshot}"
+            f"process snapshot:\n{self._process_snapshot()}"
+        )
+
+    def _timeout_message(self, expected_id):
+        label = self._request_label(expected_id)
+        pending = self.pending_requests.get(request_id_key(expected_id))
+        elapsed = time.monotonic() - pending["started"] if pending is not None else 0.0
+        return (
+            f"timed out waiting for MCP response id {expected_id} ({label}) "
+            f"for client {self.label!r} after {elapsed:.3f}s\n"
+            f"{self._diagnostic_context()}"
         )
 
     def read_response(self, expected_id, timeout=None):
@@ -565,18 +570,9 @@ class McpClient:
         try:
             return self.proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            stderr_tail = "\n".join(self.stderr_lines)
             fail(
                 f"timed out waiting {timeout:.1f}s for lean-beam-mcp to exit after EOF\n"
-                f"MCP client context:\n{self._client_context()}\n"
-                f"pending MCP requests:\n{self._pending_requests_summary()}\n"
-                f"recent completed MCP requests:\n{self._completed_requests_summary()}\n"
-                f"recent notifications:\n{self._notifications_summary()}\n"
-                f"MCP event timeline ({self._last_notification_summary()}):\n"
-                f"{self._event_timeline_summary()}\n"
-                f"CI timeout tracker:\n{CI_TIMEOUT_TRACKER_NOTE}\n"
-                f"lean-beam-mcp stderr tail:\n{stderr_tail or '  <empty>'}\n"
-                f"process snapshot:\n{self._process_snapshot()}"
+                f"{self._diagnostic_context()}"
             )
 
     def response_ready(self, request_id):

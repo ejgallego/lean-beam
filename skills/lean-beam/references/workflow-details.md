@@ -171,8 +171,8 @@ What is not a valid checkpoint target:
 
 ## Diagnostics, Progress, And Request IDs
 
-- `lean-beam sync`, `lean-beam save`, and `lean-beam close-save` always stream fresh diagnostics for the current
-  request
+- `lean-beam sync`, `lean-beam refresh`, `lean-beam save`, and `lean-beam close-save` always stream
+  fresh diagnostics for the current request
 - by default they stream only errors
 - add `+all-diagnostics` to widen the current request to warnings, info, and hints
 - the final JSON reports the current synced-state verdict rather than replaying streamed

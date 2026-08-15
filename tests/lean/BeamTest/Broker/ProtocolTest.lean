@@ -45,6 +45,14 @@ private def expectSyncFileResultDecodeFailure (label : String) (json : Json) : I
   | .error _ =>
       pure ()
 
+private def expectTypedDecodeFailure (α : Type) [FromJson α]
+    (label : String) (json : Json) : IO Unit := do
+  match fromJson? (α := α) json with
+  | .ok _ =>
+      throw <| IO.userError s!"{label}: expected decode failure for {json.compress}"
+  | .error _ =>
+      pure ()
+
 private def requireError
     (label : String)
     (expectedCode : String)
@@ -236,6 +244,45 @@ private def checkResponseJsonDecode : IO Unit := do
     ("result", Json.mkObj []),
     ("extra", toJson true)
   ]
+
+private def checkSaveResultJsonDecode : IO Unit := do
+  let saveResult : SaveOleanResult := {
+    path := "Demo.lean"
+    module := "Demo"
+    version := 7
+    sourceHash := "9a9bdc9950870951"
+    olean := "/tmp/Demo.olean"
+    ilean := "/tmp/Demo.ilean"
+    c := "/tmp/Demo.c"
+    trace := "/tmp/Demo.olean.trace"
+    oleanServer? := some "/tmp/Demo.olean.server"
+    sync := syncResultFor 7
+  }
+  let decodedSave ← expectOk "save result round-trip" <|
+    fromJson? (α := SaveOleanResult) (toJson saveResult)
+  require "save result round-trip preserves source hash"
+    (decodedSave.sourceHash == saveResult.sourceHash)
+  require "save result round-trip preserves nested sync version"
+    (decodedSave.sync.version == saveResult.sync.version)
+
+  let closeSaveResult : CloseSaveResult := { closed := true, saved := saveResult }
+  let decodedCloseSave ← expectOk "close-save result round-trip" <|
+    fromJson? (α := CloseSaveResult) (toJson closeSaveResult)
+  require "close-save result round-trip preserves closure and nested save"
+    (decodedCloseSave.closed && decodedCloseSave.saved.module == saveResult.module)
+
+  let missingOlean :=
+    match toJson saveResult with
+    | .obj fields => Json.obj <| fields.erase "olean"
+    | other => other
+  expectTypedDecodeFailure SaveOleanResult "save result missing required artifact" missingOlean
+
+  let malformedNestedSave := Json.mkObj [
+    ("closed", toJson true),
+    ("saved", (toJson saveResult).setObjVal! "extra" (toJson true))
+  ]
+  expectTypedDecodeFailure CloseSaveResult
+    "close-save result with malformed nested save" malformedNestedSave
 
 private def checkOrderedJsonPretty : IO Unit := do
   let resp : Response := {
@@ -793,6 +840,7 @@ def main : IO Unit := do
   checkResponseJsonShape
   checkStreamMessageDecode
   checkResponseJsonDecode
+  checkSaveResultJsonDecode
   checkOrderedJsonPretty
   checkSyncFileResultDecode
   checkBrokerFailureResponse

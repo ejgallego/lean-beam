@@ -129,11 +129,12 @@ both protocol eras. Events include path, URI, version, range, severity, message 
 `completion_blocking=true` when a diagnostic is known to block file completion. They are
 request-scoped observations; save-blocking evidence is attached to the final sync/save verdict.
 
-MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` with
-`diagnostics_in_result: true` to replay diagnostics in the final structured result. By default replay
-and streaming use an error-only diagnostic filter. Final replay intentionally duplicates any
-matching diagnostics already consumed live. For synced-file requests, `diagnostic_scope: "all"`
-widens streamed and replayed diagnostic output to warnings, information, and hints.
+MCP clients that cannot conveniently collect interleaved notifications can call `lean_sync` or
+`lean_refresh` with `diagnostics_in_result: true` to replay diagnostics in the final structured
+result. By default replay and streaming use an error-only diagnostic filter. Final replay
+intentionally duplicates any matching diagnostics already consumed live. For synced-file requests,
+`diagnostic_scope: "all"` widens streamed and replayed diagnostic output to warnings, information,
+and hints.
 
 Lean marks some editor-only messages as silent, including its decorative `Goals accomplished!`
 message. Beam removes silent diagnostics and speculative-execution messages at reception time. They
@@ -220,6 +221,12 @@ care about and compare it explicitly.
 - `diagnostics.counts`: current user-facing diagnostic counts by severity and total
 - `diagnostics.items`, when requested: diagnostics selected by `diagnostic_scope`
 - `readiness`: the current save-readiness verdict and blocking evidence
+
+Successful broker and wrapper saves add the checkpoint fields `module`, `sourceHash`, `olean`,
+`ilean`, `c`, and `trace`; optional backend artifacts use `oleanServer`, `oleanPrivate`, `ir`, and
+`bc`. Their canonical sync result is nested under `sync`. Close-save wraps the same save result as
+`{ "closed": true, "saved": <save-result> }`. MCP uses snake_case for the multiword artifact fields;
+see the complete [`lean_save` result example](MCP.md#stable-result-shapes).
 
 ## Failures And Recovery
 

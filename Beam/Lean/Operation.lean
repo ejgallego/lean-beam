@@ -243,10 +243,6 @@ def Operation.inputSchema : Operation → Json
   | .close =>
       inputObject [pathField] #["path"]
 
-def Operation.expectsRunAtResult : Operation → Bool
-  | .runAt | .runAtHandle | .runWith | .runWithLinear => true
-  | _ => false
-
 /-- Input for position-based Lean execution. Coordinates use LSP zero-based line/character units. -/
 structure RunAtInput where
   path : String
