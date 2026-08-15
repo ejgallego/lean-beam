@@ -165,6 +165,23 @@ The Lean operations include update/sync/refresh/save/close operations, runAt and
 handle operations, hover and navigation, document/workspace symbols, goals, todo discovery, and
 code-action resolution. Raw LSP methods and generic broker escape hatches are intentionally absent.
 
+Twelve observational tools advertise MCP `annotations.readOnlyHint = true`:
+
+- process inspection: `beam_version`, `beam_stats`
+- stateless speculation: `lean_run_at`
+- document inspection: `lean_hover`, `lean_signature_help`, `lean_definition`, `lean_references`,
+  `lean_document_symbols`, `lean_workspace_symbols`, `lean_goals`, and `lean_todo`
+- payload resolution without edit application: `lean_code_action_resolve`
+
+The annotation means the tool does not intentionally retain or update Beam semantic state and does
+not write Beam-managed artifacts. Incidental cache warming can affect debug statistics, but it is
+implementation bookkeeping rather than a project-semantic update. The hint is advisory and is not
+an OS sandbox: user-supplied Lean commands and project metaprogramming may perform IO. The generated
+descriptions for speculative tools state that boundary directly. Handle-producing or consuming
+tools, document mirror lifecycle tools, save operations, workspace eviction, and
+`beam_feedback_report` omit the hint. The feedback tool has an optional evidence-bundle mode that
+writes local files, so one static read-only annotation cannot describe every call.
+
 `beam_version` returns the running server identity in `structuredContent`. Its `mcp_protocol` field
 is the server's preferred revision, not mutable negotiated state for the current request. Installed
 runtime identities include the optional Boolean `runtime_current`: `true` means the process belongs

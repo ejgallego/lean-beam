@@ -69,67 +69,28 @@ private def requireSameOperationSurface
     require s!"{label}: unexpected operation {repr op}" (expected.contains op)
 
 private def checkToolNames : IO Unit := do
-  let decodedBeamVersion ← expectOk "decode beam_version" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_version")
-  require "decode beam_version: wrong tool" (decodedBeamVersion == .beamVersion)
-
-  let decodedBeamStats ← expectOk "decode beam_stats" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_stats")
-  require "decode beam_stats: wrong tool" (decodedBeamStats == .beamStats)
-
-  let decodedBeamFeedbackReport ← expectOk "decode beam_feedback_report" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "beam_feedback_report")
-  require "decode beam_feedback_report: wrong tool"
-    (decodedBeamFeedbackReport == .beamFeedbackReport)
-
-  let dropWorkspace ← expectOk "decode lean_drop_workspace" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_drop_workspace")
-  require "decode lean_drop_workspace: wrong tool" (dropWorkspace == .leanDropWorkspace)
-
-  let decoded ← expectOk "decode lean_run_at" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_run_at")
-  require "decode lean_run_at: wrong tool" (decoded == .leanRunAt)
-
-  let hover ← expectOk "decode lean_hover" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_hover")
-  require "decode lean_hover: wrong tool" (hover == .leanHover)
-
-  let signatureHelp ← expectOk "decode lean_signature_help" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_signature_help")
-  require "decode lean_signature_help: wrong tool" (signatureHelp == .leanSignatureHelp)
-
-  let definition ← expectOk "decode lean_definition" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_definition")
-  require "decode lean_definition: wrong tool" (definition == .leanDefinition)
-
-  let references ← expectOk "decode lean_references" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_references")
-  require "decode lean_references: wrong tool" (references == .leanReferences)
-
-  let documentSymbols ← expectOk "decode lean_document_symbols" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_document_symbols")
-  require "decode lean_document_symbols: wrong tool" (documentSymbols == .leanDocumentSymbols)
-
-  let workspaceSymbols ← expectOk "decode lean_workspace_symbols" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_workspace_symbols")
-  require "decode lean_workspace_symbols: wrong tool" (workspaceSymbols == .leanWorkspaceSymbols)
-
-  let goals ← expectOk "decode lean_goals" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_goals")
-  require "decode lean_goals: wrong tool" (goals == .leanGoals)
-
-  let todo ← expectOk "decode lean_todo" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_todo")
-  require "decode lean_todo: wrong tool" (todo == .leanTodo)
-
-  let codeActionResolve ← expectOk "decode lean_code_action_resolve" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_code_action_resolve")
-  require "decode lean_code_action_resolve: wrong tool"
-    (codeActionResolve == .leanCodeActionResolve)
-
-  let refresh ← expectOk "decode lean_refresh" <| fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_refresh")
-  require "decode lean_refresh: wrong tool" (refresh == .leanRefresh)
-
-  let closeSave ← expectOk "decode lean_close_save" <|
-    fromJson? (α := Beam.Mcp.ToolName) (Json.str "lean_close_save")
-  require "decode lean_close_save: wrong tool" (closeSave == .leanCloseSave)
+  let cases : Array (String × Beam.Mcp.ToolName) := #[
+    ("beam_version", .beamVersion),
+    ("beam_stats", .beamStats),
+    ("beam_feedback_report", .beamFeedbackReport),
+    ("lean_drop_workspace", .leanDropWorkspace),
+    ("lean_run_at", .leanOperation .runAt),
+    ("lean_hover", .leanOperation .hover),
+    ("lean_signature_help", .leanOperation .signatureHelp),
+    ("lean_definition", .leanOperation .definition),
+    ("lean_references", .leanOperation .references),
+    ("lean_document_symbols", .leanOperation .documentSymbols),
+    ("lean_workspace_symbols", .leanOperation .workspaceSymbols),
+    ("lean_goals", .leanOperation .goals),
+    ("lean_todo", .leanOperation .todo),
+    ("lean_code_action_resolve", .leanOperation .codeActionResolve),
+    ("lean_refresh", .leanOperation .refresh),
+    ("lean_close_save", .leanOperation .closeSave)
+  ]
+  for (key, expected) in cases do
+    let decoded ← expectOk s!"decode {key}" <|
+      fromJson? (α := Beam.Mcp.ToolName) (Json.str key)
+    require s!"decode {key}: wrong tool" (decoded == expected)
 
   match fromJson? (α := Beam.Mcp.ToolName) (Json.str Beam.LSP.RunAt.method) with
   | .ok tool =>
@@ -157,31 +118,17 @@ private def checkToolDescriptors : IO Unit := do
       fromJson? (α := Beam.Mcp.ToolName) (Json.str tool.key)
     require s!"generated tool key should decode back to {repr tool}" (decoded == tool)
   require "Lean operation tool names track shared operation surface"
-    (Beam.Mcp.leanOperationToolNames.size == Beam.Lean.Operation.all.size)
+    (Beam.Mcp.ToolName.leanOperationTools.size == Beam.Lean.Operation.all.size)
   require "tool names are server tools, cache eviction, plus shared Lean operations"
     (Beam.Mcp.toolNames.size == Beam.Lean.Operation.all.size + 4)
   for op in Beam.Lean.Operation.all do
-    let projectedTool := Beam.Mcp.ToolName.ofLeanOperation op
-    require s!"Lean operation {repr op} should round-trip through MCP projection"
-      (projectedTool.kind == .leanOperation op)
+    let projectedTool : Beam.Mcp.ToolName := .leanOperation op
     require s!"Lean operation {repr op} should derive MCP key from operation key"
       (projectedTool.key == "lean_" ++ op.key)
-    let matchingTools := Beam.Mcp.leanOperationToolNames.filter (fun tool =>
-      tool.kind == .leanOperation op)
+    let matchingTools := Beam.Mcp.ToolName.leanOperationTools.filter (fun tool =>
+      tool == .leanOperation op)
     require s!"Lean operation {repr op} should have exactly one MCP tool"
       (matchingTools.size == 1)
-  require "drop workspace descriptor is exposed as workspace lifecycle tool"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanDropWorkspace && desc.kind == .workspaceDrop))
-  require "beam version descriptor is exposed as server info tool"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .beamVersion && desc.kind == .serverInfo))
-  require "beam stats descriptor is exposed as server debug tool"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .beamStats && desc.kind == .serverDebug))
-  require "beam feedback report descriptor is exposed as feedback tool"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .beamFeedbackReport && desc.kind == .feedback))
   let some versionDesc := Beam.Mcp.toolDescriptors.find? (·.name == .beamVersion)
     | throw <| IO.userError "beam version descriptor is missing"
   let versionSchemaProperties ← requireObjVal "beam version schema" "properties" versionDesc.inputSchema
@@ -261,34 +208,6 @@ private def checkToolDescriptors : IO Unit := do
     | .ok schema =>
         throw <| IO.userError s!"{label} schema augmented unexpectedly: {schema.compress}"
     | .error _ => pure ()
-  require "hover descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanHover && desc.kind == .leanOperation .hover))
-  require "signature-help descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanSignatureHelp && desc.kind == .leanOperation .signatureHelp))
-  require "definition descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanDefinition && desc.kind == .leanOperation .definition))
-  require "references descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanReferences && desc.kind == .leanOperation .references))
-  require "document-symbols descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanDocumentSymbols && desc.kind == .leanOperation .documentSymbols))
-  require "workspace-symbols descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanWorkspaceSymbols && desc.kind == .leanOperation .workspaceSymbols))
-  require "goals descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanGoals && desc.kind == .leanOperation .goals))
-  require "todo descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanTodo && desc.kind == .leanOperation .todo))
-  require "code-action-resolve descriptor is exposed"
-    (Beam.Mcp.toolDescriptors.any (fun desc =>
-      desc.name == .leanCodeActionResolve && desc.kind == .leanOperation .codeActionResolve))
-
 private def checkBrokerRequestAdapters : IO Unit := do
   let root := "/repo"
   let workspaceId := "local:/repo"
@@ -543,7 +462,7 @@ private def checkBrokerRequestAdapters : IO Unit := do
 private def checkRunAtNormalization : IO Unit := do
   let semanticFailure := Json.mkObj [("success", toJson false)]
   let normalizedFailure ← expectToolOk "normalize semantic failure" <|
-    Beam.Mcp.normalizeBrokerResponse .leanRunAt {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .runAt) {
       ok := true
       result? := some semanticFailure
     }
@@ -561,7 +480,7 @@ private def checkRunAtNormalization : IO Unit := do
     ("handle", toJson sampleBrokerHandle)
   ]
   let normalizedHandle ← expectToolOk "normalize handle result" <|
-    Beam.Mcp.normalizeBrokerResponse .leanRunAtHandle {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .runAtHandle) {
       ok := true
       result? := some successWithHandle
       fileProgress? := some { updates := 2, done := true }
@@ -603,7 +522,7 @@ private def sampleSyncResult : Beam.Broker.SyncFileResult := {
 
 private def checkSyncAndSaveNormalization : IO Unit := do
   let normalizedSync ← expectToolOk "normalize sync result" <|
-    Beam.Mcp.normalizeBrokerResponse .leanSync {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .sync) {
       ok := true
       result? := some <| toJson sampleSyncResult
       fileProgress? := some {
@@ -649,7 +568,7 @@ private def checkSyncAndSaveNormalization : IO Unit := do
     ("sync", toJson sampleSyncResult)
   ]
   let normalizedSave ← expectToolOk "normalize save result" <|
-    Beam.Mcp.normalizeBrokerResponse .leanSave {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .save) {
       ok := true
       result? := some rawSave
       fileProgress? := some { updates := 4, done := true }
@@ -662,7 +581,7 @@ private def checkSyncAndSaveNormalization : IO Unit := do
   discard <| requireObjVal "save result" "document_progress" normalizedSave
 
   let normalizedCloseSave ← expectToolOk "normalize close-save result" <|
-    Beam.Mcp.normalizeBrokerResponse .leanCloseSave {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .closeSave) {
       ok := true
       result? := some <| Json.mkObj [
         ("closed", toJson true),
@@ -674,12 +593,12 @@ private def checkSyncAndSaveNormalization : IO Unit := do
   discard <| requireObjVal "close-save saved result" "sync" saved
 
   discard <| expectToolError "save result with undeclared field" "invalidResult" <|
-    Beam.Mcp.normalizeBrokerResponse .leanSave {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .save) {
       ok := true
       result? := some <| rawSave.setObjVal! "extra" (toJson true)
     }
   discard <| expectToolError "close-save result with undeclared field" "invalidResult" <|
-    Beam.Mcp.normalizeBrokerResponse .leanCloseSave {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .closeSave) {
       ok := true
       result? := some <| Json.mkObj [
         ("closed", toJson true),
@@ -690,7 +609,7 @@ private def checkSyncAndSaveNormalization : IO Unit := do
 
 private def checkTransportErrorNormalization : IO Unit := do
   let err ← expectToolError "normalize transport error" "invalidParams" <|
-    Beam.Mcp.normalizeBrokerResponse .leanRunAt {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .runAt) {
       ok := false
       error? := some { code := "invalidParams", message := "bad position" }
     }
@@ -720,7 +639,7 @@ private def checkTodoNormalization : IO Unit := do
     ])
   ]
   let normalized ← expectToolOk "normalize todo result" <|
-    Beam.Mcp.normalizeBrokerResponse .leanTodo {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .todo) {
       ok := true
       result? := some rawTodo
     }
@@ -757,7 +676,7 @@ private def checkCodeActionResolveNormalization : IO Unit := do
     ])
   ]
   let normalized ← expectToolOk "normalize code_action_resolve result" <|
-    Beam.Mcp.normalizeBrokerResponse .leanCodeActionResolve {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .codeActionResolve) {
       ok := true
       result? := some rawResult
     }
@@ -766,13 +685,13 @@ private def checkCodeActionResolveNormalization : IO Unit := do
 
 private def checkInvalidEnvelopeRejection : IO Unit := do
   discard <| expectToolError "missing success result" "invalidEnvelope" <|
-    Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := true }
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .runAt) { ok := true }
 
   discard <| expectToolError "missing error envelope" "invalidEnvelope" <|
-    Beam.Mcp.normalizeBrokerResponse .leanRunAt { ok := false }
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .runAt) { ok := false }
 
   discard <| expectToolError "ok envelope with error" "invalidEnvelope" <|
-    Beam.Mcp.normalizeBrokerResponse .leanRunAt {
+    Beam.Mcp.normalizeBrokerResponse (.leanOperation .runAt) {
       ok := true
       error? := some { code := "internalError", message := "bad envelope" }
     }

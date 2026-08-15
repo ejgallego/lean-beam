@@ -303,14 +303,15 @@ Use this section only when your editor or agent client speaks MCP. The ordinary 
 workflow does not require MCP.
 
 The installer includes the experimental stdio MCP server as `lean-beam-mcp`. It can register the
-server automatically for Codex, Claude Code, Mistral Vibe, or OpenCode. For Mistral Vibe, the
+server automatically for Codex, Claude Code, or Mistral Vibe. For Mistral Vibe, the
 installer edits `~/.vibe/config.toml` directly: it replaces any existing `lean-beam` entry in
 `[[mcp_servers]]`, removes Vibe's default empty `mcp_servers = []` line (TOML forbids extending an
 inline array with `[[mcp_servers]]` tables), and leaves other entries untouched. If the config
 holds other servers as inline `mcp_servers = [...]` entries, the installer refuses; move those
 entries to `[[mcp_servers]]` tables first. For OpenCode, the installer prints the
 `opencode mcp add` values to use manually. Pi Agent does not support MCP; install its skill with
-`--pi`.
+`--pi`. Codex registration also sets `supports_parallel_tool_calls = true` on the `lean-beam`
+server entry so Codex can keep independent Lean probes in flight concurrently.
 
 The server prefers stateless MCP `2026-07-28` and also accepts the initialization-based
 `2025-11-25` lifecycle while clients migrate. This is automatic: modern clients can discover the
@@ -334,6 +335,44 @@ claude mcp add --scope user lean-beam -- "$HOME/.local/bin/lean-beam-mcp"
 opencode mcp add
 ```
 
+### Codex
+
+Codex CLI `0.147.0` is Beam's validated target for this client-specific adapter; see the
+[compatibility policy](COMPATIBILITY.md#current-targets). After manual Codex registration, edit the
+generated `[mcp_servers.lean-beam]` table in `~/.codex/config.toml` so it contains:
+
+```toml
+[mcp_servers.lean-beam]
+command = "/absolute/path/to/lean-beam-mcp"
+supports_parallel_tool_calls = true
+```
+
+The installer performs this edit automatically. The setting allows concurrent calls; it does not
+make dependent handle continuations safe to parallelize.
+
+### Claude Code
+
+Claude Code needs no corresponding per-server parallel setting: it can schedule MCP tools carrying
+the read-only hint concurrently. Tool approval is a separate user policy, which the Beam installer
+does not change. For example, users who want to auto-approve only two common read-only calls can add
+this to `~/.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__lean-beam__lean_run_at",
+      "mcp__lean-beam__lean_todo"
+    ]
+  }
+}
+```
+
+Avoid a blanket `mcp__lean-beam__*` allow rule unless save, synchronization, handle, and workspace
+eviction calls should also run without approval.
+
+### OpenCode
+
 When `opencode mcp add` prompts for the server, use:
 
 ```text
@@ -341,6 +380,12 @@ name: lean-beam
 type: local
 command: /absolute/path/to/lean-beam-mcp
 ```
+
+Beam leaves OpenCode MCP registration and permission policy manual and does not require an
+additional Beam-specific parallel-call field. Because OpenCode's CLI and configuration shape vary
+by release, follow the prompts shown by the installed client; Beam does not edit its MCP config.
+
+### Mistral Vibe
 
 To register with Mistral Vibe manually, remove any `mcp_servers = []` line from
 `~/.vibe/config.toml`, then append this entry:
