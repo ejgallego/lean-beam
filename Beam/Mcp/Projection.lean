@@ -31,44 +31,11 @@ inductive ToolName where
   | leanOperation (operation : Beam.Lean.Operation)
   deriving BEq, Repr
 
-/-- MCP tool categories after projecting the shared Beam operation surface. -/
-inductive ToolKind where
-  | serverInfo
-  | serverDebug
-  | feedback
-  | workspaceDrop
-  | leanOperation (operation : Beam.Lean.Operation)
-  deriving BEq, Repr
-
-def ToolName.ofLeanOperation (operation : Beam.Lean.Operation) : ToolName :=
-  .leanOperation operation
-
-def ToolName.leanRunAt : ToolName := .leanOperation .runAt
-def ToolName.leanRunAtHandle : ToolName := .leanOperation .runAtHandle
-def ToolName.leanHover : ToolName := .leanOperation .hover
-def ToolName.leanSignatureHelp : ToolName := .leanOperation .signatureHelp
-def ToolName.leanDefinition : ToolName := .leanOperation .definition
-def ToolName.leanReferences : ToolName := .leanOperation .references
-def ToolName.leanDocumentSymbols : ToolName := .leanOperation .documentSymbols
-def ToolName.leanWorkspaceSymbols : ToolName := .leanOperation .workspaceSymbols
-def ToolName.leanGoals : ToolName := .leanOperation .goals
-def ToolName.leanTodo : ToolName := .leanOperation .todo
-def ToolName.leanCodeActionResolve : ToolName := .leanOperation .codeActionResolve
-def ToolName.leanRunWith : ToolName := .leanOperation .runWith
-def ToolName.leanRunWithLinear : ToolName := .leanOperation .runWithLinear
-def ToolName.leanRelease : ToolName := .leanOperation .release
-def ToolName.leanUpdate : ToolName := .leanOperation .update
-def ToolName.leanSync : ToolName := .leanOperation .sync
-def ToolName.leanRefresh : ToolName := .leanOperation .refresh
-def ToolName.leanSave : ToolName := .leanOperation .save
-def ToolName.leanCloseSave : ToolName := .leanOperation .closeSave
-def ToolName.leanClose : ToolName := .leanOperation .close
-
 private def leanOperationToolKey (operation : Beam.Lean.Operation) : String :=
   "lean_" ++ operation.key
 
 def ToolName.leanOperationTools : Array ToolName :=
-  Beam.Lean.Operation.all.map ToolName.ofLeanOperation
+  Beam.Lean.Operation.all.map ToolName.leanOperation
 
 def ToolName.all : Array ToolName :=
   #[
@@ -86,14 +53,6 @@ def ToolName.key (tool : ToolName) : String :=
   | .leanDropWorkspace => "lean_drop_workspace"
   | .leanOperation operation => leanOperationToolKey operation
 
-def ToolName.kind (tool : ToolName) : ToolKind :=
-  match tool with
-  | .beamVersion => .serverInfo
-  | .beamStats => .serverDebug
-  | .beamFeedbackReport => .feedback
-  | .leanDropWorkspace => .workspaceDrop
-  | .leanOperation operation => .leanOperation operation
-
 def ToolName.fromKey? (key : String) : Option ToolName :=
   ToolName.all.find? (fun tool => tool.key == key)
 
@@ -107,6 +66,26 @@ instance : FromJson ToolName where
         | some tool => .ok tool
         | none => .error s!"expected Lean MCP tool name, got {toJson key |>.compress}"
     | j => .error s!"expected Lean MCP tool name, got {j.compress}"
+
+/--
+Advisory MCP classification for tools whose Beam contract is observational: they do not retain or
+update Beam semantic state and do not write Beam-managed artifacts. This is not an OS sandbox for
+user-supplied Lean code.
+-/
+def ToolName.readOnlyHint : ToolName → Bool
+  | .beamVersion
+  | .beamStats
+  | .leanOperation .runAt
+  | .leanOperation .hover
+  | .leanOperation .signatureHelp
+  | .leanOperation .definition
+  | .leanOperation .references
+  | .leanOperation .documentSymbols
+  | .leanOperation .workspaceSymbols
+  | .leanOperation .goals
+  | .leanOperation .todo
+  | .leanOperation .codeActionResolve => true
+  | _ => false
 
 def leanOperationToBrokerRequest
     (operation : Beam.Lean.Operation)
@@ -214,53 +193,21 @@ private def schemaWithWorkspace (schema : Json) : Json :=
 /-- Minimal descriptor for the MCP tool list. -/
 structure ToolDescriptor where
   name : ToolName
-  kind : ToolKind
   description : String
   inputSchema : Json
 
 def toolNames : Array ToolName :=
   ToolName.all
 
-def leanOperationToolNames : Array ToolName :=
-  ToolName.leanOperationTools
-
 def ToolName.descriptor (tool : ToolName) : ToolDescriptor :=
-  match tool.kind with
-  | .serverInfo =>
-      {
-        name := tool
-        kind := .serverInfo
-        description := beamVersionDescription
-        inputSchema := emptyInputSchema
-      }
-  | .serverDebug =>
-      {
-        name := tool
-        kind := .serverDebug
-        description := beamStatsDescription
-        inputSchema := emptyInputSchema
-      }
-  | .feedback =>
-      {
-        name := tool
-        kind := .feedback
-        description := beamFeedbackReportDescription
-        inputSchema := feedbackReportInputSchema
-      }
-  | .leanOperation op =>
-      {
-        name := tool
-        kind := .leanOperation op
-        description := op.description
-        inputSchema := schemaWithWorkspace op.inputSchema
-      }
-  | .workspaceDrop =>
-      {
-        name := tool
-        kind := .workspaceDrop
-        description := dropWorkspaceDescription
-        inputSchema := dropWorkspaceInputSchema
-      }
+  let (description, inputSchema) :=
+    match tool with
+    | .beamVersion => (beamVersionDescription, emptyInputSchema)
+    | .beamStats => (beamStatsDescription, emptyInputSchema)
+    | .beamFeedbackReport => (beamFeedbackReportDescription, feedbackReportInputSchema)
+    | .leanOperation op => (op.description, schemaWithWorkspace op.inputSchema)
+    | .leanDropWorkspace => (dropWorkspaceDescription, dropWorkspaceInputSchema)
+  { name := tool, description, inputSchema }
 
 def toolDescriptors : Array ToolDescriptor :=
   toolNames.map ToolName.descriptor

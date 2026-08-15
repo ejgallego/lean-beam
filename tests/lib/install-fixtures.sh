@@ -102,6 +102,18 @@ beam_install_setup_mcp_cli_stubs() {
   printf '|CODEX_HOME=%s' "${CODEX_HOME:-}"
   printf '\n'
 } >> "$BEAM_TEST_MCP_STUB_LOG"
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "add" ] && [ "${3:-}" = "lean-beam" ]; then
+  mkdir -p "${CODEX_HOME:?}"
+  {
+    if [ -s "$CODEX_HOME/config.toml" ]; then
+      printf '\n'
+    fi
+    # Exercise a valid literal-quoted key so the installer cannot assume a bare key.
+    printf "[mcp_servers.'lean-beam']\n"
+    printf 'command = "%s"\n' "${5:?}"
+    printf 'supports_parallel_tool_calls = false\n'
+  } >> "$CODEX_HOME/config.toml"
+fi
 exit 0
 SH
   cat > "$stub_bin/claude" <<'SH'

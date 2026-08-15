@@ -518,11 +518,15 @@ def discoverResult : Json :=
   ]
 
 def toolDescriptorJson (desc : ToolDescriptor) : Json :=
-  Json.mkObj [
-    ("name", toJson desc.name),
-    ("description", toJson desc.description),
-    ("inputSchema", desc.inputSchema)
-  ]
+  Json.mkObj <|
+    [
+      ("name", toJson desc.name),
+      ("description", toJson desc.description),
+      ("inputSchema", desc.inputSchema)
+    ] ++ if desc.name.readOnlyHint then
+      [("annotations", Json.mkObj [("readOnlyHint", toJson true)])]
+    else
+      []
 
 def toolsListResult : Json :=
   Json.mkObj [

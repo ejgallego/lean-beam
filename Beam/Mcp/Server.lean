@@ -804,7 +804,7 @@ private def brokerRequestForTool
     (workspaceId : Beam.Broker.WorkspaceId)
     (params : CallToolParams)
     (clientRequestId : String) : Except String Beam.Broker.Request := do
-  match params.name.kind with
+  match params.name with
   | .leanOperation operation => do
       let req ← leanOperationToBrokerRequest operation root.toString workspaceId params.arguments
       pure { req with clientRequestId? := some clientRequestId }

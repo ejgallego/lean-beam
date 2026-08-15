@@ -1015,8 +1015,23 @@ assert_not_exists "$claude_only_home"
 mcp_stub_bin="$tmp_root/mcp-stubs"
 mcp_stub_log="$tmp_root/mcp-stubs.log"
 beam_install_setup_mcp_cli_stubs "$mcp_stub_bin" "$mcp_stub_log"
+mkdir -p "$CODEX_HOME"
+printf 'model = "fixture-model"\n' >"$CODEX_HOME/config.toml"
 run_step "register MCP clients" beam_install_run_with_mcp_stubs "$mcp_stub_bin" "$mcp_stub_log" --toolchain "$toolchain" --all-mcp
 assert_contains_literal "$mcp_stub_log" "codex|mcp|add|lean-beam|--|$installed_mcp"
+assert_contains_literal "$CODEX_HOME/config.toml" 'model = "fixture-model"'
+assert_contains_literal "$CODEX_HOME/config.toml" "[mcp_servers.'lean-beam']"
+assert_contains_literal "$CODEX_HOME/config.toml" 'supports_parallel_tool_calls = true'
+python3 - "$CODEX_HOME/config.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as f:
+    config = tomllib.load(f)
+server = config["mcp_servers"]["lean-beam"]
+if server.get("supports_parallel_tool_calls") is not True:
+    raise SystemExit(f"Codex lean-beam server does not enable parallel tool calls: {server}")
+PY
 assert_contains_literal "$mcp_stub_log" "claude|mcp|remove|--scope|user|lean-beam"
 assert_contains_literal "$mcp_stub_log" "claude|mcp|add|--scope|user|lean-beam|--|$installed_mcp"
 assert_not_exists "$OPENCODE_CONFIG_DIR/opencode.json"
@@ -1039,6 +1054,24 @@ if [ ! -d "$custom_codex_home" ]; then
 fi
 assert_contains_literal "$custom_codex_mcp_stub_log" \
   "codex|mcp|add|lean-beam|--|$installed_mcp|CODEX_HOME=$custom_codex_home"
+assert_contains_literal "$custom_codex_home/config.toml" 'supports_parallel_tool_calls = true'
+
+symlink_codex_home="$tmp_root/codex-symlink-config"
+symlink_codex_target="$tmp_root/codex-symlink-target.toml"
+symlink_codex_err="$tmp_root/codex-symlink-config.err"
+symlink_codex_stub_log="$tmp_root/mcp-stubs-symlink-codex.log"
+mkdir -p "$symlink_codex_home"
+printf 'sentinel = "preserve"\n' >"$symlink_codex_target"
+ln -s "$symlink_codex_target" "$symlink_codex_home/config.toml"
+if beam_install_run_with_mcp_stubs "$mcp_stub_bin" "$symlink_codex_stub_log" \
+    --toolchain "$toolchain" --codex-mcp --codex-home "$symlink_codex_home" \
+    2>"$symlink_codex_err"; then
+  echo "expected Codex MCP registration to reject a symlinked config" >&2
+  exit 1
+fi
+assert_contains "$symlink_codex_err" "refusing to edit symlinked Codex MCP config"
+assert_contains_literal "$symlink_codex_target" 'sentinel = "preserve"'
+assert_not_exists "$symlink_codex_stub_log"
 
 custom_claude_config_home="$tmp_root/claude-sandbox"
 custom_claude_config="$custom_claude_config_home/.claude.json"

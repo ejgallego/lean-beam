@@ -8,6 +8,9 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
+- Ten additional observational MCP tools advertise the read-only hint, covering server inspection,
+  hover and navigation, symbol and goal queries, and code-action resolution without edit
+  application.
 - Confidential feedback report cards omit project-derived debug context and caller-supplied
   request, response, and evidence payloads from CLI, MCP, and bundle output
   ([#220](https://github.com/ejgallego/lean-beam/pull/220), @ejgallego).
@@ -69,6 +72,10 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Fixed
 
+- MCP `lean_run_at` and `lean_todo` again advertise the read-only hint used by approval- and
+  concurrency-aware clients. Tools that retain handles, update document mirrors, write artifacts,
+  or evict workspaces remain conservatively unannotated. Codex MCP registration also enables
+  parallel tool calls so independent probes need not be serialized by the client.
 - Feedback input now rejects unknown JSON fields so misspelled privacy controls cannot silently
   produce a non-confidential report
   ([#220](https://github.com/ejgallego/lean-beam/pull/220), @ejgallego).

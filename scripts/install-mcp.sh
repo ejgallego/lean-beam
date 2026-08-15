@@ -47,6 +47,7 @@ prompt_mcp_registration_selection() {
 verify_requested_mcp_clients() {
   if [ "$register_codex_mcp" -eq 1 ]; then
     validate_codex_home
+    ensure_codex_mcp_config_replaceable
     if ! command -v codex >/dev/null 2>&1; then
       die "cannot register Codex MCP server because codex is not on PATH"
     fi
@@ -60,6 +61,15 @@ verify_requested_mcp_clients() {
   if [ "$register_vibe_mcp" -eq 1 ]; then
     validate_vibe_home
     ensure_vibe_mcp_config_replaceable
+  fi
+}
+
+ensure_codex_mcp_config_replaceable() {
+  if [ -L "$codex_mcp_config" ]; then
+    die "refusing to edit symlinked Codex MCP config at $codex_mcp_config"
+  fi
+  if [ -e "$codex_mcp_config" ] && [ ! -f "$codex_mcp_config" ]; then
+    die "refusing to edit non-file Codex MCP config at $codex_mcp_config"
   fi
 }
 
@@ -107,9 +117,51 @@ ensure_mcp_config_dir() {
   mkdir -p "$path"
 }
 
+set_codex_parallel_tool_calls() {
+  local tmp_config=""
+  if [ -L "$codex_mcp_config" ] || [ ! -f "$codex_mcp_config" ]; then
+    die "Codex did not write a regular MCP config at $codex_mcp_config"
+  fi
+  tmp_config="$(mktemp "$codex_home/.config.toml.lean-beam-XXXXXX")"
+  if ! awk '
+    BEGIN {
+      single_quote = sprintf("%c", 39)
+      mcp_key = "(mcp_servers|\"mcp_servers\"|" single_quote "mcp_servers" single_quote ")"
+      server_key = "(lean-beam|\"lean-beam\"|" single_quote "lean-beam" single_quote ")"
+      target_table = "^\\[" mcp_key "\\." server_key "\\]$"
+    }
+    {
+      compact_header = $0
+      sub(/\][[:space:]]*#.*$/, "]", compact_header)
+      gsub(/[[:space:]]/, "", compact_header)
+    }
+    compact_header ~ target_table {
+      print
+      print "supports_parallel_tool_calls = true"
+      saw_target = 1
+      in_target = 1
+      next
+    }
+    /^[[:space:]]*\[/ {
+      in_target = 0
+      print
+      next
+    }
+    in_target && /^[[:space:]]*supports_parallel_tool_calls[[:space:]]*=/ { next }
+    { print }
+    END { if (!saw_target) exit 2 }
+  ' "$codex_mcp_config" >"$tmp_config"; then
+    rm -f -- "$tmp_config"
+    die "Codex MCP config does not contain the registered lean-beam server table: $codex_mcp_config"
+  fi
+  mv "$tmp_config" "$codex_mcp_config"
+}
+
 register_codex_mcp_server() {
   ensure_mcp_config_dir "$codex_home" "Codex home"
+  ensure_codex_mcp_config_replaceable
   CODEX_HOME="$codex_home" codex mcp add lean-beam -- "$bin_home/lean-beam-mcp" >/dev/null
+  set_codex_parallel_tool_calls
   registered_mcp_targets+=("Codex: lean-beam")
 }
 

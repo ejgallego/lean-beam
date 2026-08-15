@@ -219,6 +219,33 @@ private def requireToolDescription (tools : Array Json) (name : String) : IO Str
   let tool ← requireTool tools name
   IO.ofExcept <| tool.getObjValAs? String "description"
 
+private def readOnlyToolNames : Array String := #[
+  "beam_version",
+  "beam_stats",
+  "lean_run_at",
+  "lean_hover",
+  "lean_signature_help",
+  "lean_definition",
+  "lean_references",
+  "lean_document_symbols",
+  "lean_workspace_symbols",
+  "lean_goals",
+  "lean_todo",
+  "lean_code_action_resolve"
+]
+
+private def checkToolAnnotationMatrix (tools : Array Json) : IO Unit := do
+  for name in readOnlyToolNames do
+    discard <| requireTool tools name
+  for tool in tools do
+    let name ← IO.ofExcept <| tool.getObjValAs? String "name"
+    if readOnlyToolNames.contains name then
+      let annotations ← requireObjVal s!"{name} tool" "annotations" tool
+      require s!"{name} should advertise only the MCP read-only hint"
+        (annotations == Json.mkObj [("readOnlyHint", toJson true)])
+    else
+      requireFieldAbsent s!"{name} tool" "annotations" tool
+
 private def requireClosedInputSchema (label : String) (tool : Json) : IO Json := do
   let schema ← requireObjVal label "inputSchema" tool
   requireJsonString label "$schema" Beam.JsonSchema.dialect schema
@@ -282,6 +309,8 @@ private def checkToolDescriptionContracts (tools : Array Json) : IO Unit := do
       (description.contains "not persisted as source" &&
         description.contains "first edit and save the Lean file" &&
         description.contains "only then call lean_sync")
+    require s!"{toolName} description should state the speculative IO boundary"
+      (description.contains "not an OS sandbox" && description.contains "may perform IO")
   let runAtHandleDescription ← requireToolDescription tools "lean_run_at_handle"
   require "lean_run_at_handle description should not promise a handle unconditionally"
     (runAtHandleDescription.contains "successful result may include next_handle")
@@ -314,6 +343,7 @@ private def checkToolsListShape : IO Unit := do
   let tools ← requireJsonArray "tools/list tools" tools
   require "tools/list is non-empty" (!tools.isEmpty)
   checkToolInputParameterUniqueness tools
+  checkToolAnnotationMatrix tools
   require "tools/list must not expose obsolete tool beam_feedback"
     (!(tools.any fun tool =>
       (tool.getObjValAs? String "name").toOption == some "beam_feedback"))
@@ -604,7 +634,7 @@ private def checkProgressProtocol : IO Unit := do
   }
   let setupMessage ←
     match Beam.Mcp.Server.Internal.projectStreamDiagnostic
-        .leanSync (some "Demo.lean") setupDiagnostic with
+        (.leanOperation .sync) (some "Demo.lean") setupDiagnostic with
     | .setupStatus message => pure message
     | .diagnostic =>
         throw <| IO.userError "Lake setup diagnostic projected as an ordinary MCP diagnostic"
@@ -613,7 +643,8 @@ private def checkProgressProtocol : IO Unit := do
       "lean_sync on Demo.lean: preparing Lean dependencies — ✔ [1/2] Building Demo.Dependency (12s)")
   require "ordinary information diagnostic stays diagnostic" <|
     Beam.Mcp.Server.Internal.projectStreamDiagnostic
-      .leanSync (some "Demo.lean") { setupDiagnostic with message := "ordinary Lean information" } ==
+      (.leanOperation .sync) (some "Demo.lean")
+        { setupDiagnostic with message := "ordinary Lean information" } ==
         .diagnostic
 
   let statusNotification := Beam.Mcp.toolStatusNotification {

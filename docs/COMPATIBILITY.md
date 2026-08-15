@@ -23,6 +23,10 @@ A Lean release line is the canonical `major.minor` family recorded in
 - MCP `2026-07-28` is the preferred stdio protocol revision. MCP `2025-11-25` remains a named
   transition target for initialization-based clients. Reconsider the legacy path before the 0.3
   release once the clients named by the setup guide can all use per-request metadata.
+- Codex CLI `0.147.0` is the validated target for the client-specific
+  `mcp_servers.lean-beam.supports_parallel_tool_calls = true` adapter owned by
+  `scripts/install-mcp.sh`. Remove the adapter once the supported Codex client infers safe
+  concurrency from MCP tool annotations or otherwise no longer requires the setting.
 - Documented real client requirements, when they name an owner and removal condition.
 
 ## Change Rule

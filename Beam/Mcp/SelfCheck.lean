@@ -175,7 +175,7 @@ private def sendSync
     ("id", toJson (2 : Nat)),
     ("method", toJson "tools/call"),
     ("params", Json.mkObj [
-      ("name", toJson ToolName.leanSync),
+      ("name", toJson (ToolName.leanOperation .sync)),
       ("arguments", Json.mkObj [
         ("path", toJson pathText),
         ("workspace", toJson <| Beam.Workspace.Descriptor.ofRoot root)

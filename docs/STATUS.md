@@ -199,6 +199,11 @@ undeclared fields, and typed save/close-save results reject incomplete or extend
   with the same descriptor recreates its runtime lazily.
 - `lean-beam-mcp` can execute ordinary tool calls concurrently in one process. Responses may arrive
   out of request order and are routed by exact JSON-RPC ID, with string and numeric IDs kept distinct.
+- The observational tools enumerated in the [MCP tool documentation](MCP.md#public-tools) advertise
+  `annotations.readOnlyHint = true`. Codex MCP registration also sets
+  `supports_parallel_tool_calls = true`, allowing Codex to schedule independent probes
+  concurrently. The annotation describes Beam-managed state and artifacts; it is not an OS sandbox
+  for arbitrary Lean metaprogramming.
 - Tool calls that include `_meta.progressToken` receive concise live MCP progress notifications.
   Updates for one request remain strictly ordered before its final response, while different
   requests may interleave; clients should use distinct tokens for concurrently active requests.
