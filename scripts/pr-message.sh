@@ -16,7 +16,9 @@ Usage:
 Print the public PR title/body scaffold for this branch.
 
 Options:
-  --title TITLE    Override the PR title. Defaults to the current commit subject.
+  --title TITLE    Override the PR title. Otherwise use the current commit subject only when the
+                   checkout is clean, the branch is ahead of the base, and the subject has no PR
+                   number suffix.
   --summary TEXT   Override the opening body paragraph. It should start with "This PR".
   --change TEXT    Add one optional behavior/review bullet. Repeat as needed.
   --base REF       Override the base branch shown in the scaffold. Defaults to main.
@@ -38,9 +40,15 @@ current_commit_subject() {
   git log -1 --pretty=%s
 }
 
+die() {
+  echo "$*" >&2
+  exit 2
+}
+
 repo="ejgallego/lean-beam"
 base="main"
-title="$(current_commit_subject)"
+title=""
+title_explicit=0
 summary="This PR <short summary of the problem solved and useful outcome>."
 changes=()
 
@@ -52,6 +60,7 @@ while [ "$#" -gt 0 ]; do
         exit 2
       fi
       title="$2"
+      title_explicit=1
       shift 2
       ;;
     --summary)
@@ -99,6 +108,22 @@ while [ "$#" -gt 0 ]; do
 done
 
 branch="$(current_branch)"
+
+if [ "$title_explicit" -eq 0 ]; then
+  if [ -n "$(git status --short --untracked-files=no)" ]; then
+    die "cannot derive a PR title while tracked changes are present; commit them or pass --title"
+  fi
+  if ! git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
+    die "cannot derive a PR title because base ref $base is unavailable; fetch it or pass --title"
+  fi
+  if [ "$(git rev-list --count "${base}..HEAD")" -eq 0 ]; then
+    die "cannot derive a PR title because HEAD has no commits beyond $base; commit the change or pass --title"
+  fi
+  title="$(current_commit_subject)"
+  if printf '%s\n' "$title" | grep -Eq '\(#[0-9]+\)$'; then
+    die "cannot reuse commit subject ending in a PR number as a new PR title; pass --title"
+  fi
+fi
 
 printf 'repository=%s\n' "$repo"
 printf 'base=%s\n' "$base"

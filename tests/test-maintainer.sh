@@ -8,6 +8,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+bash tests/test-pr-message.sh
+
 if [ -n "$(git status --short --untracked-files=no)" ]; then
   echo "[maintainer] skipping tests/test-codex-harness.sh because the current checkout has tracked edits" >&2
 else

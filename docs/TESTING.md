@@ -279,11 +279,12 @@ The maintainer surface covers local workflow helpers:
 
 - [tests/test-maintainer.sh](../tests/test-maintainer.sh)
 - [tests/test-codex-harness.sh](../tests/test-codex-harness.sh)
+- [tests/test-pr-message.sh](../tests/test-pr-message.sh)
 - [tests/test-validate-defensive.sh](../tests/test-validate-defensive.sh)
 
 The aggregate maintainer runner skips [tests/test-codex-harness.sh](../tests/test-codex-harness.sh) when the current checkout has tracked edits, because that harness regression intentionally verifies that new task worktrees start from a clean primary checkout.
 
-Run these when the change touches [scripts/codex-harness.sh](../scripts/codex-harness.sh), [scripts/codex-session-start.sh](../scripts/codex-session-start.sh), or [scripts/validate-defensive.sh](../scripts/validate-defensive.sh).
+Run these when the change touches [scripts/codex-harness.sh](../scripts/codex-harness.sh), [scripts/codex-session-start.sh](../scripts/codex-session-start.sh), [scripts/pr-message.sh](../scripts/pr-message.sh), or [scripts/validate-defensive.sh](../scripts/validate-defensive.sh).
 
 ## CI Map
 
