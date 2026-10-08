@@ -8,6 +8,10 @@ This project keeps a lightweight, reverse-chronological changelog. Dates use `YY
 
 ### Added
 
+- Validated Lean `v4.35.0-rc4` support and made it the repository's default Lean toolchain.
+- Validated the missing stable Lean toolchains `v4.28.1`, `v4.29.1`, `v4.32.1`, `v4.32.2`,
+  `v4.33.1`, `v4.34.0`, and `v4.34.1`. Canonical RC and patch variants from the `4.35`
+  release line can also qualify locally.
 - Additive retained-handle MCP tools advertise `destructiveHint = false`, while workspace eviction
   and document close advertise `idempotentHint = true` without being classified as read-only.
 - Ten additional observational MCP tools advertise the read-only hint, covering server inspection,
