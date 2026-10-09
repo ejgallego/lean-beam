@@ -116,7 +116,8 @@ execution. Unregistered background work is outside the profile. It is wall time,
 profiling itself perturbs the measured execution.
 
 Profile projection is limited to 1,024 spans, 8,192 visited metadata nodes, and depth 128, with
-bounded category and tag text. `truncated: true` reports a projection limit. These limits bound
+bounded category and tag text. `truncated: true` reports a projection limit, including clipped
+category or tag text. These limits bound
 Beam's response work and payload; Lean's upstream profiler allocation remains unbounded. Profiles
 do not use heartbeat timings, preserve normal cancellation limits, and replace rendered `traces`
 with `[]` for that request. Messages and proof success or failure remain in the normal result.
